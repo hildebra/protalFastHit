@@ -12,7 +12,10 @@ PROTAL=build/protal bash examples/mini_db/run.sh [--rebuild] [WORKDIR]
 
 `WORKDIR` defaults to `examples/mini_db/work/` (git-ignored). `THREADS` (default 4) and
 `PYTHON` (default `python3`, standard library only) can be set in the environment. The
-script exits 0 if every check passes and 1 otherwise, so it can be used in CI.
+script exits 0 if every check passes and 1 otherwise, so it can be used in CI: with a fresh
+`WORKDIR` it takes about 20 s on 4 cores (the build ~15 s), and it needs the `zstd` CLI only
+for `checksums.md5` of a `--no_bundle` database. A protal that reports no species, or one
+too many, makes it exit 1.
 
 ## What it does
 
@@ -45,13 +48,13 @@ unchanged (`WORKDIR/db.stamp`). `--rebuild` forces a new build.
    marker genes, ~45% of a genome, are indexed), and that at least 95% of aligned reads hit
    a gene of their source species.
 
-Expected output:
+Expected output (protal 0.7.8, 2026-10-07):
 
 ```
 species              truth  profile  aligned_frac  assign_acc  status
-s__Fakibacter gamma  0.200  0.197    0.432         1.0000      ok
-s__Mockella alpha    0.500  0.502    0.449         0.9828      ok
-s__Mockella beta     0.300  0.300    0.445         1.0000      ok
+s__Fakibacter gamma  0.200  0.199    0.492         1.0000      ok
+s__Mockella alpha    0.500  0.499    0.499         0.9786      ok
+s__Mockella beta     0.300  0.302    0.498         0.9999      ok
 
 PASS: 3 species detected, abundances within 0.05, read assignment >= 0.95
 ```

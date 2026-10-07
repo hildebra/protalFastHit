@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PMML version="4.4">
+ <Header description="protal presence model: probability that a taxon is present">
+  <Application name="protal scripts/machine_learning_cmdline.py"/>
+  <Annotation>tests/e2e/test_protal_e2e.py GradientBoostedModelTest: trees set by hand, not trained</Annotation>
+ </Header>
+ <DataDictionary numberOfFields="5">
+  <DataField name="truth" optype="categorical" dataType="string"><Value value="FALSE"/><Value value="TRUE"/></DataField>
+  <DataField name="fragments" optype="continuous" dataType="double"/>
+  <DataField name="hit_gene_fraction" optype="continuous" dataType="double"/>
+  <DataField name="identity" optype="continuous" dataType="double"/>
+  <DataField name="sample_log_fragments" optype="continuous" dataType="double"/>
+ </DataDictionary>
+ <MiningModel functionName="classification">
+  <MiningSchema><MiningField name="truth" usageType="predicted"/><MiningField name="fragments"/><MiningField name="hit_gene_fraction"/><MiningField name="identity"/><MiningField name="sample_log_fragments"/></MiningSchema>
+  <Segmentation multipleModelMethod="modelChain">
+   <Segment id="1"><True/><TreeModel functionName="regression"><MiningSchema><MiningField name="fragments"/><MiningField name="hit_gene_fraction"/></MiningSchema><Output><OutputField name="tree_1" optype="continuous" dataType="double" feature="predictedValue"/></Output>
+<Node score="-0.5"><True/><Node score="-0.5"><SimplePredicate field="fragments" operator="greaterThan" value="10.0"/><Node score="-1.0"><SimplePredicate field="hit_gene_fraction" operator="lessOrEqual" value="0.9394"/></Node><Node score="1.0"><True/></Node></Node><Node score="-2.5"><True/></Node></Node></TreeModel></Segment>
+   <Segment id="2"><True/><TreeModel functionName="regression"><MiningSchema><MiningField name="identity"/></MiningSchema><Output><OutputField name="tree_2" optype="continuous" dataType="double" feature="predictedValue"/></Output>
+<Node score="0.0"><True/><Node score="0.5"><SimplePredicate field="identity" operator="lessOrEqual" value="0.999"/></Node><Node score="-1.0"><True/></Node></Node></TreeModel></Segment>
+   <Segment id="3"><True/><TreeModel functionName="regression"><MiningSchema><MiningField name="sample_log_fragments"/></MiningSchema><Output><OutputField name="tree_3" optype="continuous" dataType="double" feature="predictedValue"/></Output>
+<Node score="0.0"><True/><Node score="-0.25"><SimplePredicate field="sample_log_fragments" operator="greaterThan" value="3.5"/></Node><Node score="0.25"><True/></Node></Node></TreeModel></Segment>
+   <Segment id="4"><True/><TreeModel functionName="regression"><MiningSchema><MiningField name="fragments"/></MiningSchema><Output><OutputField name="tree_4" optype="continuous" dataType="double" feature="predictedValue"/></Output>
+<Node score="0.125"><True/><Node score="0.125"><True/></Node></Node></TreeModel></Segment>
+   <Segment id="5"><True/><RegressionModel functionName="classification" normalizationMethod="logit"><MiningSchema><MiningField name="truth" usageType="predicted"/></MiningSchema>
+<RegressionTable intercept="0.0" targetCategory="TRUE"><NumericPredictor name="tree_1" coefficient="1.0"/><NumericPredictor name="tree_2" coefficient="1.0"/><NumericPredictor name="tree_3" coefficient="1.0"/><NumericPredictor name="tree_4" coefficient="1.0"/></RegressionTable><RegressionTable intercept="0.0" targetCategory="FALSE"/></RegressionModel></Segment>
+  </Segmentation>
+ </MiningModel>
+</PMML>

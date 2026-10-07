@@ -1,24 +1,41 @@
 #!/usr/bin/env python3
-"""test_protal_e2e.py - end-to-end checks of protal and simulate_metagenomes on a small database.
+"""test_protal_e2e.py - end-to-end checks of protal and simulate_metagenomes on the mini database.
 
-Simulates paired reads from the database's reference genes (sequencing errors only, fixed seed)
-and runs the real binaries, checking what the unit tests cannot: exit codes, output files, SAM
-records, strain MSAs, reruns, and that failures are reported.
+Simulates reads from the database's reference genes (sequencing errors only, fixed seeds) and runs the real
+binaries, checking what the unit tests cannot: exit codes, output files, SAM records, strain MSAs, reruns, that
+failures are reported and stay with their sample, a profile's truth counts and abundances, that reads of nothing in
+the database give an empty profile, and a gradient-boosted model scored end to end. examples/mini_db/run.sh checks
+accuracy on reads of whole genomes.
 
-  PROTAL_TEST_DB=data/mini_db/protal_db python3 -m unittest -v tests/e2e/test_protal_e2e.py
-  just e2e                                  # builds the mini DB first
+  just e2e                                  # builds the mini DB and the binaries first
+  PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
+      PROTAL_TESTS_REQUIRED=1 python3 -m unittest -v tests/e2e/test_protal_e2e.py
 
-PROTAL_TEST_DB  protal database, e.g. from scripts/mini_db/build_mini_db.sh (required; only read):
-                the single file database.protal (or its folder), or separate raw or zstd-compressed
-                files (index.prx.zst, reference.fna.zst). Tests that read the database's files
-                get them unpacked (protal --unpack_db) into a temporary folder. The zstd CLI is
-                needed for a compressed database.
-PROTAL          protal binary (default: build/protal)
-SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
+The tests are written for the mini database of scripts/mini_db/build_mini_db.sh: they name its three species
+(Mockella alpha and beta, two congeners, and Fakibacter gamma), their taxids and genes. They need Linux, the zstd CLI
+(or Python 3.14), and for a test or two numpy and art_illumina.
+
+PROTAL_TEST_DB         protal database (only read): the single file database.protal (or its folder), or separate raw
+                       or zstd-compressed files (index.prx.zst, reference.fna.zst). Tests that read the database's
+                       files get them unpacked (protal --unpack_db) into a temporary folder. Without it the tests that
+                       need it are skipped; VersionTest, SimulatorTest, QcmsaContractTest, BuildIndexTest and
+                       GeneNeighboursTest need none.
+PROTAL                 protal binary (default: build/protal)
+SIMULATE               simulate_metagenomes binary (default: build/simulate_metagenomes)
+PROTAL_TESTS_REQUIRED  1: a missing prerequisite (the database, a binary, the zstd CLI, numpy, art_illumina) fails
+                       the tests that need it instead of skipping them, as CI wants
+PROTAL_TEST_KEEP       set: keep the temporary folders
+
+What it costs: about 1.5 minutes on 4 cores, 3 GB of memory and of /tmp at a time. Whatever the reference, every
+protal run that loads an index, and every build, handles its fixed-size key map (~3 GB raw): a second or more each.
+So one paired-end run aligns the module's samples (baseline()), and tests that change only the profiling profile its
+SAMs again (--profile_only, or the SAMs copied to where a run looks for them), which loads no index; the read types
+share one map run (read_type_run()); builds compress fast (FAST_BUILD), and four builds remain.
 """
 
 import csv
 import filecmp
+import functools
 import glob
 import gzip
 import hashlib
@@ -37,14 +54,49 @@ import time
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DB = os.environ.get("PROTAL_TEST_DB", "")
 DB = os.path.abspath(DB) if DB else ""  # protal runs in temporary folders
 PROTAL = os.path.abspath(os.environ.get("PROTAL", os.path.join(ROOT, "build", "protal")))
 SIMULATE = os.path.abspath(os.environ.get("SIMULATE", os.path.join(ROOT, "build", "simulate_metagenomes")))
 QCMSA = os.path.join(ROOT, "scripts", "qcmsa.py")
-READS = None  # directory with the simulated reads, set up once per module
+REQUIRED = os.environ.get("PROTAL_TESTS_REQUIRED", "") not in ("", "0")
+KEEP = bool(os.environ.get("PROTAL_TEST_KEEP"))
+# The test builds' compression: fast. Whatever the reference, a build compresses the index's fixed-size key map (~3 GB
+# raw), which takes seconds at --build's default level 19 on 2 threads and a fraction of that at level 1 on 4.
+FAST_BUILD = ("--compress_level", "1", "-t", "4")
+READS = None  # directory with the simulated reads, set up once per module (require_database)
 FILES = DB     # the database's separate files: DB, or DB unpacked if it is a single file
 UNPACKED = None
+
+
+class MissingPrerequisite(RuntimeError):
+    """A prerequisite of a test is missing, and PROTAL_TESTS_REQUIRED=1 asks for every test to run."""
+
+
+def unavailable(reason):
+    """The exception for a missing prerequisite: a skip, or an error with PROTAL_TESTS_REQUIRED=1."""
+    if REQUIRED:
+        return MissingPrerequisite(f"{reason} (PROTAL_TESTS_REQUIRED=1: missing prerequisites fail)")
+    return unittest.SkipTest(reason)
+
+
+def require_zstd(purpose):
+    if not shutil.which("zstd"):
+        raise unavailable(f"the zstd CLI is needed {purpose}")
+
+
+def require_binary(path, name, variable):
+    if not os.access(path, os.X_OK):
+        raise unavailable(f"{name} not found at {path} (set {variable})")
+
+
+def scratch(prefix):
+    """A temporary folder, removed when the module's tests are done (kept with PROTAL_TEST_KEEP)."""
+    path = tempfile.mkdtemp(prefix=prefix)
+    if not KEEP:
+        unittest.addModuleCleanup(shutil.rmtree, path, ignore_errors=True)
+    return path
 
 
 def single_file(db):
@@ -62,36 +114,74 @@ def db_file(name):
     return raw if os.path.exists(raw) or not os.path.exists(raw + ".zst") else raw + ".zst"
 
 
-def setUpModule():
+def db_content(name):
+    """Content of a database file (decompressed if the database holds <name>.zst)."""
+    path = db_file(name)
+    if path.endswith(".zst"):
+        return subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE).stdout
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def symlink_db(folder, skip=(), extra=None):
+    """A database in `folder` of symlinks to the test database's files, without those in `skip` (database.protal
+    always: separate files go first anyway) and with `extra` ({name: path}) linked in."""
+    os.makedirs(folder, exist_ok=True)
+    for f in glob.glob(os.path.join(FILES, "*")):
+        name = os.path.basename(f)
+        if name not in skip and name != "database.protal" and name not in (extra or {}):
+            os.symlink(f, os.path.join(folder, name))
+    for name, path in (extra or {}).items():
+        os.symlink(path, os.path.join(folder, name))
+    return folder
+
+
+_database = None  # the outcome of set_up_database: None before it ran, True, or the exception it raised
+
+
+def require_database():
+    """The database's files and the simulated reads, set up once for the module (set_up_database); every class that
+    needs them gets the same skip or error."""
+    global _database
+    if _database is None:
+        try:
+            set_up_database()
+            _database = True
+        except Exception as e:  # unittest.SkipTest too
+            _database = e
+    if _database is not True:
+        raise type(_database)(*_database.args)
+
+
+def set_up_database():
     global READS, FILES, UNPACKED
     if not DB or not os.path.exists(DB):
-        raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
-    if not os.access(PROTAL, os.X_OK):
-        raise unittest.SkipTest(f"protal binary not found at {PROTAL} (set PROTAL)")
+        raise unavailable("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
+    require_binary(PROTAL, "protal", "PROTAL")
+    if not shutil.which("zstd") and sys.version_info < (3, 14):
+        raise unavailable("the zstd CLI (or Python 3.14) is needed to read protal's default .sam.zst files")
     bundle = single_file(DB)
     if bundle:
-        UNPACKED = tempfile.mkdtemp(prefix="protal_e2e_db_")
+        UNPACKED = scratch("protal_e2e_db_")
         rc, log = run(UNPACKED, "--unpack_db", "--db", bundle, "--unpack_dir", UNPACKED, "-t", "4")
         if rc != 0:
             raise RuntimeError("protal --unpack_db failed:\n" + log[-3000:])
         FILES = UNPACKED
     index = db_file("index.prx")
     if not os.path.isfile(index) or os.path.getsize(index) == 0:
-        raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
-    if db_file("reference.fna").endswith(".zst") and not shutil.which("zstd"):
-        raise unittest.SkipTest("the zstd CLI is needed to read reference.fna.zst")
-    if not shutil.which("zstd") and sys.version_info < (3, 14):
-        raise unittest.SkipTest("the zstd CLI (or Python 3.14) is needed to read protal's default .sam.zst files")
-    READS = tempfile.mkdtemp(prefix="protal_e2e_reads_")
+        raise unavailable(f"{DB} holds no index: set PROTAL_TEST_DB to a protal database")
+    if db_file("reference.fna").endswith(".zst"):
+        require_zstd("to read reference.fna.zst")
+    READS = scratch("protal_e2e_reads_")
     simulate_reads("sa", pairs_per_gene=12, seed=1)
     simulate_reads("sb", pairs_per_gene=12, seed=2)
     simulate_reads("sr", pairs_per_gene=12, seed=3, random_r2=True)
-
-
-def tearDownModule():
-    for d in (READS, UNPACKED):
-        if d:
-            shutil.rmtree(d, ignore_errors=True)
+    # Two species at 12 pairs per gene and three error-free pairs of Mockella alpha, too few to call it: the sample in
+    # which the knob decides a call.
+    alpha = species()["s__Mockella alpha"]
+    simulate_reads("thin", pairs_per_gene=12, seed=6, taxa=set(species().values()) - {alpha},
+                   extra_pairs=few_pairs(alpha))
+    simulate_foreign_reads("foreign", seed=7)
 
 
 def revcomp(seq):
@@ -99,27 +189,48 @@ def revcomp(seq):
 
 
 def reference_genes():
+    """[(name, sequence)] of the database's reference, names <taxid>_<gene id>."""
+    return list(_reference_genes(FILES))
+
+
+@functools.lru_cache(maxsize=None)
+def _reference_genes(files):
     genes, name = [], None
-    path = db_file("reference.fna")
-    if path.endswith(".zst"):
-        lines = subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE, text=True).stdout.splitlines()
-    else:
-        with open(path) as fh:
-            lines = fh.read().splitlines()
-    for line in lines:
+    for line in db_content("reference.fna").decode().splitlines():
         line = line.strip()
         if line.startswith(">"):
             name = line[1:].split()[0]
         elif line:
             genes.append((name, line.upper()))
-    return genes
+    return tuple(genes)
 
 
-def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=None):
+def taxonomy():
+    """internal_taxonomy.dmp as {taxid: row} (row: the file's columns by name)."""
+    with open(db_file("internal_taxonomy.dmp")) as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh if line.strip()]
+    return {row["id"]: row for row in rows}
+
+
+def species():
+    """{name: taxid} of the species that have reference genes (taxids as text)."""
+    with_genes = {name.split("_")[0] for name, _ in reference_genes()}
+    return {row["name"]: taxid for taxid, row in taxonomy().items() if row["rank"] == "species" and taxid in with_genes}
+
+
+def few_pairs(taxid, n=3):
+    """n error-free read pairs of a species, one from each of its first n genes of 300 bp or more."""
+    genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:n]
+    return [(gene[:100], revcomp(gene[200:300])) for gene in genes]
+
+
+def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=None, taxa=None, extra_pairs=()):
     """Write <prefix>_R1.fq/_R2.fq in READS: 220-320 bp fragments, 100 bp reads, both orientations,
     0.5% substitutions and a few '#' (Q2) bases. With random_r2 the second mate cannot align.
     With pairs_per_kb, genes get pairs in proportion to their length (even depth), shorter genes
-    included, instead of pairs_per_gene each."""
+    included, instead of pairs_per_gene each. taxa (taxids as text) limits the genes to those species';
+    extra_pairs ([(read1, read2)]) are appended as they are (quality I). Returns the number of pairs."""
     rng = random.Random(seed)
 
     def mutate(seq):
@@ -133,7 +244,9 @@ def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=N
 
     n = 0
     with open(os.path.join(READS, f"{prefix}_R1.fq"), "w") as r1, open(os.path.join(READS, f"{prefix}_R2.fq"), "w") as r2:
-        for _, gene in reference_genes():
+        for name, gene in reference_genes():
+            if taxa is not None and name.split("_")[0] not in taxa:
+                continue
             if pairs_per_kb is None:
                 if len(gene) < 320:
                     continue
@@ -154,7 +267,38 @@ def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=N
                 n += 1
                 r1.write(f"@{prefix}.{n}/1\n{s1}\n+\n{q1}\n")
                 r2.write(f"@{prefix}.{n}/2\n{s2}\n+\n{q2}\n")
+        for s1, s2 in extra_pairs:
+            n += 1
+            r1.write(f"@{prefix}.{n}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+            r2.write(f"@{prefix}.{n}/2\n{s2}\n+\n{'I' * len(s2)}\n")
     return n
+
+
+def simulate_foreign_reads(prefix, seed, pairs=150):
+    """Reads of nothing in the database: `pairs` pairs of random sequence, and as many from the reference genes with a
+    quarter of their bases substituted (a genome far from every one in the database: a few seeds, no alignment)."""
+    rng = random.Random(seed)
+    genes = [seq for _, seq in reference_genes() if len(seq) >= 320]
+    with open(os.path.join(READS, f"{prefix}_R1.fq"), "w") as r1, open(os.path.join(READS, f"{prefix}_R2.fq"), "w") as r2:
+        for i in range(1, 2 * pairs + 1):
+            if i <= pairs:
+                frag = "".join(rng.choice("ACGT") for _ in range(300))
+            else:
+                gene = rng.choice(genes)
+                start = rng.randint(0, len(gene) - 300)
+                frag = "".join(rng.choice([c for c in "ACGT" if c != b]) if rng.random() < 0.25 else b
+                               for b in gene[start:start + 300])
+            r1.write(f"@{prefix}.{i}/1\n{frag[:100]}\n+\n{'I' * 100}\n")
+            r2.write(f"@{prefix}.{i}/2\n{revcomp(frag[-100:])}\n+\n{'I' * 100}\n")
+
+
+def head_reads(src, dst, pairs):
+    """The first `pairs` records of a FASTQ file, written to dst."""
+    with open(src) as fh:
+        lines = fh.readlines()[:4 * pairs]
+    with open(dst, "w") as fh:
+        fh.writelines(lines)
+    return dst
 
 
 def run(cwd, *args, binary=None, timeout=900):
@@ -162,6 +306,14 @@ def run(cwd, *args, binary=None, timeout=900):
     proc = subprocess.run(["timeout", str(timeout), binary or PROTAL, *args], cwd=cwd,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     return proc.returncode, proc.stdout
+
+
+def python(*args):
+    """Run a Python script (sys.executable); its output, or RuntimeError with it if it fails."""
+    proc = subprocess.run([sys.executable, *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(os.path.basename(args[0]) + " failed:\n" + proc.stdout[-3000:])
+    return proc.stdout
 
 
 def reads(*prefixes):
@@ -174,6 +326,16 @@ def reads(*prefixes):
 def single_reads(*prefixes):
     """-1/--prefix arguments: the first mates of the given simulated samples, as single-end reads."""
     return ["-1", ",".join(os.path.join(READS, f"{p}_R1.fq") for p in prefixes), "--prefix", ",".join(prefixes)]
+
+
+def profile_only(cwd, out, sams, *extra, prefixes=None, db=None, threads=2, strains=False):
+    """protal --profile_only of the SAM files `sams` into `out` (--no_strains unless `strains`)."""
+    args = ["--db", db or DB, "--profile_only", ",".join(sams), "-o", out, "-t", str(threads), "--no_qcmsa"]
+    if prefixes:
+        args += ["--prefix", ",".join(prefixes)]
+    if not strains:
+        args.append("--no_strains")
+    return run(cwd, *args, *extra)
 
 
 def sam_path(path):
@@ -212,87 +374,9 @@ def sam_records(path):
     return [line.split("\t") for line in sam_text(path).splitlines() if not line.startswith("@")]
 
 
-class WorkDir(unittest.TestCase):
-    """A test class with its own scratch directory."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.work = tempfile.mkdtemp(prefix=f"protal_e2e_{cls.__name__}_")
-
-    @classmethod
-    def tearDownClass(cls):
-        if not os.environ.get("PROTAL_TEST_KEEP"):
-            shutil.rmtree(cls.work, ignore_errors=True)
-
-    def path(self, *parts):
-        return os.path.join(self.work, *parts)
-
-
-class CompleteRunTest(WorkDir):
-    """One run over two normal samples and one whose read2 mates cannot align."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.rc, cls.log = run(cls.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4", "--no_qcmsa")
-
-    def test_exit_code(self):
-        self.assertEqual(self.rc, 0, self.log[-3000:])
-
-    def test_outputs(self):
-        self.assertTrue(os.path.isfile(self.path("out", "sa.sam.zst")), "SAMs protal names are zstd-compressed")
-        self.assertTrue(find_sams(self.path("out", "sa*.sam")))
-        self.assertTrue(glob.glob(self.path("out", "sa*.profile")))
-        self.assertEqual(glob.glob(self.path("out", "**", "*.partial"), recursive=True), [], "no .partial SAM left")
-        # strains/ and misc/ were never created in -1/-2/-o mode
-        self.assertTrue(os.path.isdir(self.path("out", "strains")))
-        self.assertTrue(os.path.isdir(self.path("out", "misc")))
-        self.assertTrue(glob.glob(self.path("out", "strains", "*.raw.msa.fna")))
-
-    def test_read_names_and_pairs(self):
-        records = sam_records(find_sams(self.path("out", "sa*.sam"))[0])
-        self.assertTrue(records)
-        bad = [r[0] for r in records if not (r[0].startswith("sa.") and r[0][3:].isdigit())]
-        self.assertEqual(bad[:5], [], "QNAME is the read id without its /1 /2 suffix, nothing more")
-        self.assertTrue(any(int(r[1]) & 0x2 for r in records), "proper pairs are flagged")
-
-    def test_read1_only_pairs_are_written(self):
-        records = [r for r in sam_records(find_sams(self.path("out", "sr*.sam"))[0]) if not int(r[1]) & 0x100]
-        read1_only = [r for r in records if int(r[1]) & 0x40 and int(r[1]) & 0x8]
-        with open(os.path.join(READS, "sr_R1.fq")) as fh:
-            total = sum(1 for _ in fh) // 4
-        self.assertGreater(len(read1_only), total // 2, "primary read1 records with mate unmapped (0x8)")
-
-    def test_reference_calls_are_not_blanked(self):
-        bases = ns = 0
-        for msa in glob.glob(self.path("out", "strains", "*.raw.msa.fna")):
-            with open(msa) as fh:
-                for line in fh:
-                    if not line.startswith(">"):
-                        seq = line.strip()
-                        bases += len(seq)
-                        ns += seq.count("N")
-        self.assertGreater(bases, 0)
-        self.assertLess(ns / bases, 0.005, f"N fraction {100 * ns / bases:.3f}% with error-only reads")
-
-        stats = glob.glob(self.path("out", "strains", "*.snp_stats.tsv"))[0]
-        with open(stats) as fh:
-            header = fh.readline().rstrip("\n").split("\t")
-            column = header.index("refs_retained")
-            retained = sum(int(line.split("\t")[column]) for line in fh)
-        self.assertGreater(retained, 0, "reference calls retained at variant positions")
-
-
-    def test_partitions_are_one_based_and_cover_the_msa(self):
-        for part in glob.glob(self.path("out", "strains", "*.raw.partition.txt")):
-            with open(part) as fh:
-                ranges = [tuple(int(x) for x in line.split("=")[1].split("-")) for line in fh if line.strip()]
-            with open(part.replace(".raw.partition.txt", ".raw.msa.fna")) as fh:
-                length = len([line for line in fh if not line.startswith(">")][0].strip())
-            self.assertEqual(ranges[0][0], 1, part)
-            self.assertEqual(ranges[-1][1], length, part)
-            for (_, end), (start, _) in zip(ranges, ranges[1:]):
-                self.assertEqual(start, end + 1, part)
+def read_text(path):
+    with open(path) as fh:
+        return fh.read()
 
 
 def read_table(path):
@@ -302,24 +386,310 @@ def read_table(path):
         return header, [line.rstrip("\n").split("\t") for line in fh]
 
 
-class OutputFilesTest(WorkDir):
-    """One sample from a map, with a truth file: what the profile's companion files hold."""
+def read_dicts(path):
+    """A tab-separated file with a header line, as a list of dicts."""
+    header, rows = read_table(path)
+    return [dict(zip(header, row)) for row in rows]
+
+
+def profile_species(text):
+    """The species names a .profile reports (rep genome, lineage, abundance per line)."""
+    return sorted(line.split("\t")[1].split(";")[-1] for line in text.splitlines() if line.strip())
+
+
+def digest(path):
+    sha = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 24), b""):
+            sha.update(block)
+    return sha.hexdigest()
+
+
+def write_tiny_db(db, genes, taxonomy_text):
+    """A database folder of genes ({(taxid, gene id): sequence}) for --build: reference.fna, reference.map and
+    internal_taxonomy.dmp."""
+    os.makedirs(db, exist_ok=True)
+    with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
+        offset = 0
+        for (taxid, gene), seq in genes.items():
+            header = f">{taxid}_{gene}\n"
+            fna.write(header + seq + "\n")
+            mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
+            offset += len(header) + len(seq) + 1
+    with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
+        fh.write(taxonomy_text)
+    return db
+
+
+def remove_indexes(db):
+    """Remove a test build's index (~3 GB raw whatever the reference: a fixed-size key map)."""
+    for index in ("index.prx", "index.prx.zst"):
+        if os.path.exists(os.path.join(db, index)):
+            os.remove(os.path.join(db, index))
+
+
+class Baseline:
+    """The module's paired-end run: protal with its defaults (-1/-2/-o, strain MSAs; --no_qcmsa, and a truth file per
+    sample) over sa and sb (12 pairs on every gene of 320 bp or more), sr (sa's read1 mates with random read2 mates),
+    thin (Mockella beta and Fakibacter gamma, and three pairs of Mockella alpha) and foreign (reads of nothing in the
+    database). Tests that change only the profiling profile its SAMs again."""
+
+    SAMPLES = ("sa", "sb", "sr", "thin", "foreign")
+
+    def __init__(self):
+        self.work = scratch("protal_e2e_baseline_")
+        self.out = os.path.join(self.work, "out")
+        taxa = species()
+        genus = next(t for t, row in taxonomy().items() if row["rank"] == "genus")
+        truth = {"sa": list(taxa.values()), "sb": list(taxa.values()), "sr": list(taxa.values()),
+                 "thin": list(taxa.values()), "foreign": [genus]}  # foreign: a genus, in the taxonomy but no species
+        files = []
+        for sample in self.SAMPLES:
+            files.append(os.path.join(self.work, f"{sample}.truth.tsv"))
+            with open(files[-1], "w") as fh:
+                fh.write("".join(f"{t}\n" for t in truth[sample]))
+        self.rc, self.log = run(self.work, "--db", DB, *reads(*self.SAMPLES), "-o", "out", "-t", "4", "--no_qcmsa",
+                                "--profile_truth", ",".join(files))
+        if self.rc != 0:
+            raise RuntimeError(f"the baseline run exited {self.rc}:\n" + self.log[-3000:])
+
+    def path(self, *parts):
+        return os.path.join(self.out, *parts)
+
+    def sam(self, sample):
+        return sam_path(self.path(f"{sample}.sam"))
+
+    def text(self, name):
+        return read_text(self.path(name))
+
+    def profiles(self, sample):
+        """{file name: text} of a sample's profile files (.profile, .profile.log, .profile.gene.log, .profile.genes.log)."""
+        return {name: self.text(name) for name in (f"{sample}.profile", f"{sample}.profile.log",
+                                                    f"{sample}.profile.gene.log", f"{sample}.profile.genes.log")}
+
+    def place_sams(self, folder, samples, names=None):
+        """Copy the samples' SAMs into folder (as names[i].sam.zst), where a run with -o folder (or a map's SAM folder)
+        takes them instead of aligning the reads."""
+        os.makedirs(folder, exist_ok=True)
+        for sample, name in zip(samples, names or samples):
+            shutil.copy(self.sam(sample), os.path.join(folder, f"{name}.sam.zst"))
+        return folder
+
+
+_baseline = None
+
+
+def baseline():
+    """The module's Baseline, run once on first use."""
+    global _baseline
+    if _baseline is None:
+        require_database()
+        try:
+            _baseline = Baseline()
+        except Exception as e:
+            _baseline = e
+    if isinstance(_baseline, Exception):
+        raise RuntimeError(f"no baseline run: {_baseline}")
+    return _baseline
+
+
+class WorkDir(unittest.TestCase):
+    """A test class with its own scratch directory, removed after the class (unless PROTAL_TEST_KEEP is set), also when
+    its setUpClass fails."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.work = tempfile.mkdtemp(prefix=f"protal_e2e_{cls.__name__}_")
+        if not KEEP:
+            cls.addClassCleanup(shutil.rmtree, cls.work, ignore_errors=True)
+
+    def path(self, *parts):
+        return os.path.join(self.work, *parts)
+
+
+class ProtalTest(WorkDir):
+    """A test class that runs protal without the test database."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_binary(PROTAL, "protal", "PROTAL")
+        super().setUpClass()
+
+
+class DbTest(WorkDir):
+    """A test class that needs the test database and the simulated reads."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_database()
+        super().setUpClass()
+
+
+class CompleteRunTest(DbTest):
+    """The baseline run over five samples (two normal ones, sr whose read2 mates cannot align, thin, foreign): its
+    files and records."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.base = baseline()
+
+    def test_exit_code(self):
+        self.assertEqual(self.base.rc, 0, self.base.log[-3000:])
+
+    def test_outputs(self):
+        base = self.base
+        for sample in base.SAMPLES:
+            self.assertTrue(os.path.isfile(base.path(f"{sample}.sam.zst")), "SAMs protal names are zstd-compressed")
+            self.assertTrue(os.path.isfile(base.path(f"{sample}.profile")), sample)
+            self.assertTrue(os.path.isfile(base.path("misc", f"{sample}_runtime.tsv")), sample)
+        self.assertTrue(sam_records(base.sam("sa")))
+        self.assertEqual(glob.glob(base.path("**", "*.partial"), recursive=True), [], "no .partial SAM left")
+        # strains/ and misc/ are made in -1/-2/-o mode too (they once were not). Every species is reported by at least
+        # two samples and gets an MSA, with its partition file.
+        msas = sorted(os.path.basename(f) for f in glob.glob(base.path("strains", "*.raw.msa.fna")))
+        self.assertEqual(msas, sorted(name.replace(" ", "_") + ".raw.msa.fna" for name in species()))
+        for msa in msas:
+            self.assertTrue(os.path.isfile(base.path("strains", msa.replace(".raw.msa.fna", ".raw.partition.txt"))), msa)
+
+    def test_read_names_and_pairs(self):
+        records = sam_records(self.base.sam("sa"))
+        self.assertTrue(records)
+        bad = [r[0] for r in records if not (r[0].startswith("sa.") and r[0][3:].isdigit())]
+        self.assertEqual(bad[:5], [], "QNAME is the read id without its /1 /2 suffix, nothing more")
+        self.assertTrue(any(int(r[1]) & 0x2 for r in records), "proper pairs are flagged")
+
+    def test_read1_only_pairs_are_written(self):
+        records = [r for r in sam_records(self.base.sam("sr")) if not int(r[1]) & 0x100]
+        read1_only = [r for r in records if int(r[1]) & 0x40 and int(r[1]) & 0x8]
+        with open(os.path.join(READS, "sr_R1.fq")) as fh:
+            total = sum(1 for _ in fh) // 4
+        self.assertGreater(len(read1_only), total // 2, "primary read1 records with mate unmapped (0x8)")
+
+    def test_reference_calls_are_not_blanked(self):
+        bases = ns = 0
+        for msa in glob.glob(self.base.path("strains", "*.raw.msa.fna")):
+            with open(msa) as fh:
+                for line in fh:
+                    if not line.startswith(">"):
+                        seq = line.strip()
+                        bases += len(seq)
+                        ns += seq.count("N")
+        self.assertGreater(bases, 0)
+        self.assertLess(ns / bases, 0.005, f"N fraction {100 * ns / bases:.3f}% with error-only reads")
+
+        stats = glob.glob(self.base.path("strains", "*.snp_stats.tsv"))
+        self.assertTrue(stats)
+        retained = 0
+        for path in stats:
+            retained += sum(int(row["refs_retained"]) for row in read_dicts(path))
+        self.assertGreater(retained, 0, "reference calls retained at variant positions")
+
+    def test_partitions_are_one_based_and_cover_the_msa(self):
+        parts = glob.glob(self.base.path("strains", "*.raw.partition.txt"))
+        self.assertEqual(len(parts), len(species()), "one partition file per species' MSA")
+        for part in parts:
+            with open(part) as fh:
+                ranges = [tuple(int(x) for x in line.split("=")[1].split("-")) for line in fh if line.strip()]
+            with open(part.replace(".raw.partition.txt", ".raw.msa.fna")) as fh:
+                length = len([line for line in fh if not line.startswith(">")][0].strip())
+            self.assertTrue(ranges, part)
+            self.assertEqual(ranges[0][0], 1, part)
+            self.assertEqual(ranges[-1][1], length, part)
+            for (_, end), (start, _) in zip(ranges, ranges[1:]):
+                self.assertEqual(start, end + 1, part)
+
+
+class AccuracyTest(DbTest):
+    """Is the baseline's profile right? Its truth counts, abundances against the pairs simulated per species, and reads of
+    nothing in the database. examples/mini_db/run.sh is the deeper check: reads of genomes, strains other than the
+    references, abundances by cell."""
+
+    # The largest difference allowed between a species' abundance and the one its simulated pairs give.
+    ABUNDANCE_TOLERANCE = 0.01
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.base = baseline()
+
+    def test_truth_counts(self):
+        # sa, sb and sr hold the three species, thin two of them and three pairs of the third (too few to call it),
+        # foreign none: its truth names a genus, a taxon the database has no genes of.
+        expected = {"sa": "TP 3, FP 0, FN 0 (and 0", "sb": "TP 3, FP 0, FN 0 (and 0", "sr": "TP 3, FP 0, FN 0 (and 0",
+                    "thin": "TP 2, FP 0, FN 1 (and 0", "foreign": "TP 0, FP 0, FN 0 (and 1"}
+        for sample, counts in expected.items():
+            self.assertIn(f"Sample {sample}: {counts} true species not in the database)", self.base.log)
+
+    def test_reads_of_nothing_in_the_database_give_an_empty_profile(self):
+        self.assertEqual(self.base.rc, 0)
+        self.assertEqual(self.base.text("foreign.profile"), "")
+        self.assertIn("No taxon passes the model in sample foreign", self.base.log)
+        _, rows = read_table(self.base.path("foreign.profile.log"))
+        self.assertEqual([row for row in rows if row[0] != "0"], [], "no taxon called")
+        self.assertEqual([r for r in sam_records(self.base.sam("foreign")) if not int(r[1]) & 0x4 and int(r[4]) >= 4], [],
+                         "no read aligns with a MAPQ the profiler takes")
+
+    def expected_abundances(self):
+        """{species name: relative abundance} that sa's and sb's pairs give: 12 pairs on each gene of 320 bp or more,
+        each pair 200 bases of the gene (the mates never overlap), so a gene's depth is 2400 / its length. A species'
+        depth is the median over the genes with reads (all hit genes and enough depth: BlendedDepth's weight is 1);
+        abundances are the depths' shares."""
+        lengths = {}
+        for name, seq in reference_genes():
+            if len(seq) >= 320:
+                lengths.setdefault(name.split("_")[0], []).append(len(seq))
+        depths = {}
+        for taxid, values in lengths.items():
+            per_gene = sorted(2400 / length for length in values)
+            mid = len(per_gene) // 2
+            depths[taxid] = per_gene[mid] if len(per_gene) % 2 else (per_gene[mid - 1] + per_gene[mid]) / 2
+        total = sum(depths.values())
+        return {name: depths[taxid] / total for name, taxid in species().items()}
+
+    def test_profile_format_and_abundances(self):
+        tax = taxonomy()
+        expected = self.expected_abundances()
+        for sample in ("sa", "sb"):
+            rows = [line.split("\t") for line in self.base.text(f"{sample}.profile").splitlines()]
+            self.assertEqual(len(rows), 3, sample)
+            found = {}
+            for rep_genome, lineage, abundance in rows:  # three fields per line
+                name = lineage.split(";")[-1]
+                self.assertTrue(lineage.startswith("d__"), lineage)
+                self.assertEqual(rep_genome, tax[species()[name]]["rep_genome"], lineage)
+                found[name] = float(abundance)
+            self.assertAlmostEqual(sum(found.values()), 1, delta=1e-5)
+            for name, share in expected.items():
+                self.assertLess(abs(found[name] - share), self.ABUNDANCE_TOLERANCE,
+                                f"{sample}, {name}: abundance {found[name]:.4f}, its pairs give {share:.4f}")
+
+
+class OutputFilesTest(DbTest):
+    """One sample from a map, with a sample ID and a truth file in the map, and --taxon_statistics: what the profile's
+    companion files hold. The SAM is the baseline's (a map without a SAM column looks for <OUTPUT_DIR>/<PREFIX>.sam.zst):
+    no read is aligned again."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = baseline()
         truth = os.path.join(cls.work, "truth.tsv")
+        taxa = species()
+        genus = next(t for t, row in taxonomy().items() if row["rank"] == "genus")
         with open(truth, "w") as fh:
-            fh.write("1\n2\n3\n14\n")  # 14 is a genus: in the taxonomy, not in the database
-        sample_map = os.path.join(cls.work, "samples.map")
-        with open(sample_map, "w") as fh:
+            fh.write("".join(f"{t}\n" for t in taxa.values()) + f"{genus}\n")  # a genus: in the taxonomy, not in the database
+        cls.sample_map = os.path.join(cls.work, "samples.map")
+        with open(cls.sample_map, "w") as fh:
             fh.write(f"#OUTPUT_DIR\t{os.path.join(cls.work, 'out')}\n#INPUT_DIR\t{READS}\n")
             fh.write("#SAMPLEID\tPREFIX\tFIRST\tSECOND\tPROFILE_TRUTH\n")
             fh.write(f"sample_a\tpa\tsa_R1.fq\tsa_R2.fq\t{truth}\n")
-        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa")
+        base.place_sams(os.path.join(cls.work, "out"), ["sa"], ["pa"])
+        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", cls.sample_map, "-t", "2", "--no_qcmsa", "--taxon_statistics")
 
     def test_exit_code(self):
         self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertIn("All alignments are present", self.log)
 
     def test_the_sample_id_names_the_sample(self):
         header, rows = read_table(self.path("out", "pa.profile.gene.log"))
@@ -329,19 +699,16 @@ class OutputFilesTest(WorkDir):
         self.assertGreater(max(int(row[header.index("CoverageSum")]) for row in rows), 0)
 
     def test_truth_counts_name_the_sample(self):
-        self.assertRegex(self.log, r"Sample sample_a: TP \d+, FP \d+, FN \d+ \(and 1 true species not in the database\)")
+        self.assertIn("Sample sample_a: TP 3, FP 0, FN 0 (and 1 true species not in the database)", self.log)
         self.assertNotIn("Truth: 0", self.log)
+        self.assertEqual(read_text(self.path("out", "pa.profile")), baseline().text("sa.profile"))
 
     def test_statistics_for_a_single_sample(self):
         # The per-taxon files are written only with --taxon_statistics (since 0.7.6), then with one sample, too.
-        self.assertEqual(glob.glob(self.path("out", "misc", "*.statistics.tsv")), [], "not written by default")
-        sample_map = self.path("samples_statistics.map")
-        with open(self.path("samples.map")) as fh, open(sample_map, "w") as out:
-            out.write(fh.read().replace(self.path("out"), self.path("out_statistics"), 1))
-        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--taxon_statistics")
-        self.assertEqual(rc, 0, log[-3000:])
-        stats = glob.glob(self.path("out_statistics", "misc", "*.statistics.tsv"))
-        self.assertTrue(stats, "written with one sample, too")
+        self.assertTrue(os.path.isdir(baseline().path("misc")))
+        self.assertEqual(glob.glob(baseline().path("misc", "*.statistics.tsv")), [], "not written by default")
+        stats = glob.glob(self.path("out", "misc", "*.statistics.tsv"))
+        self.assertEqual(len(stats), len(species()), "one per taxon with reads")
         _, rows = read_table(stats[0])
         self.assertEqual([row[0] for row in rows], ["sample_a"])
 
@@ -359,7 +726,7 @@ class OutputFilesTest(WorkDir):
     def test_genes_log_abundances(self):
         header, rows = read_table(self.path("out", "pa.profile.genes.log"))
         self.assertTrue(rows)
-        called = abundance = 0
+        called = 0
         for row in rows:
             value = float(row[header.index("TaxAbundance")])
             self.assertTrue(0 <= value <= 1, row)
@@ -373,90 +740,91 @@ class OutputFilesTest(WorkDir):
         self.assertTrue(all(float(row[header.index("MAPQ")]) <= 255 for row in rows), "MAPQ is a mean, not a sum")
 
 
-class MateAssignmentTest(WorkDir):
-    """Fragments whose best alignment is mate 2's alone, and fragments over two genes, reach the SAM."""
+class MateAssignmentTest(DbTest):
+    """Fragments whose best alignment is mate 2's alone, and fragments over two genes, reach the SAM (one run, two
+    samples)."""
 
-    def align(self, name, pairs):
-        with open(self.path(f"{name}_R1.fq"), "w") as r1, open(self.path(f"{name}_R2.fq"), "w") as r2:
-            for i, (s1, s2) in enumerate(pairs, 1):
-                r1.write(f"@{name}.{i}/1\n{s1}\n+\n{'I' * len(s1)}\n")
-                r2.write(f"@{name}.{i}/2\n{s2}\n+\n{'I' * len(s2)}\n")
-        rc, log = run(self.work, "--db", DB, "-1", self.path(f"{name}_R1.fq"), "-2", self.path(f"{name}_R2.fq"),
-                      "--prefix", name, "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
-        self.assertEqual(rc, 0, log[-3000:])
-        records = sam_records(find_sams(self.path("out", f"{name}*.sam"))[0])
-        return [r for r in records if not int(r[1]) & 0x100]
-
-    def test_pairs_where_only_mate2_aligns(self):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
         rng = random.Random(21)
-        pairs = []
+        mate2 = []
         for _, gene in reference_genes():
             if len(gene) >= 320:
                 start = rng.randint(0, len(gene) - 100)
-                pairs.append(("".join(rng.choice("ACGT") for _ in range(100)), revcomp(gene[start:start + 100])))
-        records = self.align("mate2", pairs)
-        read2_only = [r for r in records if int(r[1]) & 0x80 and int(r[1]) & 0x8]
-        self.assertGreater(len(read2_only), 0.9 * len(pairs), f"{len(read2_only)} of {len(pairs)} written")
-
-    def test_pairs_over_two_genes(self):
+                mate2.append(("".join(rng.choice("ACGT") for _ in range(100)), revcomp(gene[start:start + 100])))
         genes = {}
         for name, seq in reference_genes():
             taxid, gene = (int(x) for x in name.split("_")[:2])
             genes[(taxid, gene)] = seq
-        pairs, expected = [], []
+        junction, cls.expected = [], []
         for (taxid, gene), seq in sorted(genes.items()):
             nxt = genes.get((taxid, gene + 1))
             if nxt is not None and len(seq) >= 100 and len(nxt) >= 100:
-                pairs.append((seq[-100:], revcomp(nxt[:100])))
-                expected.append((f"{taxid}_{gene}", f"{taxid}_{gene + 1}"))
-        records = self.align("junction", pairs)
+                junction.append((seq[-100:], revcomp(nxt[:100])))
+                cls.expected.append((f"{taxid}_{gene}", f"{taxid}_{gene + 1}"))
+        cls.pairs = {"mate2": mate2, "junction": junction}
+        for name, pairs in cls.pairs.items():
+            with open(os.path.join(cls.work, f"{name}_R1.fq"), "w") as r1, open(os.path.join(cls.work, f"{name}_R2.fq"), "w") as r2:
+                for i, (s1, s2) in enumerate(pairs, 1):
+                    r1.write(f"@{name}.{i}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+                    r2.write(f"@{name}.{i}/2\n{s2}\n+\n{'I' * len(s2)}\n")
+        cls.rc, cls.log = run(cls.work, "--db", DB, "-1", ",".join(os.path.join(cls.work, f"{n}_R1.fq") for n in cls.pairs),
+                              "-2", ",".join(os.path.join(cls.work, f"{n}_R2.fq") for n in cls.pairs),
+                              "--prefix", ",".join(cls.pairs), "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
+
+    def primary(self, name):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        return [r for r in sam_records(find_sams(self.path("out", f"{name}.sam"))[0]) if not int(r[1]) & 0x100]
+
+    def test_pairs_where_only_mate2_aligns(self):
+        read2_only = [r for r in self.primary("mate2") if int(r[1]) & 0x80 and int(r[1]) & 0x8]
+        pairs = len(self.pairs["mate2"])
+        self.assertGreater(len(read2_only), 0.9 * pairs, f"{len(read2_only)} of {pairs} written")
+
+    def test_pairs_over_two_genes(self):
         by_read = {}
-        for r in records:
+        for r in self.primary("junction"):
             by_read.setdefault(r[0], []).append(r)
         good = 0
-        for i, (gene_a, gene_b) in enumerate(expected, 1):
+        for i, (gene_a, gene_b) in enumerate(self.expected, 1):
             recs = by_read.get(f"junction.{i}", [])
             mates = {("1" if int(r[1]) & 0x40 else "2"): r for r in recs}
             if (len(recs) == 2 and mates.get("1", [None, None, None])[2] == gene_a and
                     mates.get("2", [None, None, None])[2] == gene_b and all(int(r[4]) >= 4 for r in recs)):
                 good += 1
-        self.assertGreater(good, 0.9 * len(pairs), f"{good} of {len(pairs)} fragments written with both mates")
+        pairs = len(self.pairs["junction"])
+        self.assertGreater(good, 0.9 * pairs, f"{good} of {pairs} fragments written with both mates")
 
 
-class MsaSampleSelectionTest(WorkDir):
-    """A species' MSA takes only the samples in which the model accepts the species."""
+class MsaSampleSelectionTest(DbTest):
+    """A species' MSA takes only the samples in which the model accepts the species: thin's three pairs of Mockella alpha
+    do not call it, so thin is left out of its MSA (with --msa_min_hcov 0 coverage would not keep it out) and is in the
+    MSAs of the two species it reports."""
 
     def test_rejected_samples_are_left_out(self):
-        # A sample with three read pairs of Mockella alpha, too few to call it.
-        taxid = None
-        with open(db_file("internal_taxonomy.dmp")) as fh:
-            for line in fh:
-                f = line.split("\t")
-                if f[3] == "s__Mockella alpha":
-                    taxid = f[0]
-        genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:3]
-        with open(self.path("few_R1.fq"), "w") as r1, open(self.path("few_R2.fq"), "w") as r2:
-            for i, gene in enumerate(genes, 1):
-                r1.write(f"@few.{i}/1\n{gene[:100]}\n+\n{'I' * 100}\n")
-                r2.write(f"@few.{i}/2\n{revcomp(gene[200:300])}\n+\n{'I' * 100}\n")
-        first = ",".join([os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sb_R1.fq"), self.path("few_R1.fq")])
-        second = ",".join([os.path.join(READS, "sa_R2.fq"), os.path.join(READS, "sb_R2.fq"), self.path("few_R2.fq")])
-        rc, log = run(self.work, "--db", DB, "-1", first, "-2", second, "--prefix", "sa,sb,few", "-o", "out",
-                      "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
+        samples = ["sa", "sb", "thin"]
+        baseline().place_sams(self.path("out"), samples)
+        rc, log = run(self.work, "--db", DB, *reads(*samples), "-o", "out", "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path("out", "few.profile")) as fh:
-            self.assertNotIn("Mockella alpha", fh.read(), "the three pairs do not call the species")
-        with open(self.path("out", "strains", "s__Mockella_alpha.raw.msa.fna")) as fh:
-            names = [line[1:].strip() for line in fh if line.startswith(">")]
-        self.assertIn("sa", names)
-        self.assertIn("sb", names)
-        self.assertNotIn("few", names)
+        self.assertIn("All alignments are present", log)
+        self.assertNotIn("Mockella alpha", read_text(self.path("out", "thin.profile")), "three pairs do not call the species")
+        for name in species():
+            with open(self.path("out", "strains", name.replace(" ", "_") + ".raw.msa.fna")) as fh:
+                names = [line[1:].strip() for line in fh if line.startswith(">")]
+            self.assertIn("sa", names, name)
+            self.assertIn("sb", names, name)
+            if name == "s__Mockella alpha":
+                self.assertNotIn("thin", names)
+            else:
+                self.assertIn("thin", names, name)
 
 
-class StrainEdgeCaseTest(WorkDir):
+class StrainEdgeCaseTest(DbTest):
     def test_species_without_msa_genes(self):
         # No position reaches --msa_min_depth, so no species has MSA columns (this used to segfault).
         # Two samples: MSAs are built only across samples.
+        baseline().place_sams(self.path("out"), ["sa", "sb"])
         rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
                       "--msa_min_depth", "100000", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
@@ -464,45 +832,49 @@ class StrainEdgeCaseTest(WorkDir):
         self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
 
 
-class MSAKnobTest(WorkDir):
-    """A species' MSA holds the samples whose profile reports it; --msa_knob sets another threshold."""
+class MSAKnobTest(DbTest):
+    """A species' MSA holds the samples whose profile reports it; --msa_knob sets another threshold. Each test profiles
+    the baseline's SAMs of sa and sb into an output folder of its own."""
 
-    def calls(self, sample):
+    def strains_run(self, out, *extra):
+        baseline().place_sams(self.path(out), ["sa", "sb"])
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", out, "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0",
+                      *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        return log
+
+    def calls(self, out, sample):
         """{species: (reported, probability)} of a sample's profile, species spelled as in species.tsv."""
-        with open(self.path("out", f"{sample}.profile.log")) as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t"))
+        rows = read_dicts(self.path(out, f"{sample}.profile.log"))
         return {r["Name"].replace(" ", "_"): (r["Predicted"] == "1", float(r["Probability"])) for r in rows}
 
-    def species_list(self):
-        with open(self.path("out", "strains", "species.tsv")) as fh:
-            return {r["species"]: int(r["samples"]) for r in csv.DictReader(fh, delimiter="\t")}
+    def species_list(self, out):
+        return {r["species"]: int(r["samples"]) for r in read_dicts(self.path(out, "strains", "species.tsv"))}
 
     def test_msa_samples_mirror_the_profiles(self):
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
-                      "--msa_min_hcov", "0")
-        self.assertEqual(rc, 0, log[-3000:])
-        calls = {s: self.calls(s) for s in ("sa", "sb")}
-        listed = self.species_list()
-        for species in set(calls["sa"]) | set(calls["sb"]):
-            reported = sum(calls[s].get(species, (False, 0))[0] for s in calls)
+        self.strains_run("out")
+        calls = {s: self.calls("out", s) for s in ("sa", "sb")}
+        listed = self.species_list("out")
+        both = [sp for sp in calls["sa"] if calls["sa"][sp][0] and calls["sb"].get(sp, (False, 0))[0]]
+        self.assertTrue(both, "species reported by both samples")
+        for species_name in set(calls["sa"]) | set(calls["sb"]):
+            reported = sum(calls[s].get(species_name, (False, 0))[0] for s in calls)
             if reported >= 2:
-                self.assertEqual(listed.get(species), reported, species)
+                self.assertEqual(listed.get(species_name), reported, species_name)
             else:
-                self.assertNotIn(species, listed, "an MSA needs 2 samples that report the species")
+                self.assertNotIn(species_name, listed, "an MSA needs 2 samples that report the species")
 
     def test_msa_knob_admits_unreported_species(self):
         # No species scores --knob 1, yet --msa_knob 0 builds the MSAs of all species with reads in both
         # samples. At 2.4x on every gene, the species' reads are strong evidence: those the profiles
         # leave out are listed in unreported_species.tsv.
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
-                      "--msa_min_hcov", "0", "--knob", "1", "--msa_knob", "0")
-        self.assertEqual(rc, 0, log[-3000:])
-        calls = {s: self.calls(s) for s in ("sa", "sb")}
-        listed = self.species_list()
-        for species in set(calls["sa"]) & set(calls["sb"]):
-            self.assertEqual(listed.get(species), 2, species)
-        with open(self.path("out", "misc", "unreported_species.tsv")) as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t"))
+        log = self.strains_run("out_knob", "--knob", "1", "--msa_knob", "0")
+        calls = {s: self.calls("out_knob", s) for s in ("sa", "sb")}
+        listed = self.species_list("out_knob")
+        self.assertTrue(set(calls["sa"]) & set(calls["sb"]))
+        for species_name in set(calls["sa"]) & set(calls["sb"]):
+            self.assertEqual(listed.get(species_name), 2, species_name)
+        rows = read_dicts(self.path("out_knob", "misc", "unreported_species.tsv"))
         self.assertTrue(rows, log[-3000:])
         for r in rows:
             reported, probability = calls[r["sample"]][r["species"].replace(" ", "_")]
@@ -512,19 +884,12 @@ class MSAKnobTest(WorkDir):
         self.assertIn("are not reported, although their own reads are strong evidence", log)
 
 
-class LowCoverageAbundanceTest(WorkDir):
+class LowCoverageAbundanceTest(DbTest):
     """The depth estimate, and so relative abundances, stays proportional at low coverage."""
 
     @staticmethod
     def taxon_depths(genes_log):
-        depths = {}
-        with open(genes_log) as fh:
-            header = fh.readline().rstrip("\n").split("\t")
-            taxid, vcov = header.index("TaxID"), header.index("TaxVCOV")
-            for line in fh:
-                fields = line.rstrip("\n").split("\t")
-                depths[fields[taxid]] = float(fields[vcov])
-        return depths
+        return {row["TaxID"]: float(row["TaxVCOV"]) for row in read_dicts(genes_log)}
 
     def test_subsampled_depths_scale_with_the_read_count(self):
         # About 3x on every gene; the subsamples have about 0.12x and 0.36x.
@@ -546,59 +911,48 @@ class LowCoverageAbundanceTest(WorkDir):
                       "--prefix", "full," + ",".join(fractions), "-o", "out", "-t", "3", "--no_strains")
         self.assertEqual(rc, 0, log[-3000:])
         full = self.taxon_depths(self.path("out", "full.profile.genes.log"))
-        self.assertTrue(full)
+        self.assertEqual(sorted(full), sorted(species().values()))
         for name, fraction in fractions.items():
             depths = self.taxon_depths(self.path("out", f"{name}.profile.genes.log"))
+            self.assertEqual(sorted(depths), sorted(full), f"{name}: every species has reads")
             for taxid, depth in depths.items():
                 ratio = depth / (fraction * full[taxid])
                 self.assertLess(abs(ratio - 1), 0.3, f"{name} ({fraction:.3f} of the reads), taxon {taxid}: "
                                                      f"depth {depth:.4f} vs {fraction * full[taxid]:.4f} expected")
 
 
-class GeneConservationTest(WorkDir):
+class GeneConservationTest(DbTest):
     """--build estimates how fast each gene diverges within species from the other genomes' copies in
     --full_reference (gene_conservation.tsv) and stores it in the database; queries take it for the model's
     conservation features, scale the depth identity margin by it with --gene_conservation db, and keep the same margin
     on every gene by default."""
 
-    def build(self, name, rates, with_full_reference=True):
+    def build(self, name, rates):
         """A database of 4 species of one genus with 12 genes of 600 bp each, each species 5% times rates[i] from
         their ancestor at gene i; in full_reference, 2 other genomes per species whose gene i differs from the
-        representative's at 2% times rates[i]."""
+        representative's at 2% times rates[i]. (Without other copies there are no factors: BuildIndexTest.)"""
         rng = random.Random(21)
 
         def mutate(seq, rate):
             return "".join(rng.choice([c for c in "ACGT" if c != b]) if rng.random() < rate else b for b in seq)
 
-        db = self.path(name)
-        os.mkdir(db)
         ancestor = {gene: "".join(rng.choice("ACGT") for _ in range(600)) for gene in range(1, len(rates) + 1)}
         genes = {(taxid, gene): mutate(ancestor[gene], 0.05 * rates[gene - 1])
                  for taxid in range(1, 5) for gene in range(1, len(rates) + 1)}
-        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
-            offset = 0
-            for (taxid, gene), seq in genes.items():
-                header = f">{taxid}_{gene}\n"
-                fna.write(header + seq + "\n")
-                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
-                offset += len(header) + len(seq) + 1
-        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
-            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n5\t5\t0\troot\tno rank\t0\t\n" +
-                     "6\t5\t0\tg__Genus\tgenus\t6\t\n" +
-                     "".join(f"{t}\t6\t0\ts__Genus species{t}\tspecies\t7\tGCF_{t}\n" for t in range(1, 5)))
+        db = write_tiny_db(self.path(name), genes,
+                           "id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n5\t5\t0\troot\tno rank\t0\t\n" +
+                           "6\t5\t0\tg__Genus\tgenus\t6\t\n" +
+                           "".join(f"{t}\t6\t0\ts__Genus species{t}\tspecies\t7\tGCF_{t}\n" for t in range(1, 5)))
         full = os.path.join(db, "full_reference.fna")
         with open(full, "w") as fh:
             for (taxid, gene), seq in genes.items():
                 fh.write(f">{taxid}_{gene}\n{seq}\n")
                 for _ in range(2):
                     fh.write(f">{taxid}_{gene}\n{mutate(seq, 0.02 * rates[gene - 1])}\n")
-        args = ["--full_reference", full] if with_full_reference else []
-        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", "-t", "2", "--db", db,
-                      "--reference", os.path.join(db, "reference.fna"), *args)
+        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", *FAST_BUILD, "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
         self.assertEqual(rc, 0, log[-3000:])
-        for index in ("index.prx", "index.prx.zst"):
-            if os.path.exists(os.path.join(db, index)):
-                os.remove(os.path.join(db, index))
+        remove_indexes(db)
         return db, log
 
     def test_build_estimates_the_genes_factors(self):
@@ -617,40 +971,36 @@ class GeneConservationTest(WorkDir):
         # Between the 4 congeners, too, the slow genes differ least (gene_congeners.tsv, a report beside the database).
         self.assertRegex(log, r"Gene congeners: 6 pairs of species of 1 genera \(4 species\); the genes' divergence between "
                               r"congeners correlates 0\.[5-9]\d with their factors \(Spearman, 12 genes\)")
-        with open(os.path.join(db, "gene_congeners.tsv")) as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t"))
+        rows = read_dicts(os.path.join(db, "gene_congeners.tsv"))
         between = {int(r["geneid"]): float(r["between_factor"]) for r in rows}
         self.assertLess(max(between[g] for g in range(1, 7)), min(between[g] for g in range(7, 13)), between)
         self.assertEqual({r["species"] for r in rows}, {"4"})
 
-        _, log = self.build("db_without", rates, with_full_reference=False)
-        self.assertIn("Gene conservation: no factors", log)
-        self.assertFalse(os.path.exists(self.path("db_without", "gene_conservation.tsv")))
-
     def test_queries_scale_the_margin_only_when_asked(self):
         if not os.path.exists(db_file("gene_conservation.tsv")):
-            self.skipTest("the test database has no gene_conservation.tsv (built by an earlier protal)")
+            raise unavailable("the test database has no gene_conservation.tsv (built by an earlier protal)")
+        base = baseline()
         ones = self.path("ones.tsv")
         with open(db_file("gene_conservation.tsv")) as src, open(ones, "w") as dst:
             dst.write(src.readline())
             dst.writelines(line.split("\t")[0] + "\t1\n" for line in src)
-        profiles = {}
         same = "for the conservation features; the depth identity margin is the same on every gene"
-        for name, extra, expected in (("default", [], same),
-                                      ("scaled", ["--gene_conservation", "db"], "they scale the depth identity margin per gene"),
+        self.assertIn(same, base.log)  # the default
+        profiles = {}
+        for name, extra, expected in (("scaled", ["--gene_conservation", "db"], "they scale the depth identity margin per gene"),
                                       ("none", ["--gene_conservation", "none"], same),
                                       ("ones", ["--gene_conservation", ones], "Gene conservation: factors 1-1 for")):
-            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
+            rc, log = profile_only(self.work, self.path(name), [base.sam("sa")], *extra, prefixes=["sa"])
             self.assertEqual(rc, 0, log[-3000:])
             self.assertIn(expected, log)
-            with open(self.path(name, "sa.profile")) as fh:
-                profiles[name] = fh.read()
+            profiles[name] = read_text(self.path(name, "sa.profile"))
         # The reads are the reference genes' with 0.5% errors: far above any gene's threshold.
         self.assertEqual(profiles["scaled"], profiles["none"])
         self.assertEqual(profiles["ones"], profiles["none"])
-        self.assertEqual(profiles["default"], profiles["none"])
+        self.assertEqual(base.text("sa.profile"), profiles["none"])
 
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "missing", "--gene_conservation", "no_such.tsv")
+        rc, log = profile_only(self.work, self.path("missing"), [base.sam("sa")], "--gene_conservation", "no_such.tsv",
+                               prefixes=["sa"])
         self.assertNotEqual(rc, 0, log[-3000:])
         self.assertIn("--gene_conservation does not exist: no_such.tsv", log)
 
@@ -660,32 +1010,24 @@ class GeneNeighboursTest(WorkDir):
     --operons), with the gene neighbours of its genomes (gene_neighbours.py: the per-clade frequencies and where
     each gene lies in each genome), which --build checks and packs; read pairs drawn from the genomes span
     neighbouring genes. protal pairs mates across them (a proper pair on two references) and gives the adjacency
-    features, from database.protal alone; --no_gene_neighbours does neither."""
+    features, from database.protal alone; --no_gene_neighbours does neither. (Needs protal, not the test database.)"""
 
     @classmethod
     def setUpClass(cls):
+        require_binary(PROTAL, "protal", "PROTAL")
         super().setUpClass()
         scripts = os.path.join(ROOT, "scripts", "mini_db")
         cls.gtdb, cls.db = os.path.join(cls.work, "gtdb"), os.path.join(cls.work, "db")
-
-        def python(*args):
-            proc = subprocess.run([sys.executable, *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            if proc.returncode != 0:
-                raise RuntimeError(" ".join(args[:1]) + " failed:\n" + proc.stdout[-3000:])
-            return proc.stdout
-
         python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--operons", "--genome_length",
                "200000", "--genomes_per_species", "1", "--contigs", "1")
         python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
         genomes = os.path.join(cls.gtdb, "simulation", "genomes.tsv")
         python(os.path.join(scripts, "gene_neighbours.py"), "--db", cls.db, "--genome_table", genomes)
-        with open(os.path.join(cls.db, "gene_neighbours.tsv")) as fh:
-            cls.table = fh.read()
-        with open(os.path.join(cls.db, "gene_positions.tsv")) as fh:
-            cls.positions = fh.read()
+        cls.table = read_text(os.path.join(cls.db, "gene_neighbours.tsv"))
+        cls.positions = read_text(os.path.join(cls.db, "gene_positions.tsv"))
         cls.inputs = os.path.join(cls.work, "inputs")  # the converted files, for builds of their own
         shutil.copytree(cls.db, cls.inputs)
-        rc, cls.build_log = run(cls.work, "--build", "--no_profile", "-t", "2", "--db", cls.db,
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
                                 "--reference", os.path.join(cls.db, "reference.fna"))
         if rc != 0:
             raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])
@@ -708,11 +1050,8 @@ class GeneNeighboursTest(WorkDir):
         rc, log = run(self.work, "--db", db or self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
                       "-o", name, "-t", "2", "--no_strains", "--profile_truth", truth, *extra)
         self.assertEqual(rc, 0, log[-3000:])
-        records = sam_records(find_sams(self.path(name, "s*.sam"))[0])
-        with open(self.path(name, "s.profile.truth_annotated")) as fh:
-            header = fh.readline().rstrip("\n").split("\t")
-            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
-        return log, records, rows
+        records = sam_records(find_sams(self.path(name, "s.sam"))[0])
+        return log, records, read_dicts(self.path(name, "s.profile.truth_annotated"))
 
     @staticmethod
     def across(records):
@@ -729,31 +1068,26 @@ class GeneNeighboursTest(WorkDir):
         unpacked = self.path("unpacked")
         rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        with open(os.path.join(unpacked, "gene_neighbours.tsv")) as fh:
-            self.assertEqual(fh.read(), self.table)
-        with open(os.path.join(unpacked, "gene_positions.tsv")) as fh:
-            self.assertEqual(fh.read(), self.positions)
+        self.assertEqual(read_text(os.path.join(unpacked, "gene_neighbours.tsv")), self.table)
+        self.assertEqual(read_text(os.path.join(unpacked, "gene_positions.tsv")), self.positions)
 
-    def test_bad_positions_stop_the_build(self):
-        db = self.path("bad_positions")
-        shutil.copytree(self.inputs, db)
+    def test_bad_tables_stop_the_build(self):
         line = self.positions.splitlines()[-1].split("\t")
-        with open(os.path.join(db, "gene_positions.tsv"), "a") as fh:
-            fh.write("\t".join(line[:5] + ["999"] + line[6:]) + "\n")
-        rc, log = run(self.work, "--build", "--no_profile", "--no_bundle", "-t", "2", "--db", db,
-                      "--reference", os.path.join(db, "reference.fna"))
-        self.assertEqual(rc, 8, log[-3000:])
-        self.assertIn(f"species {line[1]} has no gene 999 in the database", log)
-
-    def test_a_bad_table_stops_the_build(self):
-        db = self.path("bad")
-        shutil.copytree(self.inputs, db)
-        with open(os.path.join(db, "gene_neighbours.tsv"), "a") as fh:
-            fh.write(self.table.splitlines()[-1].split("\t", 1)[0] + "\t999\t3\t0\t0\t1\t1\t0\t0\t0\n")
-        rc, log = run(self.work, "--build", "--no_profile", "--no_bundle", "-t", "2", "--db", db,
-                      "--reference", os.path.join(db, "reference.fna"))
-        self.assertEqual(rc, 8, log[-3000:])
-        self.assertIn("gene 999 is not in the database", log)
+        for name, table, row, problem in (
+                ("bad_positions", "gene_positions.tsv", "\t".join(line[:5] + ["999"] + line[6:]),
+                 f"species {line[1]} has no gene 999 in the database"),
+                ("bad_neighbours", "gene_neighbours.tsv",
+                 self.table.splitlines()[-1].split("\t", 1)[0] + "\t999\t3\t0\t0\t1\t1\t0\t0\t0", "gene 999 is not in the database")):
+            with self.subTest(table):
+                db = self.path(name)
+                shutil.copytree(self.inputs, db)
+                with open(os.path.join(db, table), "a") as fh:
+                    fh.write(row + "\n")
+                rc, log = run(self.work, "--build", "--no_profile", "--no_bundle", "-t", "2", "--db", db,
+                              "--reference", os.path.join(db, "reference.fna"))
+                self.assertEqual(rc, 8, log[-3000:])
+                self.assertIn(problem, log)
+                remove_indexes(db)
 
     def test_mates_pair_across_neighbouring_genes(self):
         log, records, rows = self.profile("with")
@@ -779,20 +1113,16 @@ class GeneNeighboursTest(WorkDir):
         self.assertTrue(present)
         self.assertTrue(all(float(row["adjacent_expected_share"]) > 0.9 for row in present), present)
 
-        # The database file alone, in a folder of its own: the same.
+        # The database file alone, in a folder of its own: the same, to the last digit (the profile does not depend on
+        # the threads or the order of the reads).
         alone = self.path("bundle_only")
         os.makedirs(alone)
         shutil.copy(os.path.join(self.db, "database.protal"), alone)
         log_alone, records_alone, rows_alone = self.profile("alone", db=alone)
         self.assertEqual(os.listdir(alone), ["database.protal"])  # nothing unpacked or written next to it
         self.assertIn(f"Gene neighbours: {paired} fragments paired across two neighbouring genes", log_alone)
-        self.assertEqual([sorted(r) for r in rows_alone], [sorted(r) for r in rows])
-        for a, b in zip(rows_alone, rows):  # the same, but for the last digits of sums the threads add in their order
-            for key, value in b.items():
-                try:
-                    self.assertAlmostEqual(float(a[key]), float(value), delta=1e-9 * max(1.0, abs(float(value))), msg=key)
-                except ValueError:
-                    self.assertEqual(a[key], value, key)
+        self.assertEqual(rows_alone, rows)
+        self.assertEqual(sorted(records_alone), sorted(records))
 
         log, records, rows = self.profile("without", "--no_gene_neighbours")
         self.assertIn("Gene neighbours: not used (--no_gene_neighbours)", log)
@@ -800,27 +1130,25 @@ class GeneNeighboursTest(WorkDir):
         self.assertTrue(all(float(row["adjacent_expected_share"]) == 0 for row in rows))
 
 
-class ModelContractTest(WorkDir):
-    """The training dump holds the features the model is scored with, and --no_strains changes no profile."""
+class ModelContractTest(DbTest):
+    """The training dump (the baseline's truth annotation) holds the features the model is scored with and every group
+    the trainer can choose, and --no_strains changes no profile."""
 
     def test_truth_annotation_has_the_model_features(self):
-        truth = self.path("truth.tsv")
-        with open(truth, "w") as fh:
-            fh.write("1\n2\n3\n")
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_strains",
-                      "--profile_truth", truth)
-        self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path("out", "sa.profile.truth_annotated")) as fh:
-            header = fh.readline().rstrip("\n").split("\t")
-            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        rows = read_dicts(baseline().path("sa.profile.truth_annotated"))
+        self.assertTrue(rows)
+        header = list(rows[0])
         with open(db_file("model_pe.xml")) as fh:
             fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
         self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
         sys.path.insert(0, os.path.join(ROOT, "scripts"))
-        from model_features import ADJACENCY_FEATURES, NORMALIZED_FEATURES
-        self.assertEqual([f for f in NORMALIZED_FEATURES + ADJACENCY_FEATURES if f not in header], [],
-                         "the trainer's default features are dumped")
-        self.assertTrue(rows)
+        import model_features
+        self.assertEqual([c for c in model_features.feature_set_columns(model_features.DEFAULT_FEATURE_SET)
+                          if c not in header], [], "the trainer's default features are dumped")
+        for group, columns in model_features.FEATURE_GROUPS.items():
+            self.assertEqual([c for c in columns if c not in header], [], f"the {group} features are dumped")
+        self.assertEqual(model_features.feature_columns(header, model_features.DEFAULT_FEATURE_SET),
+                         model_features.feature_set_columns(model_features.DEFAULT_FEATURE_SET))
         conservation = os.path.exists(db_file("gene_conservation.tsv"))
         for row in rows:
             # The reference genes' reads with 0.5% substitutions and 1% Q2 bases: about what their qualities explain.
@@ -828,7 +1156,6 @@ class ModelContractTest(WorkDir):
             self.assertLessEqual(float(row["excess_high_share"]), 0.5, row)
             share = float(row["conserved_hit_share"])
             self.assertTrue(0 <= share <= 1 if conservation else share == 0.5, row)
-        for row in rows:
             for prefix, counts in (("RAF", "AF"), ("RA", "A")):
                 total = sum(float(row[f"{counts}{i}"]) for i in range(5))
                 for i in range(5):
@@ -845,38 +1172,66 @@ class ModelContractTest(WorkDir):
         self.assertTrue(0.98 < float(rows[0]["sample_identity"]) <= 1, rows[0])
 
     def test_no_strains_changes_no_profile(self):
-        outputs = {}
-        for name, extra in (("strains", []), ("no_strains", ["--no_strains"])):
-            rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", name, "-t", "2", "--no_qcmsa", *extra)
-            self.assertEqual(rc, 0, log[-3000:])
-            outputs[name] = {}
-            for f in glob.glob(self.path(name, "*.profile*")):
-                with open(f) as fh:
-                    outputs[name][os.path.basename(f)] = fh.read()
-        self.assertTrue(outputs["strains"])
-        self.assertEqual(outputs["strains"], outputs["no_strains"])
+        # The baseline built strain MSAs over its samples; the same SAMs profiled with --no_strains.
+        base = baseline()
+        base.place_sams(self.path("out"), ["sa", "sb"])
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("All alignments are present", log)
+        self.assertFalse(os.path.exists(self.path("out", "strains")))
+        for sample in ("sa", "sb"):
+            for name, text in base.profiles(sample).items():
+                self.assertEqual(read_text(self.path("out", name)), text, name)
 
 
-class DepthKnobsTest(WorkDir):
+def model_with_header(model_path, path, extensions):
+    """The database's model with `extensions` (XML text) added to its header, written to path."""
+    with open(model_path) as fh:
+        xml = fh.read()
+    xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", lambda m: m.group(1) + "\n  " + extensions, xml, count=1)
+    if n != 1:
+        raise AssertionError(f"{model_path} has no header")
+    with open(path, "w") as fh:
+        fh.write(xml)
+    return path
+
+
+class KnobSample(DbTest):
+    """Tests of how a sample's calls are made, on the baseline's sample thin: Mockella beta and Fakibacter gamma at 12
+    pairs per gene, which the model reports, and three pairs of Mockella alpha, which it rejects at the default knob
+    0.5 but reports at knob 0. So the profile tells which knob was applied."""
+
+    def profile(self, name, *extra):
+        rc, log = profile_only(self.work, self.path(name), [baseline().sam("thin")], *extra, prefixes=["thin"])
+        self.assertEqual(rc, 0, log[-3000:])
+        return log, read_text(self.path(name, "thin.profile"))
+
+    def fails(self, name, model_extensions, code, problem=None, *extra):
+        """protal stops with `code` on the model with these header extensions, before profiling, saying `problem`
+        (None: the message is a unit test's)."""
+        model = model_with_header(db_file("model_pe.xml"), self.path(name + ".xml"), model_extensions)
+        rc, log = profile_only(self.work, self.path(name), [baseline().sam("thin")], "--model", model, *extra,
+                               prefixes=["thin"])
+        self.assertEqual(rc, code, log[-3000:])
+        self.assertFalse(os.path.exists(self.path(name, "thin.profile")), "no profile may be written")
+        if problem is not None:
+            self.assertIn(problem, log)
+
+    def assert_knob_zero(self, profile):
+        self.assertEqual(profile_species(profile), sorted(species()), "knob 0 reports Mockella alpha's three pairs")
+
+    def assert_default(self, profile):
+        self.assertEqual(profile, baseline().text("thin.profile"))
+        self.assertEqual(profile_species(profile), sorted(set(species()) - {"s__Mockella alpha"}))
+
+
+class DepthKnobsTest(KnobSample):
     """A model with knobs by sample depth (machine_learning_cmdline.py --depth-knobs, in its header): a sample's taxa are
     reported at the knob of its depth bin unless --knob is given."""
 
     def model(self, name, value, extension="protal_depth_knobs", more=""):
-        with open(db_file("model_pe.xml")) as fh:
-            xml = fh.read()
-        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", r'\1\n  <Extension name="' + extension + '" value="' + value + '"/>' + more,
-                         xml, count=1)
-        self.assertEqual(n, 1, "the model has a header")
-        path = self.path(name)
-        with open(path, "w") as fh:
-            fh.write(xml)
-        return path
-
-    def profile(self, name, *extra):
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
-        self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path(name, "sa.profile")) as fh:
-            return log, fh.read()
+        return model_with_header(db_file("model_pe.xml"), self.path(name),
+                                 f'<Extension name="{extension}" value="{value}"/>' + more)
 
     def test_the_samples_depth_knob_unless_knob_is_given(self):
         every_bin = ",".join(f"{b}:0" for b in range(2, 7))
@@ -884,23 +1239,17 @@ class DepthKnobsTest(WorkDir):
         log, by_depth = self.profile("by_depth", "--model", model)
         self.assertIn("knobs by sample depth (bin b: 10^b to 10^(b+1) fragments, 2 also fewer, 6 also more): "
                       "2: 0, 3: 0, 4: 0, 5: 0, 6: 0; other depths --knob 0.5", log)
-        self.assertRegex(log, r"Sample sa: \d+ fragments, knob 0 \(the model's for depth bin [2-6]\)")
+        self.assertRegex(log, r"Sample thin: \d+ fragments, knob 0 \(the model's for depth bin [2-6]\)")
+        self.assert_knob_zero(by_depth)
         _, at_zero = self.profile("at_zero", "--knob", "0")
         self.assertEqual(by_depth, at_zero)
 
         log, given = self.profile("given", "--model", model, "--knob", "0.5")
         self.assertIn("; not used, --knob is given", log)
-        # No knob chosen for the sample ("Sample sa: N fragments, knob ..."); its alignment counts start with
-        # "Sample sa: " too.
-        self.assertNotRegex(log, r"Sample sa: \d+ fragments, ")
-        _, default = self.profile("default")
-        self.assertEqual(given, default)
-
-    def test_malformed_depth_knobs(self):
-        model = self.model("bad.xml", "2:0.3,9:0.4")
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "bad", "--model", model)
-        self.assertEqual(rc, 2, log[-3000:])
-        self.assertIn("its depth knobs are malformed ('9:0.4'", log)
+        # No knob chosen for the sample ("Sample thin: N fragments, knob ..."); its alignment counts start with
+        # "Sample thin: " too.
+        self.assertNotRegex(log, r"Sample thin: \d+ fragments, ")
+        self.assert_default(given)
 
     def test_a_knob_curve(self):
         # The trainer's knob curve (since 0.7.3): read at the sample's depth, linear between its points and the ends'
@@ -910,228 +1259,280 @@ class DepthKnobsTest(WorkDir):
         log, curved = self.profile("curved", "--model", model)
         self.assertIn("knobs by sample depth (log10 of the sample's fragments: knob; linear between, the ends' beyond): "
                       "0: 0, 12: 0", log)
-        self.assertRegex(log, r"Sample sa: \d+ fragments, knob 0 \(the model's for that depth\)")
-        _, at_zero = self.profile("at_zero_curve", "--knob", "0")
-        self.assertEqual(curved, at_zero)
+        self.assertRegex(log, r"Sample thin: \d+ fragments, knob 0 \(the model's for that depth\)")
+        self.assert_knob_zero(curved)
         log, given = self.profile("curve_given", "--model", model, "--knob", "0.5")
         self.assertIn("; not used, --knob is given", log)
-        self.assertEqual(given, self.profile("curve_default")[1])
-        for name, value, more, problem in (
-                ("curve_bad.xml", "3:0.2,2:0.4", "", "its depth knob curve is malformed ('2:0.4'"),
-                ("both.xml", "2:0.2", '\n  <Extension name="protal_depth_knobs" value="2:0.3"/>', "it has depth knobs twice")):
-            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name[:-4], "--model", self.model(name, value, curve, more))
-            self.assertEqual(rc, 2, log[-3000:])
-            self.assertIn(problem, log)
+        self.assert_default(given)
+
+    def test_malformed_depth_knobs(self):
+        # The malformed values' messages are tested by ModelFeatures.MalformedDepthKnob*; here protal stops on them.
+        for name, value, extension, more, problem in (
+                ("bad", "2:0.3,9:0.4", "protal_depth_knobs", "", None),
+                ("curve_bad", "3:0.2,2:0.4", "protal_depth_knob_curve", "", None),
+                ("both", "2:0.2", "protal_depth_knob_curve", '<Extension name="protal_depth_knobs" value="2:0.3"/>',
+                 "it has depth knobs twice")):
+            with self.subTest(name):
+                self.fails(name, f'<Extension name="{extension}" value="{value}"/>' + more, 2, problem)
 
 
-class FalseCallsTest(WorkDir):
+class FalseCallsTest(KnobSample):
     """A model with calibrated calls (machine_learning_cmdline.py --fdr-calls, in its header): with --fdr F a sample
     reports its highest-scoring taxa while their expected share of false calls stays at F; without --fdr (or with
     --fdr 0 or --knob) the calls are not used and the knob curve or --knob applies."""
-
-    def model(self, name, extensions):
-        with open(db_file("model_pe.xml")) as fh:
-            xml = fh.read()
-        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", lambda m: m.group(1) + "\n  " + extensions, xml, count=1)
-        self.assertEqual(n, 1, "the model has a header")
-        path = self.path(name)
-        with open(path, "w") as fh:
-            fh.write(xml)
-        return path
 
     @staticmethod
     def calls(curve="0:0,1:1", prior="0.5", fdr="0.05"):
         return (f'<Extension name="protal_calibration" value="{curve}"/><Extension name="protal_prior" value="{prior}"/>'
                 f'<Extension name="protal_fdr" value="{fdr}"/>')
 
-    def profile(self, name, *extra):
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
-        self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path(name, "sa.profile")) as fh:
-            return log, fh.read()
-
     def test_calls_only_with_fdr(self):
-        model = self.model("calls.xml", self.calls(fdr="0.000001"))
+        model = model_with_header(db_file("model_pe.xml"), self.path("calls.xml"), self.calls(fdr="0.000001"))
         # Without --fdr the model's calibrated calls are not used, whatever its target: the profile is the default's.
-        log, default_calls = self.profile("none", "--model", model)
+        log, none = self.profile("none", "--model", model)
         self.assertIn("calls at an expected share of false calls of 1e-06 (calibrated, 2 points; training prior 0.5); "
                       "not used (--fdr F would use them)", log)
         self.assertNotIn("expected share of false calls of at most", log)
-        self.assertEqual(default_calls, self.profile("default")[1])
+        self.assert_default(none)
         log, strict = self.profile("strict", "--model", model, "--fdr", "0.000001")
         self.assertIn("; at --fdr 1e-06, the depth knobs are not used", log)
-        self.assertRegex(log, r"Sample sa: \d+ fragments, 0 taxa at an expected share of false calls of at most 1e-06")
+        self.assertRegex(log, r"Sample thin: \d+ fragments, 0 taxa at an expected share of false calls of at most 1e-06")
         self.assertEqual(strict.strip(), "", "a target no taxon meets calls none")
         log, generous = self.profile("generous", "--model", model, "--fdr", "0.9")
         self.assertIn("; at --fdr 0.9", log)
-        self.assertRegex(log, r"Sample sa: \d+ fragments, [1-9]\d* taxa at an expected share of false calls of at most 0.9")
-        self.assertNotEqual(generous.strip(), "")
-        log, off = self.profile("off", "--model", model, "--fdr", "0")
-        self.assertIn("; not used (--fdr F would use them)", log)
-        self.assertEqual(off, default_calls)
-        log, knob = self.profile("knob", "--model", model, "--knob", "0.5")
-        self.assertIn("; not used, --knob is given", log)
-        self.assertEqual(knob, off)
+        self.assertRegex(log, r"Sample thin: \d+ fragments, 3 taxa at an expected share of false calls of at most 0.9")
+        self.assert_knob_zero(generous)
+        for name, extra, said in (("off", ["--fdr", "0"], "; not used (--fdr F would use them)"),
+                                  ("knob", ["--knob", "0.5"], "; not used, --knob is given")):
+            log, profile = self.profile(name, "--model", model, *extra)
+            self.assertIn(said, log)
+            self.assert_default(profile)
 
     def test_fdr_needs_calibrated_calls_and_no_knob(self):
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "uncalibrated", "--fdr", "0.1")
-        self.assertEqual(rc, 2, log[-3000:])
-        self.assertIn("--fdr needs a model with a calibration", log)
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "both", "--fdr", "0.1", "--knob", "0.5")
-        self.assertNotEqual(rc, 0, log[-3000:])
-        self.assertIn("--fdr and --knob exclude each other", log)
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "range", "--fdr", "1")
-        self.assertNotEqual(rc, 0, log[-3000:])
-        self.assertIn("--fdr must be at least 0 and below 1", log)
+        thin = baseline().sam("thin")
+        for name, extra, code, problem in (("uncalibrated", ["--fdr", "0.1"], 2, "--fdr needs a model with a calibration"),
+                                           ("both", ["--fdr", "0.1", "--knob", "0.5"], None, "--fdr and --knob exclude each other"),
+                                           ("range", ["--fdr", "1"], None, "--fdr must be at least 0 and below 1")):
+            with self.subTest(name):
+                rc, log = profile_only(self.work, self.path(name), [thin], *extra, prefixes=["thin"])
+                if code is None:
+                    self.assertNotEqual(rc, 0, log[-3000:])
+                else:
+                    self.assertEqual(rc, code, log[-3000:])
+                self.assertIn(problem, log)
 
     def test_malformed_calibration(self):
-        for name, extensions, problem in (
-                ("decreasing.xml", self.calls(curve="0:0.5,1:0.4"), "its calibration is malformed ('1:0.4'"),
-                ("partial.xml", '<Extension name="protal_fdr" value="0.1"/>', "need all of protal_calibration"),
-                ("prior.xml", self.calls(prior="1"), "its prior is malformed")):
-            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name[:-4], "--model", self.model(name, extensions))
-            self.assertEqual(rc, 2, log[-3000:])
-            self.assertIn(problem, log)
+        for name, extensions, problem in (("decreasing", self.calls(curve="0:0.5,1:0.4"), "its calibration is malformed"),
+                                          ("partial", '<Extension name="protal_fdr" value="0.1"/>', "need all of protal_calibration"),
+                                          ("prior", self.calls(prior="1"), "its prior is malformed")):
+            with self.subTest(name):
+                self.fails(name, extensions, 2, problem)
 
 
-class BuildUniquenessTest(WorkDir):
-    """--build checks every k-mer against the full reference, also those whose core occurs once in the index."""
-
-    def test_a_gene_another_taxon_carries_is_not_unique(self):
-        rng = random.Random(8)
-        genes = {(1, 1): None, (1, 2): None, (2, 1): None}
-        for key in genes:
-            genes[key] = "".join(rng.choice("ACGT") for _ in range(900))
-        db = self.path("db")
-        os.mkdir(db)
-        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
-            offset = 0
-            for (taxid, gene), seq in genes.items():
-                header = f">{taxid}_{gene}\n"
-                fna.write(header + seq + "\n")
-                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
-                offset += len(header) + len(seq) + 1
-        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
-            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
-                     "3\t3\t0\troot\tno rank\t0\t\n"
-                     "1\t3\t0\ts__Alpha one\tspecies\t7\tGCF_1\n"
-                     "2\t3\t0\ts__Beta two\tspecies\t7\tGCF_2\n")
-        # Another genome of taxon 2 carries taxon 1's gene 2 unchanged.
-        full = self.path("full_reference.fna")
-        with open(os.path.join(db, "reference.fna")) as src, open(full, "w") as dst:
-            dst.write(src.read() + ">2_7\n" + genes[(1, 2)] + "\n")
-
-        # --no_bundle: unique_kmers.tsv stays a file of its own.
-        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", "-t", "1", "--db", db,
-                      "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
-        self.assertEqual(rc, 0, log[-3000:])
-        uniques = {}
-        with open(os.path.join(db, "unique_kmers.tsv")) as fh:
-            for line in fh:
-                f = line.split("\t")
-                uniques[(int(f[0]), int(f[1]))] = (int(f[2]), int(f[4]), int(f[8]))
-        self.assertGreater(uniques[(1, 1)][0], 0, uniques)
-        self.assertGreater(uniques[(2, 1)][0], 0, uniques)
-        self.assertGreater(uniques[(1, 2)][2], 0, uniques)
-        self.assertEqual(uniques[(1, 2)][:2], (0, 0), "no k-mer of gene 1_2 is unique to taxon 1")
-        for index in ("index.prx", "index.prx.zst"):  # 3 GB raw; --build compresses by default
-            if os.path.exists(os.path.join(db, index)):
-                os.remove(os.path.join(db, index))
+def gbm_node(value=0.0, feature=0, threshold=0.0, left=0, right=0, leaf=False, missing_left=True):
+    """A node of a tree as HistGradientBoostingClassifier stores it (its predictor's nodes): x <= threshold goes left."""
+    return {"value": value, "is_leaf": leaf, "feature_idx": feature, "num_threshold": threshold, "left": left,
+            "right": right, "missing_go_to_left": missing_left}
 
 
-class BuildAmbiguousBasesTest(WorkDir):
-    """Ambiguous bases (N, IUPAC codes) do not go into the index: k-mers whose window holds one are left out
-    of the counting, the placing and the uniqueness check."""
+class GradientBoostedModelTest(DbTest):
+    """The default model type since 1750475: a gradient-boosted model as scripts/model_pmml.py's write_boosted exports it
+    (a modelChain of regression trees into a logit RegressionModel), loaded by cPMML from a database
+    (tests/e2e/data/model_gbm_small.xml as its model_pe.xml) and scored on the baseline's SAMs of sa and thin. The
+    trees are set by hand, their leaves sums of powers of two: a taxon's probability is the logistic of the baseline
+    plus the leaves its features reach, computed here from the features the dump (the truth annotation) gives. Every
+    leaf is reached by one of the six taxa (the thresholds lie between the mini database's values), and the profiles
+    report exactly the taxa at the knob (0.5) or above: some, not all."""
+
+    MODEL = os.path.join(DATA, "model_gbm_small.xml")
+    FEATURES = ["fragments", "hit_gene_fraction", "identity", "sample_log_fragments"]
+    BASELINE = -0.5
+    # Per round the nodes, as sklearn's predictors hold them; the first's leaves without the baseline.
+    TREES = [
+        # Few fragments (thin's Mockella alpha: 3), or reads on fewer of the genes (Mockella beta: 108 of 115 genes,
+        # the others 109 of 116 and 110 of 117): absent.
+        [gbm_node(feature=0, threshold=10.0, left=1, right=2), gbm_node(-2.0, leaf=True),
+         gbm_node(feature=1, threshold=0.9394, left=3, right=4, missing_left=False), gbm_node(-0.5, leaf=True),
+         gbm_node(1.5, leaf=True)],
+        # Reads with 0.5% substitutions against reads without errors (thin's three pairs of Mockella alpha).
+        [gbm_node(feature=2, threshold=0.999, left=1, right=2, missing_left=False), gbm_node(0.5, leaf=True),
+         gbm_node(-1.0, leaf=True)],
+        # The sample's depth: thin (10^3.42 fragments) against sa (10^3.59).
+        [gbm_node(feature=3, threshold=3.5, left=1, right=2), gbm_node(0.25, leaf=True), gbm_node(-0.25, leaf=True)],
+        # A round whose best split gained nothing: one leaf.
+        [gbm_node(0.125, leaf=True)],
+    ]
+    ANNOTATION = "tests/e2e/test_protal_e2e.py GradientBoostedModelTest: trees set by hand, not trained"
+
+    @classmethod
+    def leaf(cls, tree, row):
+        """The index of the leaf of `tree` that a dump row's features reach."""
+        i = 0
+        while not tree[i]["is_leaf"]:
+            value = float(row[cls.FEATURES[tree[i]["feature_idx"]]])
+            i = tree[i]["left"] if value <= tree[i]["num_threshold"] else tree[i]["right"]
+        return i
+
+    @classmethod
+    def probability(cls, row):
+        raw = cls.BASELINE + sum(tree[cls.leaf(tree, row)]["value"] for tree in cls.TREES)
+        return 1 / (1 + math.exp(-raw))
+
+    @classmethod
+    def exported(cls, path):
+        """Write the trees with model_pmml.write_boosted, from a stand-in of a fitted HistGradientBoostingClassifier."""
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import model_pmml
+
+        class Predictor:
+            def __init__(self, nodes):
+                self.nodes = nodes
+
+        class Model:
+            classes_ = [0, 1]
+            n_features_in_ = len(cls.FEATURES)
+            n_trees_per_iteration_ = 1
+            is_categorical_ = None
+            _baseline_prediction = [[cls.BASELINE]]
+            _predictors = [[Predictor(tree)] for tree in cls.TREES]
+
+        model_pmml.write_boosted(Model(), cls.FEATURES, path, [cls.ANNOTATION])
+        return path
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = baseline()
+        cls.db = symlink_db(os.path.join(cls.work, "db"), extra={"model_pe.xml": cls.MODEL})
+        truths = []
+        for sample in ("sa", "thin"):
+            truths.append(os.path.join(cls.work, f"{sample}.truth.tsv"))
+            with open(truths[-1], "w") as fh:
+                fh.write("".join(f"{t}\n" for t in species().values()))
+        cls.rc, cls.log = profile_only(cls.work, os.path.join(cls.work, "out"), [base.sam("sa"), base.sam("thin")],
+                                       "--profile_truth", ",".join(truths), prefixes=["sa", "thin"], db=cls.db)
+
+    def rows(self, sample):
+        return read_dicts(self.path("out", f"{sample}.profile.truth_annotated"))
+
+    def test_the_fixture_is_what_the_exporter_writes(self):
+        try:
+            import numpy  # noqa: F401  (model_pmml needs it)
+        except ImportError:
+            raise unavailable("numpy is needed to run scripts/model_pmml.py")
+        self.assertEqual(read_text(self.exported(self.path("exported.xml"))), read_text(self.MODEL),
+                         "regenerate the fixture: GradientBoostedModelTest.exported(path)")
+
+    def test_protal_scores_the_hand_computed_probabilities(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertIn("Model of paired-end reads: " + os.path.join(self.db, "model_pe.xml"), self.log)
+        called = rejected = 0
+        reached = set()
+        for sample in ("sa", "thin"):
+            rows = self.rows(sample)
+            self.assertEqual(len(rows), len(species()), sample)
+            for row in rows:
+                expected = self.probability(row)
+                reached |= {(t, self.leaf(tree, row)) for t, tree in enumerate(self.TREES)}
+                self.assertAlmostEqual(float(row["probability"]), expected, delta=1e-12, msg=f"{sample}, {row['taxon_name']}")
+                self.assertEqual(row["prediction"], "1" if expected >= 0.5 else "0", f"{sample}, {row['taxon_name']}")
+                called += expected >= 0.5
+                rejected += expected < 0.5
+            reported = {row["taxon_name"] for row in rows if row["prediction"] == "1"}
+            self.assertEqual(profile_species(read_text(self.path("out", f"{sample}.profile"))), sorted(reported), sample)
+        leaves = {(t, i) for t, tree in enumerate(self.TREES) for i, node in enumerate(tree) if node["is_leaf"]}
+        self.assertEqual(sorted(leaves - reached), [], "leaves no taxon reaches: set the thresholds between the taxa's values")
+        self.assertGreater(called, 0)
+        self.assertGreater(rejected, 0)
+
+    def test_the_trainers_scorer_agrees(self):
+        # scripts/model_pmml.py's PmmlBoosted scores a model as cPMML does (the trainer's knob and calibration use it).
+        try:
+            import numpy as np
+        except ImportError:
+            raise unavailable("numpy is needed to run scripts/model_pmml.py")
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import model_pmml
+        model = model_pmml.load_model(self.MODEL)
+        self.assertEqual(model.features, self.FEATURES)
+        rows = self.rows("sa") + self.rows("thin")
+        X = np.array([[float(row[f]) for f in self.FEATURES] for row in rows])
+        np.testing.assert_allclose(model.predict(X), [float(row["probability"]) for row in rows], rtol=0, atol=1e-12)
+
+
+class BuildIndexTest(ProtalTest):
+    """--build of a few genes: it checks every k-mer against the full reference, also those whose core occurs once in the
+    index; ambiguous bases (N, IUPAC codes) do not go into the index: k-mers whose window holds one are left out of the
+    counting, the placing and the uniqueness check (AmbiguousKmers.* test the windows); a full reference with no other
+    copies of the genes gives no gene conservation factors. And the passes that count and place the k-mers in -t
+    threads (by key range, batches applied in reference order) give the index and unique_kmers.tsv of the one-thread
+    passes (--serial_index_passes): the genes' k-mers in 1 KB batches, those of taxon 2's genes 3-6 in other batches
+    than taxon 1's copies. Both builds compress the index alike (FAST_BUILD), so the same index gives the same
+    index.prx.zst."""
 
     TAXONOMY = ("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
                 "3\t3\t0\troot\tno rank\t0\t\n"
                 "1\t3\t0\ts__Alpha one\tspecies\t7\tGCF_1\n"
                 "2\t3\t0\ts__Beta two\tspecies\t7\tGCF_2\n")
+    CODES = {3: "N", 4: "Y", 5: "R", 6: "k"}  # gene id: the ambiguous base in taxon 1's copy
 
-    def build(self, name, genes):
-        db = self.path(name)
-        os.mkdir(db)
-        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
-            offset = 0
-            for (taxid, gene), seq in genes.items():
-                header = f">{taxid}_{gene}\n"
-                fna.write(header + seq + "\n")
-                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
-                offset += len(header) + len(seq) + 1
-        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
-            fh.write(self.TAXONOMY)
-        reference = os.path.join(db, "reference.fna")
-        rc, log = run(self.work, "--build", "--no_bundle", "--no_compress", "--no_profile", "-t", "2", "--db", db,
-                      "--reference", reference, "--full_reference", reference)
-        self.assertEqual(rc, 0, log[-3000:])
-        totals = {}
-        with open(os.path.join(db, "unique_kmers.tsv")) as fh:
-            for line in fh:
-                f = line.split("\t")
-                totals[(int(f[0]), int(f[1]))] = int(f[8])
-        os.remove(os.path.join(db, "index.prx"))  # 3 GB
-        return totals
-
-    def test_windows_with_an_ambiguous_base_are_not_indexed(self):
-        rng = random.Random(3)
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        rng = random.Random(8)
         genes = {(1, 1): None, (1, 2): None, (2, 1): None}
         for key in genes:
-            genes[key] = "".join(rng.choice("ACGT") for _ in range(3000))
-        clean = self.build("clean", genes)
-        for code in ("N", "Y", "R", "k"):
-            dirty_genes = dict(genes)
-            seq = genes[(1, 1)]
-            dirty_genes[(1, 1)] = seq[:1500] + code + seq[1501:]
-            dirty = self.build("dirty_" + code, dirty_genes)
-            # the other genes are untouched; the 31 windows over the base are gone, so a fifth of them
-            # are fewer syncmers of the gene
-            self.assertEqual(dirty[(1, 2)], clean[(1, 2)])
-            self.assertEqual(dirty[(2, 1)], clean[(2, 1)])
-            lost = clean[(1, 1)] - dirty[(1, 1)]
-            self.assertGreater(lost, 0, code)
-            self.assertLessEqual(lost, 31, code)
-
-
-class ParallelIndexBuildTest(WorkDir):
-    """--build counts and places the k-mers in -t threads (by key range, batches applied in reference
-    order): the index and unique_kmers.tsv are those of the one-thread passes (--serial_index_passes)."""
-
-    @staticmethod
-    def content(name):
-        path = db_file(name)
-        if path.endswith(".zst"):
-            return subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE).stdout
-        with open(path, "rb") as fh:
-            return fh.read()
-
-    @staticmethod
-    def digest(path):
-        sha = hashlib.sha256()
-        with open(path, "rb") as fh:
-            for block in iter(lambda: fh.read(1 << 24), b""):
-                sha.update(block)
-        return sha.hexdigest()
+            genes[key] = "".join(rng.choice("ACGT") for _ in range(900))
+        # Genes 3-6: taxon 2 has a clean copy, taxon 1 the same with one ambiguous base in the middle.
+        for gene, code in cls.CODES.items():
+            seq = "".join(rng.choice("ACGT") for _ in range(3000))
+            genes[(2, gene)] = seq
+            genes[(1, gene)] = seq[:1500] + code + seq[1501:]
+        # Another genome of taxon 2 carries taxon 1's gene 2 unchanged.
+        full = os.path.join(cls.work, "full_reference.fna")
+        cls.logs, cls.outputs = {}, {}
+        # --no_bundle: unique_kmers.tsv stays a file of its own.
+        for name, extra in (("db", ["--index_batch_kb", "1"]), ("serial", ["--serial_index_passes"])):
+            db = write_tiny_db(os.path.join(cls.work, name), genes, cls.TAXONOMY)
+            with open(os.path.join(db, "reference.fna")) as src, open(full, "w") as dst:
+                dst.write(src.read() + ">2_7\n" + genes[(1, 2)] + "\n")
+            rc, cls.logs[name] = run(cls.work, "--build", "--no_bundle", "--no_profile", *FAST_BUILD, *extra, "--db", db,
+                                     "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
+            if rc != 0:
+                raise RuntimeError("protal --build failed:\n" + cls.logs[name][-3000:])
+            cls.outputs[name] = {f: digest(os.path.join(db, f)) for f in ("index.prx.zst", "unique_kmers.tsv")}
+        cls.db = os.path.join(cls.work, "db")
+        cls.uniques = {}  # (taxid, gene): (short unique, long unique, all k-mers)
+        with open(os.path.join(cls.db, "unique_kmers.tsv")) as fh:
+            for line in fh:
+                f = line.split("\t")
+                cls.uniques[(int(f[0]), int(f[1]))] = (int(f[2]), int(f[4]), int(f[8]))
 
     def test_the_index_is_the_same_in_any_threads_and_batches(self):
-        inputs = {f: self.content(f) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")}
-        digests = {}
-        # 16 KB batches: many batches and rounds, records cut across the reads of the file
-        for name, extra in (("serial", ["--serial_index_passes", "-t", "1"]), ("parallel_t1", ["-t", "1"]),
-                            ("parallel_t4", ["-t", "4", "--index_batch_kb", "16"])):
-            db = self.path(name)
-            os.mkdir(db)
-            for f, data in inputs.items():
-                with open(os.path.join(db, f), "wb") as fh:
-                    fh.write(data)
-            reference = os.path.join(db, "reference.fna")
-            rc, log = run(self.work, "--build", "--no_compress", "--no_profile", *extra, "--db", db,
-                          "--reference", reference, "--full_reference", reference)
-            self.assertEqual(rc, 0, log[-3000:])
-            self.assertIn("Pass 2 (place the values) took", log)
-            digests[name] = {f: self.digest(os.path.join(db, f)) for f in ("index.prx", "unique_kmers.tsv")}
-            os.remove(os.path.join(db, "index.prx"))  # 3 GB
-        self.assertEqual(digests["parallel_t1"], digests["serial"])
-        self.assertEqual(digests["parallel_t4"], digests["serial"])
+        self.assertEqual(self.outputs["db"], self.outputs["serial"])
+
+    def test_a_gene_another_taxon_carries_is_not_unique(self):
+        self.assertGreater(self.uniques[(1, 1)][0], 0, self.uniques)
+        self.assertGreater(self.uniques[(2, 1)][0], 0, self.uniques)
+        self.assertGreater(self.uniques[(1, 2)][2], 0, self.uniques)
+        self.assertEqual(self.uniques[(1, 2)][:2], (0, 0), "no k-mer of gene 1_2 is unique to taxon 1")
+
+    def test_windows_with_an_ambiguous_base_are_not_indexed(self):
+        for gene, code in self.CODES.items():
+            with self.subTest(code):
+                # The 31 windows over the base are gone, so a fifth of them are fewer syncmers of the gene.
+                lost = self.uniques[(2, gene)][2] - self.uniques[(1, gene)][2]
+                self.assertGreater(lost, 0)
+                self.assertLessEqual(lost, 31)
+                # Taxon 1's copy shares every k-mer it has with taxon 2's; taxon 2's clean copy has exactly the k-mers
+                # over the base to itself.
+                self.assertEqual(self.uniques[(1, gene)][:2], (0, 0))
+                self.assertEqual(self.uniques[(2, gene)][0], lost)
+
+    def test_no_other_copies_give_no_conservation_factors(self):
+        # The full reference holds the representatives' genes themselves and a copy of a gene the database lacks.
+        self.assertIn("Gene conservation: no factors", self.logs["db"])
+        self.assertFalse(os.path.exists(os.path.join(self.db, "gene_conservation.tsv")))
 
 
 class QcmsaContractTest(WorkDir):
@@ -1140,6 +1541,9 @@ class QcmsaContractTest(WorkDir):
     META_HEADER = ("sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\t"
                    "multi_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\t"
                    "hcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n")
+
+    def qcmsa(self, *args):
+        return run(self.work, QCMSA, *args, binary=sys.executable)
 
     def test_samples_missing_from_the_msa_do_not_count(self):
         with open(self.path("x.raw.msa.fna"), "w") as fh:
@@ -1150,14 +1554,14 @@ class QcmsaContractTest(WorkDir):
             fh.write(self.META_HEADER)
             for sample in ("s1", "s2", "s3", "s4"):  # s3 and s4 are not in the MSA
                 fh.write(f"{sample}\t1\t5\t10\t10\t0\t0\t0\t0\t0\t0\t5\t1\t10\t5\t5\n")
-        args = [QCMSA, self.path("x.raw.msa.fna"), self.path("x.raw.partition.txt"), self.path("x.meta.tsv")]
+        args = [self.path("x.raw.msa.fna"), self.path("x.raw.partition.txt"), self.path("x.meta.tsv")]
 
-        rc, log = run(self.work, *args, "--prefix", self.path("two"), "--gene-min-samples", "2", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("two"), "--gene-min-samples", "2")
         self.assertEqual(rc, 0, log)
         self.assertIn("Loaded meta: 2 samples", log)
         self.assertFalse(os.path.exists(self.path("two.msa.fna")), "2 samples are not more than 2")
 
-        rc, log = run(self.work, *args, "--prefix", self.path("one"), "--gene-min-samples", "1", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("one"), "--gene-min-samples", "1")
         self.assertEqual(rc, 0, log)
         self.assertTrue(os.path.exists(self.path("one.msa.fna")), log)
 
@@ -1171,8 +1575,7 @@ class QcmsaContractTest(WorkDir):
             fh.write(self.META_HEADER)
             for sample, _ in rows[1:]:
                 fh.write(f"{sample}\t1\t5\t8\t8\t0\t0\t0\t0\t0\t0\t5\t1\t8\t5\t5\n")
-        return [QCMSA, self.path(name + ".raw.msa.fna"), self.path(name + ".raw.partition.txt"),
-                self.path(name + ".meta.tsv")]
+        return [self.path(name + ".raw.msa.fna"), self.path(name + ".raw.partition.txt"), self.path(name + ".meta.tsv")]
 
     def read_msa(self, path):
         with open(path) as fh:
@@ -1185,24 +1588,24 @@ class QcmsaContractTest(WorkDir):
         # codes; 6 s1 and s2 differ; 7 and 8 constant.
         args = self.write_species("y", [("y_reference", "AAGA-AAA"), ("s1", "ACAA-CAA"), ("s2", "AAARNCAA"),
                                         ("s3", "AAAA-AAA"), ("s4", "AAAAYAAA")])
-        rc, log = run(self.work, *args, "--prefix", self.path("default"), binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("default"))
         self.assertEqual(rc, 0, log)
         msa = self.read_msa(self.path("default.msa.fna"))
         self.assertEqual(msa["s1"], "ACAACAA", "every column but the one without a base; singletons kept")
         self.assertEqual(msa["y_reference"], "AAGAAAA")
 
-        rc, log = run(self.work, *args, "--prefix", self.path("parsimony"), "--min-parsimony-samples", "2", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("parsimony"), "--min-parsimony-samples", "2")
         self.assertEqual(rc, 0, log)
         # Column 2 (one sample differs) goes; column 3 stays: the reference row is not a sample.
         self.assertEqual(self.read_msa(self.path("parsimony.msa.fna"))["s1"], "AAACAA")
 
-        rc, log = run(self.work, *args, "--prefix", self.path("variable"), "--discard-constant", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("variable"), "--discard-constant")
         self.assertEqual(rc, 0, log)
         self.assertEqual(self.read_msa(self.path("variable.msa.fna"))["s1"], "CAC", "A and R count as constant")
 
     def test_duplicate_names_stop_qcmsa(self):
         args = self.write_species("z", [("z_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s1", "AAAAAAAA")])
-        rc, log = run(self.work, *args, "--prefix", self.path("dup"), binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("dup"))
         self.assertNotEqual(rc, 0, log)
         self.assertIn("names 1 sequence(s) more than once (s1)", log)
 
@@ -1211,10 +1614,10 @@ class QcmsaContractTest(WorkDir):
         # --gene-min-hcov 0.3, so its cell is gap-filled.
         args = self.write_species("c", [("c_reference", "AAAAAAAA"), ("s1", "ACAAAAAA"), ("s2", "AAAAAAAA"),
                                         ("s3", "AC------")])
-        rc, log = run(self.work, *args, "--prefix", self.path("c"), binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("c"))
         self.assertEqual(rc, 0, log)
         self.assertEqual(self.read_msa(self.path("c.msa.fna"))["s3"], "--------", log)
-        rc, log = run(self.work, *args, "--prefix", self.path("c2"), "--gene-min-hcov", "0.2", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("c2"), "--gene-min-hcov", "0.2")
         self.assertEqual(rc, 0, log)
         self.assertEqual(self.read_msa(self.path("c2.msa.fna"))["s3"], "AC------", log)
 
@@ -1236,36 +1639,33 @@ class QcmsaContractTest(WorkDir):
                 m = multi.get(s, 0)
                 for g in range(1, 5):
                     fh.write(f"{s}\t{g}\t20\t1000\t1000\t{m}\t0\t{m / 1000}\t0\t{m / 1000}\t0\t20\t1\t1000\t20\t20\n")
-        args = [QCMSA, self.path("m.raw.msa.fna"), self.path("m.raw.partition.txt"), self.path("m.meta.tsv")]
-        rc, log = run(self.work, *args, "--prefix", self.path("m"), binary="python3")
+        args = [self.path("m.raw.msa.fna"), self.path("m.raw.partition.txt"), self.path("m.meta.tsv")]
+        rc, log = self.qcmsa(*args, "--prefix", self.path("m"))
         self.assertEqual(rc, 0, log)
         msa = self.read_msa(self.path("m.msa.fna"))
         self.assertNotIn("s8", msa, log)
         self.assertEqual(sorted(msa), sorted(["m_reference"] + samples[:7]), log)
         self.assertEqual(len(msa["s7"]), 32, "no gene removed or masked")
-        with open(self.path("m.qcmsa_summary.tsv")) as fh:
-            summary = fh.read()
-        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0020", summary)
+        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0020", read_text(self.path("m.qcmsa_summary.tsv")))
 
         # With a floor of 0.05%, the fence (0.0625%) decides, and s7 goes too.
-        rc, log = run(self.work, *args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.0005", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.0005")
         self.assertEqual(rc, 0, log)
         self.assertEqual(sorted(self.read_msa(self.path("floor.msa.fna"))), sorted(["m_reference"] + samples[:6]))
 
     def test_no_msa_leaves_no_stale_output(self):
         args = self.write_species("w", [("w_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s2", "AAAAAAAA")])
-        rc, log = run(self.work, *args, "--prefix", self.path("w"), binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("w"))
         self.assertEqual(rc, 0, log)
         self.assertTrue(os.path.exists(self.path("w.msa.fna")), log)
-        rc, log = run(self.work, *args, "--prefix", self.path("w"), "--gene-min-samples", "5", binary="python3")
+        rc, log = self.qcmsa(*args, "--prefix", self.path("w"), "--gene-min-samples", "5")
         self.assertEqual(rc, 0, log)
         self.assertFalse(os.path.exists(self.path("w.msa.fna")), "an earlier run's MSA is removed")
         self.assertFalse(os.path.exists(self.path("w.partition.txt")))
-        with open(self.path("w.qcmsa_summary.tsv")) as fh:
-            self.assertIn("status\tno_msa\t\tevery gene was filtered", fh.read())
+        self.assertIn("status\tno_msa\t\tevery gene was filtered", read_text(self.path("w.qcmsa_summary.tsv")))
 
 
-class MapUtilsTest(WorkDir):
+class MapUtilsTest(DbTest):
     """protal_map_utils resolves relative map paths as protal does."""
 
     def test_relative_paths_resolve_like_protal(self):
@@ -1273,8 +1673,8 @@ class MapUtilsTest(WorkDir):
         os.makedirs(self.path("reads"))
         maps = {}
         for sample in ("sa", "sb"):
-            for mate in (1, 2):
-                shutil.copy(os.path.join(READS, f"{sample}_R{mate}.fq"), self.path("reads", f"{sample}_R{mate}.fq"))
+            for mate in (1, 2):  # a few reads: protal must find them, not profile them
+                head_reads(os.path.join(READS, f"{sample}_R{mate}.fq"), self.path("reads", f"{sample}_R{mate}.fq"), 100)
             maps[sample] = self.path("maps", f"{sample}.map")
             with open(maps[sample], "w") as fh:
                 fh.write("#OUTPUT_DIR\tout\n#SAM_OUTPUT_DIR\taln\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\n")
@@ -1288,7 +1688,8 @@ class MapUtilsTest(WorkDir):
 
         rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--no_profile")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertTrue(os.path.isfile(self.path("out", "aln", "sa.sam")), "protal found the reads and wrote OUTPUT_DIR/SAM_OUTPUT_DIR")
+        self.assertTrue(sam_records(self.path("out", "aln", "sa.sam")),
+                        "protal found the reads and wrote OUTPUT_DIR/SAM_OUTPUT_DIR")
 
         rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], binary=tool)
         self.assertEqual(rc, 0, merged)
@@ -1313,31 +1714,34 @@ class MapUtilsTest(WorkDir):
         self.assertNotEqual(rc, 0, "one format only")
 
 
-class RerunTest(WorkDir):
-    """Existing SAM files are reused, and --no_profile is honoured when all of them exist."""
+class RerunTest(DbTest):
+    """Existing SAM files are reused (left as they are), and --no_profile is honoured when all of them exist."""
 
     def test_reruns(self):
+        # The files' times are set an hour back: a file written again gets a time of now.
+        baseline().place_sams(self.path("out"), ["sa", "sb"])
         args = ["--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "4", "--no_qcmsa"]
+        sam = self.path("out", "sa.sam.zst")
+        with open(sam, "rb") as fh:
+            before = fh.read()
+        past = int(time.time()) - 3600
+        os.utime(sam, (past, past))
+
         rc, log = run(self.work, *args)
         self.assertEqual(rc, 0, log[-3000:])
-        sam = find_sams(self.path("out", "sa*.sam"))[0]
-        sam_mtime = os.path.getmtime(sam)
-        time.sleep(1)
-
-        rc, log = run(self.work, *args)
-        self.assertEqual(rc, 0)
         self.assertIn("All alignments are present", log)
-        self.assertEqual(os.path.getmtime(sam), sam_mtime, "SAM untouched by the rerun")
+        self.assertEqual(os.path.getmtime(sam), past, "SAM untouched by the rerun")
+        with open(sam, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        self.assertEqual(read_text(self.path("out", "sa.profile")), baseline().text("sa.profile"))
 
-        profile = glob.glob(self.path("out", "sa*.profile"))[0]
-        profile_mtime = os.path.getmtime(profile)
-        time.sleep(1)
+        os.utime(self.path("out", "sa.profile"), (past, past))
         rc, log = run(self.work, *args, "--no_profile")
-        self.assertEqual(rc, 0)
-        self.assertEqual(os.path.getmtime(profile), profile_mtime, "--no_profile leaves the profiles alone")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(os.path.getmtime(self.path("out", "sa.profile")), past, "--no_profile leaves the profiles alone")
 
 
-class FailureTest(WorkDir):
+class FailureTest(DbTest):
     """Failures that do not stop the run are summarised and make protal exit 1."""
 
     def test_mismatched_read_counts(self):
@@ -1349,179 +1753,143 @@ class FailureTest(WorkDir):
             fh.writelines(r1)
         with open(self.path("bad_R2.fq"), "w") as fh:
             fh.writelines(r2)
+        baseline().place_sams(self.path("out_bad"), ["sa"], ["good"])
         rc, log = run(self.work, "--db", DB, "-1", f"{READS}/sa_R1.fq,{self.path('bad_R1.fq')}",
                       "-2", f"{READS}/sa_R2.fq,{self.path('bad_R2.fq')}", "--prefix", "good,bad",
                       "-o", "out_bad", "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 1, log[-3000:])
         self.assertRegex(log, r"protal finished with \d+ error")
-        self.assertTrue(glob.glob(self.path("out_bad", "good*.profile")), "the other sample is still profiled")
+        self.assertEqual(read_text(self.path("out_bad", "good.profile")), baseline().text("sa.profile"),
+                         "the other sample is still profiled")
+        self.assertFalse(find_sams(self.path("out_bad", "bad.sam")))
 
     def test_missing_qcmsa(self):
         # Two samples, so that there are strain MSAs for qcmsa to filter.
+        baseline().place_sams(self.path("out_noqc"), ["sa", "sb"])
         rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out_noqc", "-t", "2",
                       "--qcmsa_script", self.path("no", "such", "qcmsa"))
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 1, log[-3000:])
         self.assertIn("qcmsa not found", log)
 
-    def test_truncated_index(self):
-        bad_db = self.path("bad_db")
-        os.mkdir(bad_db)
-        index = db_file("index.prx")
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if not os.path.basename(f).startswith(("index.prx", "database.protal")):
-                os.symlink(f, os.path.join(bad_db, os.path.basename(f)))
-        with open(index, "rb") as src, open(os.path.join(bad_db, os.path.basename(index)), "wb") as dst:
-            dst.write(src.read(min(1 << 20, os.path.getsize(index) // 2)))
-        rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_idx", "-t", "1", "--no_qcmsa")
-        self.assertEqual(rc, 8)
-        self.assertRegex(log, r"Invalid index .*truncated or corrupt")
 
+class BadInputTest(DbTest):
+    """Read files protal cannot use stop it before aligning (exit 30) or fail their sample (exit 1) with the reason,
+    instead of giving an empty profile and exit 0, and the other samples of the run are profiled; pipes and
+    compressed files are read as plain files are. One run of the readable variants, one of the broken ones."""
 
-class BadInputTest(WorkDir):
-    """Read files protal cannot use stop it before aligning (exit 30) or fail their sample (exit 1)
-    with the reason, instead of giving an empty profile and exit 0; pipes are read as files are."""
-
-    MATES = property(lambda self: (os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sa_R2.fq")))
-
-    def sample(self, out, r1, r2):
-        return run(self.work, "--db", DB, "-1", r1, "-2", r2, "--prefix", "s", "-o", out, "-t", "2",
-                   "--no_qcmsa", timeout=300)
-
-    def assert_no_sam(self, out):
-        self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no SAM may be written")
-
-    def test_reads_that_are_not_fastq_fail_their_sample(self):
-        # e.g. bzip2-compressed reads, which protal does not read (they go through a pipe: <(bzcat ...))
-        for name in ("b_R1.fq.bz2", "b_R2.fq.bz2"):
-            with open(self.path(name), "wb") as fh:
-                fh.write(b"BZh91AY&SY" + random.Random(name).randbytes(4000))
-        rc, log = self.sample("out_bz2", self.path("b_R1.fq.bz2"), self.path("b_R2.fq.bz2"))
-        self.assertEqual(rc, 1, log[-3000:])
-        self.assertIn("Reading the FASTQ files of sample s failed", log)
-        self.assert_no_sam("out_bz2")
-
-    def test_corrupt_zstd_reads_fail_their_sample(self):
-        for name in ("z_R1.fq.zst", "z_R2.fq.zst"):
-            with open(self.path(name), "wb") as fh:
-                fh.write(b"\x28\xb5\x2f\xfd" + random.Random(name).randbytes(4000))
-        rc, log = self.sample("out_zst", self.path("z_R1.fq.zst"), self.path("z_R2.fq.zst"))
-        self.assertEqual(rc, 1, log[-3000:])
-        self.assertRegex(log, r"The FASTQ files of sample s are truncated or corrupt \(.*zstd frame 1 \((corrupt|truncated) "
-                              r"file\?\)")
-        self.assert_no_sam("out_zst")
-
-    def test_zstd_reads(self):
-        # zstd-compressed reads (by their first bytes): two frames one after the other (cat a.zst b.zst), as files and
-        # from pipes, profile as the plain files do.
-        if not shutil.which("zstd"):
-            self.skipTest("needs the zstd command")
-        r1, r2 = self.MATES
-        rc, log = self.sample("out_plain", r1, r2)
-        self.assertEqual(rc, 0, log[-3000:])
-        zst = []
-        for src in (r1, r2):
-            with open(src, "rb") as fh:
-                data = fh.read()
-            half = data.index(b"\n@", len(data) // 2) + 1
-            frames = b"".join(subprocess.run(["zstd", "-q", "-c", "-3"], input=part, check=True, stdout=subprocess.PIPE).stdout
-                              for part in (data[:half], data[half:]))
-            zst.append(frames)
-            with open(self.path(os.path.basename(src) + ".zst"), "wb") as fh:
-                fh.write(frames)
-        rc, log = self.sample("out_zst", *(self.path(os.path.basename(src) + ".zst") for src in (r1, r2)))
-        self.assertEqual(rc, 0, log[-3000:])
-        fifos = [self.path("zpipe_R1.fq.zst"), self.path("zpipe_R2.fq.zst")]
-        for fifo in fifos:
-            os.mkfifo(fifo)
-
-        def feed(data, fifo):
-            with open(fifo, "wb") as fout:
-                fout.write(data)
-
-        writers = [threading.Thread(target=feed, args=(data, fifo), daemon=True) for data, fifo in zip(zst, fifos)]
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        r1, r2 = os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sa_R2.fq")
+        with open(r1, "rb") as fh:
+            data1 = fh.read()
+        with open(r2, "rb") as fh:
+            data2 = fh.read()
+        # Readable: sa's reads compressed with zstd, two frames one after the other (cat a.zst b.zst), as files (zst)
+        # and from pipes (zpipe); from pipes, gzipped and plain (pipe, as from process substitution, -1 <(zcat
+        # a.fq.gz)); with mates of other names (names); and empty files (empty).
+        cls.samples = {}
+        cls.feeds = []
+        cls.zstd = shutil.which("zstd") is not None
+        if cls.zstd:
+            frames = []
+            for data in (data1, data2):
+                half = data.index(b"\n@", len(data) // 2) + 1
+                frames.append(b"".join(subprocess.run(["zstd", "-q", "-c", "-3"], input=part, check=True,
+                                                      stdout=subprocess.PIPE).stdout for part in (data[:half], data[half:])))
+            cls.samples["zst"] = [cls.write("z_R1.fq.zst", frames[0]), cls.write("z_R2.fq.zst", frames[1])]
+            cls.samples["zpipe"] = [cls.fifo("zpipe_R1.fq.zst", frames[0]), cls.fifo("zpipe_R2.fq.zst", frames[1])]
+        cls.samples["pipe"] = [cls.fifo("pipe_R1.fq.gz", gzip.compress(data1)), cls.fifo("pipe_R2.fq", data2)]
+        lines = data2.decode().splitlines(keepends=True)
+        cls.renamed = len(lines) // 4
+        for i in range(0, len(lines), 4):
+            lines[i] = lines[i].replace("@sa.", "@other.", 1)
+        cls.samples["names"] = [r1, cls.write("renamed_R2.fq", "".join(lines).encode())]
+        cls.samples["empty"] = [cls.write("empty_R1.fq", b""), cls.write("empty_R2.fq", b"")]
+        writers = [threading.Thread(target=cls.feed, args=feed, daemon=True) for feed in cls.feeds]
         for writer in writers:
             writer.start()
-        rc, log = self.sample("out_zpipes", *fifos)
-        self.assertEqual(rc, 0, log[-3000:])
+        cls.rc, cls.log = cls.sample_run("out", cls.samples)
         for writer in writers:
             writer.join(timeout=10)
-        with open(glob.glob(self.path("out_plain", "*.profile"))[0]) as fh:
-            plain = fh.read()
-        for out in ("out_zst", "out_zpipes"):
-            with open(glob.glob(self.path(out, "*.profile"))[0]) as fh:
-                self.assertEqual(fh.read(), plain, out)
+
+        # Broken, beside a good sample (sa's reads): bzip2-compressed reads, which protal does not read (they go through
+        # a pipe: <(bzcat ...)); corrupt zstd; a damaged gzip member.
+        half = len(data1) // 2
+        cls.broken = {
+            "bz2": [cls.write(f"b_R{m}.fq.bz2", b"BZh91AY&SY" + random.Random(m).randbytes(4000)) for m in (1, 2)],
+            "zstd": [cls.write(f"c_R{m}.fq.zst", b"\x28\xb5\x2f\xfd" + random.Random(m + 2).randbytes(4000)) for m in (1, 2)],
+            "gzip": [cls.write("damaged_R1.fq.gz", gzip.compress(data1[:half], mtime=0) + b"\x1fX" +
+                               gzip.compress(data1[half:], mtime=0)[2:]), r2],
+            "good": [r1, r2]}
+        cls.broken_rc, cls.broken_log = cls.sample_run("out_broken", cls.broken)
+
+    @classmethod
+    def write(cls, name, data):
+        path = os.path.join(cls.work, name)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return path
+
+    @classmethod
+    def fifo(cls, name, data):
+        path = os.path.join(cls.work, name)
+        os.mkfifo(path)
+        cls.feeds.append((data, path))
+        return path
+
+    @staticmethod
+    def feed(data, fifo):
+        with open(fifo, "wb") as fout:
+            fout.write(data)
+
+    @classmethod
+    def sample_run(cls, out, samples):
+        return run(cls.work, "--db", DB, "-1", ",".join(f for f, _ in samples.values()),
+                   "-2", ",".join(s for _, s in samples.values()), "--prefix", ",".join(samples), "-o", out, "-t", "2",
+                   "--no_qcmsa", "--no_strains", timeout=300)
+
+    def test_compressed_reads_and_pipes_profile_as_the_plain_files(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        for sample in ("zst", "zpipe", "pipe"):
+            if sample in self.samples:
+                with self.subTest(sample):
+                    self.assertEqual(read_text(self.path("out", f"{sample}.profile")), baseline().text("sa.profile"))
+        if not self.zstd:
+            raise unavailable("the zstd command is needed to write zstd-compressed reads")
+
+    def test_mates_of_other_names_are_warned_about(self):
+        self.assertRegex(self.log, rf"Warning: sample names: the mates of {self.renamed} read pair\(s\) have different names "
+                                   r"\(e\.g\. sa\.(\d+)/1, other\.\1/2\)")
+
+    def test_empty_read_files_are_warned_about(self):
+        self.assertIn("Warning: sample empty has no reads", self.log)
+
+    def test_unusable_reads_fail_their_sample(self):
+        # Which sample failed, and that it alone did (the reasons' wording: SeqReader's unit tests).
+        self.assertEqual(self.broken_rc, 1, self.broken_log[-3000:])
+        self.assertIn("Reading the FASTQ files of sample bz2 failed", self.broken_log)
+        self.assertIn("The FASTQ files of sample zstd are truncated or corrupt", self.broken_log)
+        self.assertIn("The FASTQ files of sample gzip are truncated or corrupt", self.broken_log)
+        for sample in ("bz2", "zstd", "gzip"):
+            self.assertFalse(glob.glob(self.path("out_broken", f"{sample}.sam*")), f"{sample}: no SAM may be written")
+        self.assertEqual(read_text(self.path("out_broken", "good.profile")), baseline().text("sa.profile"),
+                         "the good sample is profiled as on its own")
 
     def test_an_unreadable_read_file_stops_protal(self):
-        r1, r2 = self.MATES
-        rc, log = self.sample("out_dir", self.work, r2)
+        r1, r2 = os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sa_R2.fq")
+        rc, log = run(self.work, "--db", DB, "-1", self.work, "-2", r2, "--prefix", "s", "-o", "out_dir")
         self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn(f"-1 file cannot be read: {self.work} (it is a directory)", log)
+        self.assertIn(f"-1 file cannot be read: {self.work}", log)
         if os.geteuid() != 0:  # root reads any file
             locked = self.path("locked_R2.fq")
             shutil.copy(r2, locked)
             os.chmod(locked, 0)
-            rc, log = self.sample("out_locked", r1, locked)
+            rc, log = run(self.work, "--db", DB, "-1", r1, "-2", locked, "--prefix", "s", "-o", "out_locked")
             self.assertEqual(rc, 30, log[-3000:])
-            self.assertIn(f"-2 file cannot be read: {locked} (Permission denied)", log)
-
-    def test_a_damaged_gzip_member_fails_its_sample(self):
-        r1, r2 = self.MATES
-        with open(r1, "rb") as fh:
-            data = fh.read()
-        half = len(data) // 2
-        damaged = gzip.compress(data[:half], mtime=0) + b"\x1fX" + gzip.compress(data[half:], mtime=0)[2:]
-        with open(self.path("damaged_R1.fq.gz"), "wb") as fh:
-            fh.write(damaged)
-        rc, log = self.sample("out_damaged", self.path("damaged_R1.fq.gz"), r2)
-        self.assertEqual(rc, 1, log[-3000:])
-        self.assertRegex(log, r"The FASTQ files of sample s are truncated or corrupt \(.*: the data at byte \d+, "
-                              r"after gzip member 1, is no gzip member")
-        self.assert_no_sam("out_damaged")
-
-    def test_reads_from_pipes(self):
-        # As from process substitution (-1 <(zcat a.fq.gz)): the files are read once, as they come.
-        r1, r2 = self.MATES
-        rc, log = self.sample("out_files", r1, r2)
-        self.assertEqual(rc, 0, log[-3000:])
-        fifos = [self.path("pipe_R1.fq.gz"), self.path("pipe_R2.fq")]
-        for fifo in fifos:
-            os.mkfifo(fifo)
-
-        def feed(src, fifo, compress):
-            with open(src, "rb") as fin, open(fifo, "wb") as fout:
-                fout.write(gzip.compress(fin.read()) if compress else fin.read())
-
-        writers = [threading.Thread(target=feed, args=(src, fifo, fifo.endswith(".gz")), daemon=True)
-                   for src, fifo in zip((r1, r2), fifos)]
-        for writer in writers:
-            writer.start()
-        rc, log = self.sample("out_pipes", *fifos)
-        self.assertEqual(rc, 0, log[-3000:])
-        for writer in writers:
-            writer.join(timeout=10)
-        with open(glob.glob(self.path("out_files", "*.profile"))[0]) as files, \
-                open(glob.glob(self.path("out_pipes", "*.profile"))[0]) as pipes:
-            self.assertEqual(pipes.read(), files.read())
-
-    def test_mates_of_other_names_are_warned_about(self):
-        r1, r2 = self.MATES
-        with open(r2) as fh:
-            lines = fh.readlines()
-        for i in range(0, len(lines), 4):
-            lines[i] = lines[i].replace("@sa.", "@other.", 1)
-        with open(self.path("renamed_R2.fq"), "w") as fh:
-            fh.writelines(lines)
-        rc, log = self.sample("out_names", r1, self.path("renamed_R2.fq"))
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertRegex(log, rf"Warning: sample s: the mates of {len(lines) // 4} read pair\(s\) have different names "
-                              r"\(e\.g\. sa\.(\d+)/1, other\.\1/2\)")
-
-    def test_empty_read_files_are_warned_about(self):
-        for name in ("empty_R1.fq", "empty_R2.fq"):
-            open(self.path(name), "w").close()
-        rc, log = self.sample("out_empty", self.path("empty_R1.fq"), self.path("empty_R2.fq"))
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Warning: sample s has no reads", log)
+            self.assertIn(f"-2 file cannot be read: {locked}", log)
+        for out in ("out_dir", "out_locked"):
+            self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no read may be aligned")
 
 
 def is_seekable(path):
@@ -1531,38 +1899,44 @@ def is_seekable(path):
         return fh.read(4) == b"\xb1\xea\x92\x8f"
 
 
-class CompressedDatabaseTest(WorkDir):
+class CompressedDatabaseTest(DbTest):
     """Raw, seekable (--compress_db --no_bundle, loaded in parallel), single-frame (zstd CLI) and
     single-file (--compress_db: database.protal) copies of the database give identical results,
-    with one thread or several."""
+    with one thread or several. The raw index (~3 GB, a fixed-size key map) lives only while setUpClass makes the
+    copies and the raw run; its digest stands for it after."""
 
     KINDS = ("raw", "seekable", "single", "bundle")
     FILES = ("index.prx", "reference.fna", "reference.map", "internal_taxonomy.dmp", "unique_kmers.tsv", "model_pe.xml")
+    BIG = ("index.prx", "reference.fna")
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        if not shutil.which("zstd"):
-            raise unittest.SkipTest("the zstd CLI is needed to make raw and compressed copies of the database")
+        require_zstd("to make raw and compressed copies of the database")
         cls.dbs = {kind: os.path.join(cls.work, f"{kind}_db") for kind in cls.KINDS}
         for d in cls.dbs.values():
             os.mkdir(d)
-        big = ("index.prx", "reference.fna")
         for f in glob.glob(os.path.join(FILES, "*")):
             name = os.path.basename(f)
-            if not name.startswith(big) and name != "database.protal":
+            if not name.startswith(cls.BIG) and name != "database.protal":
                 for d in cls.dbs.values():
                     os.symlink(f, os.path.join(d, name))
         # A raw copy: --decompress_db on symlinks to the database's files (a compressed index is in
         # protal's column format, which zstd -d does not turn back into index.prx).
-        for name in big:
+        for name in cls.BIG:
             path = db_file(name)
             os.symlink(path, os.path.join(cls.dbs["raw"], os.path.basename(path)))
         cls.decompress_rc, cls.decompress_log = run(cls.work, "--decompress_db", "--db", cls.dbs["raw"], "-t", "4")
-        for name in big:
+        if cls.decompress_rc != 0:
+            raise RuntimeError("protal --decompress_db failed:\n" + cls.decompress_log[-3000:])
+        raw_index = os.path.join(cls.dbs["raw"], "index.prx")
+        cls.raw_digest = digest(raw_index)
+        cls.raw_files = {name: (os.path.isfile(os.path.join(cls.dbs["raw"], name)),
+                                os.path.lexists(os.path.join(cls.dbs["raw"], name + ".zst"))) for name in cls.BIG}
+        for name in cls.BIG:
             raw = os.path.join(cls.dbs["raw"], name)
-            # -f: raw may be a symlink, which the zstd CLI skips otherwise.
-            subprocess.run(["zstd", "-q", "-f", "-3", "--long=27", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
+            # One frame, no seek table (-f: raw may be a symlink, which the zstd CLI skips otherwise).
+            subprocess.run(["zstd", "-q", "-f", "-1", "-T0", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
                            check=True)
             os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
             os.symlink(raw, os.path.join(cls.dbs["bundle"], name))
@@ -1574,30 +1948,34 @@ class CompressedDatabaseTest(WorkDir):
                                                 "-t", "4", *small)
         cls.bundle_rc, cls.bundle_log = run(cls.work, "--compress_db", "--db", cls.dbs["bundle"], "-t", "4", *small)
         cls.bundle = os.path.join(cls.dbs["bundle"], "database.protal")
+        cls.raw_kept = {name: os.path.exists(os.path.join(cls.dbs["raw"], name)) for name in cls.BIG}
+        cls.expected = cls.result(cls.dbs["raw"], "out_raw_1", 1)
+        os.remove(raw_index)
 
-    def result(self, db, out, threads, *extra):
-        """Sorted SAM records and profile of sample sa on db."""
-        rc, log = run(self.work, "--db", db, *reads("sa"), "-o", out, "-t", str(threads), "--no_qcmsa", *extra)
-        self.assertEqual(rc, 0, log[-3000:])
-        with open_sam(find_sams(self.path(out, "sa*.sam"))[0]) as sam, open(glob.glob(self.path(out, "sa*.profile"))[0]) as prof:
-            return sorted(line for line in sam if not line.startswith("@")), prof.read(), log
+    @classmethod
+    def result(cls, db, out, threads, *extra):
+        """Sorted SAM records, profile and log of sample sa on db."""
+        rc, log = run(cls.work, "--db", db, *reads("sa"), "-o", out, "-t", str(threads), "--no_qcmsa", *extra)
+        if rc != 0:
+            raise AssertionError(f"protal exited {rc} on {db}:\n" + log[-3000:])
+        with open_sam(find_sams(os.path.join(cls.work, out, "sa.sam"))[0]) as sam:
+            records = sorted(line for line in sam if not line.startswith("@"))
+        return records, read_text(os.path.join(cls.work, out, "sa.profile")), log
 
     def test_decompress_db(self):
-        self.assertEqual(self.decompress_rc, 0, self.decompress_log[-3000:])
-        for name in ("index.prx", "reference.fna"):
-            self.assertTrue(os.path.isfile(os.path.join(self.dbs["raw"], name)), f"raw {name}")
-            self.assertFalse(os.path.lexists(os.path.join(self.dbs["raw"], name + ".zst")))
+        for name in self.BIG:
+            self.assertEqual(self.raw_files[name], (True, False), f"raw {name}, no {name}.zst")
         with open(os.path.join(self.dbs["raw"], "reference.map"), "rb") as fh:
             ends = [int(line.split()[3]) for line in fh]
         self.assertGreaterEqual(os.path.getsize(os.path.join(self.dbs["raw"], "reference.fna")), max(ends))
 
     def test_compress_db(self):
         self.assertEqual(self.compress_rc, 0, self.compress_log[-3000:])
-        for name in ("index.prx", "reference.fna"):
+        for name in self.BIG:
             self.assertFalse(os.path.lexists(os.path.join(self.dbs["seekable"], name)), f"{name} replaced")
             self.assertTrue(is_seekable(os.path.join(self.dbs["seekable"], name + ".zst")), f"{name}.zst is seekable")
             self.assertFalse(is_seekable(os.path.join(self.dbs["single"], name + ".zst")))
-            self.assertTrue(os.path.exists(os.path.join(self.dbs["raw"], name)), "the raw files stay")
+            self.assertTrue(self.raw_kept[name], "the raw files stay")
         self.assertFalse(os.path.exists(os.path.join(self.dbs["seekable"], "database.protal")))
         head = subprocess.run(["zstd", "-dc", os.path.join(self.dbs["seekable"], "index.prx.zst")],
                               stdout=subprocess.PIPE).stdout[:8]
@@ -1631,17 +2009,19 @@ class CompressedDatabaseTest(WorkDir):
     def test_round_trip_is_byte_identical(self):
         """--decompress_db of the column-format index, and of the single file, gives exactly the raw files."""
         for kind in ("seekable", "bundle"):
-            db = self.path(f"round_trip_{kind}_db")
-            os.mkdir(db)
-            for f in glob.glob(os.path.join(self.dbs[kind], "*")):
-                os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
-            rc, log = run(self.work, "--decompress_db", "--db", db, "-t", "4")
-            self.assertEqual(rc, 0, log[-3000:])
-            self.assertFalse(os.path.lexists(os.path.join(db, "database.protal")))
-            for name in self.FILES:
-                self.assertTrue(filecmp.cmp(os.path.join(db, name), os.path.join(self.dbs["raw"], name), shallow=False),
-                                f"{kind}: {name}")
-            shutil.rmtree(db)  # a raw index.prx takes ~3 GB
+            with self.subTest(kind):
+                db = self.path(f"round_trip_{kind}_db")
+                os.mkdir(db)
+                for f in glob.glob(os.path.join(self.dbs[kind], "*")):
+                    os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
+                rc, log = run(self.work, "--decompress_db", "--db", db, "-t", "4")
+                self.assertEqual(rc, 0, log[-3000:])
+                self.assertFalse(os.path.lexists(os.path.join(db, "database.protal")))
+                self.assertEqual(digest(os.path.join(db, "index.prx")), self.raw_digest, f"{kind}: index.prx")
+                for name in self.FILES[1:]:
+                    self.assertTrue(filecmp.cmp(os.path.join(db, name), os.path.join(self.dbs["raw"], name), shallow=False),
+                                    f"{kind}: {name}")
+                shutil.rmtree(db)  # a raw index.prx takes ~3 GB
 
     def test_unpack_db(self):
         """--unpack_db writes the files (index.prx.zst, reference.fna raw) and keeps database.protal."""
@@ -1657,19 +2037,20 @@ class CompressedDatabaseTest(WorkDir):
         self.assertTrue(is_seekable(os.path.join(out, "index.prx.zst")))
 
     def test_identical_results(self):
-        expected = self.result(self.dbs["raw"], "out_raw_1", 1)
-        for kind in self.KINDS:
-            for threads in (1, 4):
-                if (kind, threads) == ("raw", 1):
-                    continue
-                sam, profile, log = self.result(self.dbs[kind], f"out_{kind}_{threads}", threads)
+        # The raw index with one thread, against the baseline (the test database, 4 threads) and the other kinds (in
+        # frames of 1 MB, loaded on several threads). The single file named directly (the baseline names its folder).
+        base = baseline()
+        with open_sam(base.sam("sa")) as sam:
+            self.assertEqual(self.expected[0], sorted(line for line in sam if not line.startswith("@")))
+        self.assertEqual(self.expected[1], base.text("sa.profile"))
+        for kind, db, threads in (("seekable", self.dbs["seekable"], 4), ("single", self.dbs["single"], 2),
+                                  ("bundle", self.bundle, 4)):
+            with self.subTest(kind):
+                sam, profile, log = self.result(db, f"out_{kind}_{threads}", threads)
                 where = f"index.prx in {self.bundle}" if kind == "bundle" else os.path.join(self.dbs[kind], "index.prx")
                 self.assertIn("Load index " + where, log)
-                self.assertEqual(sam, expected[0], f"SAM differs: {kind} database, {threads} threads")
-                self.assertEqual(profile, expected[1], f"profile differs: {kind} database, {threads} threads")
-        # The single file named directly.
-        sam, profile, log = self.result(self.bundle, "out_bundle_file", 4)
-        self.assertEqual((sam, profile), expected[:2])
+                self.assertEqual(sam, self.expected[0], f"SAM differs: {kind} database, {threads} threads")
+                self.assertEqual(profile, self.expected[1], f"profile differs: {kind} database, {threads} threads")
 
     def test_corrupt_seekable_index(self):
         bad_db = self.path("bad_seekable_db")
@@ -1730,191 +2111,186 @@ class CompressedDatabaseTest(WorkDir):
             self.assertEqual(proc.returncode, 0, proc.stdout[-3000:])
         self.assertIn(f"separate files in {db}", proc.stdout)
         self.assertNotIn("Preload genomes took", proc.stdout)
-        expected = self.result(self.dbs["raw"], "out_lazy_expected", 2)
-        with open_sam(find_sams(self.path("out_lazy_file", "sa*.sam"))[0]) as sam:
-            self.assertEqual(sorted(line for line in sam if not line.startswith("@")), expected[0])
-        with open(glob.glob(self.path("out_lazy_file", "sa*.profile"))[0]) as prof:
-            self.assertEqual(prof.read(), expected[1])
+        with open_sam(find_sams(self.path("out_lazy_file", "sa.sam"))[0]) as sam:
+            self.assertEqual(sorted(line for line in sam if not line.startswith("@")), self.expected[0])
+        self.assertEqual(read_text(self.path("out_lazy_file", "sa.profile")), self.expected[1])
 
-class ReadTypeModelTest(WorkDir):
-    """A database holds one presence model per read type (--read_type); --add_model stores one."""
+
+class ReadTypeModelTest(DbTest):
+    """A database holds one presence model per read type (--read_type); --add_model stores one. Each test works on a
+    copy of its own of the test database's single file (about 1 MB). The model added is the small gradient-boosted one
+    of GradientBoostedModelTest: --add_model compresses what it stores at zstd level 19, which takes seconds for the
+    mini database's 10 MB random forest."""
+
+    MODEL = os.path.join(DATA, "model_gbm_small.xml")
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # A single-file database of our own, which --add_model may rewrite.
-        cls.db = os.path.join(cls.work, "db")
-        os.mkdir(cls.db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if os.path.basename(f) != "database.protal":
-                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
-        cls.pack_rc, cls.pack_log = run(cls.work, "--compress_db", "--db", cls.db, "-t", "4", "--compress_level", "3")
-        cls.bundle = os.path.join(cls.db, "database.protal")
-        cls.pe_rc, cls.pe_log = run(cls.work, "--db", cls.db, *reads("sa"), "-o", "out_pe", "-t", "2", "--no_qcmsa")
+        # The test database's single file, or its files packed.
+        cls.source = single_file(DB)
+        if not cls.source:
+            packed = symlink_db(os.path.join(cls.work, "source"))
+            rc, log = run(cls.work, "--compress_db", "--db", packed, "--compress_level", "1", "-t", "4")
+            if rc != 0:
+                raise RuntimeError("protal --compress_db failed:\n" + log[-3000:])
+            cls.source = os.path.join(packed, "database.protal")
+        # sa's profile with the small model, of the paired-end reads and of the single-end ones (read_type_run's sa).
+        cls.expected = {}
+        for name, sam, model in (("pe", baseline().sam("sa"), "--model"), ("se", read_type_run().sam("sa"), "--model_se")):
+            out = os.path.join(cls.work, f"expected_{name}")
+            rc, log = profile_only(cls.work, out, [sam], model, cls.MODEL, prefixes=["sa"])
+            if rc != 0:
+                raise RuntimeError("protal --profile_only failed:\n" + log[-3000:])
+            cls.expected[name] = read_text(os.path.join(out, "sa.profile"))
 
-    def profile_only(self, out, *extra):
-        sam = find_sams(self.path("out_pe", "sa*.sam"))[0]
-        return run(self.work, "--db", self.db, "--profile_only", sam, "--prefix", "sa", "-o", out, "-t", "2",
-                   "--no_qcmsa", *extra)
+    def copy(self, name):
+        """A copy of the test database's single file: (its folder, the file)."""
+        os.mkdir(self.path(name))
+        shutil.copy(self.source, self.path(name, "database.protal"))
+        return self.path(name), self.path(name, "database.protal")
+
+    def profile_only(self, db, out, *extra, sam=None):
+        return profile_only(self.work, self.path(out), [sam or baseline().sam("sa")], *extra, prefixes=["sa"], db=db)
 
     def test_add_model_for_a_read_type(self):
-        self.assertEqual(self.pack_rc, 0, self.pack_log[-3000:])
-        self.assertEqual(self.pe_rc, 0, self.pe_log[-3000:])
-        self.assertIn("Model of paired-end reads: model_pe.xml in " + self.bundle, self.pe_log)
-        rc, log = self.profile_only("out_pb", "--read_type", "pb")
+        db, bundle = self.copy("db_add")
+        rc, log = self.profile_only(db, "out_pe")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model of paired-end reads: model_pe.xml in " + bundle, log)
+        self.assertEqual(read_text(self.path("out_pe", "sa.profile")), baseline().text("sa.profile"))
+        rc, log = self.profile_only(db, "out_pb", "--read_type", "pb")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("no model for --read_type pb (PacBio reads): model_PB.xml in", log)
-        self.assertIn("--add_model MODEL.xml --read_type pb --db " + self.bundle, log)
+        self.assertIn("--add_model MODEL.xml --read_type pb --db " + bundle, log)
 
-        # The paired-end model stored as the single-end one: the same profile.
-        rc, log = run(self.work, "--add_model", db_file("model_pe.xml"), "--read_type", "se", "--db", self.db, "-t", "2")
+        # A model stored as the single-end one: paired-end reads profiled as single-end ones with it, as with the model
+        # given as a file to paired-end reads.
+        rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "se", "--db", db, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Stored", log)
+        self.assertIn(f"Stored {self.MODEL} as model_se.xml in {bundle}", log)
         self.assertRegex(log, r"Models for read types: pe, se\b")
-        rc, log = self.profile_only("out_se", "--read_type", "se")
+        rc, log = self.profile_only(db, "out_se", "--read_type", "se")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Model of single-end reads: model_se.xml in " + self.bundle, log)
+        self.assertIn("Model of single-end reads: model_se.xml in " + bundle, log)
         self.assertIn("holds paired-end reads; profiled as single-end reads (se, --read_type or READ_TYPE)", log)
-        with open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as a, open(glob.glob(self.path("out_se", "sa*.profile"))[0]) as b:
-            self.assertEqual(a.read(), b.read())
-        rc, log = run(self.work, "--unpack_db", "--db", self.bundle, "--unpack_dir", self.path("unpacked"))
+        self.assertEqual(read_text(self.path("out_se", "sa.profile")), self.expected["pe"])
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked"))
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertTrue(filecmp.cmp(self.path("unpacked", "model_se.xml"), db_file("model_pe.xml"), shallow=False))
+        self.assertTrue(filecmp.cmp(self.path("unpacked", "model_se.xml"), self.MODEL, shallow=False))
+        # Single-end reads take it from the single file, as from a file given.
+        rc, log = self.profile_only(bundle, "out_single_end", sam=read_type_run().sam("sa"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model of single-end reads: model_se.xml in " + bundle, log)
+        self.assertEqual(read_text(self.path("out_single_end", "sa.profile")), self.expected["se"])
 
     def test_placeholder_model(self):
         # scripts/placeholder_models.py fills a read type's slot until a trained model replaces it: it reports
         # no species (--knob 0: every taxon with reads), and protal warns whenever it loads it.
-        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "placeholder_models.py"), "-o",
-                        self.path("placeholders"), "--read_types", "ont"], check=True, capture_output=True)
+        db, bundle = self.copy("db_ont")
+        python(os.path.join(ROOT, "scripts", "placeholder_models.py"), "-o", self.path("placeholders"), "--read_types", "ont")
         placeholder = self.path("placeholders", "model_ONT.xml")
         warning = "is a placeholder, not a trained model"
-        rc, log = run(self.work, "--add_model", placeholder, "--read_type", "ont", "--db", self.db, "-t", "2")
+        rc, log = run(self.work, "--add_model", placeholder, "--read_type", "ont", "--db", db, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn(warning, log)
         self.assertRegex(log, r"Models for read types: [^\n]*\bont\b")
-        rc, log = self.profile_only("out_ont", "--read_type", "ont")
+        rc, log = self.profile_only(db, "out_ont", "--read_type", "ont")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Model of ONT reads: model_ONT.xml in " + self.bundle, log)
+        self.assertIn("Model of ONT reads: model_ONT.xml in " + bundle, log)
         self.assertIn(warning, log)
-        with open(glob.glob(self.path("out_ont", "sa*.profile"))[0]) as fh:
-            self.assertNotIn("s__", fh.read(), "a placeholder reports no species")
-        rc, log = self.profile_only("out_ont_all", "--read_type", "ont", "--knob", "0")
+        self.assertEqual(read_text(self.path("out_ont", "sa.profile")), "", "a placeholder reports no species")
+        rc, log = self.profile_only(db, "out_ont_all", "--read_type", "ont", "--knob", "0")
         self.assertEqual(rc, 0, log[-3000:])
-        with open(glob.glob(self.path("out_ont_all", "sa*.profile"))[0]) as all_taxa, \
-                open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as pe:
-            reported = {line.split("\t")[1] for line in all_taxa if "s__" in line}
-            self.assertTrue({line.split("\t")[1] for line in pe if "s__" in line} <= reported)
-        rc, log = self.profile_only("out_pe_again")
+        self.assertEqual(profile_species(read_text(self.path("out_ont_all", "sa.profile"))), sorted(species()))
+        rc, log = self.profile_only(db, "out_pe_again")
+        self.assertEqual(rc, 0, log[-3000:])
         self.assertNotIn("placeholder", log, "the paired-end model is not one")
 
     def test_several_models_at_once(self):
         # --add_model A,B --read_type se,pb: every model checked first, the database rewritten once.
-        pe = db_file("model_pe.xml")
-        rc, log = run(self.work, "--add_model", f"{pe},{pe}", "--read_type", "se,pb", "--db", self.db, "-t", "2")
+        db, bundle = self.copy("db_several")
+        model = self.MODEL
+        rc, log = run(self.work, "--add_model", f"{model},{model}", "--read_type", "se,pb", "--db", db, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn(f"Stored {pe} as model_se.xml in {self.bundle}", log)
-        self.assertIn(f"Stored {pe} as model_PB.xml in {self.bundle}", log)
+        self.assertIn(f"Stored {model} as model_se.xml in {bundle}", log)
+        self.assertIn(f"Stored {model} as model_PB.xml in {bundle}", log)
         self.assertEqual(log.count("Models for read types:"), 1, "one rewrite")
         self.assertRegex(log, r"Models for read types: [^\n]*\bse\b[^\n]*\bpb\b")
-        rc, log = run(self.work, "--unpack_db", "--db", self.bundle, "--unpack_dir", self.path("unpacked_two"))
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked_two"))
         self.assertEqual(rc, 0, log[-3000:])
         for member in ("model_se.xml", "model_PB.xml"):
-            self.assertTrue(filecmp.cmp(self.path("unpacked_two", member), pe, shallow=False), member)
+            self.assertTrue(filecmp.cmp(self.path("unpacked_two", member), model, shallow=False), member)
         # Their read types one each, and every model usable, else nothing is written.
-        with open(self.bundle, "rb") as fh:
+        with open(bundle, "rb") as fh:
             before = fh.read()
         bad = self.path("bad_second.xml")
         with open(bad, "w") as fh:
             fh.write("<PMML>\n")
-        for extra, code, problem in (((f"{pe},{pe}", "se"), 30, "--add_model gives 2 models: --read_type must give as many"),
-                                     ((f"{pe},{pe}", "se,se"), 30, "--read_type names se twice for --add_model"),
-                                     ((pe, "se,pb"), 30, "--read_type gives 2 read types for --add_model's 1 model"),
-                                     ((f"{pe},{bad}", "se,ont"), 2, "Cannot load the model " + bad)):
-            rc, log = run(self.work, "--add_model", extra[0], "--read_type", extra[1], "--db", self.db)
-            self.assertEqual(rc, code, log[-3000:])
-            self.assertIn(problem, log)
-            with open(self.bundle, "rb") as fh:
-                self.assertEqual(fh.read(), before, "the database is unchanged")
+        for models, types, code, problem in ((f"{model},{model}", "se", 30, "--read_type must give as many"),
+                                             (f"{model},{model}", "se,se", 30, "--read_type names se twice"),
+                                             (model, "se,pb", 30, "--read_type gives 2 read types for --add_model's 1 model"),
+                                             (f"{model},{bad}", "se,ont", 2, "Cannot load the model " + bad),
+                                             (bad, "ont", 2, "Cannot load the model")):
+            with self.subTest(types=types, models=models):
+                rc, log = run(self.work, "--add_model", models, "--read_type", types, "--db", db)
+                self.assertEqual(rc, code, log[-3000:])
+                self.assertIn(problem, log)
+                with open(bundle, "rb") as fh:
+                    self.assertEqual(fh.read(), before, "the database is unchanged")
 
     def test_models_are_replaced_in_place(self):
-        # The models are the last members of database.protal: --add_model replaces one there in place, the members
-        # before it not rewritten. The same model at the level the database was packed at gives the same bytes.
-        pe = db_file("model_pe.xml")
-        with open(self.bundle, "rb") as fh:
-            before = fh.read()
-        rc, log = run(self.work, "--add_model", pe, "--read_type", "pe", "--db", self.db, "-t", "2", "--compress_level", "3")
+        # The models are the last members of database.protal (--build puts them there): --add_model replaces one there
+        # in place, the members before it not rewritten. The same model again, at the level the database was packed at
+        # (--build's default), gives the same bytes.
+        db, bundle = self.copy("db_in_place")
+        rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "pe", "--db", db, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertRegex(log, r"Replace the last \d+ of \d+ members of \S+ in place")
-        self.assertFalse(os.path.exists(self.bundle + ".journal"))
-        with open(self.bundle, "rb") as fh:
-            self.assertEqual(fh.read(), before)
-        rc, log = self.profile_only("out_pe_in_place")
+        self.assertFalse(os.path.exists(bundle + ".journal"))
+        with open(bundle, "rb") as fh:
+            replaced = fh.read()
+        rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "pe", "--db", db, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        with open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as a, \
-                open(glob.glob(self.path("out_pe_in_place", "sa*.profile"))[0]) as b:
-            self.assertEqual(a.read(), b.read())
-
-    def test_an_unusable_model_is_not_added(self):
-        with open(self.bundle, "rb") as fh:
-            before = fh.read()
-        bad = self.path("bad.xml")
-        with open(bad, "w") as fh:
-            fh.write("<PMML>\n")
-        rc, log = run(self.work, "--add_model", bad, "--read_type", "ont", "--db", self.db)
-        self.assertEqual(rc, 2, log[-3000:])
-        self.assertIn("Cannot load the model", log)
-        with open(self.bundle, "rb") as fh:
-            self.assertEqual(fh.read(), before, "the database is unchanged")
+        self.assertRegex(log, r"Replace the last \d+ of \d+ members of \S+ in place")
+        with open(bundle, "rb") as fh:
+            self.assertEqual(fh.read(), replaced)
+        rc, log = self.profile_only(db, "out_pe_in_place")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model of paired-end reads: model_pe.xml in " + bundle, log)
+        self.assertEqual(read_text(self.path("out_pe_in_place", "sa.profile")), self.expected["pe"])
 
     def test_read_type_checks(self):
-        rc, log = run(self.work, "--db", self.db, *reads("sa"), "-o", "out_x", "--read_type", "nanopore")
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_x", "--read_type", "nanopore")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("is 'nanopore' (--read_type or READ_TYPE): give one of pe, se, pb, ont", log)
-        rc, log = run(self.work, "--db", self.db, *reads("sa"), "-o", "out_y", "--read_type", "se")
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_y", "--read_type", "se")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("has single-end reads (se), which come in one file, but it has a second read file", log)
 
     def test_older_database_with_model_xml(self):
         """model.xml of a database from before read types serves paired-end reads."""
-        db = self.path("old_db")
-        os.mkdir(db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            name = os.path.basename(f)
-            if name.startswith("model_") or name == "database.protal":
-                continue
-            os.symlink(f, os.path.join(db, name))
-        os.symlink(db_file("model_pe.xml"), os.path.join(db, "model.xml"))
-        rc, log = run(self.work, "--db", db, *reads("sa"), "-o", "out_old", "-t", "2", "--no_qcmsa")
+        db = symlink_db(self.path("old_db"), skip=("model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml"),
+                        extra={"model.xml": db_file("model_pe.xml")})
+        rc, log = profile_only(self.work, self.path("out_old"), [baseline().sam("sa")], prefixes=["sa"], db=db)
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("Model of paired-end reads: " + os.path.join(db, "model.xml"), log)
+        self.assertEqual(read_text(self.path("out_old", "sa.profile")), baseline().text("sa.profile"))
 
 
-class FailFastTest(WorkDir):
-    """Problems with the database or the inputs stop protal before any read is aligned."""
+class FailFastTest(DbTest):
+    """Problems with the database or the inputs stop protal before any read is aligned: the exit code, that no SAM was
+    written, and the message where no unit test checks it."""
 
     def db_copy(self, name, replace=None, drop=()):
         """A database of symlinks to DB, with the files in `replace` ({name: bytes}) written instead
         and the files in `drop` left out."""
         replace = replace or {}
-        db = self.path(name)
-        os.mkdir(db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            base = os.path.basename(f)
-            if base not in replace and base not in drop and base != "database.protal":
-                os.symlink(f, os.path.join(db, base))
+        db = symlink_db(self.path(name), skip=set(replace) | set(drop))
         for base, content in replace.items():
             with open(os.path.join(db, base), "wb") as fh:
                 fh.write(content)
         return db
-
-    @staticmethod
-    def db_file(name):
-        """Content of a database file (decompressed if the database holds <name>.zst)."""
-        path = db_file(name)
-        if path.endswith(".zst"):
-            return subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE).stdout
-        with open(path, "rb") as fh:
-            return fh.read()
 
     def query(self, db, out, *extra, samples=("sa",)):
         rc, log = run(self.work, "--db", db, *reads(*samples), "-o", out, "-t", "1", "--no_qcmsa", *extra)
@@ -1922,35 +2298,36 @@ class FailFastTest(WorkDir):
         return rc, log
 
     def test_reference_changed_since_build(self):
-        db = self.db_copy("db_ref", {"reference.fna": self.db_file("reference.fna") + b">9_1\nACGT\n"})
+        db = self.db_copy("db_ref", {"reference.fna": db_content("reference.fna") + b">9_1\nACGT\n"})
         rc, log = self.query(db, "out_ref")
         if "no reference fingerprint" in log:
-            self.skipTest("the test database's index predates the reference fingerprint")
+            raise unavailable("the test database's index predates the reference fingerprint")
         self.assertEqual(rc, 8, log[-3000:])
-        self.assertIn("index.prx was built against a different reference", log)
+        self.assertIn("built against a different reference", log)
 
     def test_malformed_map(self):
-        db = self.db_copy("db_map", {"reference.map": self.db_file("reference.map") + b"1\t999\t5\n"})
+        db = self.db_copy("db_map", {"reference.map": db_content("reference.map") + b"1\t999\t5\n"})
         rc, log = self.query(db, "out_map")
         self.assertEqual(rc, 8, log[-3000:])
-        self.assertRegex(log, r"Invalid reference map .*expected 4 tab-separated columns, found 3")
+        self.assertIn("Invalid reference map", log)
 
     def test_missing_db(self):
         """A --db path with nothing at it is reported as missing, relative to where protal runs."""
         for args in (reads("sa") + ["-o", "out_nodb", "--no_qcmsa"], ["--unpack_db"], ["--compress_db"]):
-            rc, log = run(self.work, "--db", "no/such_db", *args)
-            self.assertEqual(rc, 30, log[-3000:])
-            self.assertIn("--db no/such_db does not exist (relative to the working directory "
-                          f"{os.path.realpath(self.work)})", log)
-            self.assertNotIn("holds separate files", log)
-            self.assertNotIn("Sequence file does not exist", log)
+            with self.subTest(args[0]):
+                rc, log = run(self.work, "--db", "no/such_db", *args)
+                self.assertEqual(rc, 30, log[-3000:])
+                self.assertIn("--db no/such_db does not exist (relative to the working directory "
+                              f"{os.path.realpath(self.work)})", log)
+                self.assertNotIn("holds separate files", log)
+                self.assertNotIn("Sequence file does not exist", log)
 
     def test_malformed_gene_conservation(self):
         # Read by every query: the factors give the model's conservation features.
         db = self.db_copy("db_conservation", {"gene_conservation.tsv": b"geneid\tfactor\tspecies\n1\tfast\t3\n"})
         rc, log = self.query(db, "out_conservation")
         self.assertEqual(rc, 8, log[-3000:])
-        self.assertRegex(log, r"Invalid gene conservation factors .*gene_conservation.tsv: line 2: the factor is not a number")
+        self.assertIn("Invalid gene conservation factors", log)
 
     def test_missing_model_and_unique_kmers(self):
         db = self.db_copy("db_files", drop=("model_pe.xml", "unique_kmers.tsv"))
@@ -1959,26 +2336,29 @@ class FailFastTest(WorkDir):
         self.assertIn("The database has no model for --read_type pe", log)
         self.assertIn("Unique k-mer file does not exist", log)
 
-    def test_corrupt_model(self):
-        db = self.db_copy("db_model", {"model_pe.xml": b"<PMML>\n"})
-        rc, log = self.query(db, "out_model")
-        self.assertEqual(rc, 2, log[-3000:])
-        self.assertIn("Cannot load the model", log)
-
-    def test_model_protal_cannot_feed(self):
-        model = self.db_file("model_pe.xml").decode()
-        # An input protal does not compute, and a model predicting other labels than TRUE/FALSE.
+    def test_unusable_models(self):
+        model = db_content("model_pe.xml").decode()
+        # Not a model; an input protal does not compute; a model predicting other labels than TRUE/FALSE.
         unknown = model.replace("<MiningSchema>", '<MiningSchema>\n<MiningField name="moon_phase"/>', 1)
         unknown = re.sub(r"(<DataDictionary[^>]*>)", r'\1\n<DataField name="moon_phase" optype="continuous" dataType="double"/>',
                          unknown, count=1)
         labels = model.replace('value="TRUE"', 'value="present"').replace('score="TRUE"', 'score="present"')
-        for name, text, message in (("db_unknown", unknown, "input(s) protal does not compute: moon_phase"),
-                                    ("db_labels", labels, "has no value TRUE")):
-            db = self.db_copy(name, {"model_pe.xml": text.encode()})
-            rc, log = self.query(db, "out_" + name)
-            self.assertEqual(rc, 2, log[-3000:])
-            self.assertIn("Cannot use the model", log)
-            self.assertIn(message, log)
+        # The last two problems' messages: ModelFeatures.TheModelMustFitProtal.
+        for name, text, message in (("db_model", "<PMML>\n", "Cannot load the model"), ("db_unknown", unknown, "moon_phase"),
+                                    ("db_labels", labels, None)):
+            with self.subTest(name):
+                db = self.db_copy(name, {"model_pe.xml": text.encode()})
+                rc, log = self.query(db, "out_" + name)
+                self.assertEqual(rc, 2, log[-3000:])
+                if message:
+                    self.assertIn(message, log)
+
+    def test_a_read_type_without_a_model_stops_before_aligning(self):
+        # The test database has a model for paired-end reads only.
+        rc, log = run(self.work, "--db", DB, *single_reads("sa"), "-o", "out_se", "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("no model for --read_type se (single-end reads)", log)
+        self.assertFalse(glob.glob(self.path("out_se", "*.sam*")), "no read may be aligned")
 
     def test_knob_is_a_probability(self):
         rc, log = self.query(DB, "out_knob", "--knob", "1.5")
@@ -1991,7 +2371,7 @@ class FailFastTest(WorkDir):
             fh.write("s__Mockella alpha\n")
         rc, log = self.query(DB, "out_truth", "--profile_truth", truth, samples=("sa", "sb"))
         self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("must name one file per sample: 1 given for 2 samples", log)
+        self.assertIn("must name one file per sample", log)
 
     def test_map_row_without_a_profile_cell(self):
         sample_map = self.path("samples.map")
@@ -2000,8 +2380,7 @@ class FailFastTest(WorkDir):
             fh.write(f"sa\tsa\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\tsa.profile\n")
             fh.write(f"sb\tsb\t{READS}/sb_R1.fq\t{READS}/sb_R2.fq\n")
         rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
-        self.assertEqual(rc, 9, log[-3000:])
-        self.assertIn("Line 4: no value in column 5 (PROFILE)", log)
+        self.assertEqual(rc, 9, log[-3000:])  # the message: SampleMap.RejectsRowsWithMissingOrEmptyCells
         self.assertFalse(glob.glob(self.path("out_map_rows", "**", "*.sam*"), recursive=True))
 
     def test_benchmark_needs_reads_named_by_gene(self):
@@ -2014,10 +2393,10 @@ class FailFastTest(WorkDir):
         os.mkdir(db)
         for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"):
             with open(os.path.join(db, f), "wb") as fh:
-                fh.write(self.db_file(f))
+                fh.write(db_content(f))
         bad = self.path("bad_reference.fna")
         with open(bad, "wb") as fh:
-            fh.write(self.db_file("reference.fna") + b">9_1\nACGTACGT\n>unnamed\nACGTACGT\n")
+            fh.write(db_content("reference.fna") + b">9_1\nACGTACGT\n>unnamed\nACGTACGT\n")
         rc, log = run(self.work, "--build", "--no_profile", "-t", "1", "--db", db,
                       "--reference", bad, "--full_reference", bad)
         self.assertEqual(rc, 8, log[-3000:])
@@ -2028,22 +2407,19 @@ class FailFastTest(WorkDir):
             self.assertFalse(os.path.exists(os.path.join(db, written)), written)
 
 
-class SamInputTest(WorkDir):
-    """--profile_only reads SAM files as other tools may leave them."""
+class SamInputTest(DbTest):
+    """--profile_only reads SAM files as other tools may leave them (the baseline's SAM of sa, edited)."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        rc, log = run(cls.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_qcmsa")
-        assert rc == 0, log[-3000:]
-        cls.sam = find_sams(os.path.join(cls.work, "out", "sa*.sam"))[0]
-        with open_sam(cls.sam) as fh:
-            lines = fh.read().splitlines()
+        base = baseline()
+        lines = sam_text(base.sam("sa")).splitlines()
         cls.header = [line for line in lines if line.startswith("@")]
         cls.records = [line for line in lines if not line.startswith("@")]
-        with open(os.path.join(cls.work, "out", "sa.profile")) as fh:
-            cls.profile_text = fh.read()
-        assert cls.profile_text.strip(), "the reference profile lists taxa"
+        cls.profile_text = base.text("sa.profile")
+        if not cls.records or not cls.profile_text.strip():
+            raise RuntimeError("the baseline's sa has no records or reports no taxon")
 
     def write_sam(self, name, lines, final_newline=True):
         sam = self.path(f"{name}.sam")
@@ -2065,27 +2441,24 @@ class SamInputTest(WorkDir):
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
         # The added unmapped record, and those protal wrote itself for reads that seeded on taxa but aligned nowhere.
+        # (SamReader.SkipsHeadersBlankLinesAndUnusableRecords counts the other kinds of skipped records.)
         own_unmapped = sum(1 for r in self.records if int(r.split("\t")[1]) & 0x4)
         self.assertIn(f"skipped {own_unmapped + 1} record(s): unmapped", log)
-        self.assertIn("skipped 1 record(s): reference is not a protal gene", log)
-        with open(self.path("out_edited.sam", "edited.profile")) as fh:
-            self.assertEqual(fh.read(), self.profile_text)
+        self.assertEqual(read_text(self.path("out_edited.sam", "edited.profile")), self.profile_text)
 
     def test_header_only_sam_gets_an_empty_profile(self):
         sam = self.write_sam("header_only", self.header)
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("contains no usable alignments", log)
-        self.assertTrue(os.path.isfile(self.path("out_header_only.sam", "header_only.profile")))
+        self.assertEqual(read_text(self.path("out_header_only.sam", "header_only.profile")), "")
 
     def test_unreadable_sam_fails_only_its_sample(self):
         good = self.write_sam("good", self.header + self.records)
         broken = self.write_sam("broken", self.header + self.records[:50] + ["sa.9\t0\t1_1"])
         rc, log = self.profile_only(good, broken)
         self.assertEqual(rc, 1, log[-3000:])
-        self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*broken\.sam\): line \d+: expected at least 11")
-        with open(self.path("out_good.sam", "good.profile")) as fh:
-            self.assertEqual(fh.read(), self.profile_text)
+        self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*broken\.sam\)")
+        self.assertEqual(read_text(self.path("out_good.sam", "good.profile")), self.profile_text)
 
     def test_truncated_gzip_sam_fails_its_sample(self):
         sam = self.write_sam("cut", self.header + self.records)
@@ -2106,8 +2479,8 @@ class SamInputTest(WorkDir):
         header[sq] = f"@SQ\tSN:{name}\tLN:{int(length) + 7}"
         sam = self.write_sam("other_db", header + self.records)
         rc, log = self.profile_only(sam)
-        self.assertEqual(rc, 1, log[-3000:])
-        self.assertIn(f"gene {name} is {int(length) + 7} bp in the SAM header (@SQ) but {length} bp in the database", log)
+        self.assertEqual(rc, 1, log[-3000:])  # the message: FromSam.RejectsASamAlignedAgainstAnotherDatabase
+        self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*other_db\.sam\)")
 
     def test_samples_cannot_share_an_output_file(self):
         sam = self.write_sam("twice", self.header + self.records)
@@ -2117,38 +2490,31 @@ class SamInputTest(WorkDir):
         self.assertFalse(glob.glob(self.path("out_twice.sam", "*.profile")))
 
 
-class CompressedSamOutputTest(WorkDir):
+class CompressedSamOutputTest(DbTest):
     """A map's SAM names choose the format: .sam, .sam.gz (BGZF, compressed while aligning) or
-    .sam.zst (seekable zstd). Headers list the genes that records name; --full_sam_header all."""
+    .sam.zst (seekable zstd). Headers list the genes that records name; --full_sam_header all. (A part of sa's reads.)"""
 
     FORMATS = {"plain": "sam", "gz": "sam.gz", "zst": "sam.zst"}
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        sample_map = os.path.join(cls.work, "samples.map")
-        with open(sample_map, "w") as fh:
-            fh.write(f"#OUTPUT_DIR\t{os.path.join(cls.work, 'out')}\n#INPUT_DIR\t{READS}\n")
+        for mate in (1, 2):
+            head_reads(os.path.join(READS, f"sa_R{mate}.fq"), os.path.join(cls.work, f"part_R{mate}.fq"), 1500)
+        cls.sample_map = os.path.join(cls.work, "samples.map")
+        with open(cls.sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{os.path.join(cls.work, 'out')}\n#INPUT_DIR\t{cls.work}\n")
             fh.write("#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\n")
             # Names of their own: a rerun takes an existing x.sam for x.sam.gz or x.sam.zst.
             for name, ext in cls.FORMATS.items():
-                fh.write(f"s_{name}\ts_{name}\tsa_R1.fq\tsa_R2.fq\ts_{name}.{ext}\n")
-        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+                fh.write(f"s_{name}\ts_{name}\tpart_R1.fq\tpart_R2.fq\ts_{name}.{ext}\n")
+        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", cls.sample_map, "-t", "1", "--no_qcmsa", "--no_strains")
 
     def sam(self, name):
         return self.path("out", "alignments", f"s_{name}.{self.FORMATS[name]}")
 
     def text(self, name):
-        path = self.sam(name)
-        if name == "gz":
-            with gzip.open(path, "rt") as fh:
-                return fh.read()
-        if name == "zst":
-            if not shutil.which("zstd"):
-                self.skipTest("the zstd CLI is needed to read .sam.zst here")
-            return subprocess.run(["zstd", "-dcq", path], check=True, stdout=subprocess.PIPE, text=True).stdout
-        with open(path) as fh:
-            return fh.read()
+        return sam_text(self.sam(name))
 
     def test_exit_code(self):
         self.assertEqual(self.rc, 0, self.log[-3000:])
@@ -2187,55 +2553,50 @@ class CompressedSamOutputTest(WorkDir):
     def test_profiles_do_not_depend_on_the_format(self):
         profiles = {}
         for name in self.FORMATS:
-            path = glob.glob(self.path("out", "**", f"s_{name}.profile"), recursive=True)[0]
-            with open(path) as fh:
-                profiles[name] = fh.read()
+            profiles[name] = read_text(glob.glob(self.path("out", "**", f"s_{name}.profile"), recursive=True)[0])
         self.assertTrue(profiles["plain"].strip())
         self.assertEqual(profiles["gz"], profiles["plain"])
         self.assertEqual(profiles["zst"], profiles["plain"])
 
-    def test_a_rerun_profiles_the_compressed_sams(self):
-        sample_map = self.path("samples.map")
-        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+    def test_a_rerun_leaves_the_compressed_sams_alone(self):
+        before = {}
+        for name in self.FORMATS:
+            with open(self.sam(name), "rb") as fh:
+                before[name] = (fh.read(), os.path.getmtime(self.sam(name)))
+        rc, log = run(self.work, "--db", DB, "--map", self.sample_map, "-t", "1", "--no_qcmsa", "--no_strains")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("All alignments are present", log)
+        for name in self.FORMATS:
+            with open(self.sam(name), "rb") as fh:
+                self.assertEqual((fh.read(), os.path.getmtime(self.sam(name))), before[name], name)
 
     def test_sam_format_names_the_sams_protal_picks(self):
-        # CompleteRunTest's -1/-2 run shows the default, .sam.zst; --sam_format picks another.
-        for fmt, name in (("gz", "sa.sam.gz"), ("sam", "sa.sam")):
-            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", f"out_{fmt}", "-t", "1", "--no_qcmsa", "--no_profile",
-                          "--sam_format", fmt)
+        # The baseline's -1/-2 run shows the default, .sam.zst; --sam_format picks another. The plain one with
+        # --full_sam_header, which lists every gene.
+        reads_part = ["-1", self.path("part_R1.fq"), "-2", self.path("part_R2.fq"), "--prefix", "sa"]
+        for fmt, name, extra in (("gz", "sa.sam.gz", []), ("sam", "sa.sam", ["--full_sam_header"])):
+            rc, log = run(self.work, "--db", DB, *reads_part, "-o", f"out_{fmt}", "-t", "1", "--no_qcmsa", "--no_profile",
+                          "--sam_format", fmt, *extra)
             self.assertEqual(rc, 0, log[-3000:])
             self.assertEqual(os.listdir(self.path(f"out_{fmt}")).count(name), 1, os.listdir(self.path(f"out_{fmt}")))
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_bad", "--sam_format", "bam")
-        self.assertEqual(rc, 2, log[-3000:])
-        self.assertIn("--sam_format must be zst, gz or sam", log)
-
-    def test_full_sam_header_lists_every_gene(self):
-        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_full", "-t", "1", "--no_qcmsa", "--no_profile",
-                      "--full_sam_header")
-        self.assertEqual(rc, 0, log[-3000:])
-        with open_sam(find_sams(self.path("out_full", "sa*.sam"))[0]) as fh:
+        with open(self.path("out_sam", "sa.sam")) as fh:
             full = [line for line in fh if line.startswith("@SQ")]
         self.assertEqual(len(full), len(reference_genes()))
         listed = [line for line in self.text("plain").splitlines() if line.startswith("@SQ")]
         self.assertTrue(set(line + "\n" for line in listed) <= set(full))
+        rc, log = run(self.work, "--db", DB, *reads_part, "-o", "out_bad", "--sam_format", "bam")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--sam_format must be zst, gz or sam", log)
 
 
-class QcmsaTest(WorkDir):
-    """The post-filter runs, and --qcmsa_args reaches it intact."""
-
-    def test_no_filtered_msa_is_reported(self):
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out_none", "-t", "4",
-                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("qcmsa kept no gene or sample", log)
-        filtered = [f for f in glob.glob(self.path("out_none", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
-        self.assertEqual(filtered, [])
+class QcmsaTest(DbTest):
+    """The post-filter runs on the strain MSAs (of the baseline's SAMs), and --qcmsa_args reaches it intact."""
 
     def test_filtered_msa(self):
         # With its defaults, qcmsa filters an MSA of three samples (a gene needs two).
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4", "--qcmsa_script", QCMSA)
+        samples = ("sa", "sb", "sr")
+        baseline().place_sams(self.path("out"), samples)
+        rc, log = run(self.work, "--db", DB, *reads(*samples), "-o", "out", "-t", "4", "--qcmsa_script", QCMSA)
         self.assertEqual(rc, 0, log[-3000:])
         filtered = [f for f in glob.glob(self.path("out", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
         self.assertTrue(filtered, "qcmsa wrote filtered MSAs")
@@ -2243,11 +2604,13 @@ class QcmsaTest(WorkDir):
             listed = [line.rstrip("\n").split("\t") for line in fh][1:]
         self.assertEqual(sorted(row[4] for row in listed if row[4] != "-"), sorted(os.path.basename(f) for f in filtered))
 
-        # A rerun in which qcmsa keeps nothing leaves no filtered MSA of the first run behind.
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4",
+        # A rerun in which qcmsa keeps nothing reports it and leaves no filtered MSA of the first run behind.
+        rc, log = run(self.work, "--db", DB, *reads(*samples), "-o", "out", "-t", "4",
                       "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
         self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("qcmsa kept no gene or sample", log)
         self.assertFalse([f for f in filtered if os.path.exists(f)], "stale filtered MSAs")
+        self.assertEqual([f for f in glob.glob(self.path("out", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")], [])
         with open(self.path("out", "strains", "species.tsv")) as fh:
             self.assertTrue(all(line.rstrip("\n").split("\t")[4] == "-" for line in list(fh)[1:]))
 
@@ -2261,148 +2624,6 @@ class QcmsaTest(WorkDir):
         self.assertNotEqual(rc, 0, log[-3000:])
         self.assertIn("share the sample ID 'same'", log)
         self.assertFalse(glob.glob(self.path("out_dup", "**", "*.sam*"), recursive=True))
-
-
-class SingleEndTest(WorkDir):
-    """Single-end reads (the first mates of the simulated samples), profiled with the single-end model.
-    The test database has none, so a copy of it gets its paired-end model as model_se.xml: the
-    profiles then test the plumbing, not the model."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.db = os.path.join(cls.work, "se_db")
-        os.mkdir(cls.db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if os.path.basename(f) != "database.protal":
-                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
-        cls.model = db_file("model_pe.xml")
-        os.symlink(cls.model, os.path.join(cls.db, "model_se.xml"))
-        cls.rc, cls.log = run(cls.work, "--db", cls.db, *single_reads("sa", "sb"), "-o", "out", "-t", "4", "--no_qcmsa")
-
-    def reads_by_name(self, prefix):
-        with open(os.path.join(READS, f"{prefix}_R1.fq")) as fh:
-            lines = fh.read().splitlines()
-        return {lines[i][1:].rsplit("/", 1)[0]: lines[i + 1] for i in range(0, len(lines), 4)}
-
-    def test_exit_code_and_model(self):
-        self.assertEqual(self.rc, 0, self.log[-3000:])
-        self.assertIn("Align the single-end reads of sample sa", self.log)
-        self.assertIn("Model of single-end reads: " + os.path.join(self.db, "model_se.xml"), self.log)
-        self.assertNotIn("Model of paired-end reads", self.log)
-
-    def test_records_are_unpaired_reads(self):
-        all_records = sam_records(self.path("out", "sa.sam"))
-        # Unmapped records (flag 4, no gene, no sequence) stand for reads that seeded on taxa but aligned nowhere;
-        # they carry the taxa as a ZF tag and nothing else.
-        unmapped = [r for r in all_records if int(r[1]) & 0x4]
-        for r in unmapped:
-            self.assertEqual((r[2], r[3], r[5], r[9], r[10]), ("*", "0", "*", "*", "*"), r)
-            self.assertTrue(any(f.startswith("ZF:Z:") and f[5:] for f in r[11:]), f"an unmapped record names its failed candidates: {r}")
-        records = [r for r in all_records if not int(r[1]) & 0x4]
-        self.assertTrue(records)
-        self.assertEqual([r[1] for r in records if int(r[1]) & 0xCD], [], "no pair, mate or unmapped flags")
-        self.assertEqual(len({r[0] for r in records}), len(records), "one record per read (-m 1)")
-        reads = self.reads_by_name("sa")
-        for r in records:
-            read = reads[r[0]]  # QNAME is the read id without its /1
-            self.assertEqual(r[9], revcomp(read) if int(r[1]) & 0x10 else read, "SEQ in reference orientation")
-            self.assertEqual((r[6], r[7], r[8]), ("*", "0", "0"))
-        self.assertTrue(any(int(r[1]) & 0x10 for r in records) and any(not int(r[1]) & 0x10 for r in records))
-        self.assertTrue(any(int(r[4]) >= 4 for r in records), "reads with a MAPQ the profiler takes")
-
-    def test_profiles_and_strains(self):
-        header, rows = read_table(self.path("out", "sa.profile.log"))
-        self.assertTrue(rows)
-        self.assertTrue(any(row[0] == "1" for row in rows), "a species passes the model")
-        self.assertTrue(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), "species in both samples get MSAs")
-        self.assertTrue(os.path.exists(self.path("out", "misc", "sa_runtime.tsv")))
-
-    def test_profile_only_takes_the_model_of_the_sams_reads(self):
-        sam = sam_path(self.path("out", "sa.sam"))
-        # The test database has no model_se.xml: the SAM's unpaired records ask for one.
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("no model for --read_type se (single-end reads)", log)
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_se", self.model, "-o", self.path("po"),
-                      "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Model of single-end reads: " + self.model, log)
-        with open(self.path("po", "sa.profile")) as again, open(self.path("out", "sa.profile")) as first:
-            self.assertEqual(again.read(), first.read())
-
-    def test_a_missing_single_end_model_stops_before_aligning(self):
-        rc, log = run(self.work, "--db", DB, *single_reads("sa"), "-o", "out_nomodel", "-t", "1", "--no_qcmsa")
-        self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("no model for --read_type se (single-end reads)", log)
-        self.assertIn("--model_se", log)
-        self.assertFalse(glob.glob(self.path("out_nomodel", "*.sam*")))
-
-    def test_a_map_mixes_paired_and_single_end_samples(self):
-        sample_map = self.path("mixed.map")
-        with open(sample_map, "w") as fh:
-            fh.write(f"#OUTPUT_DIR\t{self.path('out_mixed')}\n#INPUT_DIR\t{READS}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n")
-            fh.write("pe\tpe\tsa_R1.fq\tsa_R2.fq\nse\tse\tsb_R1.fq\t-\n")
-        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Model of paired-end reads: ", log)
-        self.assertIn("Model of single-end reads: ", log)
-        self.assertIn("1 paired-end, 1 single-end, 0 PacBio, 0 ONT sample(s)", log)
-        paired = sam_records(self.path("out_mixed", "pe.sam"))
-        single = sam_records(self.path("out_mixed", "se.sam"))
-        self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
-        self.assertTrue(single and not any(int(r[1]) & 0x1 for r in single))
-        self.assertTrue(os.path.exists(self.path("out_mixed", "se.profile")))
-
-    def test_fasta_reads_get_q30(self):
-        fasta = self.path("sa.fa")
-        with open(fasta, "w") as fh:
-            for name, seq in self.reads_by_name("sa").items():
-                fh.write(f">{name}\n{seq}\n")
-        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--prefix", "safa", "-o", "out_fasta", "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        records = sam_records(self.path("out_fasta", "safa.sam"))
-        self.assertTrue(records)
-        self.assertEqual({q for r in records for q in r[10]}, {"?"}, "Q30 for every base")
-        _, rows = read_table(self.path("out_fasta", "safa.profile.log"))
-        self.assertTrue(rows, "the profiler takes the records")
-
-    def test_a_long_read_after_the_first_100_fails_its_sample(self):
-        # The check before aligning sees the first 100 reads; the reader stops at any later long read.
-        with open(os.path.join(READS, "sa_R1.fq")) as fh:
-            head = fh.readlines()[:600]  # 150 reads
-        late = self.path("late_long.fq")
-        with open(late, "w") as fh:
-            fh.writelines(head)
-            fh.write("@long\n" + "ACGT" * 500 + "\n+\n" + "I" * 2000 + "\n")
-            fh.writelines(head)
-        rc, log = run(self.work, "--db", self.db, "-1", late, "--prefix", "late", "-o", "out_late", "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 1, log[-3000:])
-        self.assertIn("read long has 2000 bp, too long for short reads; give --read_type pb or ont", log)
-        self.assertFalse(glob.glob(self.path("out_late", "*.sam*")))
-
-    def test_the_prefix_comes_from_the_read_file(self):
-        rc, log = run(self.work, "--db", self.db, "-1", os.path.join(READS, "sa_R1.fq"), "-o", "out_prefix", "-t", "1",
-                      "--no_profile")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertTrue(os.path.exists(sam_path(self.path("out_prefix", "sa_R1.sam"))))
-
-    def test_a_single_file_database_holds_model_se(self):
-        if not os.path.exists(os.path.join(FILES, "index.prx.zst")):
-            self.skipTest("packing a raw index into database.protal takes long")
-        db = self.path("se_bundle")
-        os.mkdir(db)
-        for f in glob.glob(os.path.join(self.db, "*")):
-            os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
-        rc, log = run(self.work, "--compress_db", "--db", db, "-t", "2", "--compress_level", "3")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertFalse(os.path.lexists(os.path.join(db, "model_se.xml")), "model_se.xml is packed")
-        bundle = os.path.join(db, "database.protal")
-        rc, log = run(self.work, "--db", bundle, *single_reads("sa"), "-o", "out_bundle", "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn(f"Model of single-end reads: model_se.xml in {bundle}", log)
-        with open(self.path("out_bundle", "sa.profile")) as packed, open(self.path("out", "sa.profile")) as files:
-            self.assertEqual(packed.read(), files.read())
 
 
 def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0, error=0.001, indels=0.6,
@@ -2443,6 +2664,7 @@ def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0, e
     truth = []
     with open(path, "w") as fh:
         layouts = []
+
         def oriented_gene():
             name, seq = rng.choice(genes)
             return name, seq if rng.random() < 0.5 else revcomp(seq)
@@ -2487,47 +2709,173 @@ def cigar_ops(cigar):
     return [(int(n), op) for n, op in re.findall(r"(\d+)([MIDNSHPX=])", cigar)]
 
 
-class PacBioTest(WorkDir):
-    """PacBio-like long reads of several genes each, profiled with the PacBio model. The test database
-    has none, so a copy of it gets its paired-end model as model_PB.xml: the profiles test the
-    plumbing, not the model."""
+def fastq_records(path):
+    """[(name, sequence)] of a FASTQ file."""
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    return [(lines[i][1:], lines[i + 1]) for i in range(0, len(lines), 4)]
+
+
+def find_one(folder, name):
+    """The one file `name` below folder."""
+    matches = glob.glob(os.path.join(glob.escape(folder), "**", name), recursive=True)
+    if len(matches) != 1:
+        raise AssertionError(f"expected one {name} in {folder}: {matches}")
+    return matches[0]
+
+
+_read_type_db = None
+
+
+def read_type_db():
+    """A database of symlinks to the test database's files in which its paired-end model also serves single-end,
+    PacBio and ONT reads (model_se.xml, model_PB.xml, model_ONT.xml): the test database has none, so the profiles of
+    these read types test the plumbing, not a model."""
+    global _read_type_db
+    if _read_type_db is None:
+        require_database()
+        model = db_file("model_pe.xml")
+        _read_type_db = symlink_db(os.path.join(scratch("protal_e2e_read_type_db_"), "db"),
+                                   extra={"model_se.xml": model, "model_PB.xml": model, "model_ONT.xml": model})
+    return _read_type_db
+
+
+class ReadTypeRun:
+    """One map run (strain MSAs on, --no_qcmsa) of samples of every read type on read_type_db(): pe (sa's pairs), sa and
+    sb (their first mates, single-end; sa's read type found from its reads, sb's given), la and lb (PacBio-like reads of
+    several genes each, la with a read of 150 kb), oa and ob (ONT-like: 2% errors, most of them 1 bp indels, Q17; oa
+    with a read of 150 kb)."""
+
+    def __init__(self):
+        self.db = read_type_db()
+        self.work = scratch("protal_e2e_read_types_")
+        self.out = os.path.join(self.work, "out")
+        self.long = {p: os.path.join(self.work, f"{p}.fq") for p in ("la", "lb", "oa", "ob")}
+        ont = dict(error=0.02, indels=0.7, read_name="ont_read_{}", quality="2")
+        self.truth = {"la": simulate_long_reads(self.long["la"], 40, seed=11, long_read=150000),
+                      "lb": simulate_long_reads(self.long["lb"], 40, seed=12),
+                      "oa": simulate_long_reads(self.long["oa"], 40, seed=21, long_read=150000, **ont),
+                      "ob": simulate_long_reads(self.long["ob"], 40, seed=22, **ont)}
+        rows = [("pe", os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sa_R2.fq"), "-"),
+                ("sa", os.path.join(READS, "sa_R1.fq"), "-", "-"), ("sb", os.path.join(READS, "sb_R1.fq"), "-", "se"),
+                ("la", self.long["la"], "-", "PB"), ("lb", self.long["lb"], "-", "pb"),
+                ("oa", self.long["oa"], "-", "ont"), ("ob", self.long["ob"], "-", "ONT")]
+        sample_map = os.path.join(self.work, "samples.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.out}\n#SAM_OUTPUT_DIR\t.\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+            fh.writelines(f"{name}\t{name}\t{first}\t{second}\t{read_type}\n" for name, first, second, read_type in rows)
+        self.rc, self.log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "4", "--no_qcmsa")
+        if self.rc != 0:
+            raise RuntimeError(f"the read types' run exited {self.rc}:\n" + self.log[-3000:])
+
+    def sam(self, sample):
+        return find_one(self.out, f"{sample}.sam.zst")
+
+    def text(self, name):
+        return read_text(find_one(self.out, name))
+
+    def msa_rows(self, species_name):
+        """The row names of a species' strain MSA."""
+        with open(find_one(self.out, species_name.replace(" ", "_") + ".raw.msa.fna")) as fh:
+            return [line[1:].strip() for line in fh if line.startswith(">")]
+
+
+_read_type_run = None
+
+
+def read_type_run():
+    """The module's ReadTypeRun, run once on first use."""
+    global _read_type_run
+    if _read_type_run is None:
+        require_database()
+        try:
+            _read_type_run = ReadTypeRun()
+        except Exception as e:
+            _read_type_run = e
+    if isinstance(_read_type_run, Exception):
+        raise RuntimeError(f"no read types' run: {_read_type_run}")
+    return _read_type_run
+
+
+class ReadTypeTest(DbTest):
+    """A test class on the read types' run (read_type_run())."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.db = os.path.join(cls.work, "pacbio_db")
-        os.mkdir(cls.db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if os.path.basename(f) != "database.protal":
-                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
-        cls.model = db_file("model_pe.xml")
-        os.symlink(cls.model, os.path.join(cls.db, "model_PB.xml"))
-        cls.reads = {p: os.path.join(cls.work, f"{p}.fq") for p in ("la", "lb")}
-        cls.truth = {"la": simulate_long_reads(cls.reads["la"], 40, seed=11, long_read=150000),
-                     "lb": simulate_long_reads(cls.reads["lb"], 40, seed=12)}
-        cls.rc, cls.log = run(cls.work, "--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "la,lb",
-                              "--read_type", "pb", "-o", "out", "-t", "4", "--no_qcmsa")
+        cls.runs = read_type_run()
 
-    def read_seqs(self, prefix):
-        with open(self.reads[prefix]) as fh:
-            lines = fh.read().splitlines()
-        return [lines[i + 1] for i in range(0, len(lines), 4)], [lines[i][1:] for i in range(0, len(lines), 4)]
+    def species_called(self, sample):
+        return profile_species(self.runs.text(f"{sample}.profile"))
+
+    def species_on_reads(self, sample):
+        """The species of the genes simulate_long_reads placed on a long-read sample's reads."""
+        names = {taxid: name for name, taxid in species().items()}
+        return sorted({names[gene.split("_")[0]] for placed in self.runs.truth[sample] for gene, _, _ in placed})
+
+
+class SingleEndTest(ReadTypeTest):
+    """Single-end reads: the first mates of the simulated samples sa and sb."""
+
+    def reads_by_name(self, prefix):
+        return {name.rsplit("/", 1)[0]: seq for name, seq in fastq_records(os.path.join(READS, f"{prefix}_R1.fq"))}
 
     def test_exit_code_and_model(self):
-        self.assertEqual(self.rc, 0, self.log[-3000:])
-        self.assertIn("Align the PacBio reads of sample la", self.log)
-        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), self.log)
-        self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
-        self.assertRegex(self.log, r"\d+ gene hits fit several taxa \(MAPQ < 4\); \d+ gene hits took their read's consensus taxon "
-                                   r"\(another best hit or a higher MAPQ\), and \d+ had no hit of it or a clearly better one of "
-                                   r"another taxon \(written with MAPQ 0\)")
-        with open_sam(self.path("out", "la.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
+        self.assertIn("Align the single-end reads of sample sa", self.runs.log)
+        self.assertIn("Align the single-end reads of sample sb", self.runs.log)
+        self.assertIn("Model of single-end reads: " + os.path.join(self.runs.db, "model_se.xml"), self.runs.log)
+
+    def test_records_are_unpaired_reads(self):
+        all_records = sam_records(self.runs.sam("sa"))
+        # Unmapped records (flag 4, no gene, no sequence) stand for reads that seeded on taxa but aligned nowhere;
+        # they carry the taxa as a ZF tag and nothing else.
+        unmapped = [r for r in all_records if int(r[1]) & 0x4]
+        for r in unmapped:
+            self.assertEqual((r[2], r[3], r[5], r[9], r[10]), ("*", "0", "*", "*", "*"), r)
+            self.assertTrue(any(f.startswith("ZF:Z:") and f[5:] for f in r[11:]), f"an unmapped record names its failed candidates: {r}")
+        records = [r for r in all_records if not int(r[1]) & 0x4]
+        self.assertTrue(records)
+        self.assertEqual([r[1] for r in records if int(r[1]) & 0xCD], [], "no pair, mate or unmapped flags")
+        self.assertEqual(len({r[0] for r in records}), len(records), "one record per read (-m 1)")
+        reads_of = self.reads_by_name("sa")
+        for r in records:
+            read = reads_of[r[0]]  # QNAME is the read id without its /1
+            self.assertEqual(r[9], revcomp(read) if int(r[1]) & 0x10 else read, "SEQ in reference orientation")
+            self.assertEqual((r[6], r[7], r[8]), ("*", "0", "0"))
+        self.assertTrue(any(int(r[1]) & 0x10 for r in records) and any(not int(r[1]) & 0x10 for r in records))
+        self.assertTrue(any(int(r[4]) >= 4 for r in records), "reads with a MAPQ the profiler takes")
+
+    def test_profiles_and_strains(self):
+        for sample in ("sa", "sb"):
+            self.assertEqual(self.species_called(sample), sorted(species()), f"{sample}: its three species")
+            self.assertTrue(os.path.exists(find_one(self.runs.out, f"{sample}_runtime.tsv")))
+        for name in species():  # species in both samples get MSAs
+            rows = self.runs.msa_rows(name)
+            self.assertIn("sa", rows, name)
+            self.assertIn("sb", rows, name)
+
+
+class PacBioTest(ReadTypeTest):
+    """PacBio-like long reads of several genes each (la, lb)."""
+
+    def read_seqs(self, prefix):
+        records = fastq_records(self.runs.long[prefix])
+        return [seq for _, seq in records], [name for name, _ in records]
+
+    def test_exit_code_and_model(self):
+        log = self.runs.log
+        self.assertIn("Align the PacBio reads of sample la", log)
+        self.assertIn("Model of PacBio reads: " + os.path.join(self.runs.db, "model_PB.xml"), log)
+        self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", log)
+        self.assertRegex(log, r"\d+ gene hits fit several taxa \(MAPQ < 4\); \d+ gene hits took their read's consensus taxon "
+                              r"\(another best hit or a higher MAPQ\), and \d+ had no hit of it or a clearly better one of "
+                              r"another taxon \(written with MAPQ 0\)")
+        self.assertIn("@CO\tprotal read type: pb\n", sam_text(self.runs.sam("la")))
 
     def test_records_hold_their_aligned_bases(self):
         seqs, names = self.read_seqs("la")
         read_of = dict(zip(names, seqs))
-        records = [r for r in sam_records(self.path("out", "la.sam")) if not int(r[1]) & 0x4]  # not the unmapped ones (ZF)
+        records = [r for r in sam_records(self.runs.sam("la")) if not int(r[1]) & 0x4]  # not the unmapped ones (ZF)
         self.assertTrue(records)
         for r in records:
             flag, ops, read = int(r[1]), cigar_ops(r[5]), read_of[r[0]]
@@ -2545,9 +2893,9 @@ class PacBioTest(WorkDir):
     def test_every_gene_is_found_once(self):
         for prefix in ("la", "lb"):
             _, names = self.read_seqs(prefix)
-            by_read = representative_records(sam_records(self.path("out", f"{prefix}.sam")))
+            by_read = representative_records(sam_records(self.runs.sam(prefix)))
             found = missed = twice = 0
-            for name, placed in zip(names, self.truth[prefix]):
+            for name, placed in zip(names, self.runs.truth[prefix]):
                 reps = by_read.get(name, [])
                 for gene, start, end in placed:
                     hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.95 * (end - start)]
@@ -2559,151 +2907,66 @@ class PacBioTest(WorkDir):
 
     def test_genes_across_chunk_boundaries(self):
         _, names = self.read_seqs("la")
-        long_name, placed = names[-1], self.truth["la"][-1]
-        reps = representative_records(sam_records(self.path("out", "la.sam"))).get(long_name, [])
+        long_name, placed = names[-1], self.runs.truth["la"][-1]
+        reps = representative_records(sam_records(self.runs.sam("la"))).get(long_name, [])
         found = [g for g, _, _ in placed if any(r[2] == g for r in reps)]
         self.assertGreaterEqual(len(found), 0.95 * len(placed))
         self.assertLessEqual(len(reps), len(placed), "each gene of the 150 kb read at most once")
 
     def test_profiles(self):
-        header, rows = read_table(self.path("out", "la.profile.log"))
-        self.assertTrue(rows)
-        self.assertTrue(os.path.exists(self.path("out", "misc", "la_runtime.tsv")))
-
-    def test_profile_only_takes_the_pacbio_model(self):
-        sam = sam_path(self.path("out", "la.sam"))
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("no model for --read_type pb (PacBio reads)", log)
-        self.assertIn("--model_pb", log)
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_pb", self.model, "-o", self.path("po"),
-                      "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path("po", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
-            self.assertEqual(again.read(), first.read())
+        for sample in ("la", "lb"):
+            self.assertEqual(self.species_called(sample), self.species_on_reads(sample), sample)
+        self.assertTrue(os.path.exists(find_one(self.runs.out, "la_runtime.tsv")))
 
     def test_a_rerun_takes_the_read_type_of_the_sam_it_reuses(self):
         os.makedirs(self.path("rerun"))
-        sam = sam_path(self.path("out", "la.sam"))
-        shutil.copy(sam, self.path("rerun", os.path.basename(sam)))
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
+        shutil.copy(self.runs.sam("la"), self.path("rerun", "la.sam.zst"))
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
                       "--no_qcmsa")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("Note: Sample la: PacBio reads", log)  # their names say so, as the SAM's header
-        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), log)
-        with open(self.path("rerun", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
-            self.assertEqual(again.read(), first.read())
+        self.assertIn("Model of PacBio reads: " + os.path.join(self.runs.db, "model_PB.xml"), log)
+        self.assertEqual(read_text(self.path("rerun", "la.profile")), self.runs.text("la.profile"))
         # A read type given wins, as with --profile_only.
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
-                      "--no_qcmsa", "--read_type", "ont", "--model_ont", self.model)
+        model = db_file("model_pe.xml")
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
+                      "--no_qcmsa", "--read_type", "ont", "--model_ont", model)
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("holds PacBio reads; profiled as ONT reads (ont, --read_type or READ_TYPE; --force aligns them again)", log)
-        self.assertIn("Model of ONT reads: " + self.model, log)
-
-    def test_long_reads_without_a_read_type_are_taken_for_what_they_are(self):
-        # PacBio names (movie/ZMW): PacBio reads, with a note, and aligned as such.
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "--prefix", "lb_auto", "-o", "out_auto", "-t", "2",
-                      "--no_qcmsa", "--no_profile")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Note: Sample lb_auto: PacBio reads (the first ", log)
-        self.assertIn("named as PacBio names reads", log)
-        with open_sam(self.path("out_auto", "lb_auto.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
-        # Other names: by their quality, Q17 here (the ONT-like reads of OntReadsTest): ONT reads.
-        ont = self.path("ont_like.fq")
-        simulate_long_reads(ont, 10, seed=31, error=0.02, indels=0.7, read_name="read_{}", quality="2")
-        rc, log = run(self.work, "--db", self.db, "-1", ont, "--prefix", "ont_auto", "-o", "out_auto", "-t", "2", "--no_qcmsa",
-                      "--no_profile")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Note: Sample ont_auto: ONT reads (the first 10 reads", log)
-        self.assertIn("median read quality Q17.0 (PacBio from Q25, ONT below)", log)
-        with open_sam(self.path("out_auto", "ont_auto.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+        self.assertIn("Model of ONT reads: " + model, log)
 
     def test_long_reads_given_as_short_ones_stop(self):
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "--read_type", "se", "-o", "out_short", "-t", "1",
-                      "--no_qcmsa")
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["lb"], "--read_type", "se", "-o", "out_short",
+                      "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("too long for short reads: give --read_type pb", log)
 
-    def test_fasta_reads_get_q30(self):
-        seqs, names = self.read_seqs("lb")
-        fasta = self.path("lb.fa")
-        with open(fasta, "w") as fh:
-            for name, seq in zip(names, seqs):
-                fh.write(f">{name}\n{seq}\n")
-        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--read_type", "pb", "--prefix", "lbfa", "-o", "out_fasta",
-                      "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        records = sam_records(self.path("out_fasta", "lbfa.sam"))
-        self.assertTrue(records)
-        self.assertEqual({q for r in records for q in r[10]}, {"?"}, "Q30 for every base")
-        _, rows = read_table(self.path("out_fasta", "lbfa.profile.log"))
-        self.assertTrue(rows, "the profiler takes the records")
 
-    def test_a_map_names_the_read_type(self):
-        sample_map = self.path("typed.map")
-        with open(sample_map, "w") as fh:
-            fh.write(f"#OUTPUT_DIR\t{self.path('out_map')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
-            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\t-\n")
-            fh.write(f"lb\tlb\t{self.reads['lb']}\t-\tPB\n")
-        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("1 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)", log)
-        self.assertTrue(all(int(r[1]) & 0x1 for r in sam_records(self.path("out_map", "pe.sam"))))
-        with open_sam(self.path("out_map", "lb.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
-
-
-class OntTest(WorkDir):
-    """ONT-like long reads (2% errors, most of them 1 bp indels, Q17) profiled with the ONT model, as
-    in PacBioTest a stand-in: the test database's paired-end model as model_ONT.xml."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.db = os.path.join(cls.work, "ont_db")
-        os.mkdir(cls.db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if os.path.basename(f) != "database.protal":
-                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
-        cls.model = db_file("model_pe.xml")
-        os.symlink(cls.model, os.path.join(cls.db, "model_ONT.xml"))
-        cls.reads = {p: os.path.join(cls.work, f"{p}.fq") for p in ("oa", "ob")}
-        ont = dict(error=0.02, indels=0.7, read_name="ont_read_{}", quality="2")
-        cls.truth = {"oa": simulate_long_reads(cls.reads["oa"], 40, seed=21, long_read=150000, **ont),
-                     "ob": simulate_long_reads(cls.reads["ob"], 40, seed=22, **ont)}
-        cls.rc, cls.log = run(cls.work, "--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "oa,ob",
-                              "--read_type", "ont", "-o", "out", "-t", "4", "--no_qcmsa")
-
-    def read_names(self, prefix):
-        with open(self.reads[prefix]) as fh:
-            return [line[1:] for i, line in enumerate(fh.read().splitlines()) if i % 4 == 0]
+class OntTest(ReadTypeTest):
+    """ONT-like long reads (oa, ob)."""
 
     def test_exit_code_and_model(self):
-        self.assertEqual(self.rc, 0, self.log[-3000:])
-        self.assertIn("Align the ONT reads of sample oa (-a 0.85)", self.log)
-        self.assertIn("Model of ONT reads: " + os.path.join(self.db, "model_ONT.xml"), self.log)
-        self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
-        with open_sam(self.path("out", "oa.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+        log = self.runs.log
+        self.assertIn("Align the ONT reads of sample oa (-a 0.85)", log)
+        self.assertIn("Model of ONT reads: " + os.path.join(self.runs.db, "model_ONT.xml"), log)
+        self.assertIn("@CO\tprotal read type: ont\n", sam_text(self.runs.sam("oa")))
         # The options summary shows the values the ONT reads get.
-        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000)\n", self.log)
-        self.assertIn("snp min af:          0.150000 (ONT reads: 0.200000)\n", self.log)
-        self.assertIn("x-drop:              1000 (short reads; long reads: none)\n", self.log)
+        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000)\n", log)
+        self.assertIn("snp min af:          0.150000 (ONT reads: 0.200000)\n", log)
+        self.assertIn("x-drop:              1000 (short reads; long reads: none)\n", log)
 
     def test_long_reads_are_aligned_without_x_drop(self):
         # --x_drop is for short reads: over the gene-long windows of long reads it lost alignments.
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["oa"], "--prefix", "oa", "--read_type", "ont",
-                      "-o", "out_xdrop", "-t", "4", "--no_qcmsa", "--x_drop", "50")
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["oa"], "--prefix", "oa", "--read_type", "ont",
+                      "-o", "out_xdrop", "-t", "4", "--no_qcmsa", "--no_profile", "--x_drop", "50")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertEqual(sorted(sam_records(self.path("out_xdrop", "oa.sam"))), sorted(sam_records(self.path("out", "oa.sam"))))
+        self.assertEqual(sorted(sam_records(self.path("out_xdrop", "oa.sam"))), sorted(sam_records(self.runs.sam("oa"))))
 
     def test_every_gene_is_found_once(self):
         for prefix in ("oa", "ob"):
-            by_read = representative_records(sam_records(self.path("out", f"{prefix}.sam")))
+            by_read = representative_records(sam_records(self.runs.sam(prefix)))
             found = missed = twice = 0
-            for name, placed in zip(self.read_names(prefix), self.truth[prefix]):
+            for (name, _), placed in zip(fastq_records(self.runs.long[prefix]), self.runs.truth[prefix]):
                 reps = by_read.get(name, [])
                 for gene, start, end in placed:
                     hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.9 * (end - start)]
@@ -2713,186 +2976,123 @@ class OntTest(WorkDir):
             self.assertEqual(twice, 0, f"{prefix}: no gene counted twice")
             self.assertGreaterEqual(found / (found + missed), 0.9, f"{prefix}: {found} genes found, {missed} missed")
 
-    def test_profile_only_takes_the_ont_model(self):
-        sam = sam_path(self.path("out", "oa.sam"))
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("no model for --read_type ont (ONT reads)", log)
-        self.assertIn("--model_ont", log)
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_ont", self.model, "-o", self.path("po"),
-                      "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        with open(self.path("po", "oa.profile")) as again, open(self.path("out", "oa.profile")) as first:
-            self.assertEqual(again.read(), first.read())
+    def test_profiles(self):
+        # The stand-in model (the paired-end one) is not fit for 2% errors: which species it reports is not the point
+        # here, but that every species on the reads reaches it and none other is reported.
+        for sample in ("oa", "ob"):
+            on_reads = self.species_on_reads(sample)
+            scored = sorted(row["Name"] for row in read_dicts(find_one(self.runs.out, f"{sample}.profile.log")))
+            self.assertEqual(scored, on_reads, sample)
+            called = self.species_called(sample)
+            self.assertTrue(called, sample)
+            self.assertLessEqual(set(called), set(on_reads), sample)
 
-    def test_fasta_reads_get_q18_and_a_given_identity(self):
-        fasta = self.path("ob.fa")
-        with open(self.reads["ob"]) as fq, open(fasta, "w") as fh:
-            lines = fq.read().splitlines()
-            for i in range(0, len(lines), 4):
-                fh.write(f">{lines[i][1:]}\n{lines[i + 1]}\n")
-        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--read_type", "ont", "-a", "0.8", "--prefix", "obfa",
-                      "-o", "out_fasta", "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("Align the ONT reads of sample obfa (-a 0.8)", log)
-        records = sam_records(self.path("out_fasta", "obfa.sam"))
-        self.assertTrue(records)
-        self.assertEqual({q for r in records for q in r[10]}, {"3"}, "Q18 for every base")
 
-    def test_a_map_mixes_paired_end_and_ont_samples(self):
-        sample_map = self.path("typed.map")
-        with open(sample_map, "w") as fh:
-            fh.write(f"#OUTPUT_DIR\t{self.path('out_map')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
-            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\t-\n")
-            fh.write(f"ob\tob\t{self.reads['ob']}\t-\tont\n")
-        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
-        self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("1 paired-end, 0 single-end, 0 PacBio, 1 ONT sample(s)", log)
+class ReadTypesTest(ReadTypeTest):
+    """What every read type does alike: one map of all of them, --profile_only taking the model of the SAM's reads, FASTA
+    reads, and the read type found from the reads."""
+
+    TYPES = {"sa": ("se", "single-end reads"), "la": ("pb", "PacBio reads"), "oa": ("ont", "ONT reads")}
+
+    def test_a_map_mixes_every_read_type(self):
+        log = self.runs.log
+        self.assertIn("1 paired-end, 2 single-end, 2 PacBio, 2 ONT sample(s)", log)
+        self.assertIn("Model of paired-end reads: ", log)
         self.assertIn("Align the paired-end reads of sample pe (-a 0.9)", log)
         self.assertIn("Align the ONT reads of sample ob (-a 0.85)", log)
         self.assertNotIn("minimum allele frequencies for", log)
-        with open_sam(self.path("out_map", "ob.sam")) as fh:
-            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+        paired = sam_records(self.runs.sam("pe"))
+        self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
+        for sample, (read_type, _) in self.TYPES.items():
+            records = sam_records(self.runs.sam(sample))
+            self.assertTrue(records and not any(int(r[1]) & 0x1 for r in records), sample)
+            if read_type != "se":
+                self.assertIn(f"@CO\tprotal read type: {read_type}\n", sam_text(self.runs.sam(sample)))
+        self.assertEqual(self.species_called("pe"), sorted(species()))
+
+    def test_profile_only_takes_the_model_of_the_sams_reads(self):
+        # The test database has no model for these read types: the SAM's records (unpaired) and its header (@CO) ask
+        # for one.
+        sams = {sample: self.runs.sam(sample) for sample in self.TYPES}
+        for sample, (read_type, name) in self.TYPES.items():
+            with self.subTest(read_type):
+                rc, log = profile_only(self.work, self.path(f"missing_{read_type}"), [sams[sample]], prefixes=[sample])
+                self.assertEqual(rc, 30, log[-3000:])
+                self.assertIn(f"no model for --read_type {read_type} ({name})", log)
+                self.assertIn(f"--model_{read_type}", log)
+        model = db_file("model_pe.xml")
+        rc, log = profile_only(self.work, self.path("po"), list(sams.values()), "--model_se", model, "--model_pb", model,
+                               "--model_ont", model, prefixes=list(sams))
+        self.assertEqual(rc, 0, log[-3000:])
+        for sample, (_, name) in self.TYPES.items():
+            self.assertIn(f"Model of {name}: {model}", log)
+            self.assertEqual(read_text(self.path("po", f"{sample}.profile")), self.runs.text(f"{sample}.profile"), sample)
+
+    def test_fasta_reads(self):
+        # FASTA reads get a quality: Q30 (?) short and PacBio reads, Q18 (3) ONT reads; -a given replaces the read
+        # types' identities.
+        sample_map = self.path("fasta.map")
+        expected = {"safa": ("se", os.path.join(READS, "sa_R1.fq"), "?"), "lbfa": ("pb", self.runs.long["lb"], "?"),
+                    "obfa": ("ont", self.runs.long["ob"], "3")}
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_fasta')}\n#SAM_OUTPUT_DIR\t.\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+            for sample, (read_type, fastq, _) in expected.items():
+                with open(self.path(f"{sample}.fa"), "w") as fa:
+                    fa.writelines(f">{name.rsplit('/', 1)[0] if read_type == 'se' else name}\n{seq}\n"
+                                  for name, seq in fastq_records(fastq))
+                fh.write(f"{sample}\t{sample}\t{self.path(sample + '.fa')}\t-\t{read_type}\n")
+        rc, log = run(self.work, "--db", self.runs.db, "--map", sample_map, "-a", "0.8", "-t", "4", "--no_qcmsa", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Align the ONT reads of sample obfa (-a 0.8)", log)
+        for sample, (read_type, _, quality) in expected.items():
+            with self.subTest(read_type):
+                records = sam_records(find_one(self.path("out_fasta"), f"{sample}.sam.zst"))
+                self.assertTrue(records)
+                self.assertEqual({q for r in records for q in r[10]}, {quality})
+                _, rows = read_table(find_one(self.path("out_fasta"), f"{sample}.profile.log"))
+                self.assertTrue(rows, "the profiler takes the records")
+
+    def test_read_types_by_the_reads_and_prefixes_by_the_files(self):
+        # Without --read_type: PacBio names (movie/ZMW) make PacBio reads; other names by their quality, Q17 here (ONT
+        # reads); short ones single-end reads. Without --prefix the read files name the samples.
+        ont = self.path("ont_like.fq")
+        simulate_long_reads(ont, 10, seed=31, error=0.02, indels=0.7, read_name="read_{}", quality="2")
+        short = head_reads(os.path.join(READS, "sa_R1.fq"), self.path("sa_R1.fq"), 200)
+        rc, log = run(self.work, "--db", self.runs.db, "-1", ",".join([self.runs.long["lb"], ont, short]), "-o", "out_auto",
+                      "-t", "2", "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Note: Sample lb: PacBio reads (the first ", log)
+        self.assertIn("named as PacBio names reads", log)
+        self.assertIn("@CO\tprotal read type: pb\n", sam_text(self.path("out_auto", "lb.sam")))
+        self.assertIn("Note: Sample ont_like: ONT reads (the first 10 reads", log)
+        self.assertIn("median read quality Q17.0 (PacBio from Q25, ONT below)", log)
+        self.assertIn("@CO\tprotal read type: ont\n", sam_text(self.path("out_auto", "ont_like.sam")))
+        self.assertIn("Align the single-end reads of sample sa_R1", log)
+        self.assertTrue(sam_records(self.path("out_auto", "sa_R1.sam")))
+
+    def test_a_long_read_after_the_first_100_fails_its_sample(self):
+        # The check before aligning sees the first 100 reads; the reader stops at any later long read.
+        head = head_reads(os.path.join(READS, "sa_R1.fq"), self.path("head.fq"), 150)
+        late = self.path("late_long.fq")
+        with open(late, "w") as fh:
+            fh.write(read_text(head) + "@long\n" + "ACGT" * 500 + "\n+\n" + "I" * 2000 + "\n" + read_text(head))
+        rc, log = run(self.work, "--db", self.runs.db, "-1", late, "--prefix", "late", "-o", "out_late", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertIn("read long has 2000 bp, too long for short reads; give --read_type pb or ont", log)
+        self.assertFalse(glob.glob(self.path("out_late", "*.sam*")))
 
 
-class VersionTest(unittest.TestCase):
-    """--version of protal and the simulator: the version of CMakeLists.txt, and the commit they were built from when
-    built in a git checkout (build_gtdb_database.py checks the binaries it runs by it)."""
-
-    def test_both_say_the_version_and_commit(self):
-        with open(os.path.join(ROOT, "CMakeLists.txt")) as fh:
-            version = re.search(r"project\(protal VERSION ([0-9.]+)\)", fh.read()).group(1)
-        for binary, name in ((PROTAL, "protal"), (SIMULATE, "simulate_metagenomes")):
-            if not os.access(binary, os.X_OK):
-                self.skipTest(f"{name} not found at {binary}")
-            said = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout
-            self.assertRegex(said, rf"^{name} v{re.escape(version)}"
-                                   r"( \(commit [0-9a-f]{40}(, with uncommitted changes)?\))?\n$")
-
-
-class SimulatorTest(WorkDir):
-    def test_too_few_read_pairs_fails_fast(self):
-        if not os.access(SIMULATE, os.X_OK):
-            self.skipTest(f"simulate_metagenomes not found at {SIMULATE}")
-        with open(self.path("genomes.tsv"), "w") as table:
-            for sp in range(1, 4):
-                for strain in "ab":
-                    fasta = self.path(f"g{sp}{strain}.fa")
-                    with open(fasta, "w") as fh:
-                        fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
-                    table.write(f"g{sp}{strain}\td__B;p__P;c__C;o__O;f__F;g__G;s__G sp{sp}\t{fasta}\n")
-        # Used to spin forever when there are fewer read pairs than species.
-        rc, log = run(self.work, "--genome_table", "genomes.tsv", "--test", "--seed", "1",
-                      "--total_read_pairs", "2", "--species_per_sample", "3", "--output_dir", "sim",
-                      binary=SIMULATE, timeout=60)
-        self.assertEqual(rc, 1, log)
-        self.assertIn("increase --total_read_pairs", log)
-
-    def test_taxon_quota_counts(self):
-        # --taxon d__A:2 asks for two species of d__A per sample, the rest drawn from all species. It used
-        # to fill every sample with d__A species (the quota's copy was never counted down).
-        if not os.access(SIMULATE, os.X_OK):
-            self.skipTest(f"simulate_metagenomes not found at {SIMULATE}")
-        with open(self.path("genomes.tsv"), "w") as table:
-            for domain, count in (("A", 6), ("B", 30)):
-                for sp in range(count):
-                    fasta = self.path(f"{domain}{sp}.fa")
-                    with open(fasta, "w") as fh:
-                        fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
-                    table.write(f"{domain}{sp}\td__{domain};p__P{domain};c__C{domain};o__O{domain};f__F{domain};"
-                                f"g__G{domain};s__G{domain} sp{sp}\t{fasta}\n")
-        rc, log = run(self.work, "--genome_table", "genomes.tsv", "--test", "--seed", "1", "--samples", "8",
-                      "--total_read_pairs", "1000", "--species_per_sample", "6", "--taxon", "d__A:2",
-                      "--output_dir", "sim", binary=SIMULATE, timeout=60)
-        self.assertEqual(rc, 0, log)
-        domains = {}
-        with open(self.path("sim", "manifest.tsv")) as fh:
-            header = next(fh).rstrip("\n").split("\t")
-            for line in fh:
-                row = dict(zip(header, line.rstrip("\n").split("\t")))
-                domains.setdefault(row["sample"], []).append(row["taxonomy"].split(";")[0])
-        self.assertEqual(len(domains), 8)
-        for sample, found in domains.items():
-            self.assertEqual(len(found), 6, sample)
-            self.assertGreaterEqual(found.count("d__A"), 2, sample)
-        # The four species drawn at random are d__A 4 times in 34, so about 2.5 d__A per sample, not 6.
-        self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
-
-    def test_samples_on_threads_are_the_same(self):
-        # -t: samples written side by side (their designs and ART seeds drawn first, in order), each sample's reads
-        # BGZF-compressed as each genome's are appended: the same files byte for byte on 1 and 3 threads, and no
-        # temporary files left.
-        if not os.access(SIMULATE, os.X_OK):
-            self.skipTest(f"simulate_metagenomes not found at {SIMULATE}")
-        if shutil.which("art_illumina") is None:
-            self.skipTest("art_illumina not found")
-        with open(self.path("genomes.tsv"), "w") as table:
-            for sp in range(6):
-                fasta = self.path(f"t{sp}.fa.gz")
-                rng = random.Random(sp)
-                with gzip.open(fasta, "wt") as fh:
-                    fh.write(">c1\n" + "".join(rng.choice("ACGT") for _ in range(6000)) + "\n")
-                table.write(f"t{sp}\td__B;p__P;c__C;o__O;f__F;g__G;s__G sp{sp}\t{fasta}\n")
-        outputs = {}
-        for threads in ("1", "3"):
-            out = f"sim_t{threads}"
-            rc, log = run(self.work, "--genome_table", "genomes.tsv", "--seed", "4", "--samples", "4",
-                          "--total_read_pairs", "600", "--species_per_sample", "3", "--read_length", "100",
-                          "--sequencer", "HS20", "--fragment_mean", "300", "--fragment_stdev", "30", "-t", threads,
-                          "--output_dir", out, binary=SIMULATE, timeout=300)
-            self.assertEqual(rc, 0, log[-3000:])
-            files = sorted(os.listdir(self.path(out, "reads")))
-            self.assertEqual(files, [f"sample_{i}_R{r}.fq.gz" for i in range(1, 5) for r in (1, 2)])
-            self.assertEqual([f for f in os.listdir(self.path(out)) if f.endswith("_tmp")], [], "temporary files left")
-            outputs[threads] = {}
-            for f in files:
-                with open(self.path(out, "reads", f), "rb") as fh:
-                    outputs[threads][f] = fh.read()
-            with open(self.path(out, "manifest.tsv")) as fh:
-                outputs[threads]["manifest"] = re.sub(re.escape(out), "OUT", fh.read()).encode()
-        self.assertEqual(outputs["1"], outputs["3"])
-        with gzip.open(self.path("sim_t1", "reads", "sample_1_R1.fq.gz"), "rt") as fh:
-            self.assertEqual(sum(1 for _ in fh) // 4, 600)
-        # --reads_compression zstd: .fq.zst files of the same reads (the training data collector's default), named so in
-        # the protal map; the same bytes on any number of threads.
-        if not shutil.which("zstd"):
-            self.skipTest("needs the zstd command")
-        zstd = {}
-        for threads in ("1", "3"):
-            out = f"sim_zstd_t{threads}"
-            rc, log = run(self.work, "--genome_table", "genomes.tsv", "--seed", "4", "--samples", "4",
-                          "--total_read_pairs", "600", "--species_per_sample", "3", "--read_length", "100",
-                          "--sequencer", "HS20", "--fragment_mean", "300", "--fragment_stdev", "30", "-t", threads,
-                          "--output_dir", out, "--reads_compression", "zstd", "--protal_metafile", self.path(out, "p"),
-                          binary=SIMULATE, timeout=300)
-            self.assertEqual(rc, 0, log[-3000:])
-            files = sorted(os.listdir(self.path(out, "reads")))
-            self.assertEqual(files, [f"sample_{i}_R{r}.fq.zst" for i in range(1, 5) for r in (1, 2)])
-            zstd[threads] = {f: open(self.path(out, "reads", f), "rb").read() for f in files}
-            with open(self.path(out, "protal.meta")) as fh:
-                self.assertIn("sample_1\tsample_1_R1.fq.zst\tsample_1_R2.fq.zst\tsample_1.sam.zst\tsample_1\t", fh.read())
-        self.assertEqual(zstd["1"], zstd["3"])
-        for name, data in zstd["1"].items():
-            self.assertEqual(data[:4], b"\x28\xb5\x2f\xfd", name)
-            plain = subprocess.run(["zstd", "-dcq"], input=data, check=True, stdout=subprocess.PIPE).stdout
-            self.assertEqual(plain, gzip.decompress(outputs["1"][name.replace(".zst", ".gz")]), name)
-
-
-class PhasingTest(WorkDir):
+class PhasingTest(DbTest):
     """A long-read sample of two strains of a species gets a strain MSA row per strain (Haplotypes.h). The species'
     genes laid out as a genome (300-800 bp apart, in the database's order); strain 2 has 1.5% of the bases of every
     gene substituted. Sample pa holds strain 1, pm strains 1 and 2 at 70:30: PacBio-like reads of 6-10 kb at 0.1%
-    errors, about 25x. The MSA has pa, pm_hap1 (strain 1) and pm_hap2 (strain 2); with --no_phasing pa and pm."""
+    errors, about 25x. The MSA has pa, pm_hap1 (strain 1) and pm_hap2 (strain 2); with --no_phasing (the same SAMs) pa
+    and pm."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.db = os.path.join(cls.work, "pacbio_db")
-        os.mkdir(cls.db)
-        for f in glob.glob(os.path.join(FILES, "*")):
-            if os.path.basename(f) != "database.protal":
-                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
-        os.symlink(db_file("model_pe.xml"), os.path.join(cls.db, "model_PB.xml"))
+        cls.db = read_type_db()
         rng = random.Random(23)
         genes = [(name, seq) for name, seq in reference_genes() if name.startswith("1_")]
         cls.strains = [dict(genes), {}]
@@ -2928,20 +3128,20 @@ class PhasingTest(WorkDir):
         common = ["--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "pa,pm", "--read_type", "pb", "-t", "4",
                   "--no_qcmsa", "--msa_knob", "0"]
         cls.rc, cls.log = run(cls.work, *common, "-o", "out")
+        os.makedirs(os.path.join(cls.work, "off"))
+        for prefix in ("pa", "pm"):
+            if os.path.exists(os.path.join(cls.work, "out", f"{prefix}.sam.zst")):
+                shutil.copy(os.path.join(cls.work, "out", f"{prefix}.sam.zst"), os.path.join(cls.work, "off"))
         cls.rc_off, cls.log_off = run(cls.work, *common, "-o", "off", "--no_phasing")
 
     def msa(self, out):
         paths = []
         for path in glob.glob(self.path(out, "strains", "*.raw.msa.fna")):
-            with open(path) as fh:
-                text = fh.read()
-            if ">pa\n" in text:
+            if ">pa\n" in read_text(path):
                 paths.append(path)
         self.assertEqual(len(paths), 1, paths)
         rows, name = {}, None
-        with open(paths[0]) as fh:
-            lines = fh.read().splitlines()
-        for line in lines:
+        for line in read_text(paths[0]).splitlines():
             if line.startswith(">"):
                 name = line[1:]
                 rows[name] = ""
@@ -2956,8 +3156,7 @@ class PhasingTest(WorkDir):
         self.assertEqual(sorted(n for n in rows if not n.endswith("_reference")), ["pa", "pm_hap1", "pm_hap2"])
         reference = next(seq for n, seq in rows.items() if n.endswith("_reference"))
         # The MSA's columns of reference bases in gene order (the partitions), against the strains' genes.
-        with open(path.replace(".raw.msa.fna", ".raw.partition.txt")) as fh:
-            partitions = [line for line in fh.read().splitlines() if line]
+        partitions = [line for line in read_text(path.replace(".raw.msa.fna", ".raw.partition.txt")).splitlines() if line]
         strain_of = {"pm_hap1": 0, "pm_hap2": 1}
         matched = {r: [0, 0] for r in strain_of}  # bases of the row's own strain, of the other one, at differing sites
         for part in partitions:
@@ -2978,8 +3177,7 @@ class PhasingTest(WorkDir):
         for row, (own, other) in matched.items():
             self.assertGreater(own, 0, row)
             self.assertLessEqual(other, 0.02 * own, (row, own, other))
-        with open(path.replace(".raw.msa.fna", ".haplotypes.tsv")) as fh:
-            lines = list(csv.DictReader(fh, delimiter="\t"))
+        lines = read_dicts(path.replace(".raw.msa.fna", ".haplotypes.tsv"))
         self.assertTrue(lines)
         self.assertTrue(all(line["sample"] == "pm" for line in lines))
         self.assertTrue(any(line["phased"] == "yes" for line in lines))
@@ -2988,10 +3186,129 @@ class PhasingTest(WorkDir):
 
     def test_one_row_per_sample_without_phasing(self):
         self.assertEqual(self.rc_off, 0, self.log_off[-3000:])
+        self.assertIn("All alignments are present", self.log_off)
         path, rows = self.msa("off")
         self.assertEqual(sorted(n for n in rows if not n.endswith("_reference")), ["pa", "pm"])
         self.assertGreater(sum(c in "RYSWKMBDHV" for c in rows["pm"]), 0)  # the mixture's IUPAC codes
         self.assertFalse(os.path.exists(path.replace(".raw.msa.fna", ".haplotypes.tsv")))
+
+
+class VersionTest(unittest.TestCase):
+    """--version of protal and the simulator: the version of CMakeLists.txt, and the commit they were built from when
+    built in a git checkout (build_gtdb_database.py checks the binaries it runs by it). No database needed."""
+
+    def test_both_say_the_version_and_commit(self):
+        version = re.search(r"project\(protal VERSION ([0-9.]+)\)", read_text(os.path.join(ROOT, "CMakeLists.txt"))).group(1)
+        for binary, name, variable in ((PROTAL, "protal", "PROTAL"), (SIMULATE, "simulate_metagenomes", "SIMULATE")):
+            with self.subTest(name):
+                require_binary(binary, name, variable)
+                said = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout
+                self.assertRegex(said, rf"^{name} v{re.escape(version)}"
+                                       r"( \(commit [0-9a-f]{40}(, with uncommitted changes)?\))?\n$")
+
+
+class SimulatorTest(WorkDir):
+    """simulate_metagenomes on genomes of its own (no database needed)."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_binary(SIMULATE, "simulate_metagenomes", "SIMULATE")
+        super().setUpClass()
+
+    def test_too_few_read_pairs_fails_fast(self):
+        with open(self.path("genomes.tsv"), "w") as table:
+            for sp in range(1, 4):
+                for strain in "ab":
+                    fasta = self.path(f"g{sp}{strain}.fa")
+                    with open(fasta, "w") as fh:
+                        fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
+                    table.write(f"g{sp}{strain}\td__B;p__P;c__C;o__O;f__F;g__G;s__G sp{sp}\t{fasta}\n")
+        # Used to spin forever when there are fewer read pairs than species.
+        rc, log = run(self.work, "--genome_table", "genomes.tsv", "--test", "--seed", "1",
+                      "--total_read_pairs", "2", "--species_per_sample", "3", "--output_dir", "sim",
+                      binary=SIMULATE, timeout=60)
+        self.assertEqual(rc, 1, log)
+        self.assertIn("increase --total_read_pairs", log)
+
+    def test_taxon_quota_counts(self):
+        # --taxon d__A:2 asks for two species of d__A per sample, the rest drawn from all species. It used
+        # to fill every sample with d__A species (the quota's copy was never counted down).
+        with open(self.path("quota_genomes.tsv"), "w") as table:
+            for domain, count in (("A", 6), ("B", 30)):
+                for sp in range(count):
+                    fasta = self.path(f"{domain}{sp}.fa")
+                    with open(fasta, "w") as fh:
+                        fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
+                    table.write(f"{domain}{sp}\td__{domain};p__P{domain};c__C{domain};o__O{domain};f__F{domain};"
+                                f"g__G{domain};s__G{domain} sp{sp}\t{fasta}\n")
+        rc, log = run(self.work, "--genome_table", "quota_genomes.tsv", "--test", "--seed", "1", "--samples", "8",
+                      "--total_read_pairs", "1000", "--species_per_sample", "6", "--taxon", "d__A:2",
+                      "--output_dir", "sim_quota", binary=SIMULATE, timeout=60)
+        self.assertEqual(rc, 0, log)
+        domains = {}
+        for row in read_dicts(self.path("sim_quota", "manifest.tsv")):
+            domains.setdefault(row["sample"], []).append(row["taxonomy"].split(";")[0])
+        self.assertEqual(len(domains), 8)
+        for sample, found in domains.items():
+            self.assertEqual(len(found), 6, sample)
+            self.assertGreaterEqual(found.count("d__A"), 2, sample)
+        # The four species drawn at random are d__A 4 times in 34, so about 2.5 d__A per sample, not 6.
+        self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
+
+    def test_samples_on_threads_are_the_same(self):
+        # -t: samples written side by side (their designs and ART seeds drawn first, in order), each sample's reads
+        # BGZF-compressed as each genome's are appended: the same files byte for byte on 1 and 3 threads, and no
+        # temporary files left.
+        if shutil.which("art_illumina") is None:
+            raise unavailable("art_illumina not found")
+        with open(self.path("art_genomes.tsv"), "w") as table:
+            for sp in range(6):
+                fasta = self.path(f"t{sp}.fa.gz")
+                rng = random.Random(sp)
+                with gzip.open(fasta, "wt") as fh:
+                    fh.write(">c1\n" + "".join(rng.choice("ACGT") for _ in range(6000)) + "\n")
+                table.write(f"t{sp}\td__B;p__P;c__C;o__O;f__F;g__G;s__G sp{sp}\t{fasta}\n")
+        common = ["--genome_table", "art_genomes.tsv", "--seed", "4", "--samples", "4", "--total_read_pairs", "600",
+                  "--species_per_sample", "3", "--read_length", "100", "--sequencer", "HS20", "--fragment_mean", "300",
+                  "--fragment_stdev", "30"]
+        outputs = {}
+        for threads in ("1", "3"):
+            out = f"sim_t{threads}"
+            rc, log = run(self.work, *common, "-t", threads, "--output_dir", out, binary=SIMULATE, timeout=300)
+            self.assertEqual(rc, 0, log[-3000:])
+            files = sorted(os.listdir(self.path(out, "reads")))
+            self.assertEqual(files, [f"sample_{i}_R{r}.fq.gz" for i in range(1, 5) for r in (1, 2)])
+            self.assertEqual([f for f in os.listdir(self.path(out)) if f.endswith("_tmp")], [], "temporary files left")
+            outputs[threads] = {}
+            for f in files:
+                with open(self.path(out, "reads", f), "rb") as fh:
+                    outputs[threads][f] = fh.read()
+            outputs[threads]["manifest"] = re.sub(re.escape(out), "OUT", read_text(self.path(out, "manifest.tsv"))).encode()
+        self.assertEqual(outputs["1"], outputs["3"])
+        with gzip.open(self.path("sim_t1", "reads", "sample_1_R1.fq.gz"), "rt") as fh:
+            self.assertEqual(sum(1 for _ in fh) // 4, 600)
+        # --reads_compression zstd: .fq.zst files of the same reads (the training data collector's default), named so in
+        # the protal map; the same bytes on any number of threads.
+        require_zstd("to read zstd-compressed reads")
+        zstd = {}
+        for threads in ("1", "3"):
+            out = f"sim_zstd_t{threads}"
+            rc, log = run(self.work, *common, "-t", threads, "--output_dir", out, "--reads_compression", "zstd",
+                          "--protal_metafile", self.path(out, "p"), binary=SIMULATE, timeout=300)
+            self.assertEqual(rc, 0, log[-3000:])
+            files = sorted(os.listdir(self.path(out, "reads")))
+            self.assertEqual(files, [f"sample_{i}_R{r}.fq.zst" for i in range(1, 5) for r in (1, 2)])
+            zstd[threads] = {}
+            for f in files:
+                with open(self.path(out, "reads", f), "rb") as fh:
+                    zstd[threads][f] = fh.read()
+            self.assertIn("sample_1\tsample_1_R1.fq.zst\tsample_1_R2.fq.zst\tsample_1.sam.zst\tsample_1\t",
+                          read_text(self.path(out, "protal.meta")))
+        self.assertEqual(zstd["1"], zstd["3"])
+        for name, data in zstd["1"].items():
+            self.assertEqual(data[:4], b"\x28\xb5\x2f\xfd", name)
+            plain = subprocess.run(["zstd", "-dcq"], input=data, check=True, stdout=subprocess.PIPE).stdout
+            self.assertEqual(plain, gzip.decompress(outputs["1"][name.replace(".zst", ".gz")]), name)
 
 
 if __name__ == "__main__":
