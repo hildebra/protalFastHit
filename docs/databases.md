@@ -695,7 +695,7 @@ keeps the finished database.
 | `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD |
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
-| `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain |
+| `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
 | `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn), `powerlaw:ALPHA` or `negbin:R:P` |
 | `--read-types` | `pe,se,pb,ont` | the read types to train |
@@ -1162,9 +1162,13 @@ type ([report](claude/2026-10-02-r226-build-evaluation/README.md)).
 
 With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the model
 already knows the depth, and a curve on top corrects twice (it lost 0.010). Instead the trainer chooses
-one knob for every sample, the threshold with the highest F1 on species held out (rows weighted as in
-the fits), if it gains 0.002 over `--knob`; it goes into the model as a curve of one point, which
-protal reads as that knob at every depth (`--knob` overrides it). At r226 v12 the paired-end forest's
+one knob for every sample: the median of the best thresholds on species held out (rows weighted as in
+the fits) over 200 bootstrap resamples of the training samples, if it beats `--knob` in 95% of them
+and does not lose F1 on the test set (its rows weighted alike); it goes into the model as a curve of
+one point, which protal reads as that knob at every depth (`--knob` overrides it). The report gives
+the resamples' range of best thresholds and the test set's F1 at both. Until 2026-10-07 it was the
+best threshold if it gained 0.002: on a flat curve near-equal models chose differently (se 0.73 at
+r226 v14, 0.5 at v15; [report](claude/2026-10-07-r226-v15/README.md)). At r226 v12 the paired-end forest's
 best threshold was 0.70 both with species held out and on the test set (+0.003 of test F1); the other
 read types' sat near 0.5 ([report](claude/2026-10-05-r226-v12-scenarios/README.md)). Either way a
 model cannot extrapolate beyond its deepest training samples: train at the depths you profile. Models

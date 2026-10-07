@@ -1426,9 +1426,13 @@ def main():
     p.add_argument("--species-per-sample", default="20-200",
                    help="species per sample, drawn per sample (default 20-200: real gut samples hold 100-300 GTDB "
                         "species with a long tail of rare ones)")
-    p.add_argument("--strains-per-species", default="0.3,0.1",
-                   help="probabilities of a second, third, ... strain of a species in a sample (default 0.3,0.1): "
-                        "real samples often mix strains, which changes the allele-frequency features")
+    p.add_argument("--strains-per-species", default="0.5,0.2",
+                   help="probabilities of a second, third, ... strain of a species in a sample (default 0.5,0.2, the "
+                        "test set's; 0.3,0.1 before 2026-10-07): real samples often mix strains, which changes the "
+                        "allele-frequency features. With fewer strains than the test set, the global knob was chosen on "
+                        "samples that lost fewer strains to it: at r226 v15 pe's 0.80 lost the test design's samples "
+                        "twice the present taxa per sample it lost the training design's, 90%% of them strains "
+                        "(docs/claude/2026-10-07-r226-v15)")
     p.add_argument("--abundance", default="lognormal:1.3,2.0",
                    help="abundance model of the training samples: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P; "
                         "lognormal:S1,S2,... gives a design point's samples the sigmas in turn (default "

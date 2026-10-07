@@ -603,29 +603,47 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertIn("No knob curve: the sample's depth is a feature", result.stdout)
         chosen = metrics["global_knob"]
         curve = read_depth_knob_curve(prefix + ".xml")
-        if chosen["gain"] >= self.trainer.DEPTH_KNOB_MIN_GAIN:
-            self.assertEqual([k for _, k in curve], [chosen["best"]])
-            self.assertEqual(metrics["depth_knobs"]["global_knob"], chosen["best"])
+        if chosen["knob"] is not None:
+            self.assertEqual([k for _, k in curve], [chosen["knob"]])
+            self.assertEqual(metrics["depth_knobs"]["global_knob"], chosen["knob"])
+            self.assertGreaterEqual(chosen["support"], self.trainer.KNOB_SUPPORT)
         else:
             self.assertEqual(curve, [])
             self.assertIsNone(metrics["depth_knobs"]["global_knob"])
         self.assertEqual([[x, k] for x, k in curve], metrics["depth_knobs"]["curve"])
 
     def test_one_knob_for_every_sample(self):
-        # choose_global_knob: the threshold of the highest F1 with species held out, kept if it gains DEPTH_KNOB_MIN_GAIN
-        # over 0.5, the rows weighted as the forests weigh them (the scenarios' by --scenario-weight).
+        # choose_global_knob: the median of the best thresholds with species held out over bootstrap resamples of the
+        # training samples, kept if it beats 0.5 in KNOB_SUPPORT of them and does not lose F1 on the test set, the rows
+        # weighted as the models weigh them (the scenarios' by --scenario-weight).
         rng = np.random.default_rng(2)
         n = 4000
         y = (rng.random(n) < 0.3).astype(int)
         scores = np.clip(np.where(y == 1, rng.normal(0.85, 0.08, n), rng.normal(0.45, 0.12, n)), 0, 1)
-        frame = pd.DataFrame({"truth": y, "meta_scenario": ""})
-        opts = types.SimpleNamespace(knob=0.5)
+        frame = pd.DataFrame({"truth": y, "meta_scenario": "", "meta_sample": [f"s{i % 40}" for i in range(n)]})
+        opts = types.SimpleNamespace(knob=0.5, seed=1)
         report = self.trainer.Report()
         knob = self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts)
         self.assertIsNotNone(knob)
         self.assertGreater(knob, 0.55)  # absent taxa score up to ~0.7: a knob above 0.5 calls fewer of them
-        self.assertGreaterEqual(report.data["global_knob"]["gain"], self.trainer.DEPTH_KNOB_MIN_GAIN)
-        # Scores whose best threshold is 0.5: no knob, protal calls at --knob.
+        chosen = report.data["global_knob"]
+        self.assertEqual((chosen["knob"], chosen["median"]), (knob, knob))
+        self.assertGreaterEqual(chosen["support"], self.trainer.KNOB_SUPPORT)
+        self.assertGreater(chosen["gain"], 0)
+        self.assertLessEqual(chosen["range"][0], knob)
+        self.assertGreaterEqual(chosen["range"][1], knob)
+        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": scores}, opts), knob)
+        # A test set it loses on (its present taxa scored between 0.5 and the knob): none, protal calls at --knob.
+        test_y = np.ones(50, dtype=int)
+        test = (test_y, np.full(50, 0.52), np.ones(50))
+        report = self.trainer.Report()
+        self.assertIsNone(self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts, test))
+        self.assertEqual(report.data["global_knob"]["test"]["F1_at_default"], 1.0)
+        self.assertIn("loses on the test set", "\n".join(report.lines))
+        # One it does not lose on: the knob stands.
+        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": scores}, opts,
+                                                         (test_y, np.full(50, 0.95), np.ones(50))), knob)
+        # Scores whose every threshold from 0.1 to 0.9 is as good: no knob beats 0.5, protal calls at --knob.
         even = np.where(y == 1, 0.9, 0.1)
         self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": even}, opts))
         # Without scores with species held out (--evaluation none): none.

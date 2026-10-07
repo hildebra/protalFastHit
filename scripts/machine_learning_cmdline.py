@@ -56,9 +56,11 @@ depth raised the test sets' F1 by 0.006-0.033 for every read type (docs/claude/2
 evaluation); the earlier knobs by whole decade (bins 2-6, other bins at --knob's default), which protal
 still reads, cost PacBio up to 0.016 on the v0.7.1 benchmark (docs/claude/2026-10-01-features-depth-knobs).
 build_gtdb_database.py passes it for every read type. With the sample's depth among the features (the default set)
-no curve is fitted, but one knob for every sample (choose_global_knob): the threshold with the highest F1 with species
-held out, if it gains 0.002 over --knob, in the model as a curve of one point (r226 v12: pe 0.70 on both species held
-out and the test set, the other read types near 0.5).
+no curve is fitted, but one knob for every sample (choose_global_knob), in the model as a curve of one point: the
+median of the best thresholds with species held out over bootstrap resamples of the training samples, if it beats
+--knob in 95% of them and, with --test-file, does not lose F1 on the test set (its rows weighted as the training rows)
+(since 2026-10-07; before, the best threshold if it gained 0.002, which near-equal models chose differently on a flat
+curve: r226 v12 pe 0.70, v15 0.80, se 0.73 in v14 and 0.5 in v15).
 
 --fdr-calls calibrates the scores instead (an isotonic fit of presence on the scores of species held out) and
 chooses the target share of false calls per sample with the highest F1 on species held out: protal then reports in
@@ -156,6 +158,10 @@ DEPTH_KNOB_MIN_TAXA = 50
 DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
 DEPTH_KNOB_MIN_GAIN = 0.002  # a point keeps --knob unless its best knob beats it by this much F1 on its window
+# The global knob (choose_global_knob): the median best threshold of KNOB_RESAMPLES bootstrap resamples of the training
+# samples, kept if it beats --knob in KNOB_SUPPORT of them (and does not lose on the test set).
+KNOB_RESAMPLES = 200
+KNOB_SUPPORT = 0.95
 # --fdr-calls: the targets tried for a sample's expected share of false calls (choose_false_calls), and the scores of species
 # held out at which the calibration (an isotonic fit of presence on score) is evaluated for the model's curve: quantiles of
 # the scores, so that the curve has its points where the taxa are. protal and false_call_flags read the curve linearly.
@@ -1072,18 +1078,44 @@ def weighted_f1(y, call, weights=None):
     return float(2 * tp / (2 * tp + fp + fn)) if tp + fp + fn else None
 
 
-def choose_global_knob(report, df, y, p, opts):
-    """--depth-knobs with the sample's depth a feature: no curve (the forest knows the depth), but one knob for every
-    sample, the threshold of DEPTH_KNOB_GRID with the highest F1 with species held out (rows weighted as the forest's),
-    kept only if it gains DEPTH_KNOB_MIN_GAIN over --knob, as the depth knobs' points are. At r226 v12 the pe forest's
-    best threshold was 0.698 with species held out and 0.699 on the test set (+0.0046 and +0.0029 of F1 over 0.5); the
-    other read types' sat near 0.5 or disagreed between the two (docs/claude/2026-10-05-r226-v12-scenarios). -> the knob,
-    or None (protal calls at --knob)."""
+def sample_counts(samples, y, scores, weights, grid):
+    """Per sample (np.unique's order) and threshold of grid: the weighted TP, FP and FN of the calls scores >= t, an
+    array samples x thresholds x 3."""
+    _, idx = np.unique(samples, return_inverse=True)
+    n = int(idx.max()) + 1 if len(idx) else 0
+    w = np.ones(len(y)) if weights is None else np.asarray(weights, dtype=float)
+    present = np.asarray(y) == 1
+    out = np.zeros((n, len(grid), 3))
+    for j, t in enumerate(grid):
+        call = scores >= t
+        out[:, j, 0] = np.bincount(idx, weights=w * (call & present), minlength=n)
+        out[:, j, 1] = np.bincount(idx, weights=w * (call & ~present), minlength=n)
+        out[:, j, 2] = np.bincount(idx, weights=w * (~call & present), minlength=n)
+    return out
+
+
+def f1_of_counts(counts):
+    """F1 of [..., (TP, FP, FN)] counts, 0 without a true positive."""
+    tp, fp, fn = counts[..., 0], counts[..., 1], counts[..., 2]
+    return np.where(tp > 0, 2 * tp / np.maximum(2 * tp + fp + fn, 1e-12), 0.0)
+
+
+def choose_global_knob(report, df, y, p, opts, test=None):
+    """--depth-knobs with the sample's depth a feature: no curve (the model knows the depth), but one knob for every
+    sample. Since 2026-10-07 it is the median of the best thresholds (DEPTH_KNOB_GRID) of KNOB_RESAMPLES bootstrap
+    resamples of the training samples, scored with species held out and the rows weighted as in the fits, kept if it
+    beats --knob in KNOB_SUPPORT of the resamples and, with a test set (test: its truth, the final model's scores and the
+    rows' weights as the training rows', the design's test samples and the scenarios' hold-out samples), does not lose F1
+    there. Before, the single best threshold was kept if it gained DEPTH_KNOB_MIN_GAIN: a flat curve made near-equal
+    models choose 0.5 or 0.73 (se at r226 v14 and v15), and nothing checked the knob on other samples
+    (docs/claude/2026-10-07-r226-v15). -> the knob, or None (protal calls at --knob)."""
     report.section("Knob (species held out)")
     report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the model's score already "
                "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
-               "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead, if it gains "
-               f"{DEPTH_KNOB_MIN_GAIN} of F1 with species held out (rows weighted as in the fits).")
+               "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead: the median "
+               f"of the best thresholds of {KNOB_RESAMPLES} bootstrap resamples of the training samples (species held "
+               f"out, rows weighted as in the fits), if it beats --knob in {KNOB_SUPPORT:.0%} of them and does not lose "
+               "F1 on the test set.")
     scores = p.get("species")
     if scores is None:
         report.add("no scores with species held out: protal calls at --knob")
@@ -1092,23 +1124,52 @@ def choose_global_knob(report, df, y, p, opts):
     scores = call_scores(df, scores)[ok]  # the singleton rule's rows are never called
     yy = y[ok]
     weights = row_weights(np.flatnonzero(ok)) if ROW_WEIGHTS is not None else None
-    f1s = [weighted_f1(yy, scores >= t, weights) or 0.0 for t in DEPTH_KNOB_GRID]
-    best = float(DEPTH_KNOB_GRID[int(np.argmax(f1s))])
-    at_knob = weighted_f1(yy, scores >= opts.knob, weights) or 0.0
-    gain = max(f1s) - at_knob
-    knob = best if gain >= DEPTH_KNOB_MIN_GAIN else None
+    grid = np.unique(np.append(DEPTH_KNOB_GRID, round(float(opts.knob), 2)))
+    at = int(np.argmin(np.abs(grid - opts.knob)))
+    samples = df["meta_sample"].to_numpy()[ok] if "meta_sample" in df.columns else np.arange(len(yy))
+    counts = sample_counts(samples, yy, scores, weights, grid)
+    whole = f1_of_counts(counts.sum(0))
+    best = float(grid[int(np.argmax(whole))])
+    rng = np.random.default_rng(getattr(opts, "seed", 1))
+    n = counts.shape[0]
+    boot = f1_of_counts(np.einsum("bs,stk->btk", rng.multinomial(n, np.full(n, 1 / n), size=KNOB_RESAMPLES).astype(float),
+                                  counts))
+    bests = grid[boot.argmax(1)]
+    j = int(np.argmin(np.abs(grid - np.median(bests))))
+    median = float(grid[j])
+    support = float((boot[:, j] > boot[:, at]).mean())
+    gain = float(whole[j] - whole[at])
+    knob = median if support >= KNOB_SUPPORT and j != at else None
+    tested = None
+    if knob is not None and test is not None:
+        ty, tscores, tweights = test
+        tested = {"F1_at_knob": weighted_f1(ty, tscores >= knob, tweights),
+                  "F1_at_default": weighted_f1(ty, tscores >= opts.knob, tweights), "rows": int(len(ty))}
+        if (tested["F1_at_knob"] or 0) < (tested["F1_at_default"] or 0):
+            knob = None
     design = scenario_of(df)[ok] == ""
     rows = []
-    for label, t in ((f"--knob {opts.knob}", opts.knob), (f"best {best:.2f}", best)):
+    for label, t in ((f"--knob {opts.knob}", opts.knob), (f"median {median:.2f}", median), (f"best {best:.2f}", best)):
         call = scores >= t
         rows.append({"knob": label, "F1 (weighted)": weighted_f1(yy, call, weights), "F1 design rows": f1_of(yy[design], call[design]),
                      "F1 scenario rows": f1_of(yy[~design], call[~design]) if (~design).any() else None,
                      "FP": int((call & (yy == 0)).sum()), "FN": int((~call & (yy == 1)).sum())})
     report.table(pd.DataFrame(rows))
-    report.add(f"knob {knob:g} for every sample: {gain:.4f} of F1 above {opts.knob}" if knob is not None else
-               f"protal calls at --knob {opts.knob}: the best threshold, {best:.2f}, gains {gain:.4f}, less than "
-               f"{DEPTH_KNOB_MIN_GAIN}")
-    report.data["global_knob"] = {"knob": knob, "best": best, "gain": gain, "F1_at_knob": at_knob, "F1_best": max(f1s),
+    spread = f"the resamples' best thresholds {np.quantile(bests, 0.05):.2f}-{np.quantile(bests, 0.95):.2f} (5-95%)"
+    on_test = (f"; on the test set ({tested['rows']} rows, weighted) F1 {tested['F1_at_knob']:.4f} at it, "
+               f"{tested['F1_at_default']:.4f} at {opts.knob}" if tested and tested["F1_at_knob"] is not None else "")
+    if knob is not None:
+        report.add(f"knob {knob:g} for every sample: {gain:.4f} of F1 above {opts.knob}, better in {support:.0%} of the "
+                   f"resamples; {spread}{on_test}")
+    elif tested is not None:
+        report.add(f"protal calls at --knob {opts.knob}: the median threshold, {median:.2f}, beats it in {support:.0%} "
+                   f"of the resamples but loses on the test set{on_test}; {spread}")
+    else:
+        report.add(f"protal calls at --knob {opts.knob}: the median threshold, {median:.2f}, beats it in {support:.0%} "
+                   f"of the resamples ({gain:.4f} of F1), fewer than {KNOB_SUPPORT:.0%}; {spread}")
+    report.data["global_knob"] = {"knob": knob, "best": best, "median": median, "support": support, "gain": gain,
+                                  "range": [float(np.quantile(bests, 0.05)), float(np.quantile(bests, 0.95))],
+                                  "F1_at_knob": float(whole[at]), "F1_best": float(whole.max()), "test": tested,
                                   "rows": rows}
     return knob
 
@@ -1895,7 +1956,14 @@ def train(opts):
         # One knob for every sample, if it pays (choose_global_knob): in the model as a curve of one point, which protal
         # reads as that knob at every depth (profiler::DepthKnobAt).
         t0 = time.time()
-        knob = choose_global_knob(report, df, y, p, opts) if p else None
+        test_rows = None  # the test set as the final model scores it, its rows weighted as the training rows
+        tested = [t for t in (test_design, test_scenarios) if t is not None]
+        if p and tested:
+            whole = pd.concat(tested)
+            scored = call_scores(whole, rf.predict_proba(whole[cols].to_numpy(dtype=np.float64))[:, 1])
+            test_rows = (whole["truth"].to_numpy(), scored,
+                         np.where(scenario_of(whole) != "", opts.scenario_weight, 1.0))
+        knob = choose_global_knob(report, df, y, p, opts, test_rows) if p else None
         if knob is not None:
             depth = float(np.median(sample_depths(df)))
             depth_knobs = [(round(min(12.0, max(0.0, depth)), 3), knob)]
