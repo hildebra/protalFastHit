@@ -2,8 +2,9 @@
 """test_collector.py - checks for collect_training_data.py (the training data's designs, the long reads' replay of the
 paired-end communities, the simulations' scheduler, --follow, the worker processes), scenarios.py and hifi_reads.py.
 
-Stand-ins replace pbsim3 and protal; art_illumina is needed only for the host genome's paired-end reads (that part is
-skipped without it). Needs numpy.
+A stand-in replaces protal; the long reads are made by simulate_metagenomes ($SIMULATE: those tests are skipped without
+it, or fail under PROTAL_TESTS_REQUIRED=1), art_illumina is needed only for the host genome's paired-end reads (that
+part is skipped without it). Needs numpy.
 
   python3 -m unittest scripts/mini_db/test_collector.py
 """
@@ -37,17 +38,23 @@ import lineages  # noqa: E402
 import scenarios  # noqa: E402
 
 
-def fake_templ_pbsim(path):
-    """A stand-in for pbsim3 --strategy templ: one read per template, its sequence as it is, named r_<n>
-    after its place in the file, into <prefix>.fq.gz; it fails without --strategy templ."""
+SIMULATOR = os.environ.get("SIMULATE", "")  # simulate_metagenomes, which makes the long reads
+
+
+def need_simulator():
+    """$SIMULATE (simulate_metagenomes): the test is skipped without it, or fails under PROTAL_TESTS_REQUIRED."""
+    if not prerequisites.executable(SIMULATOR):
+        prerequisites.missing("needs $SIMULATE (simulate_metagenomes) for the long reads")
+    return SIMULATOR
+
+
+def perfect_qshmm(path):
+    """A pbsim3 qshmm model (QSHMM-*.model's format) whose reads have Q93 throughout, so no errors: one state per
+    accuracy level 71-99, emitting Q93."""
     with open(path, "w") as fh:
-        fh.write("#!" + sys.executable + "\nimport gzip, sys\na = sys.argv[1:]\nget = lambda k: a[a.index(k) + 1]\n"
-                 "if get('--strategy') != 'templ': sys.exit(2)\n"
-                 "seqs = [l.strip() for l in open(get('--template')) if not l.startswith('>')]\n"
-                 "with gzip.open(get('--prefix') + '.fq.gz', 'wt') as out:\n"
-                 "    for i, s in enumerate(seqs, 1):\n"
-                 "        out.write('@%s_%d\\n%s\\n+\\n%s\\n' % (get('--id-prefix'), i, s, 'I' * len(s)))\n")
-    os.chmod(path, 0o755)
+        for level in range(71, 100):
+            fh.write(f"{level} IP 1 1.0\n{level} EP 1 " + " ".join("1.0" if q == 93 else "0" for q in range(94)) +
+                     f"\n{level} TP 1 1.0\n")
 
 
 class Gate:
@@ -92,8 +99,6 @@ class CollectorTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-
-    fake_templ_pbsim = staticmethod(fake_templ_pbsim)
 
     def test_collector_designs(self):
         # Read setups (built-in and custom ART profiles), abundance models, long-read setups and units.
@@ -148,9 +153,10 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual([u["samples"] for u in units if u["type"] == "ont"], [12, 6, 5])
 
     def test_long_read_replay(self):
-        # pb/ont samples replay a paired-end point's communities: the collector draws the reads (a genome by
-        # relative abundance times length, a start uniform, either strand) until the sample's bases, and pbsim3
-        # makes one read of each (a stand-in here, which keeps the sequence).
+        # pb/ont samples replay a paired-end point's communities: one simulate_metagenomes run per unit draws the
+        # reads (a genome by relative abundance times length, a start uniform, either strand) until each sample's bases,
+        # and makes one read of each (here by a qshmm model of Q93 throughout, so without errors).
+        simulator = need_simulator()
         root = os.path.join(self.tmp.name, "longreads")
         point = os.path.join(root, "points", "rl150_p1000")
         os.makedirs(os.path.join(point, "sim"))
@@ -172,14 +178,12 @@ class CollectorTest(unittest.TestCase):
             fh.write(f"#OUTPUT_DIR\t{point}/protal\n#INPUT_DIR\t{point}/sim/reads\n"
                      "#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n"
                      "rl150_p1000_s_1\ta\tb\tc\td\te\t/truth/1\nrl150_p1000_s_2\ta\tb\tc\td\te\t/truth/2\n")
-        fake = os.path.join(root, "pbsim")
-        self.fake_templ_pbsim(fake)
         models = os.path.join(root, "models")
         os.makedirs(models)
-        open(os.path.join(models, "FAKE.model"), "w").close()
-        opts = argparse.Namespace(out=root, seed=1, pbsim=fake, pbsim_models=models, samples=2)
+        perfect_qshmm(os.path.join(models, "PERFECT.model"))
+        opts = argparse.Namespace(out=root, seed=1, simulator=simulator, pbsim="none", pbsim_models=models, samples=2)
         unit = {"type": "ont", "name": "ont_b300000", "bases": 300000,
-                "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "samples": 2,
+                "setup": collect.parse_long_setup("qshmm:PERFECT:1000:0:0.97"), "samples": 2,
                 "communities": [{"name": "rl150_p1000"}],
                 "point": {"name": "ont_b300000", "read_length": "1000", "read_pairs": "300000"}}
         keys = {"ont_b300000": {"a": 1}}
@@ -200,7 +204,7 @@ class CollectorTest(unittest.TestCase):
             lines = compressed.read_text(row["FIRST"]).splitlines()
             first[row["SAMPLEID"]] = lines
             names, reads = lines[0::4], lines[1::4]
-            self.assertEqual(len(names), len(set(names)), "read names must be unique within a sample")
+            self.assertEqual(names, [f"@g{n[2]}x_{i}" for i, n in enumerate(names, 1)], "g<genome>x_<n>, n in order")
             # The reads' bases reach the sample's; a read is 1 kb (the setup's mean, SD 0) or shorter at a
             # contig's end, from either strand of its genome.
             self.assertGreaterEqual(sum(map(len, reads)), 300000)
@@ -217,43 +221,29 @@ class CollectorTest(unittest.TestCase):
             self.assertEqual(counts[0] + counts[1], len(names))
             self.assertAlmostEqual(counts[0] / len(names), share_a, delta=0.1)
         self.assertTrue(collect.simulated(unit, opts))
-        # The same seed, the same reads.
+        # The same seed, the same reads, on another number of slots; gzip (BGZF) instead of zstd, the same reads.
         self.assertEqual(collect.simulate_long([(0, unit)], opts, 1), {})
         for row in rows:
             self.assertEqual(compressed.read_text(row["FIRST"]).splitlines(), first[row["SAMPLEID"]])
-        # A sample of more bases than --long_read_chunk is simulated in chunks side by side, joined into one gzip
-        # file: every read named once (chunk c of k names every k-th from c + 1), the sample's bases, reads of its
-        # genomes; the same reads on any number of slots, and its chunks' files gone.
-        chunked = argparse.Namespace(**vars(opts), long_read_chunk=70000)
-        self.assertEqual(collect.simulate_long([(0, unit)], chunked, 3), {})
-        for row in rows:
-            lines = compressed.read_text(row["FIRST"]).splitlines()
-            names, reads = lines[0::4], lines[1::4]
-            self.assertNotEqual(lines, first[row["SAMPLEID"]])
-            ids = [int(n.split("x_")[1]) for n in names]
-            self.assertEqual(len(set(ids)), len(ids))
-            self.assertEqual({i % 5 for i in ids}, set(range(5)))  # 5 chunks, each its own every 5th name
-            self.assertGreaterEqual(sum(map(len, reads)), 300000)
-            self.assertLess(sum(map(len, reads)), 300000 + 5 * 1000)
-            for name, read in zip(names, reads):
-                genome = sequences["GA" if name.startswith("@g0x_") else "GB"]
-                self.assertTrue(read in genome or read.translate(complement)[::-1] in genome)
-            chunked_first = compressed.read_text(row["FIRST"])
-            self.assertEqual(collect.simulate_long([(0, unit)], chunked, 1), {})
-            self.assertEqual(compressed.read_text(row["FIRST"]), chunked_first)
-        self.assertFalse(os.path.exists(os.path.join(root, "points", "ont_b300000", "sim", "tmp")))
-        zstd_reads = {r["SAMPLEID"]: compressed.read_text(r["FIRST"]) for r in rows}
-        gzipped = argparse.Namespace(**vars(chunked), read_compression="gzip")
+        gzipped = argparse.Namespace(**vars(opts), read_compression="gzip")
         self.assertEqual(collect.simulate_long([(0, unit)], gzipped, 3), {})
         for row in collect.unit_map_rows(unit, gzipped)[0]:
             self.assertTrue(row["FIRST"].endswith(".fq.gz"))
             with gzip.open(row["FIRST"], "rt") as fh:
-                self.assertEqual(fh.read(), zstd_reads[row["SAMPLEID"]])
-        tasks = collect.long_read_chunks({"bases": 300000, "seed": 7, "tmp": "/t", "out": "/o"}, 70000)
-        self.assertEqual([t["bases"] for t in tasks], [60000] * 4 + [60000])
-        self.assertEqual(len({t["seed"] for t in tasks}), 5)
-        self.assertEqual(collect.long_read_chunks({"bases": 300000, "seed": 7}, 0)[0]["seed"], 7)
-        self.assertEqual(len(collect.long_read_chunks({"bases": 300000, "seed": 7}, 300000)), 1)
+                self.assertEqual(fh.read().splitlines(), first[row["SAMPLEID"]])
+        # A host share: the host genome (scenarios.prepare_host) last among the genomes, that share of the weight.
+        host_fa = os.path.join(root, "host.fa")
+        host_seq = "".join(rng.choice("ACGT") for _ in range(30000))
+        with open(host_fa, "w") as fh:
+            fh.write(">chr1\n" + host_seq + "\n")
+        hosted = argparse.Namespace(**vars(opts), host_folder=scenarios.prepare_host(host_fa, os.path.join(root, "host")))
+        unit_h = dict(unit, name="ont_host", host_share=0.5, point=dict(unit["point"], name="ont_host"))
+        self.assertEqual(collect.simulate_long([(0, unit_h)], hosted, 2), {})
+        for row in collect.unit_map_rows(unit_h, hosted)[0]:
+            lines = compressed.read_text(row["FIRST"]).splitlines()
+            host_reads = [r for n, r in zip(lines[0::4], lines[1::4]) if n.startswith("@g2x_")]
+            self.assertAlmostEqual(len(host_reads) / len(lines[0::4]), 0.5, delta=0.12)
+            self.assertTrue(all(r in host_seq or r.translate(complement)[::-1] in host_seq for r in host_reads))
 
     def test_scheduler(self):
         # The simulations' queue: the ready job of highest priority first, on its slots; a job waits for those it
@@ -317,71 +307,13 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(sorted(gate.started()), sorted([f"d{i}" for i in range(5)] + [f"o{i}" for i in range(5)]))
         self.assertEqual(gate.most["draw"], 2)
 
-    def test_one_pass_and_workers(self):
-        # The chunks of a long-read sample draw their templates in one pass over its genomes (each genome read once
-        # per round for all chunks), and each chunk's templates are those it draws alone; a host genome too. The
-        # collector's Python work in worker processes makes the same reads as on the calling thread.
-        root = os.path.join(self.tmp.name, "onepass")
-        os.makedirs(root)
-        rng = random.Random(9)
-        genomes = []
-        for name, length, contigs in (("GA", 30000, 3), ("GB", 50000, 5), ("GC", 8000, 1)):
-            path = os.path.join(root, name + ".fna.gz")
-            with gzip.open(path, "wt") as fh:
-                for c in range(contigs):
-                    seq = "".join(rng.choice("ACGT") for _ in range(length // contigs))
-                    fh.write(f">{name}_{c}\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
-            genomes.append({"genome": name, "fasta": path, "weight": rng.random() * length})
-        host_fa = os.path.join(root, "host.fa")
-        with open(host_fa, "w") as fh:
-            fh.write(">chr1\n" + "".join(rng.choice("ACGT") for _ in range(20000)) + "\n")
-        genomes.append({"genome": "host", "fasta": "", "host": scenarios.prepare_host(host_fa, os.path.join(root, "host")),
-                        "weight": sum(g["weight"] for g in genomes)})
-        task = {"sample": "s", "out": os.path.join(root, "s.fq.gz"), "bases": 200000, "seed": 3, "pbsim": "none",
-                "setup": collect.parse_long_setup("hifi:1500:600:3"), "model": None, "tmp": os.path.join(root, "tmp"),
-                "genomes": genomes}
-        chunks = collect.long_read_chunks(task, 50000)
-        self.assertEqual(len(chunks), 4)
-        self.assertTrue(all(c["templates"].endswith(".gz") for c in chunks))
-        reads_of = collections.Counter()
-        original = collect.read_contigs
-
-        def counted(path):
-            reads_of[path] += 1
-            return original(path)
-        collect.read_contigs = counted
-        try:
-            counts, error = collect.draw_chunks(chunks)
-            self.assertIsNone(error)
-            together = sum(reads_of.values())
-            reads_of.clear()
-            for c, chunk in enumerate(chunks):
-                alone = dict(chunk, templates=os.path.join(root, f"alone{c}.fa"))
-                n, error = collect.draw_templates([alone])
-                self.assertIsNone(error)
-                self.assertEqual(n, [counts[c]])
-                with gzip.open(chunk["templates"], "rb") as fh, open(alone["templates"], "rb") as other:
-                    self.assertEqual(fh.read(), other.read(), f"chunk {c + 1}'s templates")
-            self.assertLess(together, sum(reads_of.values()))
-        finally:
-            collect.read_contigs = original
-        with gzip.open(chunks[1]["templates"], "rt") as fh:
-            names = [line[1:].strip() for line in fh if line.startswith(">")]
-        self.assertTrue(names and all(int(n.split("x_")[1]) % 4 == 2 for n in names))  # chunk 2 of 4: every 4th from 2
-        self.assertTrue(any(n.startswith("g3x_") for n in names), "reads of the host (genome 3)")
-        # The chunks' reads, inline and in worker processes: the same.
-        made = {}
-        for label, workers in (("inline", None), ("workers", 2)):
-            parts = [dict(c, out=os.path.join(root, f"{label}{i}.fq.gz"), tmp=os.path.join(root, label, f"c{i}"),
-                          templates=os.path.join(root, label, f"c{i}", "templates.fa.gz")) for i, c in enumerate(chunks)]
-            with (collect.Workers.started(workers) if workers else contextlib.nullcontext()):
-                counts, error = collect.Workers.call(collect.draw_chunks, parts)
-                self.assertIsNone(error)
-                for part, count in zip(parts, counts):
-                    self.assertIsNone(collect.Workers.call(collect.make_reads, part, count))
-            made[label] = [gzip.open(p["out"]).read() for p in parts]
-            self.assertFalse(any(os.path.exists(p["tmp"]) for p in parts), "the chunks' templates go once made")
-        self.assertEqual(made["inline"], made["workers"])
+    def test_workers(self):
+        # The collector's Python work (the host's paired-end fragments) runs in worker processes once they are
+        # started, else on the calling thread: the same results.
+        self.assertEqual(collect.Workers.call(len, "abc"), 3)
+        with collect.Workers.started(2):
+            self.assertIsNotNone(collect.Workers.pool)
+            self.assertEqual(collect.Workers.call(len, "abcd"), 4)
         self.assertIsNone(collect.Workers.pool)
 
     def test_room_on_the_disk(self):
@@ -506,8 +438,9 @@ class CollectorTest(unittest.TestCase):
             self.assertEqual(len(fh.read().splitlines()), 3)  # the two points in one run: nothing simulates
 
     def test_long_read_templates(self):
-        # A long-read sample's reads come from the contigs of 100 bases or more (pbsim3's shortest read; it stops
-        # at a shorter reference sequence), have the setup's lengths, and a failure says why.
+        # simulate_metagenomes draws a long-read sample's templates from the contigs of 100 bases or more (plain or
+        # gzipped FASTA, any case, CRLF), of the setup's lengths, and a failure says why; the setups are checked.
+        simulator = need_simulator()
         root = os.path.join(self.tmp.name, "templates")
         os.makedirs(root)
         rng = random.Random(3)
@@ -520,66 +453,60 @@ class CollectorTest(unittest.TestCase):
             fh.write(text)
         with gzip.open(zipped, "wt", newline="") as fh:
             fh.write(text)
-        expected = [seq.upper().encode() for _, seq in records]
-        self.assertEqual(collect.read_contigs(plain), expected)
-        self.assertEqual(collect.read_contigs(zipped), expected)
-        fake = os.path.join(root, "pbsim")
-        self.fake_templ_pbsim(fake)
+        models = os.path.join(root, "models")
+        os.makedirs(models)
+        perfect_qshmm(os.path.join(models, "PERFECT.model"))
+        opts = argparse.Namespace(out=root, seed=1, simulator=simulator, pbsim="pbsim", pbsim_models=models,
+                                  read_compression="gzip")
 
-        def task(name, fasta, pbsim=fake, bases=50000, setup="qshmm:FAKE:1000:0:0.97"):
-            return {"sample": name, "out": os.path.join(root, name + ".fq.gz"), "bases": bases, "pbsim": pbsim,
-                    "setup": collect.parse_long_setup(setup), "model": "FAKE", "seed": 1, "tmp": os.path.join(root, "tmp", name),
-                    "genomes": [{"genome": "G", "fasta": fasta, "weight": 1.0}]}
+        def unit(name, fasta, setup="qshmm:PERFECT:1000:0:0.97", bases=50000):
+            point = os.path.join(root, "points", "p_" + name, "sim")
+            os.makedirs(point, exist_ok=True)
+            with open(os.path.join(point, "manifest.tsv"), "w") as fh:
+                fh.write("sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\t"
+                         f"relative_abundance\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\np_{name}_s_1\tG\tS G\t"
+                         f"d__B;s__S G\t3200\t10\t1\t1.0\tr1\tr2\t{fasta}\t1\n")
+            with open(os.path.join(point, "protal.meta"), "w") as fh:
+                fh.write(f"#OUTPUT_DIR\t{point}\n#INPUT_DIR\t{point}\n#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\t"
+                         f"PROFILE_TRUTH\np_{name}_s_1\ta\tb\tc\td\te\t/truth\n")
+            return {"type": "ont", "name": name, "bases": bases, "setup": collect.parse_long_setup(setup), "samples": 1,
+                    "communities": [{"name": "p_" + name}],
+                    "point": {"name": name, "read_length": "1000", "read_pairs": str(bases)}}
+
+        def reads_of(name):
+            with gzip.open(os.path.join(root, "points", name, "sim", "reads", f"{name}_s_1.fq.gz"), "rt") as fh:
+                return fh.read().splitlines()
 
         long_one, exact = records[0][1].upper(), records[2][1]
         for name, fasta in (("plain", plain), ("zipped", zipped)):
-            self.assertIsNone(collect.long_read_sample(task(name, fasta)))
-            with gzip.open(os.path.join(root, name + ".fq.gz"), "rt") as fh:
-                reads = fh.read().splitlines()[1::4]
+            self.assertEqual(collect.simulate_long([(0, unit(name, fasta))], opts, 2), {})
+            reads = reads_of(name)[1::4]
             self.assertTrue(reads)
             for read in reads:  # from "a one" (up to 1 kb, cut at its end) or the whole of "exact", either strand
                 back = read.translate(str.maketrans("ACGT", "TGCA"))[::-1]
                 self.assertTrue(read in long_one or back in long_one or exact in (read, back), read[:20])
                 self.assertTrue(100 <= len(read) <= 1000)
-        # Only short sequences: nothing to simulate from. A pbsim failure carries its last line of output, and
-        # a pbsim that makes fewer reads than templates is caught.
+            self.assertFalse(os.path.exists(os.path.join(root, "points", name, "sim", "tmp")))
+        # Only short sequences: nothing to simulate from, and the run says so; so does a simulator that fails.
         short = os.path.join(root, "short.fna")
         with open(short, "w") as fh:
             fh.write(">tiny\nACGT\n>short\n" + "A" * 99 + "\n")
-        self.assertIn("no sequence of 100 bases or more", collect.long_read_sample(task("short", short)))
+        failures = collect.simulate_long([(0, unit("short", short))], opts, 1)
+        self.assertIn("no sequence of 100 bases or more", "".join(failures.values()))
         failing = os.path.join(root, "failing")
         with open(failing, "w") as fh:
             fh.write("#!/bin/sh\necho 'ERROR: out of ideas'\nexit 3\n")
         os.chmod(failing, 0o755)
-        error = collect.long_read_sample(task("failing", plain, failing))
-        self.assertIn("pbsim failed (3)", error)
-        self.assertIn("ERROR: out of ideas", error)
-        lossy = os.path.join(root, "lossy")
-        with open(lossy, "w") as fh:
-            fh.write("#!" + sys.executable + "\nimport gzip, sys\na = sys.argv[1:]\n"
-                     "with gzip.open(a[a.index('--prefix') + 1] + '.fq.gz', 'wt') as out:\n"
-                     "    out.write('@r_1\\nACGT\\n+\\nIIII\\n')\n")
-        os.chmod(lossy, 0o755)
-        self.assertIn("pbsim made 1 reads of", collect.long_read_sample(task("lossy", plain, lossy)))
-        # Read lengths: the setup's gamma distribution between 100 and 1,000,000; the mean when the SD is 0.
-        rng = random.Random(1)
-        lengths = [collect.read_length(rng, 8000, 6000) for _ in range(20000)]
-        self.assertTrue(all(100 <= n <= 1000000 for n in lengths))
-        self.assertAlmostEqual(sum(lengths) / len(lengths), 8000, delta=200)
-        self.assertEqual(collect.read_length(rng, 1000, 0), 1000)
-        # A hifi setup makes the reads with hifi_reads.py, no pbsim3 needed: one of each template, named after it,
-        # with qualities of HiFi reads.
-        missing = os.path.join(root, "no_pbsim")
-        self.assertIsNone(collect.long_read_sample(task("hifi", plain, missing, setup="hifi:1000:0:3")))
-        with gzip.open(os.path.join(root, "hifi.fq.gz"), "rt") as fh:
-            lines = fh.read().splitlines()
-        # Named after their templates, g<genome>x_<n> in the order drawn; the templates go once the reads are there.
+        failures = collect.simulate_long([(0, unit("failing", plain))], argparse.Namespace(**{**vars(opts), "simulator": failing}), 1)
+        self.assertIn("failed (3): ERROR: out of ideas", "".join(failures.values()))
+        # A hifi setup: no pbsim3 model needed; reads g<genome>x_<n> in the file's order, with qualities of HiFi reads.
+        self.assertEqual(collect.simulate_long([(0, unit("hifi", plain, setup="hifi:1000:0:3"))], opts, 1), {})
+        lines = reads_of("hifi")
         self.assertEqual([line[1:] for line in lines[0::4]], [f"g0x_{i}" for i in range(1, len(lines) // 4 + 1)])
-        self.assertFalse(os.path.exists(os.path.join(root, "tmp", "hifi")))
-        self.assertFalse(os.path.exists(os.path.join(root, "tmp", "plain")), "a pbsim3 sample's temporary files too")
         quality = [ord(c) - 33 for line in lines[3::4] for c in line]
         self.assertGreater(sorted(quality)[len(quality) // 2], 25)
-        for bad in ("hifi:1000:0", "hifi:1000:0:30:3", "hifi:a:0:3"):
+        for bad in ("hifi:1000:0", "hifi:1000:0:30:3", "hifi:a:0:3", "errhmm:ERRHMM-SEQUEL:15000:3000:0.99",
+                    "qshmm:M:a:0:0.9"):
             with self.assertRaises(SystemExit):
                 collect.parse_long_setup(bad)
 
@@ -662,7 +589,7 @@ class CollectorTest(unittest.TestCase):
         self.assertFalse(collect.drawn(units[1]))  # the design's se: the first reads of its paired-end point
         self.assertEqual(collect.parse_long_setup("ultima:300:40:25:2"),
                          {"method": "ultima", "model": None, "length_mean": 300, "length_sd": 40, "q_mean": 25.0,
-                          "q_sd": 2.0, "ratio": ""})
+                          "q_sd": 2.0, "ratio": "", "text": "ultima:300:40:25:2"})
         # Without paired-end reads collected, a scenario's communities come from a point without reads.
         _, units = collect.units_of(argparse.Namespace(**{**vars(opts), "read_types": ["pb"], "scenarios": "gut"}))
         community = [u for u in units if u.get("scenario")][0]["communities"][0]

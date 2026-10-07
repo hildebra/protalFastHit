@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""hifi_reads.py - PacBio HiFi reads made from templates: the PacBio reads of the training data and benchmarks.
+"""hifi_reads.py - PacBio HiFi reads made from templates: the model of the PacBio reads of the training data.
+
+The database build no longer runs this script: simulate_metagenomes makes the same model's reads in C++
+(src/RandomForest/LongReadSimulator.cpp, --long_samples for the collector, --long_templates for one read of each
+template as here), checked against this script on the same templates (docs/claude/2026-10-07-long-read-simulator).
+This script stays the model's reference, and is kept in step with the C++ one.
 
 pbsim3 does not simulate HiFi reads: it simulates the subreads of multi-pass sequencing (--pass-num), which PacBio's
 ccs turns into HiFi reads; in one pass with its error model it writes every base quality as '!' (Q0). Its reads at

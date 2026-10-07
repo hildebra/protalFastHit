@@ -16,8 +16,8 @@ and its SAM gives every record of the reads (of paired-end reads: of the fragmen
   - seeded on an FN or unseen taxon but did not align to it (its ZF tag; an unmapped record if they aligned nowhere), or
   - come from a genome of an FN or unseen species. ART names a read after its contig (<contig>-<n>; single-end reads
     are the paired-end reads' first), whose genome the FASTAs of the sample's manifest.tsv tell (trace_relatives.py);
-    the collector names a drawn read (PacBio, Nanopore, Ultima) g<i>x_<n>, i the genome's place among its community's
-    in the manifest (the host's after them).
+    simulate_metagenomes names a drawn read (PacBio, Nanopore, Ultima) g<i>x_<n>, i the genome's place among its
+    community's in the manifest (the host's after them).
 Each record gains its read's source and why it was taken: xg:Z:<genome>, xs:Z:<species> (" (not in the database)" for a
 species the training database lacks), xe:Z:FP:<taxid>,FN:<taxid>,seeded:<taxid>,source:<taxid> (lower-case tags: the
 SAM specification leaves them to users). A read that seeded on nothing has no record: most of a genome's reads are
@@ -60,7 +60,7 @@ SETS = ("training", "test")
 DESIGN = "design"  # --samples: the design's samples (no meta_scenario)
 NOT_IN_DB = " (not in the database)"
 TOP = 5  # taxa listed in a taxa.tsv cell
-DRAWN_NAME = re.compile(rb"g(\d+)x_")  # collect_training_data.draw_templates
+DRAWN_NAME = re.compile(rb"g(\d+)x_")  # simulate_metagenomes --long_samples (LongReadSimulator.cpp)
 TAXA_COLUMNS = ["sample", "set", "error", "taxid", "taxon_name", "p", "knob", "genomes", "read_pairs",
                 "own_fragments", "own_best_on_taxon", "own_best_on_taxon_mapq4", "own_best_elsewhere", "own_unaligned",
                 "own_best_elsewhere_on", "fragments_on_taxon", "best_on_taxon", "best_on_taxon_mapq4",

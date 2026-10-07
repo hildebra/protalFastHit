@@ -100,6 +100,8 @@ set(PROTAL_LIB_SOURCES
         RandomForest/CommunityProfileDesigner.cpp
         RandomForest/ArtIlluminaWrapper.h
         RandomForest/ArtIlluminaWrapper.cpp
+        RandomForest/LongReadSimulator.h
+        RandomForest/LongReadSimulator.cpp
 )
 
 add_library(protal_lib

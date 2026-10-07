@@ -21,6 +21,7 @@ add_executable(protal_tests
         test_AnchoredAlignment.cpp
         test_SamFile.cpp
         test_CommunityDesign.cpp
+        test_LongReadSimulation.cpp
         test_PackedSequence.cpp
         test_ReverseComplement.cpp
         test_GeneWindows.cpp

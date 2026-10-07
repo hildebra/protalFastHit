@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <cxxopts.hpp>
+#include "RandomForest/LongReadSimulator.h"
 #include "RandomForest/MetagenomeSimulator.h"
 #include "Utilities/BuildInfo.h"
 
@@ -154,6 +155,9 @@ struct CliOptions {
     std::optional<fs::path> protal_metafile_output_dir;
     fs::path strain_sharing_file;
     std::optional<fs::path> from_manifest;
+    // --long_samples: long or Ultima reads of given communities instead (LongReadSimulator.h)
+    fs::path long_samples, long_genomes, long_model, long_stats, long_templates, long_out;
+    std::string long_setup;
 };
 
 static std::vector<protal::sim::StrainSharingSpec> parse_strain_sharing_file(const fs::path& path) {
@@ -266,6 +270,28 @@ static cxxopts::Options build_cxxopts() {
         ("sequencer",       "ART sequencer profile", cxxopts::value<std::string>()->default_value("HS25"))
         ("extra_art_args",  "Extra ART arguments, e.g. \"--qprof1 q1 --qprof2 q2\"", cxxopts::value<std::string>()->default_value(""));
 
+    options.add_options("Long reads")
+        ("long_samples",    "Long (PacBio HiFi, Nanopore) or Ultima reads of given communities instead of a design: a TSV of "
+                            "sample, out (its reads: .fq.zst or .fq.gz), bases, seed. Templates are drawn from the genomes "
+                            "by weight (a gamma length of the setup, a uniform start on contigs of 100 bases or more, either "
+                            "strand) until each sample's bases, and each made into one read named g<i>x_<n> (i: the genome's "
+                            "place in the sample's list), written compressed as they are made; the same reads for any "
+                            "number of threads", cxxopts::value<std::string>())
+        ("long_genomes",    "With --long_samples: a TSV of sample, genome, fasta, weight (relative abundance x length), "
+                            "host (1: fasta is a host folder of scenarios.prepare_host, read by memory map)",
+                            cxxopts::value<std::string>())
+        ("long_setup",      "With --long_samples: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD (HiFi reads, quality by length), "
+                            "ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD (flow-based reads of a mean quality) or "
+                            "qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL] (pbsim3's qshmm model, Nanopore)",
+                            cxxopts::value<std::string>())
+        ("long_model",      "With a qshmm setup: pbsim3's model file (e.g. QSHMM-ONT-HQ.model)", cxxopts::value<std::string>())
+        ("long_templates",  "Instead of --long_samples: one read of each sequence of this FASTA by --long_setup's model, "
+                            "named after it, into --long_out (as hifi_reads.py and pbsim3 --strategy templ; --seed)",
+                            cxxopts::value<std::string>())
+        ("long_out",        "With --long_templates: the reads (.fq.zst or .fq.gz)", cxxopts::value<std::string>())
+        ("long_stats",      "With --long_samples: write sample, reads, template_bases, read_bases, errors, rounds here "
+                            "(default: standard output)", cxxopts::value<std::string>());
+
     options.add_options("General")
         ("t,threads",       "Threads: samples simulated at a time, and threads beyond the samples run the ART calls of a sample's genomes side by side; the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
@@ -284,14 +310,14 @@ static CliOptions parse_cli(int argc, char** argv) {
     auto cxx = build_cxxopts();
 
     if (argc <= 1) {
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
         std::exit(0);
     }
 
     auto result = cxx.parse(argc, argv);
 
     if (result.count("help")) {
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
         std::exit(0);
     }
     if (result.count("version")) {
@@ -299,10 +325,33 @@ static CliOptions parse_cli(int argc, char** argv) {
         std::exit(0);
     }
 
+    if (result.count("long_samples") || result.count("long_templates")) {  // long reads: no design, no genome table
+        CliOptions opts;
+        if (result.count("long_templates")) {
+            opts.long_templates = result["long_templates"].as<std::string>();
+            if (!result.count("long_out") || !result.count("long_setup")) {
+                throw std::runtime_error("--long_templates needs --long_out and --long_setup");
+            }
+            opts.long_out = result["long_out"].as<std::string>();
+            opts.seed = result.count("seed") ? result["seed"].as<std::uint64_t>() : 1;
+        } else {
+            opts.long_samples = result["long_samples"].as<std::string>();
+            if (!result.count("long_genomes") || !result.count("long_setup")) {
+                throw std::runtime_error("--long_samples needs --long_genomes and --long_setup");
+            }
+            opts.long_genomes = result["long_genomes"].as<std::string>();
+        }
+        opts.long_setup = result["long_setup"].as<std::string>();
+        if (result.count("long_model")) opts.long_model = result["long_model"].as<std::string>();
+        if (result.count("long_stats")) opts.long_stats = result["long_stats"].as<std::string>();
+        opts.threads = result["threads"].as<int>();
+        return opts;
+    }
+
     const bool replay = result.count("from_manifest") > 0;
     if ((!result.count("genome_table") && !replay) || !result.count("output_dir")) {
         std::cerr << "Error: --output_dir is required, as is --genome_table unless --from_manifest is given.\n\n";
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
         std::exit(1);
     }
 
@@ -599,6 +648,37 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     return simulator.replay_samples(std::move(design), cli.output_dir, cli.test_mode, cli.keep_tmp);
 }
 
+// --long_samples: the samples' long or Ultima reads (LongReadSimulator), and a line of counts per sample.
+static int simulate_long_reads(const CliOptions& cli) {
+    protal::sim::LongReadOptions options;
+    options.setup = protal::sim::LongReadSetup::Parse(cli.long_setup);
+    options.model = cli.long_model;
+    options.threads = std::max(1, cli.threads);
+    if (options.setup.method == protal::sim::LongReadSetup::Method::Qshmm && options.model.empty()) {
+        throw std::runtime_error("a qshmm setup needs pbsim3's model file: --long_model");
+    }
+    std::vector<protal::sim::LongSampleResult> results;
+    if (!cli.long_templates.empty()) {
+        results.push_back(protal::sim::MutateTemplates(cli.long_templates, cli.long_out, options, cli.seed.value_or(1)));
+    } else {
+        results = protal::sim::SimulateLongReads(protal::sim::ReadLongSamples(cli.long_samples, cli.long_genomes), options);
+    }
+    std::ofstream file;
+    if (!cli.long_stats.empty()) {
+        file.open(cli.long_stats);
+        if (!file) throw std::runtime_error("cannot write " + cli.long_stats.string());
+    }
+    std::ostream& out = cli.long_stats.empty() ? std::cout : file;
+    out << "sample\treads\ttemplate_bases\tread_bases\terrors\trounds\n";
+    for (const auto& r : results) {
+        out << r.name << '\t' << r.reads << '\t' << r.template_bases << '\t' << r.read_bases << '\t' << r.errors << '\t'
+            << r.rounds << '\n';
+    }
+    out.flush();
+    if (!out) throw std::runtime_error("writing the counts failed");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     CliOptions cli;
     try {
@@ -606,6 +686,15 @@ int main(int argc, char** argv) {
     } catch (const std::exception& ex) {
         std::cerr << "Error parsing arguments: " << ex.what() << '\n';
         return 1;
+    }
+
+    if (!cli.long_samples.empty() || !cli.long_templates.empty()) {
+        try {
+            return simulate_long_reads(cli);
+        } catch (const std::exception& ex) {
+            std::cerr << "Simulation failed: " << ex.what() << '\n';
+            return 1;
+        }
     }
 
     try {

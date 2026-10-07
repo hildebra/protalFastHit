@@ -33,7 +33,7 @@ harder in two ways than simulating the database's own references:
 
 One model per read type (--read-types, default pe,se,pb,ont), trained in
 parallel: paired-end reads (ART), their first reads alone (single-end), and
-PacBio and Nanopore reads of the same communities (pbsim3). Besides the training
+PacBio and Nanopore reads of the same communities (simulate_metagenomes). Besides the training
 data, an independent test set of another design (--test-*: other depths,
 community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
@@ -1123,6 +1123,20 @@ def source_version(source=SOURCE):
     return found.group(1) if found else None
 
 
+def pbsim_model_found(name, models, pbsim):
+    """Whether pbsim3's model `name` (a file, or NAME[.model] in `models` or pbsim3's data folder) is found, as
+    collect_training_data.pbsim_model finds it."""
+    if os.path.isfile(name):
+        return True
+    folders = [models] if models else []
+    exe = shutil.which(pbsim)
+    if exe:
+        prefix = os.path.dirname(os.path.dirname(os.path.realpath(exe)))
+        folders += sorted(glob.glob(os.path.join(prefix, "share", "pbsim*", "data"))) + \
+            sorted(glob.glob(os.path.join(prefix, "share", "pbsim*"))) + [os.path.join(prefix, "data")]
+    return any(os.path.isfile(os.path.join(folder, candidate)) for folder in folders for candidate in (name, name + ".model"))
+
+
 def build_check(command, name, source=SOURCE):
     """Whether the binary `command` (protal or the simulator) was built from the source these scripts are at, from
     its --version (the version, and since 0.7.3 the commit it was built from): (problem, note), either of them None.
@@ -1204,11 +1218,14 @@ def check_tools(args, read_types):
         built_here(args.simulator, "the simulator")
     executable("art_illumina", "ART", "the simulator simulates the Illumina reads with it: install ART (conda: art, "
                                       "envs/protal-db-build.yaml)")
-    pbsim_types = [t for t in read_types if t == "ont" or (t == "pb" and not args.pb_setup.startswith("hifi:"))]
-    if pbsim_types:
-        executable(args.pbsim, "pbsim3", f"{' and '.join(pbsim_types)} reads are simulated with it: install it (e.g. "
-                                         "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim, or "
-                                         "leave them out of --read-types")
+    # The simulator makes the long reads itself; a qshmm setup's reads follow pbsim3's model file (pbsim3 installs it).
+    for kind, setup in (("pb", args.pb_setup), ("ont", args.ont_setup)):
+        if kind in read_types and setup.startswith("qshmm:") and len(setup.split(":")) > 1 and \
+                not pbsim_model_found(setup.split(":")[1], args.pbsim_models, args.pbsim):
+            problems.append(f"{kind} reads follow pbsim3's model {setup.split(':')[1]}, which is in neither "
+                            f"--pbsim-models nor pbsim3's data folder (next to {args.pbsim}): install pbsim3 (e.g. "
+                            "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim-models, or leave "
+                            f"{kind} out of --read-types")
     imports = subprocess.run([sys.executable, "-c", "import joblib, numpy, pandas, sklearn"], capture_output=True, text=True)
     if imports.returncode:
         problems.append(f"{sys.executable} cannot import what the trainer needs ({imports.stderr.strip().splitlines()[-1]}): "
@@ -1334,9 +1351,9 @@ def main():
                         "docs/claude/2026-10-03-false-positive-fixes)")
     p.add_argument("--read-types", default="pe,se,pb,ont",
                    help="the read types to train a model for (default pe,se,pb,ont): se from the paired-end "
-                        "samples' first reads, pb and ont from long reads of the same communities (HiFi reads by "
-                        "hifi_reads.py, Nanopore reads by pbsim3). The "
-                        "models are trained in parallel; read types left out keep placeholders")
+                        "samples' first reads, pb and ont from long reads of the same communities (made by "
+                        "simulate_metagenomes: HiFi reads by hifi_reads.py's model, Nanopore reads by pbsim3's qshmm "
+                        "model). The models are trained in parallel; read types left out keep placeholders")
     p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2",
                    help="bases per long-read sample, one design point each, DEPTH:SAMPLES for other samples than "
                         "--long-read-samples (collect_training_data.py; real HiFi and Nanopore metagenomes are 5-30 Gb)")
@@ -1345,13 +1362,16 @@ def main():
                         "points of its depth, 12 samples of 3 setups by default: at r226 the Nanopore model's learning "
                         "curve still fell at 126 samples)")
     p.add_argument("--pb-setup", default="hifi:15000:3000:3",
-                   help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
-                        "their length (Q50 at 5 kb to Q30 at 25 kb, Q20 at 50 kb) and Q_SD around it (default), or a "
-                        "pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN")
+                   help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py's model (made by "
+                        "simulate_metagenomes), their quality by their length (Q50 at 5 kb to Q30 at 25 kb, Q20 at 50 kb) "
+                        "and Q_SD around it (default), or a qshmm setup as --ont-setup's")
     p.add_argument("--ont-setup", default="qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36",
-                   help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of Nanopore reads")
-    p.add_argument("--pbsim", default="pbsim", help="pbsim3 executable, for ont (and pb with a pbsim3 setup)")
-    p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: found next to the executable)")
+                   help="Nanopore reads: qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL], pbsim3's "
+                        "quality-score model (its MODEL.model file), as pbsim3 --strategy templ makes them, made by "
+                        "simulate_metagenomes")
+    p.add_argument("--pbsim", default="pbsim", help="pbsim3's executable, only to find its data folder of .model files "
+                                                    "(pbsim3 itself is not run)")
+    p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: pbsim3's data folder)")
     p.add_argument("--insilico-strains", type=float, default=1.0, metavar="SHARE",
                    help="give this share of the species with one genome in the genome table an in-silico strain to be "
                         "simulated from, too (scripts/insilico_strains.py: a copy of the representative with "
