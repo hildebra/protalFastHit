@@ -3,9 +3,9 @@
 the unknown share that ends a profile ("?"), the average genome size, the species' genome sizes and depths, and the
 species the rest would be (protal's Composition.h, docs/running.md#what-the-called-species-explain-the-unknown-share).
 
-For each sample of a collection (collect_training_data.py -o; build_gtdb_database.py: OUT/training and OUT/test), the
-composition is computed again as protal computes it, from the depth and genome size of every taxon in the sample's
-<profile>.log and the reads in its <profile>.composition, over the species a model calls: by default those of
+For each sample of a collection (collect_training_data.py -o; build_gtdb_database.py: OUT/work/training and
+OUT/work/test), the composition is computed again as protal computes it, from the depth and genome size of every taxon
+in the sample's <profile>.log and the reads in its <profile>.composition, over the species a model calls: by default those of
 --calls (the trainer's PREFIX.calls.tsv.gz: the final model's calls on the test set, the calls with species held out
 on the training samples), else those the profile called. The truth is the simulator's manifest of the sample's
 community (a long-read or Ultima sample's: the paired-end community it replays, drawn by bases):
@@ -25,8 +25,9 @@ paired-end sample whose community it replays (drawn by bases at the same share).
 Writes --out (one line per sample) and prints a summary per set and read type (--summary writes it too): the median
 and the 10-90% range of each estimate's error against its truth.
 
-  python3 scripts/composition_accuracy.py --calls OUT/trained_model.calls.tsv.gz --training OUT/training --test OUT/test \\
-      --heldout OUT/heldout_species.txt --read-type pe --out OUT/model_logs/composition_accuracy.tsv
+  python3 scripts/composition_accuracy.py --calls OUT/model_logs/trained_model.calls.tsv.gz --training OUT/work/training \\
+      --test OUT/work/test --heldout OUT/model_logs/heldout_species.txt --read-type pe \\
+      --out OUT/model_logs/composition_accuracy.tsv
 """
 import argparse
 import collections

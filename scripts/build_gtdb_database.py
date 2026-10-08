@@ -19,12 +19,12 @@ harder in two ways than simulating the database's own references:
   database's own reference, closer to it than real strains are.
   scripts/download_gtdb.py picks other genomes of the species from GTDB's
   metadata and downloads them from NCBI, so that species are simulated from
-  other strains, too. OUT_DIR/genome_table.txt says how often.
+  other strains, too. OUT_DIR/model_logs/genome_table.txt says how often.
 - Species the database lacks. The samples are profiled against a training
-  database (OUT_DIR/training_db; SCRATCH/training_db with --scratch) that
+  database (OUT_DIR/work/training_db; SCRATCH/training_db with --scratch) that
   leaves whole clades of every rank (--holdout-clades) and --holdout of the
   other species out
-  (OUT_DIR/heldout_species.txt): their reads land on relatives, as those of
+  (model_logs/heldout_species.txt): their reads land on relatives, as those of
   organisms GTDB lacks do in real samples, and the model learns to reject those
   relatives. The report gives false positive and false negative rates by rank.
   The finished database has all species and the model trained so. The training
@@ -63,33 +63,38 @@ trees on the default feature set, evaluated with rows, samples and species held
 out (--features, --evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
 set with species held out, and the run then says which set won and why.
 
-OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
-(TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read
-type's training report (how it does on species and clades it was not trained on,
-on the independent test set, false positive and false negative rates by rank,
-against the previous model and training procedure), its numbers as JSON, the
-per-taxon predictions, the threshold table, the parity check with protal, the
-genome table summary and build_metadata.tsv (what the database was built from
-and with); and what the model's conservation features rest on, on real genomes:
-gene_congeners.tsv (protal --build: how each gene differs between congeners
-against within species), gene_incongruence.tsv (protal --build: every near pair of
-gene copies across genera, and which copy is suspect, contamination or a transfer; the
-suspect ones go into the database as suspect_copies.tsv and a run leaves their records
-out) and relatives_by_gene_conservation.txt (trace_relatives.py: where the reads of the
-held-out species land, by the genes' factors). model_logs/error_reads/ tells what each model's errors rest on in
-every sample of the training data and the test set (--error-reads, default all): per sample, a table of the error taxa
-and where their reads went, the non-hits among them (reads that seeded on taxa but aligned nowhere, whose unmapped
-records protal writes for these samples; error_reads.py). With --share-logs it also keeps the SAM records of those
-reads, the false positives' and the false negatives' in files of their own (a sample of each taxon's), and the run
-ends by packing OUT_DIR/<name>_share.tar.gz: the logs (console.log: the console's lines), model_logs/ and the
-training and test tables, to copy off the cluster.
+OUT_DIR holds, each file once:
+  protal_db/      the database: database.protal and build_metadata.tsv (what it was built from and with), and the
+                  converter's gene2geneid.tsv and genome2tiid.tsv (gene ids and genomes by name)
+  model_logs/     what tells whether the models are good, and what the run chose
+  logs/           every step's log
+  console.log     the console's lines
+  work/           what a rerun reuses: the stage keys, the genome tables, the taxonomy, the training and test tables
+                  (to retrain); without --scratch also the samples, the training database, the genome store and the
+                  in-silico strains. Not needed to use the database
+model_logs/ has summary.txt (TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read type's
+model (trained_model*.xml, as in the database) and training report (how it does on species and clades it was not trained
+on, on the independent test set, false positive and false negative rates by rank, against the previous model and training
+procedure), its numbers as JSON, the per-taxon predictions and calls, the threshold table, the parity check with
+protal (parity.txt), the genome table summary, the species held out (heldout_species.txt, holdout.txt) and the clouds
+that steered them; and what the model's conservation features rest on, on real genomes: gene_congeners.tsv (protal
+--build: how each gene differs between congeners against within species), gene_incongruence.tsv (protal --build: every
+near pair of gene copies across genera, and which copy is suspect, contamination or a transfer; the suspect ones go into
+the database as suspect_copies.tsv and a run leaves their records out) and relatives_by_gene_conservation.txt
+(trace_relatives.py: where the reads of the held-out species land, by the genes' factors). model_logs/error_reads/ tells
+what each model's errors rest on in every sample of the training data and the test set (--error-reads, default all): per
+read type, a table of every sample's error taxa and where their reads went, the non-hits among them (reads that seeded
+on taxa but aligned nowhere, whose unmapped records protal writes for these samples; error_reads.py). With --share-logs
+it also keeps the SAM records of those reads, the false positives' and the false negatives' in files of their own per
+sample (a sample of each taxon's), and the run ends by packing OUT_DIR/<name>_share.tar.gz: console.log, logs/,
+model_logs/ (without the models), the taxonomy and the training and test tables, to copy off the cluster.
 
 A reduced database holds a subset of the marker genes (--n-genes N: the N most
 distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
 from a full build of the training database, or from --gene-ranking; --genes: the
-genes named). The release is then converted whole into OUTDIR/.converted and both
+genes named). The release is then converted whole into OUTDIR/work/converted and both
 database folders are derived from it with the subset (their gene neighbours
-counted over it); OUTDIR/gene_ranking.tsv and gene_subset.txt record the choice.
+counted over it); model_logs/gene_ranking.tsv and gene_subset.txt record the choice.
 Each domain keeps its best genes in the subset (--genes-per-domain), so that
 archaea are covered too. A run with every gene writes the ranking with
 --rank-genes, for the reduced run to take (--gene-ranking); scripts/
@@ -102,11 +107,12 @@ or the build files (--no-binary-check runs them anyway). A run that stops (a fai
 SIGTERM, Ctrl-C) stops every command it started, and one that fails in the
 background (the finished database's build) stops the run within seconds. A rerun
 into the same OUTDIR resumes: the conversion and the two index builds are skipped
-when their inputs are those of the run that completed them (OUTDIR/.stages), and
+when their inputs are those of the run that completed them (OUTDIR/work/stages), and
 the collector reuses the samples it simulated and profiled with the same database,
-protal and design.
+protal and design. An OUTDIR of the layout before 2026-10-08 (the logs, .stages and
+the tables beside protal_db) is not resumed: its stages are done again.
 
-Each stage writes to a log of its own in OUTDIR. On the console, each line has the
+Each stage writes to a log of its own in OUTDIR/logs. On the console, each line has the
 time and how long the run has taken. A step says when it starts ("4/8 training
 data (its log): ...") and, on an indented line, when it ends: how long it took, its
 peak memory and a few numbers of what it made. With --progress-every, each stage
@@ -148,6 +154,8 @@ INSILICO = os.path.join(HERE, "insilico_strains.py")
 # --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
 INSILICO_FALLBACK_ANI = "97-99.5"
 SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
+# OUTDIR's folders (the module's docstring): the database, the evaluation, every step's log, what a rerun reuses.
+DATABASE, REPORTS, LOGS, WORK = "protal_db", "model_logs", "logs", "work"
 # What protal and the simulator are built from (protal_commit.cmake marks a build of uncommitted changes to them).
 BUILD_SOURCES = ("src", "lib", "CMakeLists.txt", "protal_config.h.in", "protal_commit.cmake")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
@@ -384,16 +392,20 @@ class Job:
     progress_every = 0
     scratch = None  # a Scratch with --scratch
 
-    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False):
+    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False):
         """nice: the command's niceness, more than the script's (the simulations, beside the profiling); idle: the idle
-        scheduling class instead (lower_priority: the finished database's build, on the cores the others leave)."""
+        scheduling class instead (lower_priority: the finished database's build, on the cores the others leave); append:
+        its output added to the log (a step of several commands, one after the other), not replacing it."""
         os.makedirs(os.path.dirname(log), exist_ok=True)
         self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
         self.label = label or os.path.basename(log).removesuffix(".log")
         self.seconds = None  # set when it has ended
         self.peak = None  # the most memory it, or a command it ran, took, in bytes; set when it has ended
         self.paused = False
-        self.fh = open(log, "w")
+        self.fh = open(log, "a" if append else "w")
+        if append:
+            self.fh.write(f"--- {' '.join(command)}\n")
+            self.fh.flush()
         self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT, start_new_session=True,
                                         preexec_fn=lower_priority(nice, idle))
         Job.running.append(self)
@@ -518,8 +530,8 @@ def check_jobs():
             job.ended(rc)
 
 
-def run(command, log, on_success=None, label=None):
-    return Job(command, log, on_success, label).finish()
+def run(command, log, on_success=None, label=None, append=False):
+    return Job(command, log, on_success, label, append=append).finish()
 
 
 def make_genome_table(gtdb, release, output, extra_dirs=(), species=None, threads=1):
@@ -992,10 +1004,10 @@ def error_read_units(text, defs):
     return list(dict.fromkeys(out))
 
 
-def reports(trace, units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None, sams=False,
+def reports(trace, units, prefixes, training, test, training_db, logs, steps, threads=1, contig_cache=None, sams=False,
             heldout=None, protal=None, taxonomy=None, work=None):
     """What the models' errors rest on, once the database is ready (neither feeds it), side by side, each on its share of
-    the threads:
+    the threads, each with its log in `steps` (OUTDIR/logs):
     - trace (heldout_species.txt, or None): model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where
       the paired-end reads of the species the training database lacks land, by the genes' conservation factors;
     - units (--error-reads): model_logs/error_reads/<read type>/ (error_reads.py, one run per read type, each on its share
@@ -1026,13 +1038,13 @@ def reports(trace, units, prefixes, training, test, training_db, logs, outdir, t
         command += ["--test", test] if test and os.path.isdir(test) else []
         command += ["--contig-cache", contig_cache] if contig_cache else []
         command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
-        tasks.append((kind, command, os.path.join(outdir, f"error_reads_{kind}.log"), out))
+        tasks.append((kind, command, os.path.join(steps, f"error_reads_{kind}.log"), out))
     relatives = os.path.join(logs, "relatives_by_gene_conservation")
     if trace:
         tasks.insert(0, ("trace", [sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
                                    "--heldout", trace, "--out", relatives] +
                          (["--contig-cache", contig_cache] if contig_cache else []),
-                         os.path.join(outdir, "trace_relatives.log"), None))
+                         os.path.join(steps, "trace_relatives.log"), None))
     if not tasks:
         if told:
             say(f"    the reads of the models' errors: {'; '.join(told.values())}")
@@ -1087,17 +1099,17 @@ def reports(trace, units, prefixes, training, test, training_db, logs, outdir, t
         else:
             told[what] = f"{what} {error_reads_summary(os.path.join(out, 'summary.tsv'))}"
     if told:
-        say(f"    the reads of the models' errors (model_logs/error_reads, error_reads_<read type>.log): "
+        say(f"    the reads of the models' errors (model_logs/error_reads, logs/error_reads_<read type>.log): "
             + "; ".join(told[kind] for kind in scopes if kind in told))
     say(f"    reported in {clock(time.time() - began)}")
     done = [what for what, p, _, out, _ in running if out and not p.returncode]
     if sams and done and protal and taxonomy and work:
-        ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, outdir)
+        ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, steps)
 
 
-def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, threads, outdir):
+def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, threads, steps):
     """ancestry_sites.py on each read type's error-read SAMs (model_logs/error_reads/<kind>), side by side:
-    model_logs/ancestry_sites/<kind>.{summary.txt,auc.tsv,taxa.tsv.gz,fragments.tsv.gz} and ancestry_sites_<kind>.log.
+    model_logs/ancestry_sites/<kind>.{summary.txt,auc.tsv,taxa.tsv.gz,fragments.tsv.gz} and logs/ancestry_sites_<kind>.log.
     The training database's genes come from its reference.fna if that is still beside database.protal, else from
     protal --unpack_db into work/ancestry_files (removed afterwards); the species' other genomes from its full
     reference if it was kept (keep_full). A failure is reported, and does not stop the build."""
@@ -1108,7 +1120,7 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
     if not reference:
         unpacked = os.path.join(work, "ancestry_files")
         shutil.rmtree(unpacked, ignore_errors=True)
-        log = os.path.join(outdir, "ancestry_unpack.log")
+        log = os.path.join(steps, "ancestry_unpack.log")
         with open(log, "w") as fh:
             command = [protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir", unpacked,
                        "-t", str(threads)]
@@ -1133,7 +1145,7 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
                    "--taxonomy", taxonomy, "--out", os.path.join(out_dir, kind)]
         command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
         command += ["--full-reference", full] if full else []
-        log = os.path.join(outdir, f"ancestry_sites_{kind}.log")
+        log = os.path.join(steps, f"ancestry_sites_{kind}.log")
         fh = open(log, "w")
         fh.write(" ".join(command) + "\n")
         fh.flush()
@@ -1145,7 +1157,7 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
                     else f"{kind}: {ancestry_summary(os.path.join(out_dir, kind + '.auc.tsv'))}")
     if unpacked:
         shutil.rmtree(unpacked, ignore_errors=True)
-    say(f"    the ancestry sites of the errors' reads (model_logs/ancestry_sites, ancestry_sites_<read type>.log; "
+    say(f"    the ancestry sites of the errors' reads (model_logs/ancestry_sites, logs/ancestry_sites_<read type>.log; "
         + (f"the species' alleles from {os.path.basename(full)}" if full else "the congener sites only, no full reference")
         + f"): {'; '.join(told)}; in {clock(time.time() - began)}")
 
@@ -1202,34 +1214,35 @@ def shorten_table(job):
 
 
 def share_archive(outdir, folders, threads=1):
-    """--share-logs: OUTDIR/<name>_share.tar.gz, all under <name>/: console.log and the other logs of OUTDIR,
-    model_logs/ (the reports, predictions, calls and the error reads' tables and SAMs) and each collection's tables
-    (training/, test/; shortened by shorten_table). A failure is reported, and does not stop the build."""
+    """--share-logs: OUTDIR/<name>_share.tar.gz, all under <name>/ where OUTDIR has them: console.log, logs/, model_logs/
+    (the reports, predictions, calls and the error reads' tables and SAMs; not the models, which are in the database),
+    protal_db/build_metadata.tsv, work/internal_taxonomy.dmp and each collection's tables (work/training/, work/test/;
+    shortened by shorten_table). A failure is reported, and does not stop the build."""
     name = os.path.basename(os.path.normpath(outdir))
     target = os.path.join(outdir, name + "_share.tar.gz")
     began = time.time()
-    work = os.path.join(outdir, ".share_tables")
+    shortened = os.path.join(outdir, WORK, "share_tables")
     try:
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(shortened, ignore_errors=True)
         jobs = []
         for which, folder in folders:
             for table in TABLES.values():
                 if folder and os.path.isfile(os.path.join(folder, table)):
-                    os.makedirs(os.path.join(work, which), exist_ok=True)
-                    jobs.append((os.path.join(folder, table), os.path.join(work, which, table)))
+                    os.makedirs(os.path.join(shortened, which), exist_ok=True)
+                    jobs.append((os.path.join(folder, table), os.path.join(shortened, which, table)))
         sizes = []
         if jobs:
             with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(jobs)))) as pool:
                 sizes = list(pool.map(shorten_table, jobs))
+        left_out = (".partial", ".xml", ".joblib")
         with tarfile.open(target + ".partial", "w:gz", compresslevel=6) as tar:
-            for entry in sorted(os.listdir(outdir)):
-                if entry.endswith(".log") and os.path.isfile(os.path.join(outdir, entry)):
-                    tar.add(os.path.join(outdir, entry), f"{name}/{entry}")
-            logs = os.path.join(outdir, "model_logs")
-            if os.path.isdir(logs):
-                tar.add(logs, f"{name}/model_logs", filter=lambda t: None if t.name.endswith(".partial") else t)
+            for path in ("console.log", LOGS, REPORTS, os.path.join(DATABASE, "build_metadata.tsv"),
+                         os.path.join(WORK, "internal_taxonomy.dmp")):
+                if os.path.exists(os.path.join(outdir, path)):
+                    tar.add(os.path.join(outdir, path), f"{name}/{path}",
+                            filter=lambda t: None if t.name.endswith(left_out) else t)
             for _, table in jobs:
-                tar.add(table, f"{name}/{os.path.relpath(table, work)}")
+                tar.add(table, f"{name}/{WORK}/{os.path.relpath(table, shortened)}")
         os.replace(target + ".partial", target)
         before, after = sum(s[0] for s in sizes), sum(s[1] for s in sizes)
         say(f"Logs to share: {target}, {gigabytes(os.path.getsize(target))} in {clock(time.time() - began)} (the logs, "
@@ -1238,7 +1251,7 @@ def share_archive(outdir, folders, threads=1):
     except Exception as e:  # noqa: BLE001: the database is ready either way
         say(f"Packing the logs to share failed ({e}); the database is ready either way")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(shortened, ignore_errors=True)
 
 
 def gene_neighbours_summary(build_log, what="Gene neighbours:"):
@@ -1319,12 +1332,12 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("insilico_strains", insilico),
             ("samples_streamed", getattr(args, "streaming", "")),
             ("marker_genes", genes),
-            ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
-            ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
-            ("gene_positions", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"),
+            ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
+            ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
+            ("gene_positions", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"),
                                                        "Gene positions:")),
-            ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
-            ("suspect_copies", suspect_copies_summary(os.path.join(args.outdir, "index_and_package.log"))),
+            ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
+            ("suspect_copies", suspect_copies_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("classifier_features", args.features), ("classifier_model", args.model),
             ("classifier_trees", args.ntree if args.model == "forest" else f"{args.rounds or TRAINER_ROUNDS} rounds"),
             ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
@@ -1623,6 +1636,13 @@ def content_hash(path):
         return hashlib.sha1(fh.read()).hexdigest()
 
 
+def copy_file(source, target):
+    """Copies a file given on the command line to where the run keeps it, unless it is that file already (e.g.
+    --holdout-species OUTDIR/model_logs/heldout_species.txt of a rerun)."""
+    if not (os.path.exists(target) and os.path.samefile(source, target)):
+        shutil.copyfile(source, target)
+
+
 def release_identity(gtdb, release):
     """The release's files the converter reads, as part of a key: the taxonomy and metadata files, and the
     marker gene folders (whose modification time changes with the files in them)."""
@@ -1768,11 +1788,13 @@ def main():
     p.add_argument("--inputs", help="folder of scripts/download_gtdb.py: the release, the genomes to simulate from "
                                     "and the species pool (instead of --gtdb, --extra-genomes, --simulate-species)")
     p.add_argument("--gtdb", help="extracted GTDB release directory")
-    p.add_argument("--outdir", required=True, help="output root; database is written to OUTDIR/protal_db")
+    p.add_argument("--outdir", required=True,
+                   help="output root: the database in OUTDIR/protal_db, the evaluation in OUTDIR/model_logs, each step's "
+                        "log in OUTDIR/logs and console.log, what a rerun reuses in OUTDIR/work")
     p.add_argument("--release", help="GTDB release number; detected from taxonomy filenames by default")
     p.add_argument("--genome-table", help="optional simulator table: accession, taxonomy, whole genome FASTA path "
                                           "(and genome length; without, the run writes a copy with the lengths, "
-                                          "OUTDIR/genomes.tsv)")
+                                          "OUTDIR/work/genomes.tsv)")
     p.add_argument("--extra-genomes", action="append", default=[],
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
                         "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
@@ -1836,8 +1858,8 @@ def main():
                    help="build the database from the N most distinctive of the release's marker genes (a reduced "
                         "database: less memory, fewer hits per genome): the genes ranked by prevalence x unique "
                         "k-mer share (scripts/rank_genes.py) from a full build of the training database first "
-                        "(OUTDIR/gene_ranking.tsv; --gene-ranking skips that build), the N best in "
-                        "OUTDIR/gene_subset.txt; the training database and the finished database hold those genes "
+                        "(model_logs/gene_ranking.tsv; --gene-ranking skips that build), the N best in "
+                        "model_logs/gene_subset.txt; the training database and the finished database hold those genes "
                         "only, with their neighbours counted over them, and the models are trained on them")
     p.add_argument("--genes", metavar="LIST",
                    help="build the database from these marker genes instead: GTDB marker ids (PF00380.20, "
@@ -1853,8 +1875,8 @@ def main():
                         "archaea have")
     p.add_argument("--rank-genes", action="store_true",
                    help="in a run with every gene: rank the genes from the training database once it is built "
-                        "(unpacked on the scratch disk, scripts/rank_genes.py) into OUTDIR/gene_ranking.tsv, for a "
-                        "reduced database of the same release (--n-genes N --gene-ranking OUTDIR/gene_ranking.tsv, "
+                        "(unpacked on the scratch disk, scripts/rank_genes.py) into model_logs/gene_ranking.tsv, for a "
+                        "reduced database of the same release (--n-genes N --gene-ranking OUTDIR/model_logs/gene_ranking.tsv, "
                         "which then builds no ranking database)")
     p.add_argument("--simulate-species",
                    help="file of the species to simulate from (e.g. simulation_species.txt of download_gtdb.py: "
@@ -1933,8 +1955,8 @@ def main():
                         "marker gene by its conservation factor; default 1, 0: none). Without them one-genome species "
                         "were always simulated from the database's own reference, and a model given the GTDB cluster "
                         "sizes (+priors) learned to reject divergent reads on them (docs/claude/2026-10-04-r226-v10-"
-                        "evaluation). They go to OUTDIR/insilico_strains, the table simulated from to "
-                        "OUTDIR/genomes_simulated.tsv")
+                        "evaluation). They go to the samples' disk (SCRATCH/insilico_strains, OUTDIR/work/insilico_strains "
+                        "without --scratch), the table simulated from to OUTDIR/work/genomes_simulated.tsv")
     p.add_argument("--insilico-ani", metavar="MIN-MAX",
                    help="draw the in-silico strains' genome ANI uniformly from MIN-MAX (e.g. 95-99) instead of the "
                         "real strains' marker divergence")
@@ -1993,20 +2015,21 @@ def main():
     p.add_argument("--error-reads", default="all",
                    help="the samples whose reads behind the models' errors are kept: protal writes them with an unmapped "
                         "record for every read that seeded on taxa but aligned nowhere (the non-hits; the profiles are "
-                        "the same), and once the models are trained model_logs/error_reads/ keeps, per sample, the SAM "
-                        "records of the reads behind the model's false positives and false negatives, with their source "
-                        "genomes (error_reads.py). all (default: every sample of the training data and the test set, "
-                        "every read type), none, or READ_TYPE, READ_TYPE:design (the design's samples) or "
-                        "READ_TYPE:SCENARIO, comma-separated; read types and scenarios not collected are left out. "
-                        "Without --share-logs only the tables of the error taxa are kept")
+                        "the same), and once the models are trained model_logs/error_reads/<read type>/ tells, in one "
+                        "table of every sample's error taxa (taxa.tsv.gz), where the reads behind the model's false "
+                        "positives and false negatives went, with their source genomes (error_reads.py). all (default: "
+                        "every sample of the training data and the test set, every read type), none, or READ_TYPE, "
+                        "READ_TYPE:design (the design's samples) or READ_TYPE:SCENARIO, comma-separated; read types and "
+                        "scenarios not collected are left out. With --share-logs the reads' SAM records are kept too")
     p.add_argument("--share-logs", action="store_true",
-                   help="keep the SAM records of the reads behind the models' errors (model_logs/error_reads/: per "
-                        "sample <sample>.FP.sam.zst and <sample>.FN.sam.zst, at most 20 fragments per taxon and reason, "
-                        "no qualities), measure which side those reads take where the species differs from its "
-                        "congeners (model_logs/ancestry_sites/, ancestry_sites.py; the training database's full "
-                        "reference is kept until then), and at the end pack OUTDIR/<OUTDIR's name>_share.tar.gz: the "
-                        "logs, model_logs/ and the training and test tables (their numbers to 9 significant digits), "
-                        "to be copied off the cluster and read elsewhere")
+                   help="keep the SAM records of the reads behind the models' errors (model_logs/error_reads/<read "
+                        "type>/<set>/<design point>/: per sample <sample>.FP.sam.zst and <sample>.FN.sam.zst, at most 20 "
+                        "fragments per taxon and reason, no qualities), measure which side those reads take where the "
+                        "species differs from its congeners (model_logs/ancestry_sites/, ancestry_sites.py; the training "
+                        "database's full reference is kept until then), and at the end pack OUTDIR/<OUTDIR's "
+                        "name>_share.tar.gz: console.log, logs/, model_logs/ (without the models), the build's metadata, "
+                        "the taxonomy and the training and test tables (their numbers to 9 significant digits), to be "
+                        "copied off the cluster and read elsewhere")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -2093,7 +2116,7 @@ def main():
     p.add_argument("--scratch",
                    help="a fast local disk (a compute node's own) for the simulated samples: their reads, alignments, "
                         "profiles and the simulators' temporary files go to SCRATCH/training and SCRATCH/test, and "
-                        "only the tables to OUTDIR; the training database is built there too (SCRATCH/training_db, "
+                        "only the tables to OUTDIR/work; the training database is built there too (SCRATCH/training_db, "
                         "~22 GB at r226). A network file system (OUTDIR's, often) is slow at the many files the "
                         "simulators write and delete, and at writing a database; the converter spools the release's "
                         "marker genes there too. The run estimates before its builds what it needs there (the genome store "
@@ -2109,7 +2132,7 @@ def main():
                         "keep the reads (default 20)")
     p.add_argument("--keep-free", type=float, default=30.0,
                    help="with --profile-blocks: GB a simulation leaves free on the disk of the samples (--scratch or "
-                        "OUTDIR), or it waits until profiled reads are removed (default 30)")
+                        "OUTDIR/work), or it waits until profiled reads are removed (default 30)")
     p.add_argument("--stream-above", type=stream_spec, default="auto",
                    help="with --profile-blocks: a design point whose largest sample's reads would take more than this "
                         "many GB (compressed, estimated) is not written to the disk: protal reads its samples from named "
@@ -2136,7 +2159,7 @@ def main():
                         "at 2 bits a base, and memory-mapped by every later sample, long-read round and simulation "
                         "instead of being inflated and parsed again (with the defaults at r226 ~1.5M genome reads of "
                         "~54k genomes, ~28 each); the same reads. auto (the default): SCRATCH/genome_store with "
-                        "--scratch, OUTDIR/genome_store otherwise; or a folder; none: no store. It takes ~0.25 bytes a "
+                        "--scratch, OUTDIR/work/genome_store otherwise; or a folder; none: no store. It takes ~0.25 bytes a "
                         "base of the genomes simulated, ~50 GB at r226 besides the samples' space, and is kept for the "
                         "next build (a FASTA that changed is read again)")
     p.add_argument("--compressed-pipes", action="store_true",
@@ -2240,8 +2263,14 @@ def main():
         p.error(f"--error-reads: {e}")
     os.makedirs(args.outdir, exist_ok=True)
     open_console_log(os.path.join(args.outdir, "console.log"))
-    db = os.path.join(args.outdir, "protal_db")
-    os.makedirs(db, exist_ok=True)
+    # OUTDIR's folders (the module's docstring): the database, the evaluation (and what the run chose), every step's
+    # log, and what a rerun reuses.
+    db, logs, steps, work = (os.path.join(args.outdir, f) for f in (DATABASE, REPORTS, LOGS, WORK))
+    for folder in (db, logs, steps, work):
+        os.makedirs(folder, exist_ok=True)
+
+    def step_log(name):
+        return os.path.join(steps, name)
     if args.release:
         release = str(args.release).removeprefix("r")
     else:
@@ -2253,13 +2282,13 @@ def main():
         if len(found) != 1:
             sys.exit(f"Cannot detect one GTDB release in {args.gtdb}; specify --release")
         release = next(iter(found))
-    samples_root = args.outdir  # where the collections simulate and profile their samples
+    samples_root = work  # where the collections simulate and profile their samples
     if args.scratch:
         samples_root = os.path.abspath(args.scratch)
         os.makedirs(samples_root, exist_ok=True)
         Job.scratch = Scratch(samples_root)
     say(f"A protal database of GTDB r{release} in {args.outdir}, with {args.threads} threads; each step logs to a "
-        "file there" + (f"; the simulated samples go to {samples_root} "
+        f"file in {LOGS}/" + (f"; the simulated samples go to {samples_root} "
                             f"({gigabytes(shutil.disk_usage(samples_root).free)} free)" if args.scratch else "") +
         (f"; the stages running are reported every {clock(Job.progress_every)}" if Job.progress_every > 0 else ""))
     # The steps: genome table, release, marker genes (with --n-genes or --genes), databases, training data, test
@@ -2275,7 +2304,7 @@ def main():
         markers = sorted({m for m, _ in marker_files(args.gtdb, "genomic_files_reps", "reps", release)})
         if markers:
             read_gene_list(args.genes, {m: i + 1 for i, m in enumerate(markers)})
-    genome_table = args.genome_table or os.path.join(args.outdir, "genomes.tsv")
+    genome_table = args.genome_table or os.path.join(work, "genomes.tsv")
     if not args.genome_table:
         pool = None
         if args.simulate_species:
@@ -2287,20 +2316,18 @@ def main():
         sys.exit("--extra-genomes and --simulate-species shape the genome table this script makes; "
                  "apply them to --genome-table instead")
     else:  # with the genomes' lengths, if it has none: the simulator would read every genome for them
-        genome_table = with_lengths(args.genome_table, os.path.join(args.outdir, "genomes.tsv"), args.threads)
-    logs = os.path.join(args.outdir, "model_logs")
-    os.makedirs(logs, exist_ok=True)
+        genome_table = with_lengths(args.genome_table, os.path.join(work, "genomes.tsv"), args.threads)
     reps = read_representatives(args.gtdb, release)
     # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
     summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
-    with open(os.path.join(args.outdir, "genome_table.txt"), "w") as fh:
+    with open(os.path.join(logs, "genome_table.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}")
     if warning:
         say(warning)
 
     # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages).
-    stages = Stages(os.path.join(args.outdir, ".stages"))
+    stages = Stages(os.path.join(work, "stages"))
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
                    "placeholders": not args.no_placeholder_models,
                    "gene_neighbours": None if args.no_gene_neighbours else [content_hash(GENE_NEIGHBOURS), content_hash(genome_table)]}
@@ -2308,8 +2335,8 @@ def main():
     final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
-    taxonomy = os.path.join(args.outdir, "internal_taxonomy.dmp")
-    gene_table = os.path.join(args.outdir, "gene2geneid.tsv")  # the markers' gene ids, for --genes and the ranking
+    taxonomy = os.path.join(work, "internal_taxonomy.dmp")
+    gene_table = os.path.join(work, "gene2geneid.tsv")  # the markers' gene ids, for --genes and the ranking
 
     def convert(into):
         """The converted files of the release in `into`, with the models of the read types but pe as
@@ -2318,7 +2345,7 @@ def main():
         # With --scratch, the converter spools the marker genes on the node's disk (~5 GB compressed at r226).
         job = run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
                    str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
-                  os.path.join(args.outdir, "convert.log"), label="converting the release")
+                  step_log("convert.log"), label="converting the release")
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
         shutil.copyfile(os.path.join(into, "gene2geneid.tsv"), gene_table)
         took = f"converted in {job.took()}"
@@ -2327,7 +2354,7 @@ def main():
             # their sequence or k-mer trace): gene_neighbours.tsv, the frequencies per clade, and
             # gene_positions.tsv, which --build both pack; the training database's copy derives the frequencies
             # anew from the positions, without the species it leaves out.
-            log = os.path.join(args.outdir, "gene_neighbours.log")
+            log = step_log("gene_neighbours.log")
             job = run([sys.executable, GENE_NEIGHBOURS, "--db", into, "--genome_table", genome_table, "-t", str(args.threads)],
                       log, label="finding the genes' neighbours")
             took += f"; the genes placed{genes_placed(log)} and their neighbours counted in {job.took()} (gene_neighbours.log)"
@@ -2340,7 +2367,7 @@ def main():
     # With a gene subset the whole release is converted here, and the database folders (the subset's genes,
     # with or without the species held out) are derived from it; without one, the finished database's folder
     # holds the conversion and its build consumes it (the folder serves the taxonomy alone otherwise).
-    full = os.path.join(args.outdir, ".converted")
+    full = os.path.join(work, "converted")
 
     def convert_stage(folder):
         """The stage key of the whole release converted into `folder`: protal_db holds a gene subset's files after a
@@ -2395,16 +2422,20 @@ def main():
     # conservation factors), so that it is simulated from a strain as often as a species with two genomes. Without
     # them a model given GTDB's cluster sizes learns that a divergent read cloud on a one-genome species is a
     # relative the database lacks (docs/claude/2026-10-04-r226-v10-evaluation). The simulations draw from
-    # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself.
+    # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself. The strains'
+    # FASTAs (one per species: 9,030 at r226 v17) go to the samples' disk, beside the genome store, not to OUTDIR.
     sim_table, insilico_note = genome_table, "none (--insilico-strains 0)"
     if args.insilico_strains > 0:
-        sim_table = os.path.join(args.outdir, "genomes_simulated.tsv")
-        log = os.path.join(args.outdir, "insilico_strains.log")
+        sim_table = os.path.join(work, "genomes_simulated.tsv")
+        strains = os.path.join(samples_root, "insilico_strains")
+        log = step_log("insilico_strains.log")
         Steps.start("in-silico strains of the species with one genome (insilico_strains.log, genomes_simulated.tsv)")
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
                         "convert": convert_key, "share": args.insilico_strains, "ani": args.insilico_ani,
-                        "seed": args.seed}
-        if stages.done("insilico", insilico_key) and os.path.isfile(sim_table):
+                        "seed": args.seed, "strains": strains}
+        # A new --scratch (the next job's node) has none of them: made again (the same strains, at the same seed).
+        if stages.done("insilico", insilico_key) and os.path.isfile(sim_table) and \
+                os.path.isfile(os.path.join(strains, "insilico_strains.tsv")):
             Steps.done("made by an earlier run from the same table; kept")
         else:
             stages.forget("insilico")
@@ -2424,7 +2455,7 @@ def main():
                                convert(converted))
             positions = positions_file()
             command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
-                       os.path.join(args.outdir, "insilico_strains"), "--share", str(args.insilico_strains),
+                       strains, "--share", str(args.insilico_strains),
                        "--seed", str(args.seed), "-t", str(args.threads)]
             if positions:
                 command += ["--positions", positions, "--taxonomy", taxonomy]
@@ -2437,7 +2468,7 @@ def main():
         insilico_note = last_line(log)
         Steps.done(insilico_note)
         summary, brief, warning = summarize_genome_table(sim_table, reps)
-        with open(os.path.join(args.outdir, "genome_table.txt"), "a") as fh:
+        with open(os.path.join(logs, "genome_table.txt"), "a") as fh:
             fh.write("with the in-silico strains (genomes_simulated.tsv, the genomes simulated from):\n" +
                      "\n".join(summary[1:]) + "\n" + insilico_note + "\n")
         Steps.done(f"simulated from: {brief}")
@@ -2448,8 +2479,8 @@ def main():
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
     # distant ones. It is made from the converted files before --build packs them. heldout_species.txt: the
     # species, the rank they were held out at and the clade.
-    heldout = os.path.join(args.outdir, "heldout_species.txt")
-    clouds_file = os.path.join(args.outdir, "species_clouds.tsv")
+    heldout = os.path.join(logs, "heldout_species.txt")
+    clouds_file = os.path.join(logs, "species_clouds.tsv")
     args.holdout_clouds_note = "none"  # build_metadata.tsv
     clouds = None
     if steer_holdout:
@@ -2462,7 +2493,7 @@ def main():
         clouds_key = {"convert": convert_key, "protal": final_key["protal"],
                       "given": content_hash(args.species_clouds) if args.species_clouds else None}
         if args.species_clouds:
-            shutil.copyfile(args.species_clouds, clouds_file)
+            copy_file(args.species_clouds, clouds_file)
             stages.mark("species_clouds", clouds_key)
             Steps.done(f"copied from {args.species_clouds}")
         elif stages.done("species_clouds", clouds_key) and os.path.isfile(clouds_file):
@@ -2477,9 +2508,9 @@ def main():
                     Steps.done("the release again, for its species clouds (the finished database packed its references): " +
                                convert(converted))
             job = run([args.protal, "--write_species_neighbours", clouds_file, "--db", converted, "-t", str(args.threads)],
-                      os.path.join(args.outdir, "species_clouds.log"), label="comparing the species' references")
+                      step_log("species_clouds.log"), label="comparing the species' references")
             stages.mark("species_clouds", clouds_key)
-            Steps.done(f"made in {job.took()}: {species_neighbours_summary(os.path.join(args.outdir, 'species_clouds.log'))}")
+            Steps.done(f"made in {job.took()}: {species_neighbours_summary(step_log('species_clouds.log'))}")
         clouds = read_clouds(clouds_file, taxonomy)
         complexes = species_complexes(clouds, args.holdout_complex_distance)
         args.holdout_clouds_note = (f"{len(clouds)} species' congeners within {CLOUD_MAX_DISTANCE:g} "
@@ -2489,7 +2520,7 @@ def main():
         Steps.done(f"{len(clouds)} species compared; {len(set(complexes.values()))} complexes of {len(complexes)} species "
                    f"within {args.holdout_complex_distance:g} of a congener")
     if args.holdout_species:
-        shutil.copyfile(args.holdout_species, heldout)
+        copy_file(args.holdout_species, heldout)
     elif args.holdout > 0 or clades:
         chosen = choose_holdout(genome_table, taxonomy, args.holdout, clades, args.holdout_max_share, args.seed, clouds,
                                 args.holdout_complex_distance)
@@ -2522,8 +2553,8 @@ def main():
     # The marker genes of the databases: all of them, or a subset (--n-genes: the N most distinctive by
     # scripts/rank_genes.py, from a full build of the training database or --gene-ranking; --genes: the ones
     # named), listed in gene_subset.txt, which the folders are derived with.
-    subset_file = os.path.join(args.outdir, "gene_subset.txt")
-    ranking_file = os.path.join(args.outdir, "gene_ranking.tsv")
+    subset_file = os.path.join(logs, "gene_subset.txt")
+    ranking_file = os.path.join(logs, "gene_ranking.tsv")
     genes_note = "all"  # build_metadata.tsv: which marker genes, chosen how
     if subset:
         gene_ids = read_gene_ids(gene_table)
@@ -2547,7 +2578,7 @@ def main():
             if n >= len(gene_ids):
                 sys.exit(f"--n-genes {n}: GTDB r{release} has {len(gene_ids)} marker genes; a subset has fewer")
             if args.gene_ranking:
-                shutil.copyfile(args.gene_ranking, ranking_file)
+                copy_file(args.gene_ranking, ranking_file)
                 source = f"--gene-ranking {args.gene_ranking}"
                 Steps.done(f"ranked by {args.gene_ranking} (copied to gene_ranking.tsv)")
             else:
@@ -2567,10 +2598,10 @@ def main():
                     command = [sys.executable, CONVERTER, "--from_db", converted, "--outdir", ranking_db, "-t", str(args.threads)]
                     if os.path.exists(heldout):
                         command += ["--exclude_species", heldout]
-                    run(command, os.path.join(args.outdir, "gene_ranking_files.log"), label="writing the ranking database's files")
+                    run(command, step_log("gene_ranking_files.log"), label="writing the ranking database's files")
                     job = run(build_command(args.protal, ranking_db, args.threads, "--compress_level", str(args.training_db_level),
                                             "--no_bundle"),
-                              os.path.join(args.outdir, "gene_ranking_build.log"), label="building the ranking database")
+                              step_log("gene_ranking_build.log"), label="building the ranking database")
                     rows = rank_genes.rank(ranking_db, gene_table, taxonomy)
                     rank_genes.write_table(ranking_file, rows)
                     shutil.rmtree(ranking_db, ignore_errors=True)
@@ -2595,9 +2626,6 @@ def main():
                           f"from {source}): {listed}" +
                           (f"; in half the species or more of {', '.join(f'{d} {c}' for d, c in covered.items())}" if covered else ""))
             Steps.done(f"the {n} best of {len(rows)}: {rank_genes.describe(chosen)}")
-        shutil.copy(subset_file, logs)
-        if os.path.isfile(ranking_file):
-            shutil.copy(ranking_file, logs)
         final_key["genes"] = content_hash(subset_file)
         final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
         if final_done:
@@ -2606,7 +2634,7 @@ def main():
             ensure_converted()
             stages.forget("protal_db")
             job = run([sys.executable, CONVERTER, "--from_db", converted, "--genes", subset_file, "--outdir", db,
-                       "-t", str(args.threads)], os.path.join(args.outdir, "protal_db_files.log"),
+                       "-t", str(args.threads)], step_log("protal_db_files.log"),
                       label=f"deriving {os.path.basename(db)}'s files")
             Steps.done(f"{os.path.basename(db)}'s files derived for these genes in {job.took()} (protal_db_files.log)")
 
@@ -2650,7 +2678,7 @@ def main():
                 Steps.done("the release again (the finished database's build took its files): " + convert(converted))
             job = run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir",
                        training_db, "-t", str(args.threads)] + (["--genes", subset_file] if subset else []),
-                      os.path.join(args.outdir, "training_db.log"),
+                      step_log("training_db.log"),
                       label="leaving the species out")
             files_took = f"; its files written in {job.took()} (training_db.log)"
     if converted and converted != db:
@@ -2658,7 +2686,7 @@ def main():
 
     # The finished database is needed only for --add_model at the end: it is built in the background from the
     # start, while the training database is built and the training data collected, unless one build at a time.
-    final_log = os.path.join(args.outdir, "index_and_package.log")
+    final_log = step_log("index_and_package.log")
     final_build = None
     final_level = ("--compress_level", str(args.final_db_level))
 
@@ -2718,14 +2746,14 @@ def main():
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
                                                       args.abundance, args.strains_per_species, args.long_read_bases,
                                                       args.long_read_samples, args.seed, hold_in),
-                     os.path.join(args.outdir, "training_data.log"))]
+                     step_log("training_data.log"))]
     if has_test:  # the scenarios' hold-out samples are of another seed, as the test set's design is
         collections_.append(("independent test set" if args.test_samples > 0 else "scenarios' hold-out samples",
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
                                              args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000,
                                              hold_out),
-                             os.path.join(args.outdir, "test_data.log")))
+                             step_log("test_data.log")))
 
     if training_db == db:
         Steps.start(f"database ({os.path.basename(db)}, index_and_package.log): no species left out" +
@@ -2763,15 +2791,16 @@ def main():
     # (--add_tables). The training database right after its build, from its full reference, which lacks the held-out
     # species (so the table knows nothing of them); the finished database after its own build, from its full reference
     # (every species), before its models go in. A database's full reference goes once its scan is done (the training
-    # database's with --share-logs after the ancestry report).
+    # database's with --share-logs after the ancestry report). The finished database's table waits in work/foreign_rates/
+    # for a rerun, not beside database.protal, which holds it.
     scan = not args.no_foreign_rates
 
     def foreign_rates(against):
-        table = os.path.join(against, "foreign_rates.tsv")
+        table = os.path.join(against if against != db else os.path.join(work, "foreign_rates"), "foreign_rates.tsv")
         stage = "foreign_rates" if against == db else "foreign_rates_training"
         key = {"database": final_key if against == db else training_key, "stride": args.foreign_stride,
                "per_header": args.foreign_per_header, "script": content_hash(FOREIGN_RATES)}
-        log = os.path.join(args.outdir, stage + ".log")
+        log = step_log(stage + ".log")
         Steps.start(f"the gene copies' foreign reads of {os.path.basename(against)} ({os.path.basename(log)}): reads every "
                     f"{args.foreign_stride} bases of {'every' if args.foreign_per_header == 0 else 'at most ' + str(args.foreign_per_header)} "
                     f"cop{'y' if args.foreign_per_header == 1 else 'ies'} of each species' gene in its full reference, aligned "
@@ -2792,11 +2821,12 @@ def main():
                    "--out", table, "--stride", str(args.foreign_stride), "--per-header", str(args.foreign_per_header),
                    "-t", str(args.threads), "--protal", args.protal, "--simulate", args.simulator,
                    "--workdir", os.path.join(samples_root, "foreign_rates_scan")]
+        os.makedirs(os.path.dirname(table), exist_ok=True)
         job = run(command, log, label="scanning the full reference")
-        run([args.protal, "--add_tables", table, "--db", against, "-t", str(args.threads)],
-            os.path.join(args.outdir, stage + "_add.log"), lambda: stages.mark(stage, key),
-            f"storing the table in {os.path.basename(against)}")
-        Steps.done(f"{last_line(log)}; in {job.took()}; stored in {os.path.basename(against)}")
+        said = last_line(log)
+        run([args.protal, "--add_tables", table, "--db", against, "-t", str(args.threads)], log,
+            lambda: stages.mark(stage, key), f"storing the table in {os.path.basename(against)}", append=True)
+        Steps.done(f"{said}; in {job.took()}; stored in {os.path.basename(against)}")
         return table
 
     def scanned(folder, keep=False):
@@ -2821,7 +2851,7 @@ def main():
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
         job = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
-                  os.path.join(args.outdir, "training_db_index.log"),
+                  step_log("training_db_index.log"),
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, full_reference_fate(training_db, keep_full, "the foreign scan" if scan else
@@ -2904,7 +2934,7 @@ def main():
             unpacked = os.path.join(samples_root, "ranking_files")
             shutil.rmtree(unpacked, ignore_errors=True)
             job = run([args.protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir",
-                       unpacked, "-t", str(args.threads)], os.path.join(args.outdir, "gene_ranking.log"),
+                       unpacked, "-t", str(args.threads)], step_log("gene_ranking.log"),
                       label="unpacking the training database to rank its genes")
             # gene_congeners.tsv is a report of the build beside database.protal, not a member of it.
             congeners = os.path.join(training_db, "gene_congeners.tsv")
@@ -2912,7 +2942,6 @@ def main():
                 shutil.copy(congeners, unpacked)
             rows = rank_genes.rank(unpacked, gene_table, taxonomy)
             rank_genes.write_table(ranking_file, rows)
-            shutil.copy(ranking_file, logs)
             shutil.rmtree(unpacked, ignore_errors=True)
             stages.mark("gene_ranking", ranking_key)
             twelve = rank_genes.select(rows, min(12, len(rows)))
@@ -2934,7 +2963,7 @@ def main():
 
     def report(opts, log, job):
         """What a collection's tables hold (present and absent taxa per read type) and how much space its samples
-        take. With --scratch, its tables are copied to OUTDIR."""
+        take. With --scratch, its tables are copied to OUTDIR/work/<collection>."""
         type_of = {name: t for t, name in TABLES.items()}
         counts = []
         with open(log, errors="replace") as fh:
@@ -2945,18 +2974,24 @@ def main():
         Steps.done(f"collected in {job.took()}; taxa present/absent: {', '.join(counts) or 'none'}; "
                    f"{gigabytes(tree_size(opts.out))} in {opts.out}" + (f"; scratch: {Job.scratch.text()}" if Job.scratch else ""))
         if args.scratch:
-            keep = os.path.join(args.outdir, os.path.basename(opts.out))
+            keep = os.path.join(work, os.path.basename(opts.out))
             os.makedirs(keep, exist_ok=True)
             for table in TABLES.values():
                 if os.path.isfile(os.path.join(opts.out, table)):
                     shutil.copy(os.path.join(opts.out, table), keep)
             # Each protal run's log (its stage timers: how long the alignment and the profiling stage took), which a
-            # node's disk cleared after the job would lose: OUTDIR/<collection>/protal_runs/.
-            runs = os.path.join(keep, "protal_runs")
-            for path in glob.glob(os.path.join(opts.out, "profile_all", "**", "protal.log"), recursive=True):
-                name = os.path.relpath(os.path.dirname(path), os.path.join(opts.out, "profile_all")).replace(os.sep, "_")
-                os.makedirs(runs, exist_ok=True)
-                shutil.copy(path, os.path.join(runs, ("all" if name == "." else name) + ".log"))
+            # node's disk cleared after the job would lose, one after the other in logs/protal_runs_<collection>.log.
+            def run_name(path):
+                name = os.path.relpath(os.path.dirname(path), os.path.join(opts.out, "profile_all"))
+                return "all" if name == "." else name.replace(os.sep, "_")
+            runs = sorted(glob.glob(os.path.join(opts.out, "profile_all", "**", "protal.log"), recursive=True),
+                          key=lambda p: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", run_name(p))])
+            if runs:
+                with open(step_log(f"protal_runs_{os.path.basename(opts.out)}.log"), "w") as out:
+                    for path in runs:
+                        out.write(f"==> {run_name(path)} <==\n")
+                        with open(path, errors="replace") as fh:
+                            shutil.copyfileobj(fh, out)
 
     def collect(what, command, log):
         """Runs the collector once the collection's simulations are done (in the background), so that it profiles
@@ -3011,8 +3046,9 @@ def main():
         for what, command, log in collections_:
             collect(what, command, log)
 
-    # One model per read type, trained in parallel.
-    prefixes = {t: os.path.join(args.outdir, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
+    # One model per read type, trained in parallel, its outputs in model_logs/ (the model as it goes into the database,
+    # the report, the numbers, the predictions and calls).
+    prefixes = {t: os.path.join(logs, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
     trainer_threads = max(1, args.threads // len(read_types))
     models = f"the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''}"
     # Boosting's OpenMP threads wait on each other at every step: nothing else runs beside the trainers. The finished
@@ -3040,7 +3076,7 @@ def main():
             command += ["--fdr-calls"]
         if has_test and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
-        trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
+        trainers[t] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
                           label=f"training the {t} model")
     seconds = max(job.finish().seconds for job in trainers.values())
     if paused:
@@ -3052,24 +3088,24 @@ def main():
     if selected:
         Steps.done(scenario_scores(read_types, prefixes, selected))
     # protal must score as the trainer does, and compute the features as it did during collection.
-    Steps.start("checking that protal scores the models as the trainer does (parity*.log)")
+    Steps.start("checking that protal scores the models as the trainer does (parity.log)")
     began = time.time()
+    parity_log = step_log("parity.log")
+    open(parity_log, "w").close()  # the read types' checks one after the other
     for t in read_types:
         run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
-             "--read_type", t, "--protal", args.protal, "-t", str(args.threads)],
-            os.path.join(args.outdir, "parity" + ("" if t == "pe" else "_" + t) + ".log"),
-            label=f"checking the {t} model's parity with protal")
+             "--read_type", t, "--protal", args.protal, "-t", str(args.threads)], parity_log,
+            label=f"checking the {t} model's parity with protal", append=True)
     Steps.done(f"{', '.join(read_types)}: the same probabilities and features, checked in {clock(time.time() - began)}")
+    # model_logs/parity.txt: each read type's result (check_model_parity.py's parity.txt), which names its model.
+    results = []
     for t in read_types:
-        prefix = prefixes[t]
-        parity = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
-        for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
-                     prefix + ".predictions.tsv.gz", prefix + ".test_predictions.tsv.gz",
-                     prefix + ".scenario_predictions.tsv.gz", prefix + ".calls.tsv.gz"):
-            if os.path.isfile(name):
-                shutil.copy(name, logs)
-        if os.path.isfile(parity):
-            shutil.copy(parity, os.path.join(logs, "parity.txt" if t == "pe" else f"parity_{t}.txt"))
+        path = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
+        if os.path.isfile(path):
+            with open(path) as fh:
+                results.append(fh.read().rstrip("\n"))
+    with open(os.path.join(logs, "parity.txt"), "w") as fh:
+        fh.write("\n".join(results) + "\n")
     # The samples' composition against the simulator's truth, with the models' calls: how far the explained share, the
     # unknown share and the genome sizes can be trusted (composition_accuracy.py).
     Steps.start("checking the samples' composition against the truth (model_logs/composition_accuracy*.tsv)")
@@ -3079,11 +3115,6 @@ def main():
     for t, line in composition_briefs.items():
         Steps.done(f"{t}: {line}")
     Steps.done(f"checked in {clock(time.time() - began)}; details: model_logs/composition_accuracy.txt")
-    for name in [os.path.join(args.outdir, n) for n in ("training_data_simulation.log", "training_data.log",
-                                                         "test_data_simulation.log", "test_data.log", "genome_table.txt")] + \
-            [heldout, clouds_file]:
-        if os.path.isfile(name):
-            shutil.copy(name, logs)
     # The models go into the database first; the reports of what their errors rest on follow (reports()).
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
@@ -3106,7 +3137,7 @@ def main():
     # model is a new member and the ~20 GB file is rewritten once instead).
     began = time.time()
     run([args.protal, "--add_model", ",".join(prefixes[t] + ".xml" for t in read_types), "--read_type", ",".join(read_types),
-         "--db", db, "-t", str(args.threads)], os.path.join(args.outdir, "final_package.log"), label=f"adding {models}")
+         "--db", db, "-t", str(args.threads)], step_log("final_package.log"), label=f"adding {models}")
     Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
     versions, changed = versions_at_end(args.versions_at_start, tool_versions(args))
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
@@ -3115,11 +3146,10 @@ def main():
     if changed:
         say(f"Warning: {', '.join(k.replace('_', ' ') for k in changed)} changed during the run, so its later steps ran "
             "other scripts or binaries than its first (build_metadata.tsv has both): rebuild the database if that matters")
-    shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
-    if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
-        shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)
-    if os.path.isfile(os.path.join(db, "gene_incongruence.tsv")):
-        shutil.copy(os.path.join(db, "gene_incongruence.tsv"), logs)
+    # The build's reports beside database.protal (not members of it) go to model_logs/: protal_db/ is the database.
+    for name in ("gene_congeners.tsv", "gene_incongruence.tsv"):
+        if os.path.isfile(os.path.join(db, name)):
+            os.replace(os.path.join(db, name), os.path.join(logs, name))
     summary = summary_lines(read_types, prefixes, db) + ["", *composition_text]
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
@@ -3129,7 +3159,7 @@ def main():
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
         f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
     trace = heldout if "pe" in read_types and training_db != db and os.path.isfile(heldout) else None
-    reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
+    reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, steps,
             args.threads, os.path.join(samples_root, "genome_contigs.tsv.gz"), args.share_logs,
             heldout if training_db != db else None, args.protal, taxonomy, samples_root)
     if keep_full:
@@ -3149,6 +3179,11 @@ def main():
             "(remove it to free the space; --genome-store none builds without one)")
     if args.share_logs:
         share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads)
+    files = {name: sum(len(names) for _, _, names in os.walk(os.path.join(args.outdir, name)))
+             for name in (DATABASE, REPORTS, LOGS, WORK)}
+    say(f"In {args.outdir}: {DATABASE}/ the database ({files[DATABASE]} files), {REPORTS}/ the evaluation "
+        f"({files[REPORTS]}), {LOGS}/ and console.log every step's log ({files[LOGS]}), {WORK}/ what a rerun reuses "
+        f"({files[WORK]}; not needed to use the database)")
 
 
 if __name__ == "__main__":

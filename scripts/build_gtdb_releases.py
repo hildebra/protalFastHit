@@ -11,7 +11,7 @@ INPUTS) and each variant, in this order, the script runs scripts/build_gtdb_data
 OUT/r<release>_<variant>, with the options it does not know itself passed on (--samples,
 --read-types, --features, ...):
   full   every marker gene, with --rank-genes: the genes ranked from its training database
-         (OUT/r<release>_full/gene_ranking.tsv)
+         (OUT/r<release>_full/model_logs/gene_ranking.tsv)
   n12    the --n-genes most distinctive genes (--genes-per-domain of them the best of each
          domain, so that archaea are covered), with --gene-ranking from the full variant's
          ranking when it is there, so that no ranking database is built
@@ -50,6 +50,13 @@ for _t in READ_TYPES:
     COLUMNS += [f"{_t}_test_F1", f"{_t}_test_FP_per_sample", f"{_t}_test_sensitivity", f"{_t}_test_precision",
                 f"{_t}_heldout_F1", f"{_t}_heldout_FP_per_sample"]
 COLUMNS += ["outdir", "log"]
+
+
+def build_file(outdir, *candidates):
+    """The first of a build's files that is there (its path in build_gtdb_database.py's layout first, then where builds
+    before 2026-10-08 kept it), else the first."""
+    paths = [os.path.join(outdir, c) for c in candidates]
+    return next((p for p in paths if os.path.isfile(p)), paths[0])
 
 
 def say(message):
@@ -152,7 +159,7 @@ def summarize(release, variant, outdir, status, seconds, log):
     row["genes"] = m.group(1) if m else ("all" if genes == "all" else "")
     row["genomes_simulated"] = metadata.get("genome_table", "")
     row["species_held_out"] = metadata.get("classifier_training_species_left_out", "")
-    counts = taxonomy_counts(os.path.join(outdir, "internal_taxonomy.dmp"))
+    counts = taxonomy_counts(build_file(outdir, os.path.join("work", "internal_taxonomy.dmp"), "internal_taxonomy.dmp"))
     if counts:
         row.update(species=counts["species"], genera=counts["genus"], families=counts["family"], orders=counts["order"],
                    classes=counts["class"], phyla=counts["phylum"], bacteria_species=counts["species_bacteria"],
@@ -262,7 +269,8 @@ def main():
                 command += ["--n-genes", str(n)]
                 if args.genes_per_domain is not None:
                     command += ["--genes-per-domain", str(args.genes_per_domain)]
-                ranking = os.path.join(args.outdir, f"r{release}_full", "gene_ranking.tsv")
+                ranking = build_file(os.path.join(args.outdir, f"r{release}_full"),
+                                     os.path.join("model_logs", "gene_ranking.tsv"), "gene_ranking.tsv")
                 if os.path.isfile(ranking):
                     command += ["--gene-ranking", ranking]
             command += passthrough

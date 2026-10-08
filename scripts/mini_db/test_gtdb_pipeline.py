@@ -126,7 +126,7 @@ class GtdbBuildTest(unittest.TestCase):
                 for collection in ("training", "test"):
                     os.makedirs(os.path.join(cls.tmp.name, "full_tables", collection))
                     for table in ("training_data.tsv", "training_data_se.tsv"):
-                        shutil.copy(os.path.join(cls.tmp.name, "out", collection, table),
+                        shutil.copy(os.path.join(cls.tmp.name, "out", "work", collection, table),
                                     os.path.join(cls.tmp.name, "full_tables", collection))
                 shutil.copytree(os.path.join(cls.tmp.name, "out"), os.path.join(cls.tmp.name, "full_copy", "out"),
                                 symlinks=True)
@@ -142,8 +142,8 @@ class GtdbBuildTest(unittest.TestCase):
             return dict(line.rstrip("\n").split("\t", 1) for line in fh)
 
     def samples(self, out, collection, table):
-        """{scenario ("" for the design): sample names} of a collection's table, and its rows."""
-        with open(os.path.join(self.tmp.name, out, collection, table)) as fh:
+        """{scenario ("" for the design): sample names} of a collection's table (OUTDIR/work/<collection>), and its rows."""
+        with open(os.path.join(self.tmp.name, out, "work", collection, table)) as fh:
             rows = list(csv.DictReader(fh, delimiter="\t"))
         samples = collections.defaultdict(set)
         for row in rows:
@@ -167,11 +167,26 @@ class GtdbBuildTest(unittest.TestCase):
         out = os.path.join(self.tmp.name, "out")
         scratch = ("--scratch", os.path.join(self.tmp.name, "scratch"), "--profile-blocks", "0")
         for path in ("protal_db/database.protal", "model_logs/summary.txt",
-                     ".stages/convert.json", ".stages/protal_db.json", ".stages/training_db.json"):
+                     "work/stages/convert.json", "work/stages/protal_db.json", "work/stages/training_db.json"):
             self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
+        # OUTDIR holds the database, the evaluation, the logs and what a rerun reuses, each file once: protal_db/ the
+        # database and what names its genes and genomes (the build's reports beside it moved to model_logs/, the foreign
+        # scan's table to work/), the models' files in model_logs/ only, the in-silico strains on the scratch disk.
+        self.assertEqual(sorted(os.listdir(out)), ["console.log", "logs", "model_logs", "protal_db", "work"])
+        self.assertEqual(sorted(os.listdir(os.path.join(out, "protal_db"))),
+                         ["build_metadata.tsv", "database.protal", "gene2geneid.tsv", "genome2tiid.tsv"])
+        for name in ("trained_model.xml", "trained_model_se.report.txt", "trained_model.calls.tsv.gz", "parity.txt",
+                     "genome_table.txt", "heldout_species.txt", "gene_incongruence.tsv"):
+            self.assertTrue(os.path.isfile(os.path.join(out, "model_logs", name)), name)
+        self.assertEqual(glob.glob(os.path.join(out, "model_logs", "*.log")) +
+                         glob.glob(os.path.join(out, "model_logs", "build_metadata.tsv")), [])
+        self.assertIn("(se reads)", self.text("out", "model_logs", "parity.txt"))  # every read type's check in one file
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scratch", "insilico_strains", "insilico_strains.tsv")))
+        self.assertFalse(os.path.exists(os.path.join(out, "work", "insilico_strains")))
+        self.assertRegex(first.stdout, r"In \S+: protal_db/ the database \(4 files\), model_logs/ the evaluation \(\d+\)")
         # The training database, read only by the collections and the parity check, is built on the scratch disk.
         self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scratch", "training_db", "database.protal")))
-        self.assertFalse(os.path.exists(os.path.join(out, "training_db")))
+        self.assertFalse(os.path.exists(os.path.join(out, "work", "training_db")))
         # full_reference.fna, which only the builds read, is gone once they are done.
         for path in ("out/protal_db/full_reference.fna", "scratch/training_db/full_reference.fna"):
             for name in (path, path + ".zst"):
@@ -208,7 +223,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"\d+/\d+ checking the samples' composition against the truth")
         self.assertRegex(first.stdout, r"pe: median errors over \d+ test samples without a host: explained share [-+]")
         self.assertIn(f"--features {model_features.DEFAULT_FEATURE_SET} --model gbm",
-                      self.text("out", "classifier_training_se.log"))
+                      self.text("out", "logs", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         # The gene copies' gaps to their congeners' copies (--build), in the databases the training samples were profiled
@@ -216,37 +231,37 @@ class GtdbBuildTest(unittest.TestCase):
         # test_f has --no-foreign-rates): the training database's right after its build, from its full reference, which
         # lacks the held-out species; the finished database's before its models went in; every copy listed; the full
         # references gone after.
-        self.assertRegex(self.text("out", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
+        self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
         for stage, folder in (("foreign_rates_training", os.path.join(self.tmp.name, "scratch", "training_db")),
-                              ("foreign_rates", os.path.join(out, "protal_db"))):
-            self.assertRegex(self.text("out", stage + ".log"),
+                              ("foreign_rates", os.path.join(out, "work", "foreign_rates"))):
+            self.assertRegex(self.text("out", "logs", stage + ".log"),
                              r"Tiles: \d+ reads of 150 bases every 250 bases of \d+ of \d+ records \(\d+ headers, at most 10 "
                              r"records each\) of .*full_reference\.fna")
-            self.assertRegex(self.text("out", stage + ".log"),
+            self.assertRegex(self.text("out", "logs", stage + ".log"),
                              r"Foreign rates: \d+ reads with a record, \d+ counted \(MAPQ >= 4\), 0 of an unknown taxon, from "
                              r"\d+ gene copies of \d+ species' genes \(at most 10 each\); (\d+) gene copies listed, \d+ reached")
-            self.assertTrue(os.path.isfile(os.path.join(out, ".stages", stage + ".json")), stage)
+            self.assertTrue(os.path.isfile(os.path.join(out, "work", "stages", stage + ".json")), stage)
             self.assertTrue(os.path.isfile(os.path.join(folder, "foreign_rates.tsv")), stage)
-            self.assertIn("gene copies of", self.text("out", stage + "_add.log"))
+            # --add_tables in the same log, after the scan's lines
+            self.assertRegex(self.text("out", "logs", stage + ".log"), r"\n--- \S+ --add_tables (.|\n)*gene copies of")
         training_table = self.text("scratch", "training_db", "foreign_rates.tsv").splitlines()
-        final_table = self.text("out", "protal_db", "foreign_rates.tsv").splitlines()
+        final_table = self.text("out", "work", "foreign_rates", "foreign_rates.tsv").splitlines()
         self.assertLess(len(training_table), len(final_table))  # the held-out species' copies only in the finished one
         self.assertTrue(all(":" in line for line in final_table[2:]))
         self.assertIn("the foreign scan", self.text("out", "console.log"))
         # The hold-out steered by the species' clouds (species_clouds.tsv, protal --write_species_neighbours on the
         # converted release): heldout_species.txt with the distance to the nearest kept congener and the complex, and
-        # holdout.txt with the bands; the clouds also in model_logs and in the collector's command (meta_novel_distance).
-        self.assertRegex(self.text("out", "species_clouds.log"), r"Species neighbours: \d+ pairs of congeners compared")
-        self.assertTrue(os.path.isfile(os.path.join(out, "model_logs", "species_clouds.tsv")))
-        self.assertEqual(self.text("out", "species_clouds.tsv").splitlines()[0], "taxid\tneighbours")
-        held = [line.split("\t") for line in self.text("out", "heldout_species.txt").splitlines()]
+        # holdout.txt with the bands, all in model_logs; the clouds also in the collector's command (meta_novel_distance).
+        self.assertRegex(self.text("out", "logs", "species_clouds.log"), r"Species neighbours: \d+ pairs of congeners compared")
+        self.assertEqual(self.text("out", "model_logs", "species_clouds.tsv").splitlines()[0], "taxid\tneighbours")
+        held = [line.split("\t") for line in self.text("out", "model_logs", "heldout_species.txt").splitlines()]
         self.assertTrue(held and all(len(f) == 5 for f in held), held)
         self.assertTrue(all(f[3] == "-" or float(f[3]) <= 0.15 for f in held), held)
         self.assertIn("nearest kept congener of the species held out alone", self.text("out", "model_logs", "holdout.txt"))
         self.assertIn("species complexes (congeners within 0.01) held out whole", self.text("out", "model_logs", "holdout.txt"))
         self.assertRegex(metadata["classifier_training_holdout_clouds"], r"^\d+ species' congeners within 0\.15 \(the converted "
                                                                          r"release\); \d+ complexes of \d+ species within 0\.01")
-        self.assertRegex(self.text("out", "training_data.log"), r"species clouds: \d+ species' nearest congeners")
+        self.assertRegex(self.text("out", "logs", "training_data.log"), r"species clouds: \d+ species' nearest congeners")
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = []
         for path in glob.glob(os.path.join(self.tmp.name, "scratch", "**", "run_params.tsv"), recursive=True):
@@ -257,13 +272,14 @@ class GtdbBuildTest(unittest.TestCase):
         # The species with one genome (10 of the download are representatives only) got in-silico strains, and the
         # collections simulated from them, too.
         self.assertRegex(metadata["insilico_strains"], r"^\d+ in-silico strains of the \d+ species with one genome")
-        self.assertTrue(any(line.startswith("insilico_") for line in self.text("out", "genomes_simulated.tsv").splitlines()))
-        self.assertFalse(any(line.startswith("insilico_") for line in self.text("out", "genomes.tsv").splitlines()))
+        self.assertTrue(any(line.startswith("insilico_")
+                            for line in self.text("out", "work", "genomes_simulated.tsv").splitlines()))
+        self.assertFalse(any(line.startswith("insilico_") for line in self.text("out", "work", "genomes.tsv").splitlines()))
         self.assertIn("with the in-silico strains", self.text("out", "model_logs", "genome_table.txt"))
         self.assertTrue(all("genomes_simulated.tsv" in c for c in commands))
         self.assertEqual(metadata["classifier_call_mode"], "curve")
         self.assertNotIn("model_pe_false_calls", metadata)
-        self.assertNotIn("--fdr-calls", self.text("out", "classifier_training.log"))
+        self.assertNotIn("--fdr-calls", self.text("out", "logs", "classifier_training.log"))
         # What the conservation features rest on, on the release's genomes: how the genes differ between congeners
         # (protal --build), and where the held-out species' reads land (trace_relatives.py).
         self.assertRegex(metadata["gene_congeners"], r"^\d+ pairs of species of \d+ genera")
@@ -272,8 +288,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(metadata["gene_neighbours"], r"^\d+ rules of \d+ clades from \d+ genomes")
         self.assertRegex(metadata["gene_positions"], r"^\d+ genes \(\d+ placed by their k-mer trace\) in \d+ genomes of "
                                                      r"\d+ species, \d+ read as circular")
-        self.assertTrue(os.path.isfile(os.path.join(out, "gene_neighbours.log")))
-        self.assertRegex(self.text("out", "training_db.log"), r"gene_neighbours\.tsv derived from the \d+ genomes of "
+        self.assertTrue(os.path.isfile(os.path.join(out, "logs", "gene_neighbours.log")))
+        self.assertRegex(self.text("out", "logs", "training_db.log"), r"gene_neighbours\.tsv derived from the \d+ genomes of "
                                                              r"\d+ species kept")
         for name in ("gene_congeners.tsv", "relatives_by_gene_conservation.txt"):
             self.assertTrue(os.path.isfile(os.path.join(out, "model_logs", name)), name)
@@ -297,15 +313,15 @@ class GtdbBuildTest(unittest.TestCase):
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
         # --depth-knobs for every read type), gradient-boosted trees of up to 63 leaves (--model, --maxnodes); the
         # converter logs its steps' times.
-        self.assertEqual(glob.glob(os.path.join(out, "final_package_*.log")), [])
-        self.assertEqual(self.text("out", "final_package.log").count("Models for read types:"), 1)
+        self.assertEqual(glob.glob(os.path.join(out, "logs", "final_package_*.log")), [])
+        self.assertEqual(self.text("out", "logs", "final_package.log").count("Models for read types:"), 1)
         self.assertEqual(metadata["classifier_depth_knobs"], "pe,se")
         self.assertEqual((metadata["classifier_model"], metadata["classifier_trees"]), ("gbm", "40 rounds"))
         self.assertEqual(metadata["classifier_max_leaves"], "pe:63,se:63")
-        self.assertIn("--model gbm --ntree 16 --maxnodes 63", self.text("out", "classifier_training_se.log"))
-        self.assertIn("gradient-boosted trees: 40 rounds", self.text("out", "classifier_training_se.log"))
-        self.assertRegex(self.text("out", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
-        self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
+        self.assertIn("--model gbm --ntree 16 --maxnodes 63", self.text("out", "logs", "classifier_training_se.log"))
+        self.assertIn("gradient-boosted trees: 40 rounds", self.text("out", "logs", "classifier_training_se.log"))
+        self.assertRegex(self.text("out", "logs", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
+        self.assertRegex(self.text("out", "logs", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         # The training database is built alone; then the finished database in the background at the idle scheduling
         # class, and both collections' simulations, what to stream chosen from the room on the samples' disk (here all
         # of it is room: nothing streamed). The models go into the database before the reports.
@@ -316,21 +332,21 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"room on \S+scratch: [\d.]+ [MG]B free; besides the reads the run needs")
         self.assertRegex(first.stdout, r"--profile-blocks 0: none of the \d+ simulations streamed")
         self.assertLess(first.stdout.index("Ready protal database"), first.stdout.index("Reports of what the models' errors"))
-        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "training", "protal_runs", "all.log")),
+        self.assertTrue(self.text("out", "logs", "protal_runs_training.log").startswith("==> all <==\n"),
                         "the protal run's log copied off the scratch disk")
-        simulation = self.text("out", "training_data_simulation.log")
+        simulation = self.text("out", "logs", "training_data_simulation.log")
         self.assertRegex(simulation, r"2 of 2 paired-end design points, \d+:\d\d:\d\d in all")
         self.assertIn("profiling left to a run without --simulate_only", simulation)
         self.assertNotIn("protal profiled", simulation)
-        collection = self.text("out", "training_data.log")
+        collection = self.text("out", "logs", "training_data.log")
         self.assertNotRegex(collection, "simulating")
         # The test set's samples (1 pe, 1 se) are profiled in the training data's protal run: the database loads once.
         self.assertIn("and 2 samples of another collection in one protal run", collection)
         self.assertRegex(collection, r"protal profiled 10 samples in \d+:\d\d:\d\d")
-        self.assertNotIn("protal profiled", self.text("out", "test_data.log"))
-        self.assertRegex(self.text("out", "test_data.log"), r"\d+ taxa in \S+training_data\.tsv: \d+ present")
+        self.assertNotIn("protal profiled", self.text("out", "logs", "test_data.log"))
+        self.assertRegex(self.text("out", "logs", "test_data.log"), r"\d+ taxa in \S+training_data\.tsv: \d+ present")
         # The genome table has each genome's length, as the simulator counts it when the table has none.
-        with open(os.path.join(out, "genomes.tsv")) as fh:
+        with open(os.path.join(out, "work", "genomes.tsv")) as fh:
             table = [line.rstrip("\n").split("\t") for line in fh]
         self.assertTrue(table and all(len(f) == 4 and f[3].isdigit() for f in table))
         three = os.path.join(self.tmp.name, "three_columns.tsv")
@@ -343,17 +359,16 @@ class GtdbBuildTest(unittest.TestCase):
             counted = {row["genome"]: row["genome_length"] for row in csv.DictReader(fh, delimiter="\t")}
         self.assertTrue(counted)
         self.assertEqual(counted, {f[0]: f[3] for f in table if f[0] in counted})
-        self.assertTrue(os.path.isfile(os.path.join(out, "training", "training_data_se.tsv")))
-        self.assertFalse(os.path.exists(os.path.join(out, "training", "points")))
+        self.assertTrue(os.path.isfile(os.path.join(out, "work", "training", "training_data_se.tsv")))
+        self.assertFalse(os.path.exists(os.path.join(out, "work", "training", "points")))
         self.assertTrue(os.path.isdir(os.path.join(self.tmp.name, "scratch", "training", "points")))
         self.assertRegex(first.stdout, r"The run took at most [\d.]+ [MG]B on \S+scratch")
         # --rank-genes: the genes of the training database ranked (unpacked on the scratch disk, then removed).
-        with open(os.path.join(out, "gene_ranking.tsv")) as fh:
+        with open(os.path.join(out, "model_logs", "gene_ranking.tsv")) as fh:
             ranking_text = fh.read()
         ranking = [line.split("\t") for line in ranking_text.splitlines()]
         self.assertEqual(ranking[0][:4], ["rank", "gene_id", "marker", "score"])
-        self.assertEqual(len(ranking) - 1, len(build.read_gene_ids(os.path.join(out, "gene2geneid.tsv"))))
-        self.assertTrue(os.path.isfile(os.path.join(out, "model_logs", "gene_ranking.tsv")))
+        self.assertEqual(len(ranking) - 1, len(build.read_gene_ids(os.path.join(out, "work", "gene2geneid.tsv"))))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scratch", "ranking_files")))
         # build_gtdb_releases.py's summary of the build: the release's species (not only those simulated from), the
         # numbers it reads from the console, the models' scores.
@@ -384,15 +399,17 @@ class GtdbBuildTest(unittest.TestCase):
         # the in-silico strains and the ranking stay as they were (the finished database gets its models again), and the
         # collector reuses its samples and dumps.
         training_db = os.path.join(self.tmp.name, "scratch", "training_db", "database.protal")
-        kept = [os.path.join(out, ".stages", f"{stage}.json") for stage in ("convert", "protal_db", "training_db")] + \
-            [training_db, os.path.join(out, "genomes_simulated.tsv"), os.path.join(out, "gene_ranking.tsv")]
+        kept = [os.path.join(out, "work", "stages", f"{stage}.json") for stage in ("convert", "protal_db", "training_db")] + \
+            [training_db, os.path.join(out, "work", "genomes_simulated.tsv"),
+             os.path.join(out, "model_logs", "gene_ranking.tsv"),
+             os.path.join(self.tmp.name, "scratch", "insilico_strains", "insilico_strains.tsv")]
         before = {path: os.stat(path).st_mtime_ns for path in kept}
         again = self.build("out", *scratch, "--rank-genes", "--evaluation", "none")
         self.assertEqual(again.returncode, 0, again.stdout[-3000:])
         self.assertEqual({path: os.stat(path).st_mtime_ns for path in kept}, before)
         self.assertNotRegex(again.stdout, r"built (protal|training)_db")
-        self.assertNotRegex(self.text("out", "training_data_simulation.log"), "simulating")
-        self.assertNotRegex(self.text("out", "training_data.log"), "simulating|profiling")
+        self.assertNotRegex(self.text("out", "logs", "training_data_simulation.log"), "simulating")
+        self.assertNotRegex(self.text("out", "logs", "training_data.log"), "simulating|profiling")
 
         # A reduced database: the 3 best genes ranked from a full build of the training database (--n-genes 3 without
         # --gene-ranking; test_b gives one), one of them a gene archaea have. The ranking is --rank-genes's above:
@@ -400,25 +417,25 @@ class GtdbBuildTest(unittest.TestCase):
         # are derived from the release converted anew, both databases built again from the samples already simulated,
         # the whole conversion and the ranking database gone at the end. Its models with the relatives features and calls
         # at a target share of false calls: trained, checked for parity with protal, and in the database.
-        built = [os.path.join(out, ".stages", "protal_db.json"), training_db]  # marked once built, and the build
+        built = [os.path.join(out, "work", "stages", "protal_db.json"), training_db]  # marked once built, and the build
         reduced = self.build("out", *scratch, "--n-genes", "3", "--features", "normalized+adjacency+relatives",
                              "--call-mode", "fdr")
         self.assertEqual(reduced.returncode, 0, reduced.stdout[-3000:])
         self.assertTrue(all(os.stat(path).st_mtime_ns != before[path] for path in built), "both databases built again")
-        self.assertNotRegex(self.text("out", "training_data_simulation.log"), "simulating")
-        self.assertFalse(os.path.exists(os.path.join(out, ".converted")))
+        self.assertNotRegex(self.text("out", "logs", "training_data_simulation.log"), "simulating")
+        self.assertFalse(os.path.exists(os.path.join(out, "work", "converted")))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scratch", "ranking_db")))
-        for path in ("gene_ranking_build.log", "gene_ranking_files.log", ".stages/gene_ranking.json",
+        for path in ("logs/gene_ranking_build.log", "logs/gene_ranking_files.log", "work/stages/gene_ranking.json",
                      "model_logs/gene_ranking.tsv", "model_logs/gene_subset.txt"):
             self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
-        self.assertNotIn("genes kept", self.text("out", "gene_ranking_files.log"))  # every gene, the species left out
+        self.assertNotIn("genes kept", self.text("out", "logs", "gene_ranking_files.log"))  # every gene, the species left out
         # The same ranking as --rank-genes's, the congeners' columns too (gene_congeners.tsv, beside the training
         # database's database.protal, is copied to the unpacked folder that --rank-genes ranks).
-        self.assertEqual(self.text("out", "gene_ranking.tsv"), ranking_text)
+        self.assertEqual(self.text("out", "model_logs", "gene_ranking.tsv"), ranking_text)
         self.assertRegex(ranking[1][ranking[0].index("between_factor")], r"^[0-9.]+$")  # the best gene's, a bacterial one
-        subset_text = self.text("out", "gene_subset.txt")
+        subset_text = self.text("out", "model_logs", "gene_subset.txt")
         self.assertIn("ranked from a full build of the training database", subset_text.splitlines()[0])
-        chosen = self.gene_list(os.path.join(out, "gene_subset.txt"))
+        chosen = self.gene_list(os.path.join(out, "model_logs", "gene_subset.txt"))
         self.assertEqual(len(chosen), 3)
         self.assertIn(int(ranking[1][1]), chosen)  # the best overall, and the best of each domain
         header = ranking[0]
@@ -429,14 +446,14 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(metadata["marker_genes"], r"^3 of \d+, the most distinctive by prevalence x unique k-mer share "
                                                    r"\(scripts/rank_genes\.py, 1 per domain, from a full build of the training "
                                                    r"database\): \S+, \S+, \S+; in half the species or more of bacteria \d, archaea \d$")
-        self.assertRegex(self.text("out", "training_db.log"), r"derived from the \d+ genomes of \d+ species kept: "
+        self.assertRegex(self.text("out", "logs", "training_db.log"), r"derived from the \d+ genomes of \d+ species kept: "
                                                              r"\d+ lines \(over the 3 genes kept\)")
-        self.assertIn(", 3 genes kept: ", self.text("out", "protal_db_files.log"))
+        self.assertIn(", 3 genes kept: ", self.text("out", "logs", "protal_db_files.log"))
         self.assertEqual(metadata["classifier_features"], "normalized+adjacency+relatives")
         self.assertEqual(metadata["classifier_call_mode"], "fdr")
         for t in ("pe", "se"):
             self.assertRegex(metadata[f"model_{t}_false_calls"], r"^target [0-9.]+ per sample; species held out F1 [0-9.]+")
-            log = self.text("out", "classifier_training" + ("" if t == "pe" else "_se") + ".log")
+            log = self.text("out", "logs", "classifier_training" + ("" if t == "pe" else "_se") + ".log")
             self.assertIn("--fdr-calls", log)
             self.assertIn("em_own_share", log)  # among the model's features
         row = self.summary_row("out", "n3")
@@ -445,12 +462,12 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertLess(float(row["database_gb"]), float(full["database_gb"]) + 0.01)
 
         # The training database's folder on the scratch disk says what it was built from (built_for.json, as
-        # .stages/training_db.json; the rerun above kept the database by it). Another OUTDIR's build on the same scratch
+        # work/stages/training_db.json; the rerun above kept the database by it). Another OUTDIR's build on the same scratch
         # disk (other species held out) leaves its own there: this OUTDIR's next run then builds the training database
         # again instead of taking that one. Stopped once it has decided.
         stamp = os.path.join(self.tmp.name, "scratch", "training_db", "built_for.json")
         with open(stamp) as fh:
-            self.assertEqual(json.load(fh), json.loads(self.text("out", ".stages", "training_db.json")))
+            self.assertEqual(json.load(fh), json.loads(self.text("out", "work", "stages", "training_db.json")))
         with open(stamp, "w") as fh:
             json.dump({"heldout": "another OUTDIR's species"}, fh)
         console = os.path.join(out, "console.log")
@@ -492,15 +509,16 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("index_and_package.log", result.stdout)
         out = os.path.join(self.tmp.name, "out_fail")
         self.assertNotRegex(result.stdout, r"\d+/\d+ training the ")
-        self.assertEqual(glob.glob(os.path.join(out, "trained_model*.xml")), [])
+        self.assertEqual(glob.glob(os.path.join(out, "model_logs", "trained_model*.xml")), [])
         self.assertLess(time.time() - started, 600)
-        self.assertEqual(self.text("out_fail", "gene_ranking.tsv"), self.text("given_ranking.tsv"))
-        self.assertEqual(self.gene_list(os.path.join(out, "gene_subset.txt")), [9, 4, 6])
-        self.assertIn(f"ranked from --gene-ranking {given}", self.text("out_fail", "gene_subset.txt"))
-        for name in ("gene_ranking_build.log", "gene_ranking_files.log", ".stages/gene_ranking.json", "ranking_db"):
+        self.assertEqual(self.text("out_fail", "model_logs", "gene_ranking.tsv"), self.text("given_ranking.tsv"))
+        self.assertEqual(self.gene_list(os.path.join(out, "model_logs", "gene_subset.txt")), [9, 4, 6])
+        self.assertIn(f"ranked from --gene-ranking {given}", self.text("out_fail", "model_logs", "gene_subset.txt"))
+        for name in ("logs/gene_ranking_build.log", "logs/gene_ranking_files.log", "work/stages/gene_ranking.json",
+                     "work/ranking_db"):
             self.assertFalse(os.path.exists(os.path.join(out, name)), name)
         # A run without the gene subset into the same folder: protal_db holds the subset's files, derived from the release
-        # converted whole into .converted, which the stopped run marked. They must not pass for the whole release (the
+        # converted whole into work/converted, which the stopped run marked. They must not pass for the whole release (the
         # finished database would have the subset's genes): the release is converted again. Stopped once it says.
         console = os.path.join(out, "console.log")
         seen = os.path.getsize(console)
@@ -526,14 +544,14 @@ class GtdbBuildTest(unittest.TestCase):
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         out = os.path.join(self.tmp.name, "full_copy", "out")
-        stages = os.path.join(out, ".stages")
+        stages = os.path.join(out, "work", "stages")
         final = [os.path.join(out, "protal_db", "database.protal"), os.path.join(stages, "protal_db.json")]
         before = {path: os.stat(path).st_mtime_ns for path in final + [os.path.join(stages, "training_db.json")]}
-        with open(os.path.join(out, "heldout_species.txt")) as fh:
+        with open(os.path.join(out, "model_logs", "heldout_species.txt")) as fh:
             held_out = fh.read()
         run_ = self.build(os.path.join("full_copy", "out"), "--scratch", os.path.join(self.tmp.name, "full_copy", "scratch"),
                           "--profile-blocks", "0", "--rank-genes", "--seed", "2", wait=False)
-        simulation = os.path.join(out, "training_data_simulation.log")
+        simulation = os.path.join(out, "logs", "training_data_simulation.log")
 
         def resimulated():
             try:
@@ -552,7 +570,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertTrue(resimulated(), "the design points were not simulated again")
         self.assertTrue(training_db_built(), "the training database was not built again")
         self.assertEqual({path: os.stat(path).st_mtime_ns for path in final}, {path: before[path] for path in final})
-        with open(os.path.join(out, "heldout_species.txt")) as fh:
+        with open(os.path.join(out, "model_logs", "heldout_species.txt")) as fh:
             self.assertNotEqual(fh.read(), held_out)
         time.sleep(1)  # the simulations go on in the background, the run ranks the genes or waits for them
         run_.send_signal(signal.SIGTERM)
@@ -621,12 +639,13 @@ class GtdbBuildTest(unittest.TestCase):
                             scenarios=True, error_reads="all")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         for stage in ("foreign_rates_training", "foreign_rates"):
-            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scenarios", stage + ".log")), stage)
-            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scenarios", ".stages", stage + ".json")), stage)
+            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scenarios", "logs", stage + ".log")), stage)
+            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scenarios", "work", "stages", stage + ".json")),
+                             stage)
         self.assertFalse(os.path.exists(os.path.join(scratch, "training_db", "foreign_rates.tsv")))
         _, rows = self.samples("scenarios", "training", "training_data.tsv")
         self.assertTrue(all(float(r["foreign_scanned_share"]) == -1 for r in rows))
-        simulation = self.text("scenarios", "training_data_simulation.log")
+        simulation = self.text("scenarios", "logs", "training_data_simulation.log")
         self.assertRegex(simulation, r"scenario gut \(2 samples\): \d+ species \(\d+ the database lacks, [\d.]+%; \d+ it "
                                      r"has\) for samples of 5-6; Illumina reads at Q30 \(HS20, --mean_quality\)")
         self.assertIn("sc_host_pe_p20000 simulated (2 samples)", simulation)
@@ -721,6 +740,12 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertEqual({(r["set"], r["sample"]) for r in samples}, samples_of_calls, t)
             self.assertEqual({r["scenario"] for r in samples},
                              {"design", "gut", "host"} | ({"moderate", "soil", "soil_shallow"} if t == "pe" else set()), t)
+            # Every sample's error taxa in one table (no file per sample), with its design point and scenario.
+            with gzip.open(os.path.join(errors, "taxa.tsv.gz"), "rt") as fh:
+                taxa = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual(glob.glob(os.path.join(errors, "*", "*", "*.taxa.tsv")), [])
+            point_of = {(r["set"], r["sample"]): (r["point"], r["scenario"]) for r in samples}
+            self.assertTrue(all(point_of[(x["set"], x["sample"])] == (x["point"], x["scenario"]) for x in taxa), t)
             for r in samples:
                 for kind in ("FP", "FN"):
                     self.assertEqual(int(r[kind]), expected[(r["set"], r["sample"], kind)], (t, r["sample"], kind))
@@ -748,9 +773,10 @@ class GtdbBuildTest(unittest.TestCase):
                 # its genome's place), but the host's paired-end reads.
                 if r["scenario"] != "host" or t != "pe":
                     self.assertEqual(r["unknown_source"], "0", (t, r["sample"]))
-                with open(os.path.join(errors, r["set"], r["point"], r["sample"] + ".taxa.tsv")) as fh:
-                    taxa = collections.Counter(x["error"] for x in csv.DictReader(fh, delimiter="\t"))
-                self.assertEqual((taxa["FP"], taxa["FN"], taxa["unseen"]), (int(r["FP"]), int(r["FN"]), int(r["unseen"])))
+                errors_of = collections.Counter(x["error"] for x in taxa
+                                                if (x["set"], x["sample"]) == (r["set"], r["sample"]))
+                self.assertEqual((errors_of["FP"], errors_of["FN"], errors_of["unseen"]),
+                                 (int(r["FP"]), int(r["FN"]), int(r["unseen"])))
             self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
             if any(int(r["FP"]) + int(r["FN"]) for r in samples):
                 self.assertGreater(sum(int(r["sam_records"]) for r in samples), 0, t)
@@ -769,26 +795,30 @@ class GtdbBuildTest(unittest.TestCase):
             for suffix in (".taxa.tsv.gz", ".fragments.tsv.gz"):
                 with gzip.open(ancestry + suffix, "rt") as fh:
                     self.assertTrue(fh.readline().startswith("sample\t"), suffix)
-            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", f"ancestry_sites_{t}.log")))
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", "logs", f"ancestry_sites_{t}.log")))
         console = self.text("scenarios", "console.log")
         self.assertIn("the ancestry sites of the errors' reads (model_logs/ancestry_sites", console)
         self.assertIn("full_reference.fna", console)  # kept for the report, then removed
         self.assertFalse(glob.glob(os.path.join(scratch, "training_db", "full_reference.fna*")))
         self.assertFalse(os.path.exists(os.path.join(scratch, "ancestry_files")))
-        # The archive to share (--share-logs): the console's lines and the other logs, model_logs/ with the error reads'
-        # SAMs, and the tables, their numbers to 9 significant digits (the same rows and values to 1e-8).
+        # The archive to share (--share-logs), laid out as OUTDIR: the console's lines and the other logs, model_logs/
+        # with the error reads' SAMs but not the models, the build's metadata, the taxonomy, and the tables, their numbers
+        # to 9 significant digits (the same rows and values to 1e-8).
         import math
         import tarfile
         with tarfile.open(os.path.join(self.tmp.name, "scenarios", "scenarios_share.tar.gz")) as tar:
             members = set(tar.getnames())
-            for name in ("console.log", "training_data.log", "model_logs/summary.txt", "model_logs/error_reads/pe/summary.tsv",
+            for name in ("console.log", "logs/training_data.log", "model_logs/summary.txt",
+                         "model_logs/error_reads/pe/summary.tsv", "model_logs/error_reads/pe/taxa.tsv.gz",
                          "model_logs/ancestry_sites/pe.summary.txt", "model_logs/ancestry_sites/pe.auc.tsv",
-                         "training/training_data.tsv", "training/training_data_se.tsv", "test/training_data.tsv"):
+                         "protal_db/build_metadata.tsv", "work/internal_taxonomy.dmp", "work/training/training_data.tsv",
+                         "work/training/training_data_se.tsv", "work/test/training_data.tsv"):
                 self.assertIn("scenarios/" + name, members)
             self.assertTrue(any(m.endswith(".FP.sam.zst") or m.endswith(".FN.sam.zst") for m in members))
-            self.assertFalse(any(".partial" in m or "/.share_tables" in m for m in members))
+            self.assertFalse(any(m.endswith((".partial", ".xml", ".joblib")) or "share_tables" in m for m in members))
+            self.assertFalse(any(m.startswith("scenarios/protal_db/database") for m in members))
             self.assertIn("Ready protal database", tar.extractfile("scenarios/console.log").read().decode())
-            shared = tar.extractfile("scenarios/training/training_data.tsv").read().decode().splitlines()
+            shared = tar.extractfile("scenarios/work/training/training_data.tsv").read().decode().splitlines()
         with open(os.path.join(scratch, "training", "training_data.tsv")) as fh:
             original = fh.read().splitlines()
         self.assertEqual(len(shared), len(original))
@@ -827,16 +857,16 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("profiled as its simulations go on, in protal runs of 1e-05 GB of reads or more", result.stdout)
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
-                self.assertEqual(self.text("follow", collection, table), self.text("full_tables", collection, table),
+                self.assertEqual(self.text("follow", "work", collection, table), self.text("full_tables", collection, table),
                                  f"{collection}/{table}")
             points = os.path.join(scratch, collection, "points")
             self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*.fq.*")), [])
             self.assertTrue(glob.glob(os.path.join(points, "*", "sim", "reads_removed.txt")))
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
-        log = self.text("follow", "training_data.log")
+        log = self.text("follow", "logs", "training_data.log")
         self.assertRegex(log, r"protal run 1: \d+ design points, [\d.]+ GB of reads; the simulations (go on|have ended)")
         self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
-        self.assertIn("keeping 1 GB free on", self.text("follow", "training_data_simulation.log"))
+        self.assertIn("keeping 1 GB free on", self.text("follow", "logs", "training_data_simulation.log"))
 
     def test_h_streamed(self):
         # Every design point streamed (--stream-above, here a few bytes): protal reads each point's samples from named
@@ -852,7 +882,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertTrue(glob.glob(os.path.join(scratch, "genome_store", "*.g2b")), "the genomes in the store")
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
-                self.assertEqual(self.text("stream", collection, table), self.text("full_tables", collection, table),
+                self.assertEqual(self.text("stream", "work", collection, table), self.text("full_tables", collection, table),
                                  f"{collection}/{table}")
             points = os.path.join(scratch, collection, "points")
             self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*")), [], "no reads, no pipes left")
@@ -860,7 +890,7 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertTrue(glob.glob(os.path.join(points, "*", "stream_pe.log")), "the simulators' logs kept")
             self.assertTrue(glob.glob(os.path.join(points, "*", "streamed.json")))
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
-        log = self.text("stream", "training_data.log")
+        log = self.text("stream", "logs", "training_data.log")
         self.assertRegex(log, r"\d+ simulations streamed into protal \(a sample above 1e-09 GB\)")
         # The streamed points whose communities are there share a protal run (--profile-block-max, 200 GB): here both.
         self.assertRegex(log, r"protal run 1: 2 simulations streamed \(rl100_p1000, rl100_p4000; 4 design points, \d+ "

@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
@@ -147,6 +148,55 @@ class BuildOptionsTest(unittest.TestCase):
                     job.process.wait()
                 if job in build.Job.running:
                     build.Job.running.remove(job)
+
+    def test_a_step_of_several_commands_in_one_log(self):
+        # A step's commands one after the other in its log (the foreign scan and --add_tables, the read types' parity
+        # checks): each appended one headed by its command line; a file given on the command line that is where the run
+        # keeps it already is not copied onto itself.
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "logs", "step.log")
+            build.run([sys.executable, "-c", "print('first')"], log)
+            build.run([sys.executable, "-c", "print('second')"], log, append=True)
+            with open(log) as fh:
+                lines = fh.read().splitlines()
+            self.assertEqual(lines[0], "first")
+            self.assertTrue(lines[1].startswith("--- ") and lines[1].endswith("print('second')"), lines)
+            self.assertEqual(lines[2:], ["second"])
+            kept = os.path.join(root, "heldout_species.txt")
+            with open(kept, "w") as fh:
+                fh.write("s__A a\n")
+            build.copy_file(kept, kept)
+            build.copy_file(kept, os.path.join(root, "copy.txt"))
+            with open(os.path.join(root, "copy.txt")) as fh:
+                self.assertEqual(fh.read(), "s__A a\n")
+
+    def test_the_archive_to_share(self):
+        # --share-logs: OUTDIR's logs, model_logs/ without the models, the build's metadata, the taxonomy and the tables
+        # (shortened), under <name>/ as in OUTDIR; not the database, nor the rest of work/.
+        with tempfile.TemporaryDirectory() as root:
+            out = os.path.join(root, "r226_v18")
+            files = {"console.log": "Ready protal database\n", "logs/convert.log": "converted\n",
+                     "model_logs/summary.txt": "F1\n", "model_logs/trained_model.xml": "<PMML/>\n",
+                     "model_logs/trained_model.joblib": "x", "model_logs/error_reads/pe/taxa.tsv.gz": "x",
+                     "protal_db/build_metadata.tsv": "gtdb_release\tr226\n", "protal_db/database.protal": "x",
+                     "work/internal_taxonomy.dmp": "1\t1\troot\n", "work/genomes.tsv": "x",
+                     "work/training/training_data.tsv": "truth\tp\n1\t0.12345678901234567\n"}
+            for path, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(out, path)), exist_ok=True)
+                with open(os.path.join(out, path), "w") as fh:
+                    fh.write(text)
+            with contextlib.redirect_stdout(io.StringIO()):
+                build.share_archive(out, [("training", os.path.join(out, "work", "training")), ("test", None)])
+            with tarfile.open(os.path.join(out, "r226_v18_share.tar.gz")) as tar:
+                members = {m.name for m in tar.getmembers() if m.isfile()}
+                table = tar.extractfile("r226_v18/work/training/training_data.tsv").read().decode()
+            self.assertEqual(members, {"r226_v18/" + p for p in ("console.log", "logs/convert.log", "model_logs/summary.txt",
+                                                                 "model_logs/error_reads/pe/taxa.tsv.gz",
+                                                                 "protal_db/build_metadata.tsv",
+                                                                 "work/internal_taxonomy.dmp",
+                                                                 "work/training/training_data.tsv")})
+            self.assertEqual(table, "truth\tp\n1\t0.123456789\n")
+            self.assertFalse(os.path.exists(os.path.join(out, "work", "share_tables")))
 
     def test_error_reads(self):
         # --error-reads: all (every read type's samples), none, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO.
@@ -512,9 +562,10 @@ class GeneSubsetTest(unittest.TestCase):
 
     @staticmethod
     def records(data):
-        """[(gene id, header, sequence)] of a FASTA's bytes, one sequence line per record."""
+        """[(gene id, header, sequence)] of a FASTA's bytes, one sequence line per record (the header's name taxid_geneid,
+        a full reference's followed by the genome's accession)."""
         lines = data.split(b"\n")
-        return [(int(lines[i][1:].split(b"_")[1]), lines[i], lines[i + 1]) for i in range(0, len(lines) - 1, 2)]
+        return [(int(lines[i][1:].split()[0].split(b"_")[1]), lines[i], lines[i + 1]) for i in range(0, len(lines) - 1, 2)]
 
     def test_the_copy_holds_the_genes_named_with_their_ids(self):
         self.assertEqual(len(self.subset), 6)
@@ -705,14 +756,15 @@ nodes = [(1, 1, "root", "no rank"), (2, 1, "d__Bacteria", "domain"), (3, 1, "d__
          (8, 6, "o__A", "order"), (9, 7, "o__B", "order"), (10, 8, "f__A", "family"), (11, 9, "f__B", "family"),
          (12, 10, "g__A", "genus"), (13, 11, "g__B", "genus"), (14, 12, "s__A a", "species"),
          (15, 12, "s__A b", "species"), (16, 13, "s__B a", "species")]
-with open(os.path.join(out, "internal_taxonomy.dmp"), "w") as fh:
+os.makedirs(os.path.join(out, "work"), exist_ok=True)
+with open(os.path.join(out, "work", "internal_taxonomy.dmp"), "w") as fh:
     fh.write("taxid\tparent\tlevel\tname\trank\n" + "".join(f"{t}\t{p}\t-\t{name}\t{rank}\n" for t, p, name, rank in nodes))
 with open(os.path.join(out, "model_logs", "summary.txt"), "w") as fh:
     fh.write("read type  evaluated on           knob  taxa  TP  FP  TN  FN  sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample\n"
              "pe         species held out       0.5   100   9   1   88  2   0.8182       0.9888       0.9000     0.8571  0.0112   0.1818   0.50\n"
              "pe         independent test set   0.5   50    5   0   44  1   0.8333       1.0000       1.0000     0.9091  0.0000   0.1667   0.00\n")
 if "--rank-genes" in args:
-    with open(os.path.join(out, "gene_ranking.tsv"), "w") as fh:
+    with open(os.path.join(out, "model_logs", "gene_ranking.tsv"), "w") as fh:
         fh.write("rank\tgene_id\tmarker\tscore\n1\t7\tA\t0.9\n")
 print("[00:00:01]     built protal_db in the background in 0:01:02, peak memory 1.5 GB; full_reference.fna removed")
 print("[00:00:02]     collected in 0:00:30, peak memory 512 MB; taxa present/absent: pe 9/91")
@@ -787,7 +839,7 @@ class BuildReleasesTest(unittest.TestCase):
         self.assertTrue(full.get("--rank-genes"))
         self.assertNotIn("--n-genes", full)
         self.assertEqual((reduced["--n-genes"], reduced["--gene-ranking"]),
-                         ("3", os.path.join(self.out, "r226_full", "gene_ranking.tsv")))
+                         ("3", os.path.join(self.out, "r226_full", "model_logs", "gene_ranking.tsv")))
         self.assertNotIn("--rank-genes", reduced)
         for call, variant in ((full, "full"), (reduced, "n3")):
             self.assertEqual(call["--scratch"], os.path.join(self.tmp.name, "scratch", f"r226_{variant}"))

@@ -190,7 +190,7 @@ and long reads of given communities (`--long_samples`). It makes the tests' and 
 **Input**: a tab-separated genome table without header: name (accession), GTDB taxonomy, FASTA path
 (gzip or zstd work), and optionally the genome's length, which spares reading every genome at the start
 (~5 ms per genome of GTDB's size). `build_gtdb_database.py` writes one with lengths
-(`OUTDIR/genomes.tsv`), and synthetic releases have `simulation/genomes.tsv`. A first row is taken
+(`OUTDIR/work/genomes.tsv`), and synthetic releases have `simulation/genomes.tsv`. A first row is taken
 for a header only if its fields name the columns (name, taxonomy, path, length) and none holds a
 lineage (`;`), a path (`/`) or a number. A genome's FASTA is read whole and parsed in bulk each
 time a sample needs it, unless a genome store (`--genome_store`) holds it.

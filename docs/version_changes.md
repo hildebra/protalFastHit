@@ -130,7 +130,10 @@ for this page.
   alone with fewer) rather than the nearest congener's differences, the comparison is chained
   across indels instead of ending at the first, and the indels the congeners share against the
   species are sites too, two more features (80 in the default set)
-  ([features.md](features.md#which-side-the-reads-take-ancestry-079)).
+  ([features.md](features.md#which-side-the-reads-take-ancestry-079)). The build's `--outdir` holds
+  `protal_db/`, `model_logs/`, `logs/`, `work/` and `console.log`, each file once: ~118 files at
+  r226 instead of ~11,900 (the in-silico strains on the samples' disk, one error-read table per read
+  type; [outputs](databases.md#outputs), [report](claude/2026-10-08-build-outputs.md)).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;
   30% of the species held out; deeper design points) and the build faster (one simulation queue,

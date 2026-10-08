@@ -2,7 +2,7 @@
 """make_gene_rates.py - the real genes' evolution speeds for simulate_gtdb_release.py --gene_rates r226.
 
 Reads gene_congeners.tsv of a GTDB build (protal --build writes it into the database folder; build_gtdb_database.py
-copies it to model_logs/): per gene, within_factor (how fast its copies diverge within species, over the species'
+moves it to model_logs/): per gene, within_factor (how fast its copies diverge within species, over the species'
 median gene: protal's conservation factor, GeneConservation.h) and between_factor (the same between congeneric
 species). The gene ids are mapped to GTDB marker ids through the build's gene2geneid.tsv, or without one through
 the converter's order (gtdb_to_protal_db.py: the bac120 markers sorted, then the ar53 markers not in bac120),

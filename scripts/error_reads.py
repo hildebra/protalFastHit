@@ -32,20 +32,23 @@ specification leaves them to users). The simulations are seeded: the collector r
 worker killed from outside (out of memory) costs no other sample: those it ran beside run again one at a time, and a
 sample whose worker is killed again is named and left out.
 
-Written to OUT/<training|test>/<design point>/:
+Written to OUT/:
+  taxa.tsv.gz        each sample's error taxa, a line each (the sample, its set, design point and scenario): its score
+                     and knob; for an FN or unseen species its genomes and the reads (pairs) simulated from them
+                     (paired-end samples), its fragments with a record, those whose best record is on itself (at MAPQ 4
+                     or more, as the profiler counts them), elsewhere (where, by taxon) or none, and those that seeded on
+                     it but did not align to it; for any, the fragments with a record on it and their sources, and those
+                     that seeded on it but failed to align
+  summary.tsv        one line per sample
+and with --sams, to OUT/<training|test>/<design point>/:
   <sample>.FP.sam.zst, <sample>.FN.sam.zst, <sample>.unseen.sam.zst
                      the records of the fragments taken for its FP taxa (FP:), its FN taxa (FN:, and seeded: and source:
                      of an FN taxon) and its unseen species (seeded: and source: of one); the header's @SQ lines cut to
                      the genes they name; a file only for a kind of --sams the sample has records of
-  <sample>.taxa.tsv  each error taxon: its score and knob; for an FN or unseen species its genomes and the reads (pairs)
-                     simulated from them (paired-end samples), its fragments with a record, those whose best record is
-                     on itself (at MAPQ 4 or more, as the profiler counts them), elsewhere (where, by taxon) or none, and
-                     those that seeded on it but did not align to it; for any, the fragments with a record on it and
-                     their sources, and those that seeded on it but failed to align
-and OUT/summary.tsv (one line per sample).
+(Before 2026-10-08 each sample's taxa were a file of their own there, <sample>.taxa.tsv: 1,500 files at r226 v17.)
 
-    python3 scripts/error_reads.py --calls OUT/trained_model.calls.tsv.gz --training OUT/training --test OUT/test \\
-        --db OUT/training_db --read-type pe --out OUT/model_logs/error_reads/pe
+    python3 scripts/error_reads.py --calls OUT/model_logs/trained_model.calls.tsv.gz --training OUT/work/training \\
+        --test OUT/work/test --db OUT/work/training_db --read-type pe --out OUT/model_logs/error_reads/pe
 """
 import argparse
 import collections
@@ -90,6 +93,8 @@ TAXA_COLUMNS = ["sample", "set", "error", "taxid", "taxon_name", "p", "knob", "g
                 "best_on_taxon_mapq4", "fragments_on_taxon_from", "seeded_not_aligned"]
 SUMMARY_COLUMNS = ["set", "point", "scenario", "sample", "FP", "FN", "unseen", "fragments", "records", "unknown_source",
                    "sam_fragments", "sam_records", "sams", "sam_bytes", "source_sam_bytes", "seconds"]
+# OUT/taxa.tsv.gz: every sample's TAXA_COLUMNS with its design point and scenario after its set (merge_taxa).
+TABLE_COLUMNS = TAXA_COLUMNS[:2] + ["point", "scenario"] + TAXA_COLUMNS[2:]
 
 # Set before the worker processes fork (main): {FASTA path: [contig names]}, {species: taxid} and {taxid: species}
 # of the training database.
@@ -511,6 +516,29 @@ def write_taxa(path, sample, which, errors, unseen, manifest, fragments, source,
     os.replace(path + ".partial", path)
 
 
+def merge_taxa(out, done):
+    """OUT/taxa.tsv.gz (TABLE_COLUMNS): the error taxa of every sample of `done` (summary rows, in their order), from the
+    <sample>.taxa.tsv the workers wrote, which it removes, with the folders left empty; and any such file left by an
+    earlier run."""
+    target = os.path.join(out, "taxa.tsv.gz")
+    with gzip.open(target + ".partial", "wt", newline="", compresslevel=6) as fh:
+        writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        writer.writerow(TABLE_COLUMNS)
+        for r in done:
+            with open(os.path.join(out, r["set"], r["point"], r["sample"] + ".taxa.tsv"), newline="") as table:
+                rows = csv.reader(table, delimiter="\t")
+                next(rows, None)
+                writer.writerows(row[:2] + [r["point"], r["scenario"]] + row[2:] for row in rows)
+    os.replace(target + ".partial", target)
+    for pattern in ("*.taxa.tsv", "*.taxa.tsv.partial"):
+        for path in glob.glob(os.path.join(out, "*", "*", pattern)):
+            os.remove(path)
+    folders = glob.glob(os.path.join(out, "*", "*", "")) + glob.glob(os.path.join(out, "*", ""))
+    for folder in sorted(folders, reverse=True):  # a design point's before its set's
+        if not os.listdir(folder):
+            os.rmdir(folder)
+
+
 def job_memory(job):
     """The bytes a sample's extraction is expected to take at most: JOB_BASE_BYTES and JOB_BYTES_PER_SAM_BYTE times its
     SAM's size on disk (as if every record were a tracked fragment's)."""
@@ -655,6 +683,7 @@ def main(argv=None):
         writer = csv.DictWriter(fh, SUMMARY_COLUMNS, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(done)
+    merge_taxa(opts.out, done)
     by_group = collections.defaultdict(collections.Counter)
     for row in done:
         by_group[(row["set"], row["scenario"])].update(samples=1, FP=row["FP"], FN=row["FN"], unseen=row["unseen"],

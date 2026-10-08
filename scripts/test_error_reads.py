@@ -11,6 +11,7 @@ Run: python3 -m unittest scripts/test_error_reads.py
 """
 
 import csv
+import glob
 import gzip
 import os
 import sys
@@ -158,6 +159,12 @@ class ErrorReads(unittest.TestCase):
             return list(csv.DictReader(fh, delimiter="\t"))
 
     @staticmethod
+    def taxa(out):
+        """OUT/taxa.tsv.gz's rows, every sample's error taxa."""
+        with gzip.open(os.path.join(out, "taxa.tsv.gz"), "rt", newline="") as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
+    @staticmethod
     def sams(out, row):
         """{kind: (header lines, records as fields)} of a summary row's SAMs."""
         found = {}
@@ -213,8 +220,13 @@ class ErrorReads(unittest.TestCase):
         self.assertEqual(sorted(unmapped), ["5"])
         self.assertIn("ZF:Z:2,1", unmapped["5"])
 
-        with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
-            taxa = {r["taxon_name"]: r for r in csv.DictReader(fh, delimiter="\t")}
+        # The taxa of every sample in one table, with the sample's set, design point and scenario; no file per sample.
+        rows = self.taxa(out)
+        self.assertEqual(list(rows[0])[:5], ["sample", "set", "point", "scenario", "error"])
+        self.assertEqual({(r["sample"], r["set"], r["point"], r["scenario"]) for r in rows},
+                         {(SAMPLE, "training", POINT, "design")})
+        self.assertEqual(glob.glob(os.path.join(out, "*", "*", "*.taxa.tsv")), [])
+        taxa = {r["taxon_name"]: r for r in rows}
         self.assertEqual(list(taxa), ["s__G D", "s__G B", "s__G C"])  # FP, FN, unseen
         fp, fn, unseen = taxa["s__G D"], taxa["s__G B"], taxa["s__G C"]
         self.assertEqual((fp["error"], fp["taxid"], fp["p"], fp["knob"]), ("FP", "4", "0.8", "0.7"))
@@ -246,13 +258,13 @@ class ErrorReads(unittest.TestCase):
                                              "8": {"xg": "GCF_000000001.1", "xs": "s__G A", "xe": "seeded:3"}})
         self.assertTrue(all(r[10] == "I" for r in sams["FN"][1] if r[1] != "4"))
         self.assertFalse(any("QUAL left out" in h for h in sams["FP"][0]))
-        # --sams none: the taxa tables and the summary only, the same counts.
+        # --sams none: the taxa table and the summary only, the same counts, and no folder per set or design point.
         out = self.run_pe(args + ["--sams", "none"], "none")
         row = self.summary(out)[0]
         self.assertEqual((row["fragments"], row["records"], row["sam_fragments"], row["sams"], row["sam_bytes"]),
                          ("6", "11", "0", "", "0"))
-        self.assertEqual([f for f in os.listdir(os.path.join(out, "training", POINT)) if ".sam" in f], [])
-        self.assertTrue(os.path.isfile(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")))
+        self.assertEqual(sorted(os.listdir(out)), ["summary.tsv", "taxa.tsv.gz"])
+        self.assertEqual(len(self.taxa(out)), 3)
         with self.assertRaises(SystemExit):
             error_reads.parse_args(args + ["--calls", "c", "--out", "o", "--sams", "FP,TP"])
 
@@ -266,8 +278,7 @@ class ErrorReads(unittest.TestCase):
         out = self.run_pe(args + ["--heldout", heldout], "heldout")
         row = self.summary(out)[0]
         self.assertEqual((row["FP"], row["FN"], row["unseen"], row["fragments"]), ("1", "1", "0", "4"))
-        with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
-            self.assertEqual([r["error"] for r in csv.DictReader(fh, delimiter="\t")], ["FP", "FN"])
+        self.assertEqual([r["error"] for r in self.taxa(out)], ["FP", "FN"])
 
     def test_at_most_n_fragments_per_taxon_and_reason(self):
         # --max-fragments 1: of B's reads (source:2), the one of lowest CRC-32 of its name, and those of the reasons
@@ -279,8 +290,7 @@ class ErrorReads(unittest.TestCase):
         lowest = min(names, key=lambda n: (zlib.crc32(names[n]), names[n]))
         self.assertEqual(sorted(self.tags(self.sams(out, row)["FN"][1])), sorted({"3", "5", lowest}))
         self.assertEqual(row["fragments"], "6")
-        with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
-            fn = next(r for r in csv.DictReader(fh, delimiter="\t") if r["error"] == "FN")
+        fn = next(r for r in self.taxa(out) if r["error"] == "FN")
         self.assertEqual(fn["own_fragments"], "3")
 
     def test_drawn_reads_by_their_genome_s_place(self):
@@ -298,8 +308,7 @@ class ErrorReads(unittest.TestCase):
         self.assertEqual(tags, {"g1x_1": "GCA_000000002.1\txs:Z:s__G B\txe:Z:FN:2,source:2",
                                 "g3x_2": "GCA_000000005.1\txs:Z:s__G E (not in the database)\txe:Z:FP:4",
                                 "g2x_4": "GCA_000000003.1\txs:Z:s__G C\txe:Z:seeded:3,source:3"})
-        with open(os.path.join(d, "pb", "training", LONG_POINT, LONG_SAMPLE + ".taxa.tsv")) as fh:
-            fn = next(r for r in csv.DictReader(fh, delimiter="\t") if r["error"] == "FN")
+        fn = next(r for r in self.taxa(os.path.join(d, "pb")) if r["error"] == "FN")
         self.assertEqual((fn["genomes"], fn["read_pairs"], fn["own_fragments"], fn["own_best_on_taxon"]),
                          ("GCA_000000002.1", "", "1", "1"))  # no read pairs of a drawn sample's genomes
 

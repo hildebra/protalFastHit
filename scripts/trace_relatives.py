@@ -10,8 +10,8 @@ aligned to (RNAME <taxid>_<geneid>). With the genomes being real (GTDB's), it te
 real congeners, by the genes' conservation factors (gene_conservation.tsv, here from the training database's
 gene_congeners.tsv), which the model's conservation features rest on (docs/claude/2026-10-01-conservation-pattern).
 
-    python3 scripts/trace_relatives.py --points OUT/training/points --db OUT/training_db \\
-        --heldout OUT/heldout_species.txt --out OUT/model_logs/relatives_by_gene_conservation
+    python3 scripts/trace_relatives.py --points OUT/work/training/points --db OUT/work/training_db \\
+        --heldout OUT/model_logs/heldout_species.txt --out OUT/model_logs/relatives_by_gene_conservation
 
 For each gene, per unit of its source genomes' coverage (the samples' manifest.tsv), the primary records of
   own       reads of species in the database, on their own species (the baseline of how the gene takes reads)
