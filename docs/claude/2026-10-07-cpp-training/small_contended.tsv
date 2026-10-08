@@ -1,0 +1,13 @@
+library	threads	repeat	fit_s	predict_s	train_log_loss	F1	AP	AUC	log_loss
+sklearn	1	0	3.21	0.06	0.00155				
+lightgbm	1	0	0.54	0.06	0.00145				
+xgboost	1	0	0.67	0.01	0.00648				
+xgboost	1	1	0.6	0.01	0.00648				
+lightgbm	1	1	0.54	0.07	0.00145				
+sklearn	1	1	4.75	0.07	0.00155				
+sklearn	4	0	11.87	0.06	0.00155				
+lightgbm	4	0	0.79	0.03	0.00145				
+xgboost	4	0	1.01	0.01	0.00648				
+xgboost	4	1	7.77	0.01	0.00648				
+lightgbm	4	1	2.03	0.03	0.00145				
+sklearn	4	1	9.43	0.05	0.00155				

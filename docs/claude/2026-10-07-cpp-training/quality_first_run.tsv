@@ -1,0 +1,7 @@
+library	threads	repeat	fit_s	predict_s	train_log_loss	F1	AP	AUC	log_loss
+sklearn	4	0	14.87	1.94	0.02874				
+lightgbm	4	0	6.61	1.58	0.02871				
+xgboost	4	0	12.45	0.99	0.02874				
+sklearn	4	species_folds	68.85			0.952	0.9917	0.9977	0.0472
+lightgbm	4	species_folds	341.7			0.9521	0.9917	0.9977	0.0471
+xgboost	4	species_folds	82.85			0.952	0.9917	0.9977	0.0472

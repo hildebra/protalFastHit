@@ -1,0 +1,40 @@
+total 298.5 s
+
+machine_learning_cmdline.py:1765(train): 290.5 s cumulative, 0.1 s own
+     193.7 s        1  scripts/machine_learning_cmdline.py:692(study_evaluation)
+      23.1 s        2  scripts/machine_learning_cmdline.py:310(load_table)
+      19.7 s        1  /mnt/c/Users/hildebra/Documents/locDev/protal/scripts/model_pmml.py:528(predict)
+      19.1 s        3  pandas/core/generic.py:3783(to_csv)
+      12.6 s        1  scripts/machine_learning_cmdline.py:442(fit_model)
+       6.8 s        4  sklearn/ensemble/_hist_gradient_boosting/gradient_boosting.py:2150(predict_proba)
+       6.7 s        1  scripts/machine_learning_cmdline.py:1567(write_calls)
+       2.3 s        1  scripts/machine_learning_cmdline.py:724(study_breakdown)
+       1.9 s        1  scripts/machine_learning_cmdline.py:631(study_data)
+       1.1 s        1  scripts/machine_learning_cmdline.py:1526(study_scenarios)
+       1.0 s        1  scripts/machine_learning_cmdline.py:1294(study_test)
+       0.4 s        1  /mnt/c/Users/hildebra/Documents/locDev/protal/scripts/model_pmml.py:545(load_model)
+       0.4 s        1  scripts/machine_learning_cmdline.py:941(study_strains)
+       0.3 s        1  scripts/machine_learning_cmdline.py:794(study_by_rank)
+
+machine_learning_cmdline.py:692(study_evaluation): 193.7 s cumulative, 0.0 s own
+     191.6 s        3  scripts/machine_learning_cmdline.py:477(predict_out_of_fold)
+       1.2 s        4  scripts/machine_learning_cmdline.py:530(metrics)
+       0.8 s        3  scripts/machine_learning_cmdline.py:451(folds)
+
+gradient_boosting.py:393(fit): 195.9 s cumulative, 3.8 s own
+     130.3 s     4000  sklearn/ensemble/_hist_gradient_boosting/grower.py:383(grow)
+      47.2 s     4000  sklearn/ensemble/_hist_gradient_boosting/grower.py:244(__init__)
+       8.8 s       16  sklearn/ensemble/_hist_gradient_boosting/gradient_boosting.py:1106(_bin_data)
+       3.1 s     4000  sklearn/_loss/loss.py:336(gradient_hessian)
+       2.0 s     4000  sklearn/ensemble/_hist_gradient_boosting/grower.py:709(make_predictor)
+
+grower.py:486(split_next): 130.0 s cumulative, 109.2 s own
+      16.2 s   476141  sklearn/ensemble/_hist_gradient_boosting/grower.py:461(_compute_best_split_and_push)
+       2.2 s   248000  numpy/_core/numeric.py:323(full)
+       1.1 s   496000  sklearn/ensemble/_hist_gradient_boosting/grower.py:85(__init__)
+       0.5 s   248000  ~:0(<built-in method _heapq.heappop>)
+       0.4 s  1469376  ~:0(<built-in method time.perf_counter>)
+
+grower.py:402(_initialize_root): 45.1 s cumulative, 43.0 s own
+       1.1 s     4000  sklearn/ensemble/_hist_gradient_boosting/grower.py:461(_compute_best_split_and_push)
+       0.8 s     4000  ~:0(<built-in method numpy.asarray>)

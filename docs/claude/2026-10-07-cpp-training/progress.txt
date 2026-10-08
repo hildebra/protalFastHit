@@ -1,0 +1,17 @@
+done (trainer runs)
+start fit_times 10:12:32 load 3.28 4.09 2.50
+start quality 10:18:14 load 3.46 3.03 2.44
+start small 10:27:22 load 5.86 6.09 4.34
+start forest 10:28:24 load 5.24 5.83 4.36
+bench done 10:31:16 load 4.63 5.41 4.45
+start folds1 10:31:47 load 2.63 4.82 4.29
+%CPU COMMAND
+ 0.5 /sbin/init
+ 0.1 /usr/lib/systemd/systemd-journald
+ 0.0 /usr/lib/systemd/systemd-udevd
+start folds2 10:33:48 load 3.81 4.52 4.24
+%CPU COMMAND
+ 0.5 /sbin/init
+ 0.1 /usr/lib/systemd/systemd-journald
+ 0.0 /usr/lib/systemd/systemd-udevd
+folds done 10:35:56 load 4.32 4.42 4.23
