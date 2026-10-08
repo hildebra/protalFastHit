@@ -270,6 +270,8 @@ class Sites:
                 continue
             d = diagonal(t_copy, copy)
             inside = (positions - d >= 0) & (positions - d < len(copy))
+            bases = copy[positions[inside] - d]
+            inside[inside] = bases < 4  # a site whose congener base is another letter (N) is no site
             ranked.append((1 - len(positions) / compared, positions[inside], copy[positions[inside] - d]))
         if ranked:
             ranked.sort(key=lambda r: -r[0])

@@ -167,6 +167,19 @@ class InsilicoStrains(unittest.TestCase):
         before = {p for p in changed.tolist() if p < 440}
         self.assertTrue(before <= set(positions.tolist()))
         self.assertLess(compared, 900)
+        # Another letter on either copy is neither compared nor a substitution (the r226 v17 ancestry report crashed on
+        # a congener's N at a differing site).
+        compared_full = ins.substitutions(rep, other)[1]
+        with_n = other.copy()
+        with_n[int(changed[3])] = 4
+        with_n[400] = 4
+        rep_n = rep.copy()
+        rep_n[700] = 4
+        positions, compared_n = ins.substitutions(rep_n, with_n)
+        found_n, expected = set(positions.tolist()), set(changed.tolist()) - {int(changed[3])}
+        self.assertTrue(found_n <= expected)
+        self.assertTrue({p for p in expected if 24 <= p < 876} <= found_n)
+        self.assertEqual(compared_n, compared_full - 3)
 
     def test_spectrum_and_omega(self):
         # The in-silico strain of setUpClass was made at OMEGA_DEFAULT (no real strains to calibrate on): measured

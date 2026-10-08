@@ -216,6 +216,7 @@ def substitutions(rep, other, k=SPECTRUM_KMER):
     compared[:lo] = False
     compared[hi:] = False
     compared &= (rep < 4)
+    compared[lo:hi] &= other[lo - d:hi - d] < 4  # another letter (N) on either copy: not compared
     differ &= compared
     return np.flatnonzero(differ), int(compared.sum())
 
