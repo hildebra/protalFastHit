@@ -226,6 +226,37 @@ what was simulated (the tables' `meta_rep_genome` and `meta_insilico_strain`):
    leak and little signal: +0.001 AUC in the band. As built it costs 21 minutes (two scans) for features no model
    uses.
 
+## 5. Strain alleles in the index: not in v18
+
+The user asked whether v18 adds alleles to each reference as differences to the reference gene, and whether that helped.
+It does not: protal's index holds the representative's copy of each marker gene only, at `4b13640` and on every branch.
+The build reads the other genomes' copies (`full_reference.fna.zst`) only for the k-mer uniqueness check, the
+conservation factors, the suspect copies, the foreign scan and the ancestry report. Strain alleles in the index were
+proposed in the v7/v8, v9, v13 and v14 reports and in the error-read report (items 2 and 4, "for re-scoring, not for
+seeding"), but never built. v18's F1 owes them nothing.
+
+What they would reach in v18 (the FN by what was simulated, training and test rows,
+[ancestry_v18_*.txt](ancestry_v18_pe.txt), [fixed_sites_check.txt](fixed_sites_check.txt)):
+
+| FN | pe | se | pb | ont |
+|---|---|---|---|---|
+| real strains (a GTDB genome other than the representative) | 3,834 (67%) | 1,915 (70%) | 2,081 (82%) | 2,249 (77%) |
+| in-silico strains (one-genome species: no allele exists) | 951 (17%) | 442 (16%) | 252 (10%) | 319 (11%) |
+| representatives (alleles change nothing) | 929 (16%) | 393 (14%) | 217 (9%) | 351 (12%) |
+| real-strain FN taxa whose species has other genomes (>= 10 sites) | 90% | 91% | 98% | 96% |
+
+- **What they could reach:** about 60-80% of the FN, the real strains of species with other genomes. The ceilings the
+  earlier reports gave (+0.009 overall at v9, +0.011-0.013 in deep soil at v14) are of that order.
+- **The same circularity as the fixed sites.** Every simulated real strain is a GTDB genome, so an index with every
+  genome's alleles would hold each simulated strain exactly. Its reads would align at 0.99+, and the models would be
+  trained and tested on strains the database already knows. In use, a sample's strain is only as close as GTDB's
+  nearest genome of the species.
+- **So the training database's alleles must leave out every genome the simulations draw strains from**, as for the
+  fixed-site mask. Only the shipped database would hold them all.
+- **How much is honestly gained is unknown.** Next build's leave-one-genome-out ancestry report (`1c184fb`) measures
+  the nearest piece of it: how many of a missed strain's differences the species' *other* genomes share. That is the
+  number to read before building alleles into the index.
+
 ## What is not done
 
 - **No refit ablation of v18.** The F1 worth of the ancestry group, its indel features and the leak-free foreign
