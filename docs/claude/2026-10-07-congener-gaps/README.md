@@ -14,8 +14,9 @@ The user chose:
 - add adaptive candidates and an untried-candidate feature, rather than an order-dependent prior;
 - build and test locally.
 
-**Short answer.** All of it is implemented, tested here and in the default feature set, but not yet trained at GTDB
-scale: the next r226 build is the first test of its worth. Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
+**Short answer.** All of it is implemented and tested here. The gaps and untried groups are in the default feature set;
+the r226 v17 build is the first to train them. The foreign rates leaked the simulation's species there and are out of
+every named set since 2026-10-08 ([The foreign features leak](#the-foreign-features-leak-2026-10-08)). Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
 audit-fixes after 0.7.9 (`0fe84e3`), its conflicts with the ancestry sites resolved by keeping both. The two now share
 the nearest congener: `congener_gaps.tsv` names each copy's nearest congener by that gene's alignment, and the ancestry
 sites compare against it first ([Overlap](#overlap-with-the-ancestry-sites-the-other-branch)).
@@ -76,11 +77,12 @@ the table:
 `protal --add_tables foreign_rates.tsv --db DB` stores it, the same way `--add_model` stores models (members replaced or
 added, the models last, in place where possible). `--add_tables` also takes `congener_gaps.tsv`.
 
-**In the build.** `build_gtdb_database.py` runs the scan right after the training database is built:
+**In the build.** With `--foreign-rates` (opt-in since 2026-10-08, [the leak](#the-foreign-features-leak-2026-10-08)),
+`build_gtdb_database.py` runs the scan right after the training database is built:
 - the held-out species are left out, so the table knows nothing of the species the models learn to find missing;
 - the table is stored in the training database and copied into the finished database's folder before its build packs it
   (the two share taxids);
-- `--no-foreign-rates` skips it, `--foreign-stride` sets the spacing.
+- `--foreign-stride` sets the spacing.
 
 **Features** (−1 without the table or without a record on a scanned copy):
 - `foreign_scanned_share`: the share of kept records on scanned copies;
@@ -213,9 +215,66 @@ statistics stay separate, because they answer different questions at different t
 Both branches touch the same files (RecordEvidence, TaxonFeatures, `model_features.py`'s default set): merging them
 means keeping both sides.
 
+## The foreign features leak (2026-10-08)
+
+**Found by** the parallel session, in the r226 v17 build: this branch's three groups and the ancestry sites, logs in
+`local/v17`, analysis in `docs/claude/2026-10-08-r226-v17` (`foreign_leak.py`). The build's paired-end test F1 was 0.983.
+That figure says nothing about the foreign features until the session's ablation (v17 against the same set without
+`foreign`) is in.
+
+**What they measured.** `foreign_scanned_share` reflected whether the simulation could draw the species, not how foreign
+reads reach it.
+- The scan tiled "every genome at hand": the 49,595 downloaded genomes, the held-out species left out. Those are the
+  genomes the training samples are drawn from.
+- A copy is in `foreign_rates.tsv` only if a scan read landed on it. A species whose genome was tiled has all its copies
+  there, by its own reads. Any other species has only the copies that other species' reads reached.
+- So `foreign_scanned_share` was about 1 for every taxon the simulation could draw and about 0 for the rest: 118,000 of
+  the database's 143,000 species are never simulated. `foreign_copy_share` was -1 for unscanned copies, or near 1
+  (foreign / (foreign + 1)) where only foreign reads reached a copy.
+- Among absent rows, species present in some other sample had a scanned share of 1.0 (median) and the others 0.0.
+  "Scanned > 0.5" equalled "species in the pool" in 87-93% of all rows.
+- The trainer ranked `foreign_scanned_share` and `foreign_copy_share` second and third in every model (0.10 and 0.06,
+  after identity's 0.71). Within the 0.95-0.985 identity band, their AUC for present against novel congener was
+  0.89-0.91 in every identity bin, more than any read signal gives.
+- In use, the shipped database's table comes from the same scan. The 83% of GTDB species without a downloaded genome
+  would read as "unscanned", and the model would push them towards absent.
+
+**Why the design let it in.** The share of a copy's reads that are foreign divides by the copy's own species' reads.
+Those exist only for species whose genome was tiled, and that set is the simulation's pool. The tests used the mini
+database, where every species is in the pool, so none could show it.
+
+**Done (2026-10-08).**
+- `foreign` is in no named feature set, so neither the default nor `--features auto` trains on it. The default set has
+  78 features.
+- `build_gtdb_database.py` scans only with `--foreign-rates`. `--no-foreign-rates` is still accepted.
+- The run-time code, `foreign_rates.py`, `--tiles` and `--add_tables` stay, for measuring and for a scan without the
+  leak.
+- The tests pin it:
+  - no named set or auto candidate has `foreign`;
+  - the default pipeline build makes no table, and its features are -1;
+  - the scenario build scans with `--foreign-rates`, and its auto candidates leave `foreign` out.
+- Run on `401c4f5` plus the change (WSL, 4 cores): `test_model_pmml.py` and `test_foreign_rates.py` (43 tests), and the
+  pipeline's `test_a_build_rerun_and_reduced_database` and `test_f_scenarios`, passed.
+
+**A scan without the leak (not implemented).**
+- The sources would be every species alike: the full reference's marker copies (`full_reference.fna.zst`, every
+  genome's marker genes, 86 GB raw at r226), at most a few genomes per species, the held-out species left out. That is
+  fewer bases than the ~50,000 whole genomes tiled now.
+- Per copy, only other species' reads would count, divided by the copy's own tile positions (its length over the
+  stride) rather than by its own species' reads. Every copy would have a value (0 when none reaches it), so
+  `foreign_scanned_share` goes.
+- What stays biased: training samples are drawn from GTDB genomes, all of them in the full reference, while real reads
+  come partly from genomes GTDB lacks. The held-out species are left out of both the database and the scan, as novel
+  species are in use.
+- What is lost: reads from outside the marker genes (transferred genes, contaminating contigs), which only whole
+  genomes give. A whole-genome scan of every GTDB genome is not affordable.
+- Whether that is worth a build step depends on the beyond-genus false positives, a minority of the errors (the
+  error-read report, section 7).
+
 ## What is not done
 
-- No r226 build: none of the 8 features has been trained or shown to help.
+- The r226 v17 build trained the gaps, untried and ancestry groups for the first time; its evaluation is the parallel
+  session's. The foreign group leaked (above) and is out of the default set.
 - `--align_top` 5 or 10 has not been timed.
 - Long reads get neither `ZC` nor adaptive candidates.
 - A read's divergence is compared with the whole gene's gap, though the gap varies along the gene. A per-window table

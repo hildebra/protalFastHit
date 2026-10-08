@@ -333,13 +333,17 @@ class FeatureSetsTest(unittest.TestCase):
         # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
         # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06, the groups against
         # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07, the ancestry
-        # sites since 0.7.9 (2026-10-07), and the per-copy tables and the untried candidates (gaps, foreign, untried) since
-        # the merge of congener-gaps (2026-10-07).
+        # sites since 0.7.9 (2026-10-07), and the congener gaps and the untried candidates (gaps, untried) since the merge of
+        # congener-gaps (2026-10-07). The foreign rates are in no named set (and so never chosen by --features auto): their
+        # scan read the genomes the samples are drawn from, which they told the models (r226 v17, 2026-10-08).
         self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
-                                                 "consistency+shape+neighbourhood+ancestry+gaps+foreign+untried")
-        copies = mf.GAP_FEATURES + mf.FOREIGN_FEATURES + mf.UNTRIED_FEATURES
-        self.assertEqual(len(copies), 8)
-        self.assertEqual(len(set(copies)), 8)
+                                                 "consistency+shape+neighbourhood+ancestry+gaps+untried")
+        for named in mf.FEATURE_SETS + mf.AUTO_PRIORS_CANDIDATES:
+            self.assertNotIn("foreign", named.split("+"), named)
+        self.assertEqual(len(mf.FOREIGN_FEATURES), 3)
+        copies = mf.GAP_FEATURES + mf.UNTRIED_FEATURES
+        self.assertEqual(len(copies), 5)
+        self.assertEqual(len(set(copies)), 5)
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
         self.assertEqual(mf.ANCESTRY_FEATURES, ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share"])

@@ -196,12 +196,13 @@ class GtdbBuildTest(unittest.TestCase):
                       self.text("out", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
-        # The gene copies' gaps to their congeners' copies (--build), and the scan of the genomes against the training
-        # database (foreign_rates.py, --add_tables), both in the databases the training samples were profiled with.
+        # The gene copies' gaps to their congeners' copies (--build), in the databases the training samples were profiled
+        # with. No scan of the genomes for the foreign rates without --foreign-rates (test_f has it): it reads the genomes
+        # the samples are drawn from.
         self.assertRegex(self.text("out", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
-        self.assertRegex(self.text("out", "foreign_rates.log"), r"Foreign rates: \d+ reads with a record, \d+ counted")
-        self.assertTrue(os.path.isfile(os.path.join(out, ".stages", "foreign_rates.json")))
-        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scratch", "training_db", "foreign_rates.tsv")))
+        self.assertFalse(os.path.exists(os.path.join(out, "foreign_rates.log")))
+        self.assertFalse(os.path.exists(os.path.join(out, ".stages", "foreign_rates.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scratch", "training_db", "foreign_rates.tsv")))
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = []
         for path in glob.glob(os.path.join(self.tmp.name, "scratch", "**", "run_params.tsv"), recursive=True):
@@ -241,9 +242,11 @@ class GtdbBuildTest(unittest.TestCase):
             samples, rows = self.samples("out", "training", table)
             self.assertEqual(len(samples[""]), 4, table)
             self.assertEqual({r["truth"] for r in rows}, {"0", "1"}, table)
-            # The per-copy tables were loaded for the profiling: the features are known (not -1) where reads landed.
-            for feature in ("gap_informative_share", "foreign_scanned_share", "untried_candidate_rate"):
+            # The per-copy tables were loaded for the profiling: the features are known (not -1) where reads landed; the
+            # foreign rates, without their table, are unknown everywhere.
+            for feature in ("gap_informative_share", "untried_candidate_rate"):
                 self.assertTrue(any(float(r[feature]) >= 0 for r in rows), f"{table}: {feature}")
+            self.assertTrue(all(float(r["foreign_scanned_share"]) == -1 for r in rows), table)
         # A stage running for a while (5 s here, --progress-every) says how it is doing.
         self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
@@ -561,15 +564,22 @@ class GtdbBuildTest(unittest.TestCase):
         # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
         # out, scaled down; the feature sets chosen by the trainers (--features auto, not the default) and why; the
         # reads behind the models' errors (--error-reads all, the build's default), their SAMs and the archive to share
-        # (--share-logs). Both collections profiled in one protal run, their reads kept (--profile-blocks 0).
+        # (--share-logs). Both collections profiled in one protal run, their reads kept (--profile-blocks 0). The scan of
+        # the genomes for the foreign rates (--foreign-rates, off by default): its table in the training database, the
+        # features known, and no candidate set of --features auto with them.
         import compressed
         definitions, host = self.scenario_inputs()
         scratch = os.path.join(self.tmp.name, "scenario_scratch")
         result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
                             "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch,
-                            "--profile-blocks", "0", "--features", "auto", "--share-logs", scenarios=True,
-                            error_reads="all")
+                            "--profile-blocks", "0", "--features", "auto", "--share-logs", "--foreign-rates",
+                            scenarios=True, error_reads="all")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertRegex(self.text("scenarios", "foreign_rates.log"), r"Foreign rates: \d+ reads with a record, \d+ counted")
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", ".stages", "foreign_rates.json")))
+        self.assertTrue(os.path.isfile(os.path.join(scratch, "training_db", "foreign_rates.tsv")))
+        _, rows = self.samples("scenarios", "training", "training_data.tsv")
+        self.assertTrue(any(float(r["foreign_scanned_share"]) >= 0 for r in rows))
         simulation = self.text("scenarios", "training_data_simulation.log")
         self.assertRegex(simulation, r"scenario gut \(2 samples\): \d+ species \(\d+ the database lacks, [\d.]+%; \d+ it "
                                      r"has\) for samples of 5-6; Illumina reads at Q30 \(HS20, --mean_quality\)")
@@ -622,6 +632,7 @@ class GtdbBuildTest(unittest.TestCase):
                                  (name, "hold-in, species held out")} <= sets, sets)
             auto = metrics["features_auto"]
             self.assertIn(auto["chosen"], [r["features"] for r in auto["candidates"]])
+            self.assertFalse(any("foreign" in r["features"].split("+") for r in auto["candidates"]))
             self.assertEqual(set(auto["held_out"]), {"test set"} | {f"{name} hold-out" for name in names})
             self.assertTrue(all(f"F1 {name} hold-out" in r for r in auto["candidates"] for name in names))
         summary = self.text("scenarios", "model_logs", "summary.txt")

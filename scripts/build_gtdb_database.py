@@ -1644,9 +1644,13 @@ def main():
                         "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3)")
+    p.add_argument("--foreign-rates", action="store_true",
+                   help="scan the genomes at hand against the training database (scripts/foreign_rates.py) and store "
+                        "foreign_rates.tsv in both databases, for the 'foreign' features. Off by default: the scan reads the "
+                        "genomes the samples are drawn from, so the features tell the models which species those are "
+                        "(r226 v17, docs/claude/2026-10-07-congener-gaps); they are in no default feature set")
     p.add_argument("--no-foreign-rates", action="store_true",
-                   help="leave out the tiled scan of the genomes against the training database (scripts/foreign_rates.py): "
-                        "no foreign_rates.tsv in either database, and the 'foreign' features are unknown (-1)")
+                   help="no scan (the default since 2026-10-08; overrides --foreign-rates)")
     p.add_argument("--foreign-stride", type=int, default=500,
                    help="the scan's reads: 150 bases every this many bases of every genome at hand (default 500)")
     p.add_argument("--final-db-level", type=int, default=9,
@@ -2087,7 +2091,7 @@ def main():
     # set (if any), models, parity, packing.
     subset = args.n_genes is not None or bool(args.genes)
     has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
-    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates)
+    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (args.foreign_rates and not args.no_foreign_rates)
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -2578,7 +2582,7 @@ def main():
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, full_reference_fate(training_db, keep_full) + files_took))
-    if not args.no_foreign_rates:
+    if args.foreign_rates and not args.no_foreign_rates:
         if training_db != db:
             table = foreign_rates(training_db, taxonomy, heldout)  # the same taxids as the finished database's
             if table and not final_done:

@@ -137,17 +137,20 @@ GAP_FEATURES ("gaps"), where its reads lie in the gaps to its congeners' copies 
 copy the alignment distance to the nearest and the median congener's copy): the share of its kept records on copies with a
 congener at least 0.005 away (gap_informative_share), of those the shares closer to the reference than the nearest and
 than the median congener is (gap_within_min_share, gap_within_median_share), and their median divergence over the nearest
-congener's distance (gap_position); -1 without the table or without such a record. FOREIGN_FEATURES ("foreign"), how
-far other species' reads reach its copies in a tiled scan of the genomes at hand (foreign_rates.tsv, scripts/foreign_rates.py
-and protal --add_tables): the share of its kept records on scanned copies and their mean shares of reads from other
-species and other genera; -1 without the table. UNTRIED_FEATURES ("untried"): the reads whose seeds fit it as well as the
-taxa they were aligned against but never tried it, beyond --align_top (ZC), over those plus its reads
-(untried_candidate_rate).
+congener's distance (gap_position); -1 without the table or without such a record. FOREIGN_FEATURES ("foreign", in no
+named set): how far other species' reads reach its copies in a tiled scan of the genomes at hand (foreign_rates.tsv,
+scripts/foreign_rates.py and protal --add_tables): the share of its kept records on scanned copies and their mean shares
+of reads from other species and other genera; -1 without the table. The scan reads the simulation's own genomes, so at
+r226 v17 these features told the species the samples were drawn from (scanned share ~1) from the rest (~0), the label
+in disguise (docs/claude/2026-10-07-congener-gaps, "The foreign features leak"): train on them only to measure that.
+UNTRIED_FEATURES ("untried"): the reads whose seeds fit it as well as the taxa they were aligned against but never tried
+it, beyond --align_top (ZC), over those plus its reads (untried_candidate_rate).
 
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
 unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, priors; "all" is every
 feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance+depth+
-divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+foreign+untried" (without gaps,
+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried" (with foreign from the
+congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
 foreign and untried in 0.7.9 before the congener-gaps merge; without ancestry before 0.7.9; without consistency, shape
 and neighbourhood before 2026-10-07, when the false-positive groups were merged; without ref and complexity before
 2026-10-06; the set without them is the one every model of the r226 v12 and v13
@@ -264,7 +267,7 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
-                "gaps+foreign+untried",
+                "gaps+untried",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -272,10 +275,12 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # alone, a rule that a divergent read cloud on a one-genome species is a relative the database lacks, which the
 # simulation cannot test (a one-genome species has no strain to simulate from) and which rejects the strains of
 # single-MAG species that dominate environments GTDB has sampled sparsely (docs/claude/2026-10-03-r226-v9-evaluation).
-# consistency, shape, neighbourhood, ancestry, gaps, foreign and untried are in it untested at r226 (the last three:
-# docs/claude/2026-10-07-congener-gaps): the next build's training says what they are worth.
+# consistency, shape, neighbourhood, ancestry, gaps and untried are in it untested at r226 (the last two:
+# docs/claude/2026-10-07-congener-gaps): the next build's training says what they are worth. foreign is in no named
+# set, so --features auto never picks it either: its scan read the genomes the samples are drawn from, and the r226 v17
+# models learnt from it which species the simulation could draw (same report, "The foreign features leak").
 DEFAULT_FEATURE_SET = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+"
-                       "neighbourhood+ancestry+gaps+foreign+untried")
+                       "neighbourhood+ancestry+gaps+untried")
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
 # another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.

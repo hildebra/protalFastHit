@@ -32,17 +32,18 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `neighbourhood` | 2026-10-06 | the database's congeners near the reference (`species_neighbours.tsv`) | yes, untested at r226 |
 | `ancestry` | 0.7.9 | which side the reads take where the reference differs from its nearest congener's | yes, untested at r226 |
 | `gaps` | 2026-10-07 | where the reads lie in the gaps to the congeners' copies of their genes (`congener_gaps.tsv`) | yes, untested at r226 |
-| `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | yes, untested at r226 |
+| `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | no: its scan reads the simulation's genomes, which it tells the models ([below](#the-foreign-features-leak)); in the default set from the merge to 2026-10-08 |
 | `untried` | 2026-10-07 | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+foreign+untried`
-(81 features; without `gaps`, `foreign` and `untried` 73, in 0.7.9 before the congener-gaps merge: train such a table
-with `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried`
+(78 features; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+0.7.9 before the congener-gaps merge: train such a table with
+`--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
-and `complexity` too 49, before 2026-10-06). The seven newest groups have not been trained at GTDB scale: the next
-build's models are the first. A training table of the r226 v15 build or older lacks their columns: train it with
+and `complexity` too 49, before 2026-10-06). The r226 v17 build was the first to train the newest groups; its
+evaluation is in progress, and its `foreign` features leaked ([below](#the-foreign-features-leak)). A training table of the r226 v15 build or older lacks their columns: train it with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity`, one of v14 or older with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
@@ -384,7 +385,7 @@ ranked below its congeners by the seeds. Three groups add what the reads alone c
 | `gap_informative_share` | gaps | of the taxon's kept records, the share on gene copies whose nearest congener's copy is at least 0.005 away (`congener_gaps.tsv`); 0 without such records, -1 without the table | how much of the evidence can tell the species from its congeners at all |
 | `gap_within_min_share`, `gap_within_median_share` | gaps | of those records, the shares whose divergence is below the copy's distance to its nearest congener's copy, and below the median congener's; -1 without such records | **missing relative** (a congener the database lacks lies about as far from the reference as its congeners do) against a **strain** (within the species' gap) |
 | `gap_position` | gaps | their median divergence over the nearest congener's distance (0: identical to the reference, 1: as far as the nearest congener) | as above |
-| `foreign_scanned_share` | foreign | the share of the kept records on copies the tiled scan reached (`foreign_rates.tsv`); -1 without the table | |
+| `foreign_scanned_share` | foreign | the share of the kept records on copies the tiled scan reached (`foreign_rates.tsv`); -1 without the table | none: whether the species' genome was scanned ([leak](#the-foreign-features-leak)) |
 | `foreign_copy_share`, `foreign_genus_copy_share` | foreign | those copies' mean shares of the scan's reads from other species and from other genera, foreign / (reads + 1); -1 without such records | **contamination, transferred genes, conserved genes**: a copy other species' reads reach is weak evidence of its species |
 | `untried_candidate_rate` | untried | the reads whose seeds fit the taxon as well as the taxa they were aligned against (`ZN`'s crowd) but never were aligned against it (beyond `--align_top`, their `ZC` tag), over those plus its reads | **missed strain**: its reads went to a congener without trying it |
 
@@ -394,8 +395,22 @@ their k-mer sketches and 16 others drawn by a hash of the pair, whose median giv
 a gene whose divergence varies along it, so the test of one read against the whole gene's gap is noisy: the features
 count over a taxon's reads. `foreign_rates.tsv` is made by `scripts/foreign_rates.py` (reads of 150 bases every 500
 of every genome at hand, `simulate_metagenomes --tiles`, aligned once; a training database's held-out species left out)
-and stored with `protal --add_tables`; `build_gtdb_database.py` does both ([databases.md](databases.md)). Both tables
-describe the database in use, as `ref` does.
+and stored with `protal --add_tables`; `build_gtdb_database.py --foreign-rates` does both ([databases.md](databases.md)).
+Both tables describe the database in use, as `ref` does.
+
+### The foreign features leak
+
+The `foreign` group is in no named feature set since 2026-10-08, so neither the default nor `--features auto` trains on
+it. The genomes at hand that the scan reads are the genomes the training samples are drawn from. A copy is in the
+table only if a scan read landed on it. A species whose genome was scanned has all its copies there
+(`foreign_scanned_share` about 1); any other species has only the copies other species' reads reached (about 0, and
+`foreign_copy_share` near 1 or -1). The features therefore tell the species the simulation can draw from the rest. In
+the r226 v17 build they ranked second and third in every model, and separated present taxa from absent congeners at the
+same identity with an AUC of 0.89-0.91 (docs/claude/2026-10-08-r226-v17). In use, the shipped database's scan covers
+the same ~50,000 genomes, so the 83% of GTDB species without one would be pushed towards absent. A scan without the
+leak would take every species' copies alike (the full reference's marker genes, the held-out species left out) and
+count only other species' reads per copy position
+([report](claude/2026-10-07-congener-gaps/README.md#the-foreign-features-leak-2026-10-08)).
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 
