@@ -763,6 +763,10 @@ namespace protal {
             // congeners' (docs/claude/2026-10-07-error-read-signatures, 2026-10-08-r226-v17).
             uint64_t ancestry_sites = 0, ancestry_agree = 0, ancestry_congener = 0;
             size_t ancestry_records = 0;
+            // The indel sites alike (the species' own gain or loss of bases against its congeners): those the records
+            // are aligned through, where the read runs through (the species' state) or deletes or inserts what the
+            // congeners do.
+            uint64_t ancestry_indel_sites = 0, ancestry_indel_agree = 0, ancestry_indel_congener = 0;
             // Mates (MicrobialProfile::PrepareMAPQ): fragments whose two mates both have a record on the taxon, and for
             // each kept record whose mate has none there, the room from the record to the gene's end in the mate's
             // direction (bases, capped at 65535): a mate the fragment would have placed inside the gene is a lost mate
@@ -842,6 +846,9 @@ namespace protal {
                 ancestry_agree += other.ancestry_agree;
                 ancestry_congener += other.ancestry_congener;
                 ancestry_records += other.ancestry_records;
+                ancestry_indel_sites += other.ancestry_indel_sites;
+                ancestry_indel_agree += other.ancestry_indel_agree;
+                ancestry_indel_congener += other.ancestry_indel_congener;
                 mates_linked += other.mates_linked;
                 mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
                 fragments_all += other.fragments_all;
@@ -1111,6 +1118,8 @@ namespace protal {
             double m_ancestry_sites_per_record = 0;  // see AncestrySitesPerRecord
             double m_ancestry_agreement = ancestry::kUnknown;  // see AncestryAgreement
             double m_ancestry_congener_share = ancestry::kUnknown;  // see AncestryCongenerShare
+            double m_ancestry_indel_sites_per_record = 0;  // see AncestryIndelSitesPerRecord
+            double m_ancestry_indel_congener_share = ancestry::kUnknown;  // see AncestryIndelCongenerShare
             // BreadthRatio, FixedDifferenceRate and PolymorphicSiteRate, computed together from the genes' coverage and
             // alleles (SiteRates)
             mutable std::optional<std::array<double, 3>> m_site_rates;
@@ -1404,6 +1413,10 @@ namespace protal {
                     : static_cast<double>(records.ancestry_agree) / static_cast<double>(records.ancestry_sites);
                 m_ancestry_congener_share = records.ancestry_sites == 0 ? ancestry::kUnknown
                     : static_cast<double>(records.ancestry_congener) / static_cast<double>(records.ancestry_sites);
+                m_ancestry_indel_sites_per_record = records.records == 0
+                    ? 0 : static_cast<double>(records.ancestry_indel_sites) / static_cast<double>(records.records);
+                m_ancestry_indel_congener_share = records.ancestry_indel_sites == 0 ? ancestry::kUnknown
+                    : static_cast<double>(records.ancestry_indel_congener) / static_cast<double>(records.ancestry_indel_sites);
                 tsl::robin_map<uint32_t, GeneRecords>().swap(m_records.gene_records);
                 tsl::robin_map<uint32_t, uint32_t>().swap(m_records.failed_genes);
             }
@@ -1542,6 +1555,11 @@ namespace protal {
             double AncestrySitesPerRecord() const { return m_ancestry_sites_per_record; }
             double AncestryAgreement() const { return m_ancestry_agreement; }
             double AncestryCongenerShare() const { return m_ancestry_congener_share; }
+            // The indel sites (the species' own gain or loss of bases against its congeners) its best records are aligned
+            // through, per record, and of them the share where the read deletes or inserts what the congeners do
+            // (RecordEvidence::ancestry_indel_*); kUnknown (-1) without such a site.
+            double AncestryIndelSitesPerRecord() const { return m_ancestry_indel_sites_per_record; }
+            double AncestryIndelCongenerShare() const { return m_ancestry_indel_congener_share; }
 
             // The reference bases its hit genes' kept reads cover over those they would cover if they lay at random
             // (Lander-Waterman, as inStrain's breadth over expected breadth): each gene of length L at depth c (its fragment
@@ -2520,6 +2538,10 @@ namespace protal {
             f.emplace_back("ancestry_sites_per_record", taxon.AncestrySitesPerRecord());
             f.emplace_back("ancestry_agreement", taxon.AncestryAgreement());
             f.emplace_back("ancestry_congener_share", taxon.AncestryCongenerShare());
+            // The indel sites alike (2026-10-08): the species' own gain or loss of three bases or more against its congeners,
+            // which a strain's read runs through and a congener's read deletes or inserts; -1 without such a site.
+            f.emplace_back("ancestry_indel_sites_per_record", taxon.AncestryIndelSitesPerRecord());
+            f.emplace_back("ancestry_indel_congener_share", taxon.AncestryIndelCongenerShare());
             // Where its reads lie in the gaps to its congeners' copies (congener_gaps.tsv), how far other species' reads reach
             // its copies (foreign_rates.tsv); -1 without the tables. And the reads whose seeds fit it but never tried it (ZC).
             f.emplace_back("gap_informative_share", taxon.GapInformativeShare());
@@ -2988,6 +3010,9 @@ namespace protal {
                     e.ancestry_agree += c.agree;
                     e.ancestry_congener += c.congener;
                     e.ancestry_records += c.sites > 0;
+                    e.ancestry_indel_sites += c.indel_sites;
+                    e.ancestry_indel_agree += c.indel_agree;
+                    e.ancestry_indel_congener += c.indel_congener;
                 }
                 e.settled_by_read += sam.m_settled == 1;
                 e.settled_inconsistent += sam.m_settled == 2;

@@ -315,6 +315,18 @@ Items 1-3 above and the scan without the leak, for the next r226 build to measur
   nearest congener's difference as before. The build's ancestry report gains the same definition
   (`species_base_at_consensus_sites`) beside the nearest-congener and majority-of-three sites, so the next build
   shows all three on its error reads.
+- **Chained comparison and indel sites** (the user's follow-up): the paired 12-mers are chained across changes of
+  diagonal of up to 60 bases, so the stretches past an indel are compared (before, the comparison ended at the first
+  indel) and the indel is located by extending the exact matches inwards from both anchors. An indel of three bases
+  or more that the congeners share against the species (the same consensus rule) is an indel site; a record aligned
+  five bases beyond it counts the congeners' state when it has a gap of that kind and length within four bases of it,
+  the species' when it has no gap near. Two features, `ancestry_indel_sites_per_record` and
+  `ancestry_indel_congener_share` (80 in the default set). The report script (`ancestry_sites.py`) does not chain
+  yet: its indel mirror is left for later. On the mini database (its copies carry codon indels) the base sites of
+  Mockella alpha went from 10.8 per record at 0.957 agreement to 9.2 at 0.929: the old comparison filled the stretch
+  between two main-diagonal anchors that straddled an indel and its compensating indel with misaligned bases, so
+  it counted spurious sites there, which a strain's read "agreed" with; the chain compares that stretch on its own
+  diagonals. Unit 459 (two test expectations corrected), Python 53, e2e 142, pipeline test_a pass.
 
 Tests: `test_foreign_rates.py` rewritten, `test_gtdb_build.py` gains the complex hold-out, the pipeline's `test_a`
 asserts both scans and the steered hold-out, `test_f` runs `--no-foreign-rates`; `tests/test_CongenerGaps.cpp` the

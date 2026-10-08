@@ -75,17 +75,49 @@ TEST(AncestrySites, CompareFindsTheSubstitutions) {
     EXPECT_EQ(static_cast<size_t>(std::count(comparison->covered.begin(), comparison->covered.end(), 1)), comparison->sites.compared);
 }
 
-TEST(AncestrySites, CompareStopsAtAnIndelAndRejectsUnrelatedCopies) {
+// The chain follows an indel onto the new diagonal: the stretch past it is compared, and the indel is a site of the
+// comparison when it is three bases or more.
+TEST(AncestrySites, CompareChainsPastAnIndelAndRecordsIt) {
     std::mt19937 rng(12);
     auto const own = RandomSequence(900, rng);
-    std::vector<size_t> changed = { 100, 200, 300, 400 };
+    std::vector<size_t> changed = { 100, 200, 300, 400, 700 };
     auto other = Substituted(own, changed, rng);
-    other.insert(500, "ACGTACG");  // an insertion: the stretch after it leaves the main diagonal
-    auto const sites = an::Compare(own, other);
+    other.insert(500, "ACGTACG");  // 7 bases the congener has and the species lacks
+    auto sites = an::Compare(own, other);
     ASSERT_TRUE(sites.has_value());
-    EXPECT_EQ(std::vector<size_t>(sites->positions.begin(), sites->positions.end()), changed);
-    EXPECT_LT(sites->compared, 600u);  // the first half only
+    EXPECT_EQ(std::vector<size_t>(sites->positions.begin(), sites->positions.end()), changed);  // 700 lies past it
+    EXPECT_GT(sites->compared, 850u);
+    ASSERT_EQ(sites->indels.size(), 1u);
+    EXPECT_EQ(sites->indels[0].length, -7);
+    EXPECT_GE(sites->indels[0].position, 495u);
+    EXPECT_LE(sites->indels[0].position, 505u);
+    // The species' extra bases: 9 the congener lacks at 320.
+    auto shorter = Substituted(own, { 150, 650 }, rng);
+    shorter.erase(320, 9);
+    sites = an::Compare(own, shorter);
+    ASSERT_TRUE(sites.has_value());
+    EXPECT_EQ(sites->positions, (std::vector<uint16_t>{ 150, 650 }));
+    EXPECT_GT(sites->compared, 850u);
+    ASSERT_EQ(sites->indels.size(), 1u);
+    EXPECT_EQ(sites->indels[0].length, 9);
+    EXPECT_GE(sites->indels[0].position, 315u);
+    EXPECT_LE(sites->indels[0].position, 325u);
+    // A single base lost: chained, but no indel site.
+    auto frameshift = Substituted(own, { 100, 800 }, rng);
+    frameshift.erase(450, 1);
+    sites = an::Compare(own, frameshift);
+    ASSERT_TRUE(sites.has_value());
+    EXPECT_EQ(sites->positions, (std::vector<uint16_t>{ 100, 800 }));
+    EXPECT_GT(sites->compared, 850u);
+    EXPECT_TRUE(sites->indels.empty());
+    // An insertion beyond kMaxIndel ends the chain: the first half only, as before.
+    auto far = own;
+    far.insert(500, RandomSequence(70, rng));
+    sites = an::Compare(own, far);
+    ASSERT_TRUE(sites.has_value());
+    EXPECT_LT(sites->compared, 600u);
     EXPECT_GT(sites->compared, 450u);
+    EXPECT_TRUE(sites->indels.empty());
     // Two unrelated sequences share no unique 12-mer.
     EXPECT_FALSE(an::Compare(own, RandomSequence(900, rng)).has_value());
     // Too short to pair, or too long to index.
@@ -99,7 +131,8 @@ TEST(AncestrySites, ConsensusKeepsTheSitesTheCongenersShare) {
     std::mt19937 rng(14);
     auto const own = RandomSequence(900, rng);
     auto set = [&own](std::string& seq, size_t p, size_t k) { seq[p] = Alt(own[p], k); };
-    // A: the nearest (three differences, all of it compared); B and C end at an insertion at 860, D at 700.
+    // A: the nearest (three differences, all of it compared); B and C end at an insertion of 70 bases at 860, D at 700
+    // (beyond kMaxIndel: the chain ends there).
     std::string a = own, b = own, c = own, d = own;
     for (auto* s : { &a, &b, &c, &d }) set(*s, 100, 0);          // all four: a site
     for (auto* s : { &b, &c, &d }) set(*s, 200, 0);              // three of four: none (0.75)
@@ -110,9 +143,9 @@ TEST(AncestrySites, ConsensusKeepsTheSitesTheCongenersShare) {
     set(b, 850, 0);                                              // one of three: none
     set(a, 880, 1);                                              // A alone compared there: its difference, a site
     set(b, 890, 1);                                              // B is not compared there
-    b.insert(860, "ACGTACG");
-    c.insert(860, "ACGTACG");
-    d.insert(700, "ACGTACG");
+    b.insert(860, RandomSequence(70, rng));
+    c.insert(860, RandomSequence(70, rng));
+    d.insert(700, RandomSequence(70, rng));
     std::vector<an::Comparison> comparisons;
     for (auto const& [taxid, seq] : { std::pair{ 11u, &a }, std::pair{ 12u, &b }, std::pair{ 13u, &c }, std::pair{ 14u, &d } }) {
         auto comparison = an::CompareCopies(own, *seq);
@@ -133,6 +166,68 @@ TEST(AncestrySites, ConsensusKeepsTheSitesTheCongenersShare) {
     EXPECT_EQ(alone.positions, (std::vector<uint16_t>{ 100, 200, 600, 800 }));
     EXPECT_EQ(alone.congeners, 1u);
     EXPECT_TRUE(an::Consensus(own.size(), {}).Empty());
+}
+
+// The indels alike: an indel site where nine in ten of the congeners compared at its flanks carry it (all of four), the
+// nearest congener's with fewer than three compared.
+TEST(AncestrySites, ConsensusTakesTheIndelsTheCongenersShare) {
+    std::mt19937 rng(16);
+    auto const own = RandomSequence(900, rng);
+    std::vector<an::Comparison> comparisons;
+    for (uint32_t taxid = 21; taxid <= 24; taxid++) {
+        // Each differs at a base of its own, the fourth at two (the farthest: an indel does not count in the identity).
+        auto other = Substituted(own, taxid == 24 ? std::vector<size_t>{ 250, 275 } : std::vector<size_t>{ 100 + 50 * (taxid - 21) }, rng);
+        other.erase(400, 6);                                 // all four lack the species' bases 400-405
+        if (taxid == 24) other.insert(600, "GATTACA");       // one of four has 7 bases the species lacks
+        auto comparison = an::CompareCopies(own, other);
+        ASSERT_TRUE(comparison.has_value());
+        ASSERT_EQ(comparison->sites.indels.size(), taxid == 24 ? 2u : 1u);
+        comparison->sites.congener = taxid;
+        comparisons.push_back(std::move(*comparison));
+    }
+    auto const sites = an::Consensus(own.size(), comparisons);
+    ASSERT_EQ(sites.indels.size(), 1u);
+    EXPECT_EQ(sites.indels[0].length, 6);
+    EXPECT_GE(sites.indels[0].position, 395u);
+    EXPECT_LE(sites.indels[0].position, 405u);
+    EXPECT_TRUE(sites.positions.empty());  // each base substitution is one congener's own
+    // Two congeners: the nearest's indels, both of them for the one with the insertion if it is the nearest.
+    auto const two = an::Consensus(own.size(), { comparisons[3], comparisons[0] });
+    EXPECT_EQ(two.congener, 21u);  // one substitution, the highest identity
+    EXPECT_EQ(two.indels.size(), 1u);
+    auto const alone = an::Consensus(own.size(), { comparisons[3] });
+    EXPECT_EQ(alone.indels.size(), 2u);
+}
+
+// A record counts an indel site it is aligned five bases beyond on both sides: the congeners' state when it has a gap
+// of the site's kind and length within four bases of it, the species' when it has no gap near, neither otherwise.
+TEST(AncestrySites, CountFindsTheIndelSites) {
+    an::Sites sites;
+    sites.indels = { { 40, 6 }, { 70, -5 } };  // the species' extra bases 40-45; 5 bases the congeners have before 70
+    std::string const seq(100, 'A');
+    auto c = an::Count(sites, "100M", 1, seq);
+    EXPECT_EQ(c.indel_sites, 2u);
+    EXPECT_EQ(c.indel_agree, 2u);
+    EXPECT_EQ(c.indel_congener, 0u);
+    EXPECT_EQ(c.sites, 0u);  // no base site
+    c = an::Count(sites, "40M6D54M", 1, std::string(94, 'A'));  // deletes the species' extra bases
+    EXPECT_EQ(c.indel_sites, 2u);
+    EXPECT_EQ(c.indel_congener, 1u);
+    EXPECT_EQ(c.indel_agree, 1u);
+    c = an::Count(sites, "70M5I30M", 1, std::string(105, 'A'));  // inserts the congeners'
+    EXPECT_EQ(c.indel_sites, 2u);
+    EXPECT_EQ(c.indel_congener, 1u);
+    c = an::Count(sites, "42M6D52M", 1, std::string(94, 'A'));  // the gap slid by two bases: still the congeners'
+    EXPECT_EQ(c.indel_congener, 1u);
+    c = an::Count(sites, "40M2D58M", 1, std::string(98, 'A'));  // another gap at the site: neither way
+    EXPECT_EQ(c.indel_sites, 1u);
+    EXPECT_EQ(c.indel_agree, 1u);
+    c = an::Count(sites, "60M", 1, std::string(60, 'A'));  // aligned through the first site only
+    EXPECT_EQ(c.indel_sites, 1u);
+    c = an::Count(sites, "60M", 38, std::string(60, 'A'));  // starts too near the first site: the second only
+    EXPECT_EQ(c.indel_sites, 1u);
+    EXPECT_EQ(an::Count(sites, "100M", 1, "*").indel_sites, 2u);  // the indels need no sequence
+    EXPECT_EQ(an::Count(an::Sites{}, "100M", 1, seq).indel_sites, 0u);
 }
 
 TEST(AncestrySites, CountWalksTheCigar) {

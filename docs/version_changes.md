@@ -119,7 +119,9 @@ for this page.
   instead of the genomes the samples are drawn from, which had told the r226 v17 models the
   simulation's species ([features.md](features.md#the-foreign-features-leak)); and the ancestry sites
   are the consensus of the congeners (nine in ten of three or more compared, the nearest congener
-  alone with fewer) rather than the nearest congener's differences
+  alone with fewer) rather than the nearest congener's differences, the comparison is chained
+  across indels instead of ending at the first, and the indels the congeners share against the
+  species are sites too, two more features (80 in the default set)
   ([features.md](features.md#which-side-the-reads-take-ancestry-079)).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;

@@ -348,10 +348,11 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertEqual(len(set(copies)), 5)
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
-        self.assertEqual(mf.ANCESTRY_FEATURES, ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share"])
+        self.assertEqual(mf.ANCESTRY_FEATURES, ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share",
+                                                "ancestry_indel_sites_per_record", "ancestry_indel_congener_share"])
         new = mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES + mf.NEIGHBOURHOOD_FEATURES + mf.ANCESTRY_FEATURES
-        self.assertEqual(len(new), 18)
-        self.assertEqual(len(set(new)), 18)
+        self.assertEqual(len(new), 20)
+        self.assertEqual(len(set(new)), 20)
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
                          mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new + copies)

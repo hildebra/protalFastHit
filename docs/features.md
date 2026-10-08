@@ -38,7 +38,7 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 
 The default set is
 `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried`
-(78 features; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+(80 features since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -377,6 +377,19 @@ nearest congener shares most of the species' history, gets as many as a small on
 | `ancestry_sites_per_record` | 0.7.9 | the sites the best records cover, per record | untested | how much the next two can say |
 | `ancestry_agreement` | 0.7.9 | of the covered sites, the share where the read has the reference's base; -1 without a site | untested | a strain near 1, a novel congener at the fraction of the branch it shares |
 | `ancestry_congener_share` | 0.7.9 | the share where the read has the congeners' base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
+| `ancestry_indel_sites_per_record` | 2026-10-08 | the indel sites the best records are aligned through (5 bases beyond on both sides), per record | untested | how much the next one can say |
+| `ancestry_indel_congener_share` | 2026-10-08 | of those, the share where the read deletes the species' extra bases or inserts the congeners' (a gap of the site's length within 4 bases of it; a record with another gap there counts neither way); -1 without such a site | untested | a novel congener's reads: an indel shared by the congeners and absent from the species is hard to get by chance |
+
+**Indels** (2026-10-08). The copies are paired by their shared 12-mers, and until 2026-10-08 the comparison
+ended at the first indel between them, so a copy with an early indel against a congener lost most of its
+sites. The pairs are now chained across changes of diagonal of up to 60 bases, which both compares the
+stretches past an indel and locates the indel itself (the exact matches are extended inwards from both
+sides). An indel of three bases or more, the species' own gain or loss against the congeners' consensus
+(the same nine-in-ten rule, the nearest congener's with fewer than three compared), is an indel site:
+a strain's read runs through it, a novel congener's read carries the congeners' gap. Shorter ones are
+left out as frameshifts in the references and sequencing errors in the reads. Between congeners the
+marker genes hold a few in-frame indels against tens to a hundred substitutions, so the indel sites are
+few and specific.
 
 A species without a congener in the database (none for the gene in `congener_gaps.tsv`, none within 0.15
 in `species_neighbours.tsv`, or a database without both tables) has no sites: the shares are -1 and the

@@ -134,7 +134,8 @@ they describe the database in use: a training database lacks its held-out specie
 ANCESTRY_FEATURES ("ancestry", 0.7.9), which side its reads take where the reference differs from its congeners' consensus
 (AncestrySites.h; since 2026-10-08 nine in ten of three or more congeners compared, the nearest congener alone with
 fewer, as 0.7.9 had everywhere): the sites per record, and the shares where the read has the reference's and the
-congeners' base.
+congeners' base; and the indel sites (the reference's own gain or loss of three bases or more against its congeners,
+2026-10-08): per record, and the share where the read deletes or inserts what the congeners do.
 GAP_FEATURES ("gaps"), where its reads lie in the gaps to its congeners' copies (congener_gaps.tsv, written by --build: per
 copy the alignment distance to the nearest and the median congener's copy): the share of its kept records on copies with a
 congener at least 0.005 away (gap_informative_share), of those the shares closer to the reference than the nearest and
@@ -241,7 +242,8 @@ NEIGHBOURHOOD_FEATURES = ["db_congeners_01", "db_congeners_02", "db_congeners_05
 # strain of the species carries the species' base at those sites, a congener that branched off below some of them the
 # congener's; the one place in the reads where a missed strain and a novel congener at the same identity differ
 # (docs/claude/2026-10-07-error-read-signatures). -1 without a site (no species neighbours, or no congener with the gene).
-ANCESTRY_FEATURES = ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share"]
+ANCESTRY_FEATURES = ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share",
+                     "ancestry_indel_sites_per_record", "ancestry_indel_congener_share"]
 
 # Where a taxon's reads lie in the gaps to its congeners' copies (congener_gaps.tsv), how far other species' reads reach its
 # copies in a tiled scan of the genomes (foreign_rates.tsv), and the reads whose seeds fit it as well as the taxa they were
