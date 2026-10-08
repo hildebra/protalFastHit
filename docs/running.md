@@ -16,6 +16,11 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 - `-o` replaces a map's `#OUTPUT_DIR`, and `--profile_dir` moves the profiles of either mode.
   Without `-o`, a `-1 -2` run writes into the current folder (runs without `-o` aborted up to 0.7.8).
+  A relative output folder (`-o` or `#OUTPUT_DIR`) is relative to the folder protal runs in, and a
+  relative `#SAM_OUTPUT_DIR`, `#PROFILE_OUTPUT_DIR`, ... lies in it. Up to 2026-10-08 a map run put a
+  relative output folder twice in front of the folders the map did not name (`alignments`,
+  `profiles`, `strains`, `misc`): `-o out` wrote `out/out/alignments` (an absolute folder, and folders
+  the map names, were right).
 - Without `--prefix`, the prefix is the longest common prefix of the two read file names, which
   needs both files in the same folder; for single-end reads it is the file name without its
   FASTQ/FASTA and compression extensions (`S1.fq.gz` gives `S1`).

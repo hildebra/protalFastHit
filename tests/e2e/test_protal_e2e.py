@@ -1891,6 +1891,32 @@ class QcmsaContractTest(WorkDir):
 class MapUtilsTest(DbTest):
     """protal_map_utils resolves relative map paths as protal does."""
 
+    def test_a_relative_output_folder_is_used_once(self):
+        # A relative output folder (-o, or the map's #OUTPUT_DIR) is relative to the folder protal runs in, and the
+        # folders in it (alignments, profiles, misc, strains; <PREFIX>.sam.zst and <PREFIX>.profile of a map without SAM
+        # and PROFILE columns) lie in it once: up to 2026-10-08 a run wrote <o>/<o>/alignments. sa's SAM is the baseline's,
+        # placed where the run looks for it, so nothing is aligned.
+        for name, out, columns, row, extra in (
+                ("columns", "rel_out", "SAM\tPROFILE", "sa.sam.zst\tsa.profile", ["-o", "rel_out"]),
+                ("prefix_only", "rel_map", "", "", [])):
+            with self.subTest(name):
+                sam = self.path(out, "alignments" if columns else "", "sa.sam.zst")
+                os.makedirs(os.path.dirname(sam), exist_ok=True)
+                shutil.copy(baseline().sam("sa"), sam)
+                sample_map = self.path(f"{name}.map")
+                with open(sample_map, "w") as fh:
+                    fh.write(f"#OUTPUT_DIR\t{'unused' if extra else out}\n#INPUT_DIR\t{READS}\n"
+                             f"#SAMPLEID\tPREFIX\tFIRST\tSECOND{chr(9) + columns if columns else ''}\n"
+                             f"sa\tsa\tsa_R1.fq\tsa_R2.fq{chr(9) + row if row else ''}\n")
+                rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--no_strains", *extra)
+                self.assertEqual(rc, 0, log[-3000:])
+                self.assertIn("All alignments are present", log)
+                profile = self.path(out, "profiles" if columns else "", "sa.profile")
+                self.assertEqual(read_text(profile), baseline().text("sa.profile"))
+                self.assertTrue(os.path.isdir(self.path(out, "misc")))
+                self.assertFalse(os.path.exists(self.path(out, out)), f"{out}/{out}")
+                self.assertFalse(os.path.exists(self.path("unused")))
+
     def test_relative_paths_resolve_like_protal(self):
         os.makedirs(self.path("maps"))
         os.makedirs(self.path("reads"))

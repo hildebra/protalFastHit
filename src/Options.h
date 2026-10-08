@@ -1540,7 +1540,9 @@ The map file helps you organise input files spanning different folders without h
 Header lines are indicated with a # and you can define individual output-base folders for strain output, regular output, sam output,
 and profile output. You could leave them empty and always specify the full path in the sample rows (not starting with a hashtag),
 but this can get complicated quite quickly. A SAM name ending in .sam.zst (the default when the SAM column is left out) is
-written zstd-compressed, .sam.gz gzip-compressed, any other name plain.
+written zstd-compressed, .sam.gz gzip-compressed, any other name plain. A relative OUTPUT_DIR (or -o) and INPUT_DIR are
+relative to the folder protal runs in; a relative SAM_OUTPUT_DIR, PROFILE_OUTPUT_DIR, STRAIN_OUTPUT_DIR or MISC_OUTPUT_DIR
+lies in OUTPUT_DIR, and without them those folders are OUTPUT_DIR/alignments, profiles, strains and misc.
 				
 #OUTPUT_DIR	/path-to-your-results-dir/					
 #SAM_OUTPUT_DIR	/path-to-your-results-dir/alignments					
@@ -1749,20 +1751,24 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                         }
                         output_dir = global_output_dir;
 
-                        sam_output_dir = sam_output_dir.empty() ? path(global_output_dir).append(MAP_VAR_DEFAULT_SAM_OUTPUT_DIR) : path(sam_output_dir);
-                        sam_output_dir = path(sam_output_dir).is_absolute() ? path(sam_output_dir) : path(global_output_dir).append(sam_output_dir);
+                        // A folder the map names (#SAM_OUTPUT_DIR, ...) lies in the output folder unless it is absolute,
+                        // one it does not name is <output folder>/<default>; the output folder (-o, else #OUTPUT_DIR) is
+                        // relative to the folder protal runs in. Up to 2026-10-08 a relative output folder was put in front
+                        // of a default folder twice (-o out wrote out/out/alignments).
+                        auto in_output = [&global_output_dir](std::string const& named, std::string const& default_name) {
+                            path const dir = named.empty() ? path(default_name) : path(named);
+                            return (dir.is_absolute() ? dir : path(global_output_dir) / dir).string();
+                        };
+                        sam_output_dir = in_output(sam_output_dir, MAP_VAR_DEFAULT_SAM_OUTPUT_DIR);
                         CreateDir(sam_output_dir);
 
-                        strain_output_dir = strain_output_dir.empty() ? path(global_output_dir).append(MAP_VAR_DEFAULT_STRAIN_OUTPUT_DIR) : path(strain_output_dir);
-                        strain_output_dir = path(strain_output_dir).is_absolute() ? path(strain_output_dir) : path(global_output_dir).append(strain_output_dir);
+                        strain_output_dir = in_output(strain_output_dir, MAP_VAR_DEFAULT_STRAIN_OUTPUT_DIR);
                         CreateDir(strain_output_dir);
 
-                        profile_output_dir = profile_output_dir.empty() ? path(global_output_dir).append(MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR) : path(profile_output_dir);
-                        profile_output_dir = path(profile_output_dir).is_absolute() ? path(profile_output_dir) : path(global_output_dir).append(profile_output_dir);
+                        profile_output_dir = in_output(profile_output_dir, MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR);
                         CreateDir(profile_output_dir);
 
-                        misc_output_dir = misc_output_dir.empty() ? path(global_output_dir).append(MAP_VAR_DEFAULT_MISC_OUTPUT_DIR) : path(misc_output_dir);
-                        misc_output_dir = path(misc_output_dir).is_absolute() ? path(misc_output_dir) : path(global_output_dir).append(misc_output_dir);
+                        misc_output_dir = in_output(misc_output_dir, MAP_VAR_DEFAULT_MISC_OUTPUT_DIR);
                         CreateDir(misc_output_dir);
 
 

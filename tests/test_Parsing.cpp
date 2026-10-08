@@ -67,6 +67,37 @@ TEST(SampleMap, ReadsRowsWithCRLF) {
     EXPECT_TRUE(lists.seconds[0].ends_with("a_2.fq"));
 }
 
+// A relative output folder (-o, else #OUTPUT_DIR) is relative to the folder protal runs in, and the folders in it are named
+// once: up to 2026-10-08 a run wrote rel/rel/profiles (the folders the map did not name; named ones and the files named
+// after the prefixes were right).
+TEST(SampleMap, ARelativeOutputFolderIsUsedOnce) {
+    ScratchDir dir;
+    auto const map = dir.Write("rel.map", "#OUTPUT_DIR\tignored\n#SAM_OUTPUT_DIR\taln\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\tPROFILE\n"
+                                          "a\ta\ta_1.fq\ta_2.fq\ta.sam.zst\ta.profile\n");
+    auto const before = fs::current_path();
+    fs::current_path(dir.path);  // the map's folders are made where protal runs
+    MapLists lists;
+    lists.output_dir = "rel";  // -o
+    bool const ok = lists.Load(map);
+    MapLists by_map;  // the map's #OUTPUT_DIR, without SAM and PROFILE columns
+    bool const ok_by_map = by_map.Load(dir.Write("prefix.map", "#OUTPUT_DIR\tbymap\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\nb\tb\tb_1.fq\tb_2.fq\n"));
+    fs::current_path(before);
+    ASSERT_TRUE(ok);
+    EXPECT_EQ(lists.sams, (Tokens{ "rel/aln/a.sam.zst" }));
+    EXPECT_EQ(lists.profiles, (Tokens{ "rel/profiles/a.profile" }));
+    EXPECT_EQ(lists.prefixes, (Tokens{ "rel/a" }));
+    EXPECT_EQ((std::pair{ lists.strain_dir, lists.misc_dir }), (std::pair{ std::string("rel/strains"), std::string("rel/misc") }));
+    EXPECT_TRUE(fs::is_directory(dir.path / "rel" / "profiles"));
+    EXPECT_FALSE(fs::exists(dir.path / "rel" / "rel"));
+    EXPECT_FALSE(fs::exists(dir.path / "ignored"));
+    ASSERT_TRUE(ok_by_map);
+    EXPECT_EQ(by_map.prefixes, (Tokens{ "bymap/b" }));
+    EXPECT_EQ(by_map.sams, (Tokens{ "bymap/b.sam.zst" }));  // named after the prefix, in the output folder
+    EXPECT_EQ(by_map.profiles, (Tokens{ "bymap/b.profile" }));
+    EXPECT_EQ(by_map.misc_dir, "bymap/misc");
+    EXPECT_FALSE(fs::exists(dir.path / "bymap" / "bymap"));
+}
+
 TEST(SampleMap, RejectsRowsWithMissingOrEmptyCells) {
     ScratchDir dir;
     auto header = MapHeader(dir.path / "out");
