@@ -1,0 +1,125 @@
+
+# pb: 139413 rows, 277 samples, knob 0.5
+
+## The error budget at the knob (v18)
+
+  training rows (species held out, knob 0.5): 98944 rows, 50664 present: TP 48805, FP 1353, FN 1859, F1 0.9681
+    FP by class {'absent novel congener': 1189, 'absent near novel': 96, 'absent': 68}; FN by class {'present strain': 1545, 'present insilico': 171, 'present rep': 143}
+    FP: fragments median 3 (1: 0.30, >= 10: 0.22), identity median 0.9850, by scenario {'soil': 588, 'soil_shallow': 393, 'moderate': 220, 'design': 110, 'gut': 41, 'host': 1}
+    FN: fragments median 3 (1: 0.32, >= 10: 0.22), identity median 0.9698, by scenario {'soil': 867, 'soil_shallow': 520, 'moderate': 302, 'design': 112, 'gut': 57, 'host': 1}
+  test rows (final model, knob 0.5): 40469 rows, 20353 present: TP 19662, FP 416, FN 691, F1 0.9726
+    FP by class {'absent novel congener': 356, 'absent near novel': 36, 'absent': 24}; FN by class {'present strain': 536, 'present insilico': 81, 'present rep': 74}
+    FP: fragments median 3 (1: 0.30, >= 10: 0.19), identity median 0.9855, by scenario {'soil': 167, 'soil_shallow': 117, 'moderate': 96, 'design': 23, 'gut': 13}
+    FN: fragments median 3 (1: 0.28, >= 10: 0.22), identity median 0.9703, by scenario {'soil': 263, 'soil_shallow': 222, 'moderate': 154, 'design': 32, 'gut': 20}
+
+## The ancestry features by class
+
+  v18: medians by class, rows with >= 5 fragments ({'present rep': 14358, 'present strain': 21779, 'present insilico': 11274, 'absent novel congener': 19115, 'absent near novel': 104, 'absent': 1178})
+class                            present rep  present strain  present insilico  absent novel congener  absent near novel   absent
+ancestry_sites_per_record            61.6024         55.6933           77.1632                28.8750             9.0000  17.0000
+ancestry_agreement                    1.0000          0.9820            0.9951                 0.5895             0.4606   0.5469
+ancestry_congener_share               0.0000          0.0081            0.0000                 0.3273             0.0036   0.3485
+ancestry_indel_sites_per_record       0.0513          0.0435            0.0691                 0.0000             0.0000   0.0000
+ancestry_indel_congener_share         0.0000          0.0000            0.0000                -1.0000            -1.0000  -1.0000
+foreign_scanned_share                 1.0000          1.0000            1.0000                 1.0000             1.0000   1.0000
+foreign_copy_share                    0.0000          0.0000            0.0000                 0.0000             0.0000   0.3628
+foreign_genus_copy_share              0.0000          0.0000            0.0000                 0.0000             0.0000   0.0000
+identity                              0.9998          0.9973            0.9982                 0.9438             0.9347   0.9575
+  v17: medians by class, rows with >= 5 fragments ({'present rep': 14376, 'present strain': 21575, 'present insilico': 11066, 'absent novel congener': 18808, 'absent near novel': 110, 'absent': 1265})
+class                      present rep  present strain  present insilico  absent novel congener  absent near novel   absent
+ancestry_sites_per_record      87.9083         85.7500           95.5000                66.3750            22.4000  41.2857
+ancestry_agreement              1.0000          0.9842            0.9948                 0.6570             0.5851   0.6343
+ancestry_congener_share         0.0000          0.0065            0.0001                 0.2653             0.0107   0.2945
+identity                        0.9998          0.9975            0.9983                 0.9435             0.9567   0.9575
+
+## AUC inside the identity band 0.95-0.985, present (high) against absent novel congener
+
+                        feature build  whole band  real strains  0.95-0.96  0.96-0.97  0.97-0.98  0.98-0.985
+      ancestry_sites_per_record   v18       0.642         0.628      0.534      0.664      0.695       0.732
+             ancestry_agreement   v18       0.786         0.754      0.561      0.700      0.740       0.758
+        ancestry_congener_share   v18       0.203         0.254      0.386      0.312      0.250       0.235
+ancestry_indel_sites_per_record   v18       0.611         0.599      0.538      0.580      0.636       0.675
+  ancestry_indel_congener_share   v18       0.601         0.595      0.536      0.569      0.632       0.669
+          foreign_scanned_share   v18       0.513         0.492      0.482      0.522      0.542       0.589
+             foreign_copy_share   v18       0.443         0.475      0.513      0.477      0.438       0.428
+       foreign_genus_copy_share   v18       0.512         0.518      0.497      0.514      0.526       0.538
+                   gap_position   v18       0.196         0.212      0.375      0.296      0.237       0.206
+           gap_within_min_share   v18       0.626         0.624      0.503      0.619      0.617       0.602
+         untried_candidate_rate   v18       0.500         0.500      0.500      0.500      0.500       0.500
+                       identity   v18       0.847         0.831      0.569      0.582      0.632       0.580
+                   top_identity   v18       0.781         0.807      0.721      0.700      0.712       0.742
+                      lu_per_kb   v18       0.835         0.811      0.688      0.742      0.786       0.821
+                   em_own_share   v18       0.660         0.634      0.578      0.636      0.659       0.689
+           excess_scaled_median   v18       0.156         0.165      0.419      0.372      0.297       0.271
+            db_nearest_congener   v18       0.645         0.611      0.551      0.645      0.688       0.728
+                db_congeners_01   v18       0.500         0.500      0.507      0.500      0.500       0.498
+                      fragments   v18       0.611         0.610      0.532      0.541      0.635       0.708
+      ancestry_sites_per_record   v17       0.639         0.627      0.563      0.635      0.713       0.779
+             ancestry_agreement   v17       0.805         0.775      0.622      0.676      0.746       0.774
+        ancestry_congener_share   v17       0.184         0.233      0.359      0.309      0.244       0.206
+
+  band 0.95-0.985, >= 3 fragments: 15262 rows ({'absent novel congener': 10262, 'present strain': 3601, 'present insilico': 1239, 'present rep': 160}); boosted classifier, samples grouped (5 folds):
+    base: AUC 0.9436, AP 0.9024
+    base + v17's three ancestry: AUC 0.9543, AP 0.9231
+    base + all five ancestry: AUC 0.9554, AP 0.9248
+    base + foreign (full-reference scan): AUC 0.9449, AP 0.9052
+    base + five ancestry + foreign: AUC 0.9557, AP 0.9256
+
+## The errors on the features (v18)
+
+  medians of the errors against the right calls, rows with >= 3 fragments:
+error                                 FN       FP       TN        TP
+ancestry_sites_per_record        19.3333  24.5000  23.3063   61.5236
+ancestry_agreement                0.6709   0.8414   0.5578    0.9997
+ancestry_congener_share           0.2740   0.1207   0.3555    0.0000
+ancestry_indel_sites_per_record   0.0000   0.0000   0.0000    0.0337
+ancestry_indel_congener_share    -1.0000  -1.0000  -1.0000    0.0000
+foreign_scanned_share             1.0000   1.0000   1.0000    1.0000
+foreign_copy_share                0.0040   0.0000   0.0000    0.0000
+foreign_genus_copy_share          0.0000   0.0000   0.0000    0.0000
+identity                          0.9687   0.9807   0.9425    0.9996
+lu_per_kb                        32.1027  62.0329  11.9692  131.3082
+excess_scaled_median              0.0266   0.0146   0.0563   -0.0001
+db_nearest_congener               0.0558   0.0669   0.0807    0.1253
+                        feature  AUC FN vs FP (FN high)
+      ancestry_sites_per_record                   0.467
+             ancestry_agreement                   0.287
+        ancestry_congener_share                   0.705
+ancestry_indel_sites_per_record                   0.489
+  ancestry_indel_congener_share                   0.497
+          foreign_scanned_share                   0.474
+             foreign_copy_share                   0.556
+       foreign_genus_copy_share                   0.504
+                       identity                   0.221
+                      lu_per_kb                   0.273
+           excess_scaled_median                   0.799
+            db_nearest_congener                   0.467
+
+## The errors by scenario (v18)
+
+  calls at the knob by collection and scenario (training rows: species held out; test: the final model):
+                          TP   FP   FN      F1
+set      scenario                             
+test     design         1467   23   32  0.9816
+         gut            1386   13   20  0.9882
+         host             67    0    0  1.0000
+         moderate       5725   96  154  0.9786
+         soil           6594  167  263  0.9684
+         soil_shallow   4423  117  222  0.9631
+training design         5230  110  112  0.9792
+         gut            3920   41   57  0.9877
+         host            138    1    1  0.9928
+         moderate      11660  220  302  0.9781
+         soil          17137  588  867  0.9593
+         soil_shallow  10720  393  520  0.9592
+  the FN by class and scenario (test and training):
+class         present insilico  present rep  present strain
+scenario                                                   
+design                      18            6             120
+gut                          3            3              71
+host                         0            0               1
+moderate                    48           26             382
+soil                        98          103             929
+soil_shallow                85           79             578
+  share of FN with a database congener within 0.01 (db_congeners_01 > 0), by scenario: design 0.007, gut 0.026, host 0.000, moderate 0.004, soil 0.011, soil_shallow 0.005
+  ... of the TP: design 0.003, gut 0.003, host 0.000, moderate 0.002, soil 0.003, soil_shallow 0.002

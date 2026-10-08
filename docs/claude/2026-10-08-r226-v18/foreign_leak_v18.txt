@@ -1,0 +1,16 @@
+pe: 559425 rows, 16770 species ever present; absent rows 454458, of species ever present 0.131
+  foreign_scanned_share of absent rows: species ever present (in the pool) median 1.000, mean 0.966; never present: median 1.000, mean 0.979
+  absent novel-congener rows: in the pool 0.133; scanned share mean in pool 0.964, out of the pool 0.976
+  all rows: foreign_scanned_share > 0.5 agrees with 'species in the pool' in 0.3043 of the rows
+se: 305827 rows, 16218 species ever present; absent rows 233607, of species ever present 0.129
+  foreign_scanned_share of absent rows: species ever present (in the pool) median 1.000, mean 0.970; never present: median 1.000, mean 0.979
+  absent novel-congener rows: in the pool 0.130; scanned share mean in pool 0.967, out of the pool 0.976
+  all rows: foreign_scanned_share > 0.5 agrees with 'species in the pool' in 0.3444 of the rows
+pb: 139413 rows, 16121 species ever present; absent rows 68396, of species ever present 0.135
+  foreign_scanned_share of absent rows: species ever present (in the pool) median 1.000, mean 0.945; never present: median 1.000, mean 0.956
+  absent novel-congener rows: in the pool 0.135; scanned share mean in pool 0.946, out of the pool 0.956
+  all rows: foreign_scanned_share > 0.5 agrees with 'species in the pool' in 0.5820 of the rows
+ont: 160861 rows, 16160 species ever present; absent rows 88330, of species ever present 0.133
+  foreign_scanned_share of absent rows: species ever present (in the pool) median 1.000, mean 0.938; never present: median 1.000, mean 0.954
+  absent novel-congener rows: in the pool 0.133; scanned share mean in pool 0.939, out of the pool 0.953
+  all rows: foreign_scanned_share > 0.5 agrees with 'species in the pool' in 0.5337 of the rows

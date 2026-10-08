@@ -1,0 +1,81 @@
+
+# pe: F1 (species held out at 0.5; test and hold-outs at the model's knob)
+
+build                     v10    v11    v12    v13    v14    v15    v17    v18
+evaluated on                                                                  
+species held out       0.9643 0.9598 0.9597 0.9496 0.9519 0.9519 0.9760 0.9462
+independent test set   0.9630 0.9614 0.9701 0.9652 0.9649 0.9645 0.9833 0.9622
+soil: hold-out            NaN    NaN 0.9594 0.9535 0.9646 0.9655 0.9745 0.9541
+soil_shallow: hold-out    NaN    NaN 0.9371 0.9253 0.9408 0.9396 0.9617 0.9269
+moderate: hold-out        NaN    NaN    NaN    NaN    NaN    NaN 0.9870 0.9674
+gut: hold-out             NaN    NaN 0.9954 0.9950 0.9958 0.9962 0.9910 0.9795
+host: hold-out            NaN    NaN 1.0000 0.9762 0.9895 1.0000 1.0000 0.9926
+
+knob: v10 0.5, v11 0.5, v12 0.5, v13 0.7, v14 0.82, v15 0.8, v17 0.73, v18 0.74
+
+FP/FN at the knob:
+build                       v10      v11      v12      v13      v14      v15      v17      v18
+evaluated on                                                                                  
+independent test set    168/135  188/147   151/86   93/220   63/251   64/253   55/100  106/243
+soil: hold-out              NaN      NaN  384/261  304/433  214/597  254/539  172/237  222/508
+soil_shallow: hold-out      NaN      NaN  546/363  331/727  516/785  514/812  202/365  405/702
+
+# se: F1 (species held out at 0.5; test and hold-outs at the model's knob)
+
+build                   v10    v11    v12    v13    v14    v15    v17    v18
+evaluated on                                                                
+species held out     0.9616 0.9557 0.9709 0.9614 0.9628 0.9633 0.9798 0.9531
+independent test set 0.9596 0.9583 0.9715 0.9592 0.9612 0.9622 0.9836 0.9599
+soil: hold-out          NaN    NaN 0.9671 0.9511 0.9645 0.9635 0.9758 0.9517
+moderate: hold-out      NaN    NaN    NaN    NaN    NaN    NaN 0.9858 0.9633
+host: hold-out          NaN    NaN 0.9880 0.9880 1.0000 1.0000 1.0000 0.9774
+
+knob: v10 0.5, v11 0.5, v12 0.5, v13 0.5, v14 0.73, v15 0.5, v17 0.5, v18 0.5
+
+FP/FN at the knob:
+build                     v10      v11      v12      v13      v14      v15      v17      v18
+evaluated on                                                                                
+independent test set  176/148  206/148  114/105  186/179   88/253  134/202    66/82  167/195
+soil: hold-out            NaN      NaN  272/248  434/353  270/547  441/409  218/173  346/430
+
+# pb: F1 (species held out at 0.5; test and hold-outs at the model's knob)
+
+build                     v10    v11    v12    v13    v14    v15    v17    v18
+evaluated on                                                                  
+species held out       0.9692 0.9715 0.9663 0.9557 0.9595 0.9596 0.9842 0.9681
+independent test set   0.9675 0.9662 0.9807 0.9767 0.9791 0.9785 0.9894 0.9816
+soil: hold-out            NaN    NaN 0.9608 0.9469 0.9577 0.9578 0.9835 0.9684
+soil_shallow: hold-out    NaN    NaN 0.9602 0.9474 0.9553 0.9561 0.9751 0.9631
+moderate: hold-out        NaN    NaN    NaN    NaN    NaN    NaN 0.9897 0.9786
+gut: hold-out             NaN    NaN 0.9797 0.9856 0.9924 0.9949 0.9955 0.9882
+host: hold-out            NaN    NaN 0.9762 0.9882 0.9895 0.9895 0.9922 1.0000
+
+knob: v10 0.5, v11 0.5, v12 0.5, v13 0.5, v14 0.5, v15 0.5, v17 0.5, v18 0.5
+
+FP/FN at the knob:
+build                     v10    v11      v12      v13      v14      v15      v17      v18
+evaluated on                                                                              
+independent test set    38/62  47/72    33/30    55/43    54/34    39/51    15/16    23/32
+soil: hold-out            NaN    NaN  291/268  322/432  326/578  351/553  103/122  167/263
+soil_shallow: hold-out    NaN    NaN  175/220  178/337  309/402  307/392   84/137  117/222
+
+# ont: F1 (species held out at 0.5; test and hold-outs at the model's knob)
+
+build                     v10    v11    v12    v13    v14    v15    v17    v18
+evaluated on                                                                  
+species held out       0.9685 0.9652 0.9601 0.9494 0.9542 0.9543 0.9815 0.9625
+independent test set   0.9689 0.9668 0.9738 0.9720 0.9759 0.9723 0.9886 0.9794
+soil: hold-out            NaN    NaN 0.9533 0.9412 0.9439 0.9483 0.9795 0.9586
+soil_shallow: hold-out    NaN    NaN 0.9498 0.9339 0.9453 0.9437 0.9731 0.9525
+moderate: hold-out        NaN    NaN    NaN    NaN    NaN    NaN 0.9894 0.9745
+gut: hold-out             NaN    NaN 0.9830 0.9788 0.9878 0.9937 0.9940 0.9861
+host: hold-out            NaN    NaN 0.9535 0.9882 0.9792 0.9895 0.9922 0.9853
+
+knob: v10 0.5, v11 0.5, v12 0.5, v13 0.5, v14 0.5, v15 0.5, v17 0.5, v18 0.5
+
+FP/FN at the knob:
+build                     v10    v11      v12      v13      v14      v15      v17      v18
+evaluated on                                                                              
+independent test set    45/53  58/66    45/44    66/55    56/48    52/67    20/14    34/28
+soil: hold-out            NaN    NaN  384/297  433/426  450/762  530/599  132/153  233/336
+soil_shallow: hold-out    NaN    NaN  228/291  284/404  423/486  432/503  103/145  194/264
