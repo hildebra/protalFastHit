@@ -1,0 +1,51 @@
+date: 2026-10-08T13:34:39+01:00
+host: q512n6
+job: 24082993
+threads: 32 (CPUs this process may use: 84)
+protal: protal v0.7.9 (commit f53db5eb822460cd1b4c52404d1c6f961f74ab7f) 
+database: /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal, 27G
+database file system: nfs (ei-hpc-data.hpccluster:/ifs/apricot/EI/PrimaryData/RESEARCH_PROJECTS)
+transparent huge pages: [always] madvise never
+perf stat: yes
+samples: pe:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R2_001.fastq.gz pb:/hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz
+cohort: none (COHORT=0)
+
+Model name:                              AMD EPYC 9634 84-Core Processor
+Thread(s) per core:                      1
+Core(s) per socket:                      84
+Socket(s):                               1
+CPU max MHz:                             3701.8391
+L3 cache:                                384 MiB (12 instances)
+NUMA node(s):                            1
+
+               total        used        free      shared  buff/cache   available
+Mem:             502          14         459           0          32         488
+Swap:              0           0           0
+
+pe1 run 1: 37.23 s
+pe1 run 2: 34.67 s
+pb2 run 1: 12.98 s
+pb2 run 2: 12.61 s
+
+pe1 (median of 2): wall_s 35.95 user_s 952.08 sys_s 22.70 max_rss_gb 34.20 major_faults 0.00 load_index_s 2.66 aligning_s 24.39 profiling_s 5.46 strains_s 0.01 sam_finish_s 2.24
+pb2 (median of 2): wall_s 12.79 user_s 353.89 sys_s 15.05 max_rss_gb 34.45 major_faults 0.00 load_index_s 2.65 aligning_s 8.08 profiling_s 0.70 strains_s 0.01 sam_finish_s 0.47
+
+pe1 counts: reads 50607792 anchored_reads 79537931 tried 176252940 screened 159169120 from_anchors 17018949 whole_windows 64871 made 10311967 written 2223279
+pe1 SAM header: genes 80108, records copied in 0 s; seeding: kmers 2242166093 kmers_in_index 2224460301 blocks_scanned 2221730360 flex_cells 156358887565 seeds 4373336840 peak_preload_gb 27.53 peak_index_gb 33.87 peak_aligning_gb 34.21 peak_profiling_gb 34.20 paired_seeds 549972099 dropped_lookups 6979716 anchors 211124115 (70.4 flex cells per block)
+pb2 counts: reads 497656 anchored_reads 497655 tried 9687718 screened 9261825 from_anchors 424825 whole_windows 1068 made 268742 written 103394
+pb2 SAM header: genes 13867, records copied in 0 s; seeding: kmers 473852030 kmers_in_index 469974489 blocks_scanned 469974489 flex_cells 34888986258 seeds 964147360 peak_preload_gb 27.38 peak_index_gb 33.63 peak_aligning_gb 34.49 peak_profiling_gb 34.49 paired_seeds 154820718 dropped_lookups 124034 anchors 46557627 (74.2 flex cells per block)
+
+pb2  Alignment handler                            7.77 s per thread
+pb2  Seeding                                      2.83 s per thread
+pb2  Extending Anchors                            0.54 s per thread
+pb2  Sequence reader                              0.49 s per thread
+pb2  Profiling: sample                            0.47 s per thread
+pb2  K-mer screen                                 0.44 s per thread
+pe1  Seed- and Anchor-finding                    17.12 s per thread
+pe1  Seeding                                     12.72 s per thread
+pe1  Profiling: sample                            3.85 s per thread
+pe1  Alignment handler                            3.01 s per thread
+pe1  Profiling: reading the SAM                   2.15 s per thread
+pe1  Extending Anchors                            2.04 s per thread
+
+Results in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//perf_avx2_1 (runs.tsv, cohort.tsv, stages.tsv, environment.txt, logs/).

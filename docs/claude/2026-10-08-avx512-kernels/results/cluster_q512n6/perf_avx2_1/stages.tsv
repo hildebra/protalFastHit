@@ -1,0 +1,83 @@
+sample	rep	stage	seconds	threads	seconds_per_thread
+pe1	1	Seeding	407.890734	32	12.746585
+pe1	1	Sorting Seeds	34.342321	32	1.073198
+pe1	1	Pairing	17.714359	32	0.553574
+pe1	1	Sorting Anchors	4.980392	32	0.155637
+pe1	1	Extending Anchors	65.172158	32	2.036630
+pe1	1	Sequence reader	32.447942	32	1.013998
+pe1	1	Retrieve k-mers	52.869054	32	1.652158
+pe1	1	Seed- and Anchor-finding	548.606249	32	17.143945
+pe1	1	Anchor recovery	15.611973	32	0.487874
+pe1	1	Alignment handler	96.417267	32	3.013040
+pe1	1	K-mer screen	43.790830	32	1.368463
+pe1	1	Joining alignment pairs and sorting	14.420680	32	0.450646
+pe1	1	Output handler	20.996247	32	0.656133
+pe1	1	Profiling: sample	3.864233	1	3.864233
+pe1	1	Profiling: reading the SAM	2.188132	1	2.188132
+pe1	1	Profiling: record evidence and sample context	1.391360	1	1.391360
+pe1	1	Profiling: read EM	0.657745	1	0.657745
+pe1	1	Profiling: congener distances	0.230347	1	0.230347
+pe1	1	Profiling: SNP post-processing	0.056745	1	0.056745
+pe1	1	Profiling: scoring	0.032414	1	0.032414
+pe1	1	Profiling: writing the profile	0.188374	1	0.188374
+pe1	2	Seeding	405.939534	32	12.685610
+pe1	2	Sorting Seeds	34.438163	32	1.076193
+pe1	2	Pairing	17.675544	32	0.552361
+pe1	2	Sorting Anchors	5.003390	32	0.156356
+pe1	2	Extending Anchors	65.588054	32	2.049627
+pe1	2	Sequence reader	35.939679	32	1.123115
+pe1	2	Retrieve k-mers	52.876297	32	1.652384
+pe1	2	Seed- and Anchor-finding	547.108438	32	17.097139
+pe1	2	Anchor recovery	15.667672	32	0.489615
+pe1	2	Alignment handler	96.090327	32	3.002823
+pe1	2	K-mer screen	43.897554	32	1.371799
+pe1	2	Joining alignment pairs and sorting	14.766874	32	0.461465
+pe1	2	Output handler	17.398749	32	0.543711
+pe1	2	Profiling: sample	3.827116	1	3.827116
+pe1	2	Profiling: reading the SAM	2.112613	1	2.112613
+pe1	2	Profiling: record evidence and sample context	1.383475	1	1.383475
+pe1	2	Profiling: read EM	0.655661	1	0.655661
+pe1	2	Profiling: congener distances	0.230780	1	0.230780
+pe1	2	Profiling: SNP post-processing	0.057261	1	0.057261
+pe1	2	Profiling: scoring	0.033801	1	0.033801
+pe1	2	Profiling: writing the profile	0.233437	1	0.233437
+pb2	1	Seeding	90.206563	32	2.818955
+pb2	1	Sorting Seeds	10.531965	32	0.329124
+pb2	1	Pairing	3.803562	32	0.118861
+pb2	1	Sorting Anchors	1.091909	32	0.034122
+pb2	1	Extending Anchors	17.171432	32	0.536607
+pb2	1	Sequence reader	15.780281	32	0.493134
+pb2	1	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	1	Anchor recovery	0.000000	0	0.000000
+pb2	1	Alignment handler	245.087742	32	7.658992
+pb2	1	K-mer screen	14.189148	32	0.443411
+pb2	1	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	1	Output handler	3.430812	32	0.107213
+pb2	1	Profiling: sample	0.468059	1	0.468059
+pb2	1	Profiling: reading the SAM	0.216257	1	0.216257
+pb2	1	Profiling: record evidence and sample context	0.186670	1	0.186670
+pb2	1	Profiling: read EM	0.044469	1	0.044469
+pb2	1	Profiling: congener distances	0.029224	1	0.029224
+pb2	1	Profiling: SNP post-processing	0.005031	1	0.005031
+pb2	1	Profiling: scoring	0.004704	1	0.004704
+pb2	1	Profiling: writing the profile	0.054127	1	0.054127
+pb2	2	Seeding	91.158646	32	2.848708
+pb2	2	Sorting Seeds	10.451192	32	0.326600
+pb2	2	Pairing	3.785296	32	0.118290
+pb2	2	Sorting Anchors	1.086816	32	0.033963
+pb2	2	Extending Anchors	17.440105	32	0.545003
+pb2	2	Sequence reader	15.284498	32	0.477641
+pb2	2	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	2	Anchor recovery	0.000000	0	0.000000
+pb2	2	Alignment handler	252.336946	32	7.885530
+pb2	2	K-mer screen	14.167366	32	0.442730
+pb2	2	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	2	Output handler	3.446392	32	0.107700
+pb2	2	Profiling: sample	0.465848	1	0.465848
+pb2	2	Profiling: reading the SAM	0.219178	1	0.219178
+pb2	2	Profiling: record evidence and sample context	0.183450	1	0.183450
+pb2	2	Profiling: read EM	0.044029	1	0.044029
+pb2	2	Profiling: congener distances	0.028672	1	0.028672
+pb2	2	Profiling: SNP post-processing	0.005264	1	0.005264
+pb2	2	Profiling: scoring	0.004667	1	0.004667
+pb2	2	Profiling: writing the profile	0.051962	1	0.051962

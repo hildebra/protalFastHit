@@ -1,0 +1,83 @@
+sample	rep	stage	seconds	threads	seconds_per_thread
+pe1	1	Seeding	367.441646	32	11.482551
+pe1	1	Sorting Seeds	34.783915	32	1.086997
+pe1	1	Pairing	17.939671	32	0.560615
+pe1	1	Sorting Anchors	4.988306	32	0.155885
+pe1	1	Extending Anchors	65.160972	32	2.036280
+pe1	1	Sequence reader	49.184455	32	1.537014
+pe1	1	Retrieve k-mers	47.259925	32	1.476873
+pe1	1	Seed- and Anchor-finding	508.699617	32	15.896863
+pe1	1	Anchor recovery	15.694039	32	0.490439
+pe1	1	Alignment handler	96.095334	32	3.002979
+pe1	1	K-mer screen	43.782515	32	1.368204
+pe1	1	Joining alignment pairs and sorting	14.579509	32	0.455610
+pe1	1	Output handler	21.703004	32	0.678219
+pe1	1	Profiling: sample	3.993731	1	3.993731
+pe1	1	Profiling: reading the SAM	2.183488	1	2.183488
+pe1	1	Profiling: record evidence and sample context	1.373956	1	1.373956
+pe1	1	Profiling: read EM	0.647030	1	0.647030
+pe1	1	Profiling: congener distances	0.229637	1	0.229637
+pe1	1	Profiling: SNP post-processing	0.057374	1	0.057374
+pe1	1	Profiling: scoring	0.031572	1	0.031572
+pe1	1	Profiling: writing the profile	0.340570	1	0.340570
+pe1	2	Seeding	368.028961	32	11.500905
+pe1	2	Sorting Seeds	34.593002	32	1.081031
+pe1	2	Pairing	17.780129	32	0.555629
+pe1	2	Sorting Anchors	5.041107	32	0.157535
+pe1	2	Extending Anchors	65.537004	32	2.048031
+pe1	2	Sequence reader	52.796912	32	1.649904
+pe1	2	Retrieve k-mers	47.319915	32	1.478747
+pe1	2	Seed- and Anchor-finding	509.635115	32	15.926097
+pe1	2	Anchor recovery	15.761316	32	0.492541
+pe1	2	Alignment handler	96.224202	32	3.007006
+pe1	2	K-mer screen	43.820834	32	1.369401
+pe1	2	Joining alignment pairs and sorting	14.427390	32	0.450856
+pe1	2	Output handler	17.565535	32	0.548923
+pe1	2	Profiling: sample	3.872640	1	3.872640
+pe1	2	Profiling: reading the SAM	2.164362	1	2.164362
+pe1	2	Profiling: record evidence and sample context	1.389729	1	1.389729
+pe1	2	Profiling: read EM	0.657729	1	0.657729
+pe1	2	Profiling: congener distances	0.230760	1	0.230760
+pe1	2	Profiling: SNP post-processing	0.058151	1	0.058151
+pe1	2	Profiling: scoring	0.032859	1	0.032859
+pe1	2	Profiling: writing the profile	0.219410	1	0.219410
+pb2	1	Seeding	81.643012	32	2.551344
+pb2	1	Sorting Seeds	10.744283	32	0.335759
+pb2	1	Pairing	3.893597	32	0.121675
+pb2	1	Sorting Anchors	1.103552	32	0.034486
+pb2	1	Extending Anchors	17.448116	32	0.545254
+pb2	1	Sequence reader	16.682785	32	0.521337
+pb2	1	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	1	Anchor recovery	0.000000	0	0.000000
+pb2	1	Alignment handler	232.054939	32	7.251717
+pb2	1	K-mer screen	14.153618	32	0.442301
+pb2	1	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	1	Output handler	3.563039	32	0.111345
+pb2	1	Profiling: sample	0.503496	1	0.503496
+pb2	1	Profiling: reading the SAM	0.226909	1	0.226909
+pb2	1	Profiling: record evidence and sample context	0.187184	1	0.187184
+pb2	1	Profiling: read EM	0.044335	1	0.044335
+pb2	1	Profiling: congener distances	0.028665	1	0.028665
+pb2	1	Profiling: SNP post-processing	0.005347	1	0.005347
+pb2	1	Profiling: scoring	0.005363	1	0.005363
+pb2	1	Profiling: writing the profile	0.077251	1	0.077251
+pb2	2	Seeding	81.465920	32	2.545810
+pb2	2	Sorting Seeds	10.243907	32	0.320122
+pb2	2	Pairing	3.723330	32	0.116354
+pb2	2	Sorting Anchors	1.088376	32	0.034012
+pb2	2	Extending Anchors	17.279727	32	0.539991
+pb2	2	Sequence reader	14.895233	32	0.465476
+pb2	2	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	2	Anchor recovery	0.000000	0	0.000000
+pb2	2	Alignment handler	236.336033	32	7.385501
+pb2	2	K-mer screen	14.119067	32	0.441221
+pb2	2	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	2	Output handler	3.383791	32	0.105743
+pb2	2	Profiling: sample	0.535283	1	0.535283
+pb2	2	Profiling: reading the SAM	0.216156	1	0.216156
+pb2	2	Profiling: record evidence and sample context	0.183176	1	0.183176
+pb2	2	Profiling: read EM	0.043239	1	0.043239
+pb2	2	Profiling: congener distances	0.028917	1	0.028917
+pb2	2	Profiling: SNP post-processing	0.006059	1	0.006059
+pb2	2	Profiling: scoring	0.005118	1	0.005118
+pb2	2	Profiling: writing the profile	0.123334	1	0.123334

@@ -33,8 +33,10 @@
 4. **Locally everything that can run is identical.** 452 unit tests pass (3 skipped as before); paired-end, PacBio and
    ONT runs give the same SAM records and the same other files with the new build (AVX2) and with `PROTAL_SIMD=scalar`
    as with HEAD.
-5. **The AVX-512 code is unverified on hardware.** Its tests skip here. Before relying on it, run
-   `scripts/check_avx512.sh` on an AVX-512 node (the EPYC 9634 nodes are Zen 4), or the unit tests under Intel SDE.
+5. **On a Zen 4 node (r226, 32 threads) the AVX-512 build gave identical outputs and counts**, seeding −9.5% (pe,
+   −1.2 s per thread) and −10.2% (HiFi), k-mers −10.6%, wall −3.7% (pe) and −3.9% (HiFi): the paired-end run is again
+   partly waiting for its gzip input ([below](#on-the-cluster-f53db5e-on-a-zen-4-node)). The unit tests did not run
+   there (no test binary in that build).
 
 ## What changed
 
@@ -97,6 +99,55 @@ Without a node: Intel's Software Development Emulator (a download from Intel, no
 laptop: `sde64 -icx -- build/tests/protal_tests --gtest_filter='FlexScan.*:Syncmers.*:PackedIndex.*'`.
 
 If the node's checks fail, `PROTAL_SIMD=avx2` keeps runs on the verified AVX2 code until it is fixed.
+
+## On the cluster: `f53db5e` on a Zen 4 node
+
+SLURM job 24082993 (the user's), `scripts/check_avx512.sh` on node `q512n6` (AMD EPYC 9634, every flag of the AVX-512
+level), 32 threads, the r226 database and samples of the thirteenth run (pe 50.6M pairs, HiFi 497,656 reads).
+[`results/cluster_q512n6/`](results/cluster_q512n6/) (copied from `local/AVX512/`, the comparison runs' outputs left
+out); medians and counts by [`scripts/compare_levels.pl`](scripts/compare_levels.pl).
+
+- **Unit tests: not run.** `build/tests/protal_tests` did not exist (a build without `-DPROTAL_BUILD_TESTS=ON`; exit
+  127). The script then printed that the CPU lacks the AVX-512 level, which was wrong: it read that from the empty test
+  log. The level the runs used shows in their instructions instead (below).
+- **Outputs: identical.** pe and HiFi with `PROTAL_SIMD=avx2` and with the default: the same SAM records and every other
+  file. All 16 count columns of `runs.tsv` (reads, candidates, k-mers, blocks, flex cells, seeds, shared seeds,
+  dropped lookups, anchors, ...) are equal in all 16 runs.
+- **AVX-512 was used**: the same binary, the same counts, 0.61 T fewer instructions (pe) and 0.14 T (HiFi) with the
+  default than with `PROTAL_SIMD=avx2`.
+
+Whole runs (medians of 4 runs per level, 2 rounds alternated; the runs within a level spread by under 0.1 s per thread
+in every stage below):
+
+| | pe AVX2 | pe AVX-512 | | HiFi AVX2 | HiFi AVX-512 | |
+|---|---|---|---|---|---|---|
+| wall | 34.87 s | 33.59 s | −3.7% | 12.76 s | 12.26 s | −3.9% |
+| aligning | 24.39 s | 23.80 s | −2.4% | 7.90 s | 7.55 s | −4.4% |
+| user time | 953 s | 913 s | −4.1% | 354 s | 344 s | −2.9% |
+| instructions | 6.61 T | 6.01 T | −9.2% | 3.28 T | 3.14 T | −4.3% |
+| cycles | 3.47 T | 3.33 T | −4.2% | 1.28 T | 1.24 T | −2.9% |
+
+Per thread (s, medians):
+
+| stage | pe AVX2 | pe AVX-512 | | HiFi AVX2 | HiFi AVX-512 | |
+|---|---|---|---|---|---|---|
+| seeding | 12.72 | 11.51 | −9.5% | 2.84 | 2.55 | −10.2% |
+| taking the k-mers ("Retrieve k-mers") | 1.65 | 1.48 | −10.6% | | | |
+| seed- and anchor-finding | 17.13 | 15.95 | −6.9% | | | |
+| sequence reader | 1.02 | **1.67** | +64% | 0.48 | 0.51 | |
+| alignment handler | 3.00 | 3.01 | | 7.68 | 7.32 | −4.6% (holds HiFi's seeding) |
+| every other stage | | | within ±1% | | | |
+
+- **The seeding gained 1.2 s per thread (pe), the low end of the assessment's 1-2 s.** The k-mers gained 0.17 s on
+  top of the AVX2 rework, which both levels have (thirteenth run: 1.95 s per thread, here 1.65 with AVX2).
+- **The paired-end run is held by its gzip input again.** The sequence reader's time rose by 0.65 s per thread as the
+  seeding fell by 1.2 s: the aligners wait for reads, so the aligning's wall time fell by 0.6 s, not 1.4. The run aligned
+  2.13M pairs/s; the twelfth run hit the same wait at 1.75M pairs/s with zlib-ng, the thirteenth was free of it at
+  2.0M pairs/s with ISA-L. Inflating each gzip file on more than one thread, or zstd input (`.fq.zst`, whose frames
+  can be inflated in parallel), would let the rest of the gain through. HiFi is not input-bound.
+- **What is left to check**: the unit tests on such a node (`cmake -DPROTAL_BUILD_TESTS=ON`, then the filter in
+  `check_avx512.sh`), which also prints the level directly. The script should test that the binary exists and take
+  the level from the CPU's flags.
 
 ## Other advanced CPU instructions
 

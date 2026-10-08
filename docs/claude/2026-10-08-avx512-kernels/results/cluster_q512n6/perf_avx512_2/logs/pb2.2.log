@@ -1,0 +1,112 @@
+                                             ,,  
+`7MM"""Mq.                   mm            `7MM  
+  MM   `MM.                  MM              MM  
+  MM   ,M9 `7Mb,od8 ,pW"Wq.mmMMmm  ,6"Yb.    MM  
+  MMmmdM9    MM' "'6W'   `Wb MM   8)   MM    MM  
+  MM         MM    8M     M8 MM    ,pm9MM    MM  
+  MM         MM    YA.   ,A9 MM   8M   MM    MM  
+.JMML.     .JMML.   `Ybmd9'  `Mbmo`Moo9^Yo..JMML.
+
+
+Total available memory is 502GB
+
+Options:
+------ General ------------------------------------
+build:               0
+no strains:          0
+threads:             32
+-------- I/O --------------------------------------
+first:               1 files
+second:              
+read types:          0 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)
+db path:             /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal
+database:            single file /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal
+sequence file:       
+sam file:            1 files
+profile file:        1 files
+output prefix:       pb2
+Output dir:          /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//perf_avx512_2/run.pb2.2
+preload genomes:     yes
+----- Alignment -----------------------------------
+align top:           3
+adaptive candidates: 7
+max key ubiquity:    256
+max seed size:       128
+max score ani:       0.900000
+x-drop:              1000 (short reads; long reads: none)
+short reads aligned: from their anchors
+alignment screen:    k-mers shared with the window before WFA2
+long read budget:    the ANI floor's for every candidate
+SAM header lists:    the genes aligned to
+unaligned reads:     counted per taxon in the SAM header
+fastalign:           0
+max out:             1
+------ Strains ------------------------------------
+snp min cov:         2
+snp min phred sum:   90
+snp min mean qual:   15
+snp min af:          0.150000
+snp require strand:  yes
+snp max alleles:     3
+run qcmsa:           no
+msa species:         
+msa min hcov:        1000
+msa min depth:       1
+msa identity margin: 0.040000
+msa knob:            0.500000 (--knob)
+phasing:             long-read samples
+foreign genes:       left out of depth and MSAs
+suspect gene copies: left out of the evidence
+---- Dev Options ----------------------------------
+verbose:             no
+benchmark alignment: no
+profile truth:       no
+^ output:            
+---------------------------------------------------
+
+Loading the gene tables took 464ms
+Gene tables: gene_table.bin 14527738 genes with unique k-mer counts: reading 0.08 s, genomes 0.08 s, adding 0.31 s
+Preload genomes
+Preload genomes took 1s 700ms
+Preload: 14527738 genes, 16.45 Gb, 4.12 GB packed, from 16.62 GB of reference: listing the genes 0.35 s (sorted), arena 0.50 s, reading and packing 0.84 s, marking the genomes 0.00 s
+Memory after the genome preload: 25.13 GB resident, peak 27.46 GB
+Model of PacBio reads: model_PB.xml in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 5589 gene copies of 2908 species near-identical to another genus's copy (suspect_copies.tsv in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal), 143614 with a duplicated marker, CheckM quality or a species cluster known
+Species neighbours: the database has no species_neighbours.tsv (built by an earlier protal): the database-neighbourhood features are unknown (-1)
+Congener gaps: the database has none (built by an earlier protal: the gaps features are unknown (-1))
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Gene neighbours: 731664 rules of 8348 clades from 17180 genomes (gene_neighbours.tsv in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 1s 740ms
+Load index index.prx in /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal (32 thread(s))
+Index features: full s-mer syncmers, per-entry unique-distance flags, reference fingerprint, checked single-entry uniques
+Index in memory: 2903557366 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 26.6 GB; key map 3.2 GB
+Load Index took 2s 652ms
+Index: its last 40 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 32.98 GB resident, peak 33.59 GB
+Align the PacBio reads of sample pb2 (-a 0.9)
+Start parallel execution with 32 threads
+33621 gene hits fit several taxa (MAPQ < 4); 31261 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 1552 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+Gene neighbours: 472 genes found on reads where the database's gene neighbours put them next to the reads' genes
+Sample pb2: 497656 reads, 497655 with an anchor; 9687718 candidate alignments tried: 9261825 refused by the k-mer screen, 424825 aligned from the anchor's exact matches and 1068 as whole windows; 268742 alignments made, 103394 records written
+Sample pb2 seeding: 473852030 k-mers looked up, 469974489 in the index, 469974489 blocks scanned with 34888986258 flex cells (74.2 per block); by block size 1: 1.2% of blocks, 0.0% of cells, 2-15: 29.4% of blocks, 3.4% of cells, 16-255: 63.7% of blocks, 54.1% of cells, 256-4095: 5.8% of blocks, 42.6% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 964147360 seeds, 154820718 of them sharing their taxon and gene with another seed; 124034 lookups dropped as too ubiquitous; 46557627 anchors
+Aligning reads took 7s 549ms
+Writing the SAM header and file took 219ms
+SAM header: 13867 genes, 1663312 bytes, written as 579993 (text built in 0.01 s); the unaligned reads' failed candidates of 143397 taxa in 1335673 bytes of it; placed in its room of 1626112 bytes before the records
+Processing all samples took 7s 825ms
+Memory after aligning: 34.31 GB resident, peak 34.44 GB
+Sample pb2: 354 records on suspect gene copies left out of the evidence (suspect_copies.tsv; --keep_suspect_copies counts them)
+Sample pb2: 58 foreign genes of 29 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//perf_avx512_2/run.pb2.2/pb2.profile.genes.log
+Profiling sample pb2 took 0.5s: reading the SAM 0.2s, record evidence and sample context 0.2s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.1s
+Sample pb2 SAM read: 0.23 GB of SAM text in 215 chunks (5 decompressing threads); the reading thread: 0.08 s reading, 0.04 s cutting chunks, 0.00 s waiting for room; this thread: 0.08 s waiting for chunks, 0.05 s adding the chunks' counts, 0.01 s planning the taxa's records, 0.00 s on rejected reads, 0.07 s on 32 threads (parsing 0.82 s, adding to the taxa 0.34 s, summed over the threads)
+Sample pb2 read EM: 6934 ambiguity classes with 14560 alternatives, 143511 taxa (1830 named by the classes), 100 sweeps; the record counts by taxon 0.010 s, setting up 0.010 s, the sweeps 0.013 s, the shares 0.008 s
+Warning: 1 species in 1 sample profile(s) score below their sample's knob (0.5, or the model's for the sample's depth) and are not reported, although their own reads are strong evidence (depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are listed in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//perf_avx512_2/run.pb2.2/misc/unreported_species.tsv. Their samples enter the strain MSAs if they score that knob or more.
+Profiling took 768ms
+Memory after profiling: 5.22 GB resident, peak 34.44 GB
+Strain outputs: /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//perf_avx512_2/run.pb2.2/strains
+Strain-level MSAs took 4ms
+Strain-level MSAs of 0 species: 0 raw MSAs, 0 filtered by qcMSA (--no_qcmsa); 1 species at a time, the times below summed over the species
+Building the strain MSAs took less than 1ms
+Run protal took 11s 874ms
+Freeing memory took 0s 86ms
