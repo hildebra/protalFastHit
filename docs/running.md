@@ -328,7 +328,9 @@ between its own species' reference and a congener's ranks its own species below 
 
 Also shown by `--full_help`: `--build` and its options ([databases.md](databases.md#building-a-database)),
 the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
-([databases.md](databases.md#the-files-of-a-database)), `--profile_truth` for the training dump
+([databases.md](databases.md#the-files-of-a-database)), `--write_species_neighbours FILE` (every species' nearest
+congeners by their references, from a folder of separate files, without building: the build script's
+`species_clouds.tsv`), `--profile_truth` for the training dump
 ([databases.md](databases.md#training-data)), `--benchmark_alignment` (checks alignments against the
 `taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
 gene in the SAM header, see above), `--write_unmapped_reads` (an unmapped record for each read that

@@ -54,10 +54,14 @@ from insilico_strains import CODE, kmer_codes, substitutions  # noqa: E402
 MIN_MAPQ = 4
 CIGAR = re.compile(rb"(\d+)([MIDNSHP=X])")
 NEAREST = 3  # congeners whose majority base defines the second set of sites
+CONSENSUS = 0.9  # protal's consensus sites (AncestrySites.h kConsensus): of the congeners compared at a position, the
+MIN_CONGENERS = 3  # share that carry one other base, where at least this many were compared (kMinCongeners); else the
+#                    nearest congener's difference
 BANDS = ((0.93, 0.96), (0.96, 0.975), (0.975, 0.99))
 MIN_SITES = (3, 10, 30)
-COUNTS = ["aligned", "mismatches", "sites1", "agree1", "alt1", "sites3", "agree3", "alt3", "fixed1", "fixed_agree1",
-          "fixed_alt1", "poly_covered", "poly_mismatches", "nonpoly_aligned", "nonpoly_mismatches"]
+COUNTS = ["aligned", "mismatches", "sites1", "agree1", "alt1", "sites3", "agree3", "alt3", "sites4", "agree4", "alt4",
+          "fixed1", "fixed_agree1", "fixed_alt1", "poly_covered", "poly_mismatches", "nonpoly_aligned",
+          "nonpoly_mismatches"]
 
 
 def parse_args(argv=None):
@@ -253,37 +257,51 @@ def diagonal(rep, other, k=12):
 
 class Sites:
     """The site classes of one gene copy of T: against the nearest congener (alt1: the congener's base at the sites
-    where it differs from T, -1 elsewhere), against the majority of the NEAREST nearest (alt3), and the sites where
-    T's own alleles differ from the representative (poly)."""
+    where it differs from T, -1 elsewhere), against the majority of the NEAREST nearest (alt3), protal's consensus over
+    every congener compared (alt4: where MIN_CONGENERS or more were compared at the position, the base CONSENSUS of
+    them carry if it is not T's; with fewer, the nearest's difference), and the sites where T's own alleles differ
+    from the representative (poly)."""
 
     def __init__(self, t_copy, congener_copies, alleles):
         n = len(t_copy)
         self.alt1 = np.full(n, -1, dtype=np.int8)
         self.alt3 = np.full(n, -1, dtype=np.int8)
+        self.alt4 = np.full(n, -1, dtype=np.int8)
         self.poly = np.zeros(n, dtype=bool)
         self.nearest_identity = None
         self.allele_divergence = 0.0
         ranked = []
         for copy in congener_copies:
-            positions, compared = substitutions(t_copy, copy)
+            positions, compared, mask = substitutions(t_copy, copy, with_mask=True)
             if compared < n // 2:
                 continue
             d = diagonal(t_copy, copy)
             inside = (positions - d >= 0) & (positions - d < len(copy))
             bases = copy[positions[inside] - d]
             inside[inside] = bases < 4  # a site whose congener base is another letter (N) is no site
-            ranked.append((1 - len(positions) / compared, positions[inside], copy[positions[inside] - d]))
+            ranked.append((1 - len(positions) / compared, positions[inside], copy[positions[inside] - d], mask))
         if ranked:
             ranked.sort(key=lambda r: -r[0])
             self.nearest_identity = ranked[0][0]
             self.alt1[ranked[0][1]] = ranked[0][2]
             k = min(NEAREST, len(ranked))
             votes = np.zeros((n, 4), dtype=np.int16)
-            for _, positions, bases in ranked[:k]:
+            for _, positions, bases, _ in ranked[:k]:
                 votes[positions, bases] += 1
             majority = votes.argmax(axis=1)
             count = votes.max(axis=1)
             self.alt3[count * 2 > k] = majority[count * 2 > k]
+            votes = np.zeros((n, 4), dtype=np.int16)
+            compared_by = np.zeros(n, dtype=np.int16)
+            for _, positions, bases, mask in ranked:
+                votes[positions, bases] += 1
+                compared_by += mask
+            majority = votes.argmax(axis=1)
+            count = votes.max(axis=1)
+            enough = compared_by >= MIN_CONGENERS
+            self.alt4[~enough] = self.alt1[~enough]
+            consensus = enough & (count > 0) & (count >= CONSENSUS * compared_by)
+            self.alt4[consensus] = majority[consensus]
         for copy in alleles:
             positions, compared = substitutions(t_copy, copy)
             if compared < n // 2:
@@ -318,7 +336,7 @@ def count_record(sites, own, ref_pos, bases):
     """The site counts of one record on T's copy (COUNTS)."""
     mism = bases != own[ref_pos]
     out = [len(ref_pos), int(mism.sum())]
-    for alt in (sites.alt1, sites.alt3):
+    for alt in (sites.alt1, sites.alt3, sites.alt4):
         covered = alt[ref_pos] >= 0
         out += [int(covered.sum()), int((~mism[covered]).sum()), int((bases[covered] == alt[ref_pos][covered]).sum())]
     covered = sites.fixed1[ref_pos]
@@ -333,7 +351,8 @@ def signals(counts, with_alleles):
     c = dict(zip(COUNTS, counts))
     out = {"identity": 1 - c["mismatches"] / max(1, c["aligned"]),
            "species_base_at_congener_sites": c["agree1"] / max(1, c["sites1"]),
-           "species_base_at_majority_sites": c["agree3"] / max(1, c["sites3"])}
+           "species_base_at_majority_sites": c["agree3"] / max(1, c["sites3"]),
+           "species_base_at_consensus_sites": c["agree4"] / max(1, c["sites4"])}
     if with_alleles:
         out.update({"species_base_at_fixed_sites": c["fixed_agree1"] / max(1, c["fixed1"]),
                     "fixed_site_identity": 1 - c["nonpoly_mismatches"] / max(1, c["nonpoly_aligned"]),
@@ -355,7 +374,9 @@ def summarize(taxa, with_alleles):
         text = (f"  {group:14s} records {int(c['records']):7d}, identity {np.median(ids[group]):.4f}, sites/record "
                 f"{c['sites1'] / max(1, c['records']):.2f}, species' base {c['agree1'] / max(1, c['sites1']):.3f}, "
                 f"congener's {c['alt1'] / max(1, c['sites1']):.3f} (nearest); {c['agree3'] / max(1, c['sites3']):.3f} / "
-                f"{c['alt3'] / max(1, c['sites3']):.3f} (majority of 3)")
+                f"{c['alt3'] / max(1, c['sites3']):.3f} (majority of 3); {c['agree4'] / max(1, c['sites4']):.3f} / "
+                f"{c['alt4'] / max(1, c['sites4']):.3f} at {c['sites4'] / max(1, c['records']):.2f}/record (consensus, "
+                f"protal's)")
         if with_alleles:
             text += (f"; fixed sites/record {c['fixed1'] / max(1, c['records']):.2f}, species' base "
                      f"{c['fixed_agree1'] / max(1, c['fixed1']):.3f}, congener's {c['fixed_alt1'] / max(1, c['fixed1']):.3f}; "

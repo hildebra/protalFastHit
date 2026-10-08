@@ -160,7 +160,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, manifest_rows, simulation_bytes, simulation_state, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, manifest_rows, read_clouds, simulation_bytes, simulation_state, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -680,14 +680,109 @@ def parse_clades(text):
     return clades
 
 
-def choose_holdout(genome_table, taxonomy, fraction, clades, max_share, seed):
+HOLDOUT_COMPLEX_DISTANCE = 0.01  # --holdout-complex-distance: a strain's distance on the marker genes
+CLOUD_MAX_DISTANCE = 0.15  # protal's species_neighbours::kMaxDistance: farther congeners are not listed
+CLOUD_BANDS = ((0.01, "within 0.01"), (0.02, "0.01-0.02"), (0.05, "0.02-0.05"), (CLOUD_MAX_DISTANCE, "0.05-0.15"))
+CLOUD_BAND_NONE = "farther or none"
+
+
+def cloud_band(distance):
+    """The CLOUD_BANDS label of a distance to the nearest kept congener (None: none listed)."""
+    if distance is None:
+        return CLOUD_BAND_NONE
+    return next((label for limit, label in CLOUD_BANDS if distance <= limit), CLOUD_BAND_NONE)
+
+
+def species_complexes(clouds, distance):
+    """{species: complex number} of the species within `distance` of a congener (read_clouds' distances, from either
+    side): the connected components of those pairs, numbered from 1 in the order of their smallest species name.
+    Species without such a congener are not listed."""
+    parent = {}
+
+    def find(s):
+        while parent[s] != s:
+            parent[s] = parent[parent[s]]
+            s = parent[s]
+        return s
+
+    for species, congeners in clouds.items():
+        for congener, d in congeners:
+            if d <= distance:
+                parent.setdefault(species, species)
+                parent.setdefault(congener, congener)
+                a, b = find(species), find(congener)
+                if a != b:
+                    parent[max(a, b)] = min(a, b)
+    number = {root: i + 1 for i, root in enumerate(sorted({find(s) for s in parent}))}
+    return {s: number[find(s)] for s in parent}
+
+
+def nearest_kept(species, clouds, chosen):
+    """The distance to the nearest congener of `species` not in `chosen` (kept in the training database), by the
+    clouds; None without one listed (none within CLOUD_MAX_DISTANCE, or all held out)."""
+    return min((d for c, d in clouds.get(species, ()) if c not in chosen), default=None)
+
+
+def write_holdout(path, chosen, clouds=None, complex_distance=0):
+    """heldout_species.txt: species, rank, clade; with clouds two more columns, the distance to the nearest kept
+    congener ("-": none within CLOUD_MAX_DISTANCE) and the complex the species is held out with (c<number>; empty
+    alone)."""
+    complexes = species_complexes(clouds, complex_distance) if clouds and complex_distance > 0 else {}
+    with open(path, "w") as fh:
+        for s, (rank, clade) in sorted(chosen.items()):
+            line = f"{s}\t{rank}\t{clade}"
+            if clouds is not None:
+                d = nearest_kept(s, clouds, chosen)
+                line += f"\t{'-' if d is None else f'{d:.4f}'}\t{'c' + str(complexes[s]) if s in complexes else ''}"
+            fh.write(line + "\n")
+
+
+def read_holdout_details(path):
+    """{species: (distance to the nearest kept congener or None, complex or "")} from the two columns write_holdout adds
+    with clouds; {} for a file without them."""
+    details = {}
+    with open(path) as fh:
+        for line in fh:
+            fields = [f.strip() for f in line.rstrip("\n").split("\t")]
+            if not fields[0] or fields[0].startswith("#") or len(fields) < 5:
+                continue
+            species = fields[0] if fields[0].startswith("s__") else "s__" + fields[0]
+            details[species] = (None if fields[3] in ("", "-") else float(fields[3]), fields[4])
+    return details
+
+
+def species_neighbours_summary(log):
+    """What protal --write_species_neighbours said (its "Species neighbours:" line, less the file it wrote)."""
+    try:
+        with open(log) as fh:
+            lines = [line.strip() for line in fh if line.startswith("Species neighbours:")]
+    except OSError:
+        return "unknown (no log)"
+    if not lines:
+        return "unknown (no 'Species neighbours' line)"
+    return lines[-1].removeprefix("Species neighbours:").strip().rsplit(": ", 1)[0]
+
+
+def choose_holdout(genome_table, taxonomy, fraction, clades, max_share, seed, clouds=None, complex_distance=0):
     """The species a training database leaves out, as {species: (rank, clade)}; rank "species" for single
     species. First whole clades, clades[rank] of each rank from phylum down: drawn among those with at least
     two species the genome table can simulate (so that samples can have them), with at most max_share of the
     database's species, and in no clade drawn before. Then a random `fraction` of the species the genome
-    table can simulate that no clade took, the same fraction in each domain."""
+    table can simulate that no clade took, the same fraction in each domain.
+
+    With `clouds` (read_clouds: each species' nearest congeners and their distances) and complex_distance > 0, species
+    within that distance of a congener form complexes (species_complexes) that are held out or kept whole: the draw
+    takes units, a complex (every species of it, also those the genome table cannot simulate) or a species alone, in
+    random order until the fraction of the domain's species to simulate is reached, so that no held-out species leaves
+    a near-identical twin in the training database (its reads would teach "absent" at the identity where a divergent
+    strain teaches "present"). Without complexes the draw is the one of before 2026-10-08."""
     lineage_by_id, _ = lineages.from_taxonomy(taxonomy)
     db = {lin["species"]: lin for lin in lineage_by_id.values() if "species" in lin}
+    complexes = species_complexes(clouds, complex_distance) if clouds and complex_distance > 0 else {}
+    members_of = collections.defaultdict(set)
+    for s, c in complexes.items():
+        if s in db:
+            members_of[c].add(s)
     pool_by_domain = collections.defaultdict(set)
     with open(genome_table) as fh:
         for line in fh:
@@ -715,8 +810,25 @@ def choose_holdout(genome_table, taxonomy, fraction, clades, max_share, seed):
                 chosen[species] = (rank, clade)
     for domain in sorted(pool_by_domain):
         species = sorted(s for s in pool_by_domain[domain] if s not in chosen)
-        for s in rng.sample(species, round(fraction * len(species))):
-            chosen[s] = ("species", s)
+        if not complexes:
+            for s in rng.sample(species, round(fraction * len(species))):
+                chosen[s] = ("species", s)
+            continue
+        units, seen = [], set()
+        for s in species:
+            if s not in complexes:
+                units.append([s])
+            elif complexes[s] not in seen:
+                seen.add(complexes[s])
+                units.append(sorted(members_of[complexes[s]] - set(chosen)))
+        rng.shuffle(units)
+        target, taken = round(fraction * len(species)), 0
+        for members in units:
+            if taken >= target:
+                break
+            for s in members:
+                chosen[s] = ("species", s)
+            taken += sum(s in pool_by_domain[domain] for s in members)
     return chosen
 
 
@@ -746,8 +858,9 @@ def pool_species(genome_table):
     return species
 
 
-def describe_holdout(chosen, pool):
-    """Lines saying what the training database leaves out."""
+def describe_holdout(chosen, pool, details=None, complex_distance=0):
+    """Lines saying what the training database leaves out; with details (read_holdout_details) also how near the
+    species held out alone are to their nearest kept congener, and the complexes held out whole."""
     lines = []
     by_rank = collections.defaultdict(lambda: collections.defaultdict(set))
     for species, (rank, clade) in chosen.items():
@@ -762,6 +875,19 @@ def describe_holdout(chosen, pool):
         else:
             names = ", ".join(f"{c} ({len(s)} species, {len(s & pool)} to simulate)" for c, s in sorted(by_rank[rank].items()))
             lines.append(f"  {len(by_rank[rank])} {rank} clades, {len(species)} species ({simulated} to simulate): {names}")
+    if details:
+        alone = sorted(s for s, (rank, _) in chosen.items() if rank == "species")
+        bands = collections.Counter(cloud_band(details[s][0]) if s in details else CLOUD_BAND_NONE for s in alone)
+        lines.append("  nearest kept congener of the species held out alone (species_clouds.tsv): " +
+                     ", ".join(f"{label} {bands[label]}" for label in (*(label for _, label in CLOUD_BANDS), CLOUD_BAND_NONE)))
+        complexes = collections.defaultdict(set)
+        for s in alone:
+            if s in details and details[s][1]:
+                complexes[details[s][1]].add(s)
+        if complex_distance > 0:
+            members = set().union(*complexes.values()) if complexes else set()
+            lines.append(f"  species complexes (congeners within {complex_distance:g}) held out whole: {len(complexes)}, "
+                         f"{len(members)} species ({len(members & pool)} to simulate); none torn")
     return lines
 
 
@@ -1207,6 +1333,7 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("classifier_training_species_left_out", n_heldout)]
     rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS
              if clade_counts.get(rank)]
+    rows += [("classifier_training_holdout_clouds", getattr(args, "holdout_clouds_note", "none"))]
     rows += [("classifier_training_samples", f"{args.samples} per design point"),
              ("classifier_training_design", f"read pairs {args.read_pairs}; read setups {args.read_setups}; "
                                             f"species per sample {args.species_per_sample}; strains "
@@ -1388,13 +1515,14 @@ def remove_full_reference(folder):
     return f"; {os.path.basename(path)} removed ({gigabytes(remove_full_reference_files(folder))})"
 
 
-def full_reference_fate(folder, keep):
-    """remove_full_reference, or with keep the note that the full reference stays: the ancestry report (reports) reads
-    the species' other genomes from it once the error reads are taken."""
+def full_reference_fate(folder, keep, why="the ancestry report"):
+    """remove_full_reference, or with keep the note that the full reference stays for `why`: the foreign scan
+    (foreign_rates) reads its marker genes right after the build, the ancestry report (reports) the species' other
+    genomes once the error reads are taken."""
     if not keep:
         return remove_full_reference(folder)
     path = full_reference_path(folder)
-    return f"; {os.path.basename(path)} kept for the ancestry report ({gigabytes(os.path.getsize(path))})" if path else ""
+    return f"; {os.path.basename(path)} kept for {why} ({gigabytes(os.path.getsize(path))})" if path else ""
 
 
 def build_command(protal, db, threads, *extra):
@@ -1638,6 +1766,15 @@ def main():
                         "collect_training_data.py --novel_clades)")
     p.add_argument("--holdout-species", help="file of the species to leave out (optionally with their rank and "
                                              "clade, as heldout_species.txt), instead of choosing them")
+    p.add_argument("--holdout-complex-distance", type=float, default=HOLDOUT_COMPLEX_DISTANCE,
+                   help="species within this distance of a congener on their references' marker genes (species_clouds.tsv, "
+                        "protal --write_species_neighbours on the converted release) form a complex that the training "
+                        f"database leaves out or keeps whole, never torn (default {HOLDOUT_COMPLEX_DISTANCE}: a strain's "
+                        "distance; 0: species drawn one by one, as before 2026-10-08). Torn, a held-out twin's reads teach "
+                        "'absent' at the identity where a divergent strain teaches 'present' (docs/claude/2026-10-08-r226-v17)")
+    p.add_argument("--species-clouds", help="the species' nearest congeners to steer the hold-out by (species_neighbours.tsv's "
+                                            "format, from an earlier build's database or protal --write_species_neighbours), "
+                                            "instead of comparing the converted release's references here")
     p.add_argument("--one-build-at-a-time", action="store_true",
                    help="build the finished database after the model is trained, not while the training data are "
                         "collected (the default, which needs the memory of two builds, or of one build and the "
@@ -1645,14 +1782,21 @@ def main():
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3)")
     p.add_argument("--foreign-rates", action="store_true",
-                   help="scan the genomes at hand against the training database (scripts/foreign_rates.py) and store "
-                        "foreign_rates.tsv in both databases, for the 'foreign' features. Off by default: the scan reads the "
-                        "genomes the samples are drawn from, so the features tell the models which species those are "
-                        "(r226 v17, docs/claude/2026-10-07-congener-gaps); they are in no default feature set")
+                   help="scan each database's full reference for the gene copies other species' reads reach "
+                        "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features: the default "
+                        "(kept for older command lines). The scan tiles every species' marker genes alike, so the table "
+                        "tells the models nothing of the simulation's species (the scan of the genomes at hand did, r226 "
+                        "v17: docs/claude/2026-10-07-congener-gaps); the features are in no default set until a build says "
+                        "what they are worth")
     p.add_argument("--no-foreign-rates", action="store_true",
-                   help="no scan (the default since 2026-10-08; overrides --foreign-rates)")
-    p.add_argument("--foreign-stride", type=int, default=500,
-                   help="the scan's reads: 150 bases every this many bases of every genome at hand (default 500)")
+                   help="no scan: the 'foreign' features are unknown (-1)")
+    p.add_argument("--foreign-stride", type=int, default=250,
+                   help="the scan's reads: 150 bases every this many bases of a gene copy (default 250: four reads of a "
+                        "marker gene of 1 kb)")
+    p.add_argument("--foreign-per-header", type=int, default=10,
+                   help="the scan tiles at most this many copies of each species' gene, the full reference's first (default "
+                        "10; 0: every genome's), so that a species with thousands of genomes gives no more reads than one "
+                        "with ten")
     p.add_argument("--final-db-level", type=int, default=9,
                    help="zstd level of the finished database (default 9: at GTDB r226, protal's default 19 made the index "
                         "2.7%% smaller than level 3 for 21 more minutes of a 1:20 build; docs/claude/2026-10-02-r226-build-"
@@ -2091,7 +2235,9 @@ def main():
     # set (if any), models, parity, packing.
     subset = args.n_genes is not None or bool(args.genes)
     has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
-    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (args.foreign_rates and not args.no_foreign_rates)
+    clades = parse_clades(args.holdout_clades)
+    steer_holdout = (args.holdout > 0 or bool(clades)) and not args.holdout_species and args.holdout_complex_distance > 0
+    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + steer_holdout
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -2272,13 +2418,51 @@ def main():
     # distant ones. It is made from the converted files before --build packs them. heldout_species.txt: the
     # species, the rank they were held out at and the clade.
     heldout = os.path.join(args.outdir, "heldout_species.txt")
-    clades = parse_clades(args.holdout_clades)
+    clouds_file = os.path.join(args.outdir, "species_clouds.tsv")
+    args.holdout_clouds_note = "none"  # build_metadata.tsv
+    clouds = None
+    if steer_holdout:
+        # The species' nearest congeners by their references (species_clouds.tsv): protal --write_species_neighbours on
+        # the converted release (what --build stores as species_neighbours.tsv, before any database exists), or
+        # --species-clouds copied. The hold-out below keeps or leaves out whole the complexes they show.
+        Steps.start("species clouds (species_clouds.tsv, species_clouds.log): every species' nearest congeners by their "
+                    f"references' marker genes; congeners within {args.holdout_complex_distance:g} form a complex the "
+                    "training database leaves out or keeps whole")
+        clouds_key = {"convert": convert_key, "protal": final_key["protal"],
+                      "given": content_hash(args.species_clouds) if args.species_clouds else None}
+        if args.species_clouds:
+            shutil.copyfile(args.species_clouds, clouds_file)
+            stages.mark("species_clouds", clouds_key)
+            Steps.done(f"copied from {args.species_clouds}")
+        elif stages.done("species_clouds", clouds_key) and os.path.isfile(clouds_file):
+            Steps.done("made by an earlier run from the same release; kept")
+        else:
+            stages.forget("species_clouds")
+            if converted is None:
+                if subset:
+                    ensure_converted()
+                else:
+                    converted = full
+                    Steps.done("the release again, for its species clouds (the finished database packed its references): " +
+                               convert(converted))
+            job = run([args.protal, "--write_species_neighbours", clouds_file, "--db", converted, "-t", str(args.threads)],
+                      os.path.join(args.outdir, "species_clouds.log"), label="comparing the species' references")
+            stages.mark("species_clouds", clouds_key)
+            Steps.done(f"made in {job.took()}: {species_neighbours_summary(os.path.join(args.outdir, 'species_clouds.log'))}")
+        clouds = read_clouds(clouds_file, taxonomy)
+        complexes = species_complexes(clouds, args.holdout_complex_distance)
+        args.holdout_clouds_note = (f"{len(clouds)} species' congeners within {CLOUD_MAX_DISTANCE:g} "
+                                    f"({'--species-clouds' if args.species_clouds else 'the converted release'}); "
+                                    f"{len(set(complexes.values()))} complexes of {len(complexes)} species within "
+                                    f"{args.holdout_complex_distance:g} of a congener, held out or kept whole")
+        Steps.done(f"{len(clouds)} species compared; {len(set(complexes.values()))} complexes of {len(complexes)} species "
+                   f"within {args.holdout_complex_distance:g} of a congener")
     if args.holdout_species:
         shutil.copyfile(args.holdout_species, heldout)
     elif args.holdout > 0 or clades:
-        chosen = choose_holdout(genome_table, taxonomy, args.holdout, clades, args.holdout_max_share, args.seed)
-        with open(heldout, "w") as fh:
-            fh.write("".join(f"{s}\t{rank}\t{clade}\n" for s, (rank, clade) in sorted(chosen.items())))
+        chosen = choose_holdout(genome_table, taxonomy, args.holdout, clades, args.holdout_max_share, args.seed, clouds,
+                                args.holdout_complex_distance)
+        write_holdout(heldout, chosen, clouds, args.holdout_complex_distance)
     elif os.path.exists(heldout):
         os.remove(heldout)
     for note in scenario_notes:
@@ -2403,11 +2587,14 @@ def main():
         n_heldout = len(chosen)
         with open(os.path.join(logs, "holdout.txt"), "w") as fh:
             fh.write("\n".join([f"training database: {n_heldout} species left out ({heldout})"] +
-                               describe_holdout(chosen, pool_species(genome_table))) + "\n")
+                               describe_holdout(chosen, pool_species(genome_table), read_holdout_details(heldout),
+                                                args.holdout_complex_distance if clouds else 0)) + "\n")
         # Read only by the collections and the parity check: on --scratch, its build writes and they load it from
         # the node's disk (writing database.protal to a network file system was 6 of the 15 min of an r226 build).
         training_db = os.path.join(samples_root, "training_db")
-        keep_full = args.share_logs  # ancestry_sites.py reads the species' other genomes from it, after the error reads
+        # Its full reference stays for the foreign scan right after its build (foreign_rates) and, with --share-logs, for
+        # the ancestry report (ancestry_sites.py reads the species' other genomes from it, after the error reads).
+        keep_full = args.share_logs or not args.no_foreign_rates
         Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
@@ -2454,7 +2641,7 @@ def main():
 
     def built_final_in_background():  # says so when the script notices, whatever step it is at
         built_final()
-        Steps.done(built(db, final_build, remove_full_reference(db)))
+        Steps.done(built(db, final_build, full_reference_fate(db, scan, "the foreign scan")))
 
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both profiled against the training database.
@@ -2474,6 +2661,8 @@ def main():
         command += ["--pbsim_models", args.pbsim_models] if args.pbsim_models else []
         if n_heldout:
             command += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
+            if os.path.isfile(clouds_file):  # meta_novel_distance: how far an absent taxon's held-out congener is
+                command += ["--species_clouds", clouds_file]
         if scenario_samples:
             command += ["--scenarios", ",".join(f"{name}:{n}" for name, n in scenario_samples.items())]
             command += ["--scenario_file", os.path.abspath(args.scenario_file)] if args.scenario_file else []
@@ -2538,42 +2727,65 @@ def main():
     # (docs/claude/2026-10-07-build-ordering): it is built alone, with every core and no simulation writing to its disk.
     # The finished database is needed only for --add_model at the end: built after it, at the idle scheduling class,
     # on the cores the profiling leaves (and paused while the models are trained).
-    # The scan of the genomes at hand for the gene copies other species' reads reach (scripts/foreign_rates.py), against
-    # the database the samples are profiled with, the held-out species left out of it; the table goes into that database
-    # (--add_tables) and, with the same taxids, into the finished one before its build packs it.
-    def foreign_rates(against, taxonomy, exclude):
+    # The scan of a database's full reference for the gene copies other species' reads reach (scripts/foreign_rates.py):
+    # every species' marker genes tiled alike (a few genomes each), aligned against the database, the table stored in it
+    # (--add_tables). The training database right after its build, from its full reference, which lacks the held-out
+    # species (so the table knows nothing of them); the finished database after its own build, from its full reference
+    # (every species), before its models go in. A database's full reference goes once its scan is done (the training
+    # database's with --share-logs after the ancestry report).
+    scan = not args.no_foreign_rates
+
+    def foreign_rates(against):
         table = os.path.join(against, "foreign_rates.tsv")
+        stage = "foreign_rates" if against == db else "foreign_rates_training"
         key = {"database": final_key if against == db else training_key, "stride": args.foreign_stride,
-               "genomes": content_hash(genome_table)}
-        Steps.start(f"the gene copies' foreign reads (foreign_rates.log): reads every {args.foreign_stride} bases of every "
-                    f"genome at hand{', the held-out species left out,' if exclude else ''} aligned against "
-                    f"{os.path.basename(against)}")
-        if stages.done("foreign_rates", key) and os.path.isfile(table):
+               "per_header": args.foreign_per_header, "script": content_hash(FOREIGN_RATES)}
+        log = os.path.join(args.outdir, stage + ".log")
+        Steps.start(f"the gene copies' foreign reads of {os.path.basename(against)} ({os.path.basename(log)}): reads every "
+                    f"{args.foreign_stride} bases of {'every' if args.foreign_per_header == 0 else 'at most ' + str(args.foreign_per_header)} "
+                    f"cop{'y' if args.foreign_per_header == 1 else 'ies'} of each species' gene in its full reference, aligned "
+                    f"against it")
+        if stages.done(stage, key) and os.path.isfile(table):
             Steps.done(f"{table} was made by an earlier run for the same database; kept")
             return table
+        full = full_reference_path(against)
+        if not full:
+            Steps.done(f"left out: {os.path.basename(against)} has no full reference (removed by an earlier run?); the "
+                       "'foreign' features are unknown (-1)")
+            return None
         if not os.path.isfile(taxonomy):
             Steps.done(f"left out: no taxonomy at {taxonomy}; the 'foreign' features are unknown (-1)")
             return None
-        stages.forget("foreign_rates")
-        command = [sys.executable, FOREIGN_RATES, "--db", against, "--genome-table", genome_table, "--taxonomy", taxonomy,
-                   "--out", table, "--stride", str(args.foreign_stride), "-t", str(args.threads), "--protal", args.protal,
-                   "--simulate", args.simulator, "--workdir", os.path.join(samples_root, "foreign_rates_scan")]
-        if exclude:
-            command += ["--exclude", exclude]
-        log = os.path.join(args.outdir, "foreign_rates.log")
-        job = run(command, log, label="scanning the genomes")
+        stages.forget(stage)
+        command = [sys.executable, FOREIGN_RATES, "--db", against, "--full-reference", full, "--taxonomy", taxonomy,
+                   "--out", table, "--stride", str(args.foreign_stride), "--per-header", str(args.foreign_per_header),
+                   "-t", str(args.threads), "--protal", args.protal, "--simulate", args.simulator,
+                   "--workdir", os.path.join(samples_root, "foreign_rates_scan")]
+        job = run(command, log, label="scanning the full reference")
         run([args.protal, "--add_tables", table, "--db", against, "-t", str(args.threads)],
-            os.path.join(args.outdir, "foreign_rates_add.log"), lambda: stages.mark("foreign_rates", key),
+            os.path.join(args.outdir, stage + "_add.log"), lambda: stages.mark(stage, key),
             f"storing the table in {os.path.basename(against)}")
-        Steps.done(f"{table} in {job.took()}; stored in {os.path.basename(against)}")
+        Steps.done(f"{last_line(log)}; in {job.took()}; stored in {os.path.basename(against)}")
         return table
+
+    def scanned(folder, keep=False):
+        """The scan of a database just built, then its full reference removed (unless keep); the line to add to the
+        build's."""
+        if not scan:
+            return remove_full_reference(folder)
+        foreign_rates(folder)
+        return "" if keep else remove_full_reference(folder)
 
     if final_done:
         pass
     elif training_db == db:
         job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
                   f"building {os.path.basename(db)}")
-        Steps.done(built(db, job, remove_full_reference(db)))
+        Steps.done(built(db, job, full_reference_fate(db, scan, "the foreign scan")))
+        if scan:
+            removed = scanned(db)
+            if removed:
+                Steps.done(f"{os.path.basename(db)}'s full reference, read by the scan{removed}")
     if training_db != db and not training_done:
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
@@ -2581,15 +2793,12 @@ def main():
                   os.path.join(args.outdir, "training_db_index.log"),
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
-        Steps.done(built(training_db, job, full_reference_fate(training_db, keep_full) + files_took))
-    if args.foreign_rates and not args.no_foreign_rates:
-        if training_db != db:
-            table = foreign_rates(training_db, taxonomy, heldout)  # the same taxids as the finished database's
-            if table and not final_done:
-                shutil.copyfile(table, os.path.join(db, "foreign_rates.tsv"))  # packed by its build
-        elif not final_done or not stages.done("foreign_rates", {"database": final_key, "stride": args.foreign_stride,
-                                                                 "genomes": content_hash(genome_table)}):
-            foreign_rates(db, taxonomy, None)
+        Steps.done(built(training_db, job, full_reference_fate(training_db, keep_full, "the foreign scan" if scan else
+                                                                "the ancestry report") + files_took))
+    if scan and training_db != db:
+        removed = scanned(training_db, keep=args.share_logs)
+        if removed:
+            Steps.done(f"{os.path.basename(training_db)}'s full reference, read by the scan{removed}")
     if not final_done and training_db != db:
         if args.one_build_at_a_time:
             Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")
@@ -2831,7 +3040,8 @@ def main():
         if os.path.isfile(parity):
             shutil.copy(parity, os.path.join(logs, "parity.txt" if t == "pe" else f"parity_{t}.txt"))
     for name in [os.path.join(args.outdir, n) for n in ("training_data_simulation.log", "training_data.log",
-                                                         "test_data_simulation.log", "test_data.log", "genome_table.txt")] + [heldout]:
+                                                         "test_data_simulation.log", "test_data.log", "genome_table.txt")] + \
+            [heldout, clouds_file]:
         if os.path.isfile(name):
             shutil.copy(name, logs)
     # The models go into the database first; the reports of what their errors rest on follow (reports()).
@@ -2844,7 +3054,13 @@ def main():
         Steps.done(f"building {os.path.basename(db)} first (index_and_package.log)")
         job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
                   f"building {os.path.basename(db)}")
-        Steps.done(built(db, job, remove_full_reference(db)))
+        Steps.done(built(db, job, full_reference_fate(db, scan, "the foreign scan")))
+    if scan and training_db != db:
+        # The finished database's own scan (every species, from its full reference), before the models go in: --add_model
+        # then replaces them in place at the file's end.
+        removed = scanned(db)
+        if removed:
+            Steps.done(f"{os.path.basename(db)}'s full reference, read by the scan{removed}")
     # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
     # each and replaces them in place at the end of the file (seconds; without placeholders, a read type's
     # model is a new member and the ~20 GB file is rewritten once instead).

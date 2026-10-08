@@ -1,5 +1,6 @@
 // Unit tests of AncestrySites.h: the sites where a species' gene copy differs from its congener's, found along their
-// shared 12-mers; what a record covers of them from its CIGAR; and the per-run cache over the species neighbours.
+// shared 12-mers; the consensus over several congeners; what a record covers of them from its CIGAR; and the per-run
+// cache over the species neighbours and the congener gaps.
 #include <gtest/gtest.h>
 #include <random>
 #include <set>
@@ -28,6 +29,15 @@ namespace {
         return other;
     }
 
+    // The k-th (0, 1, 2) base other than c.
+    char Alt(char c, size_t k) {
+        std::string others;
+        for (char const b : std::string_view("ACGT")) {
+            if (b != c) others += b;
+        }
+        return others[k];
+    }
+
     // own with substitutions at the given positions; returns the new bases.
     std::string Substituted(std::string seq, std::vector<size_t> const& positions, std::mt19937& rng) {
         for (auto const p : positions) seq[p] = Other(seq[p], rng);
@@ -46,6 +56,7 @@ TEST(AncestrySites, CompareFindsTheSubstitutions) {
     EXPECT_EQ(std::vector<size_t>(sites->positions.begin(), sites->positions.end()), changed);
     for (size_t i = 0; i < changed.size(); i++) EXPECT_EQ(sites->bases[i], an::Code(other[changed[i]]));
     EXPECT_GT(sites->compared, 800u);
+    EXPECT_EQ(sites->congeners, 1u);
     EXPECT_NEAR(sites->identity, 1.0 - static_cast<double>(changed.size()) / static_cast<double>(sites->compared), 1e-6);
     EXPECT_EQ(sites->Count(0, 900), changed.size());
     EXPECT_EQ(sites->Count(30, 31), 1u);
@@ -57,6 +68,11 @@ TEST(AncestrySites, CompareFindsTheSubstitutions) {
     ASSERT_TRUE(same.has_value());
     EXPECT_TRUE(same->Empty());
     EXPECT_EQ(same->compared, 900u);
+    // The comparison says which positions were compared.
+    auto const comparison = an::CompareCopies(own, other);
+    ASSERT_TRUE(comparison.has_value());
+    EXPECT_EQ(comparison->covered.size(), 900u);
+    EXPECT_EQ(static_cast<size_t>(std::count(comparison->covered.begin(), comparison->covered.end(), 1)), comparison->sites.compared);
 }
 
 TEST(AncestrySites, CompareStopsAtAnIndelAndRejectsUnrelatedCopies) {
@@ -75,6 +91,48 @@ TEST(AncestrySites, CompareStopsAtAnIndelAndRejectsUnrelatedCopies) {
     // Too short to pair, or too long to index.
     EXPECT_FALSE(an::Compare("ACGTACGTAC", "ACGTACGTAC").has_value());
     EXPECT_FALSE(an::Compare(std::string(70000, 'A'), std::string(70000, 'A')).has_value());
+}
+
+// The consensus: at a position compared with three congeners or more, a site where nine in ten of them carry one base
+// other than the species' (every one of three or four); with fewer compared, the nearest congener's difference.
+TEST(AncestrySites, ConsensusKeepsTheSitesTheCongenersShare) {
+    std::mt19937 rng(14);
+    auto const own = RandomSequence(900, rng);
+    auto set = [&own](std::string& seq, size_t p, size_t k) { seq[p] = Alt(own[p], k); };
+    // A: the nearest (three differences, all of it compared); B and C end at an insertion at 860, D at 700.
+    std::string a = own, b = own, c = own, d = own;
+    for (auto* s : { &a, &b, &c, &d }) set(*s, 100, 0);          // all four: a site
+    for (auto* s : { &b, &c, &d }) set(*s, 200, 0);              // three of four: none (0.75)
+    set(b, 600, 0);                                              // three of four, two bases: none
+    set(c, 600, 1);
+    set(d, 600, 1);
+    for (auto* s : { &a, &b, &c }) set(*s, 800, 2);              // the three compared there (D ended): a site
+    set(b, 850, 0);                                              // one of three: none
+    set(a, 880, 1);                                              // A alone compared there: its difference, a site
+    set(b, 890, 1);                                              // B is not compared there
+    b.insert(860, "ACGTACG");
+    c.insert(860, "ACGTACG");
+    d.insert(700, "ACGTACG");
+    std::vector<an::Comparison> comparisons;
+    for (auto const& [taxid, seq] : { std::pair{ 11u, &a }, std::pair{ 12u, &b }, std::pair{ 13u, &c }, std::pair{ 14u, &d } }) {
+        auto comparison = an::CompareCopies(own, *seq);
+        ASSERT_TRUE(comparison.has_value()) << taxid;
+        comparison->sites.congener = taxid;
+        comparisons.push_back(std::move(*comparison));
+    }
+    auto const sites = an::Consensus(own.size(), comparisons);
+    EXPECT_EQ(sites.positions, (std::vector<uint16_t>{ 100, 800, 880 }));
+    EXPECT_EQ(sites.bases, (std::vector<uint8_t>{ an::Code(Alt(own[100], 0)), an::Code(Alt(own[800], 2)), an::Code(Alt(own[880], 1)) }));
+    EXPECT_EQ(sites.congener, 11u);
+    EXPECT_EQ(sites.congeners, 4u);
+    EXPECT_GT(sites.compared, 850u);
+    EXPECT_NEAR(sites.identity, comparisons[0].sites.identity, 1e-7);
+    // With B alone: its differences where compared, as 0.7.9 had (850 lies between that substitution and B's insertion
+    // at 860, so no paired 12-mer reaches it); without any: nothing.
+    auto const alone = an::Consensus(own.size(), { comparisons[1] });
+    EXPECT_EQ(alone.positions, (std::vector<uint16_t>{ 100, 200, 600, 800 }));
+    EXPECT_EQ(alone.congeners, 1u);
+    EXPECT_TRUE(an::Consensus(own.size(), {}).Empty());
 }
 
 TEST(AncestrySites, CountWalksTheCigar) {
@@ -138,12 +196,13 @@ namespace {
     };
 }
 
+// Two congeners with the gene: fewer than three, so the sites are the nearest pairing one's differences.
 TEST(AncestrySites, CacheTakesTheNearestCongenerWithThePairingCopy) {
     std::mt19937 rng(13);
     auto const own = RandomSequence(800, rng);
     FakeGenomes genomes;
     genomes.Set(1, 5, own);
-    genomes.Set(3, 5, Substituted(own, { 50, 150, 250 }, rng));  // the second-nearest congener: the only one with the gene
+    genomes.Set(3, 5, Substituted(own, { 50, 150, 250 }, rng));  // the second-nearest congener: the nearest with the gene
     genomes.Set(4, 5, Substituted(own, { 60, 160, 260, 360 }, rng));
     genomes.Set(1, 6, own);
     genomes.Set(2, 6, RandomSequence(800, rng));  // the nearest congener's copy of gene 6 does not pair
@@ -153,10 +212,12 @@ TEST(AncestrySites, CacheTakesTheNearestCongenerWithThePairingCopy) {
     an::Cache cache;
     auto const s5 = cache.Get(1, 5, genomes, neighbours);
     EXPECT_EQ(s5->congener, 3u);
-    EXPECT_EQ(s5->positions.size(), 3u);
+    EXPECT_EQ(s5->congeners, 2u);
+    EXPECT_EQ(s5->positions, (std::vector<uint16_t>{ 50, 150, 250 }));
     EXPECT_EQ(cache.Get(1, 5, genomes, neighbours).get(), s5.get());  // computed once
     auto const s6 = cache.Get(1, 6, genomes, neighbours);
     EXPECT_EQ(s6->congener, 3u);
+    EXPECT_EQ(s6->congeners, 1u);
     EXPECT_EQ(s6->positions.size(), 1u);
     // A species without neighbours, or without the gene: empty; without the table: empty and nothing cached.
     EXPECT_TRUE(cache.Get(3, 5, genomes, neighbours)->Empty());
@@ -167,7 +228,30 @@ TEST(AncestrySites, CacheTakesTheNearestCongenerWithThePairingCopy) {
     EXPECT_EQ(cache.Size(), 0u);
 }
 
-// With congener_gaps.tsv the cache compares a copy with the gene's nearest congener by alignment first: also one that
+// With three congeners or more the cache takes the consensus: the sites every one of them shares (nine in ten).
+TEST(AncestrySites, CacheTakesTheConsensusOfTheCongeners) {
+    std::mt19937 rng(15);
+    auto const own = RandomSequence(800, rng);
+    FakeGenomes genomes;
+    genomes.Set(1, 5, own);
+    std::string shared = own;
+    shared[100] = Alt(own[100], 0);
+    shared[500] = Alt(own[500], 1);
+    genomes.Set(2, 5, Substituted(shared, { 200 }, rng));   // each differs at 100 and 500 alike, and at a site of its own
+    genomes.Set(3, 5, Substituted(shared, { 300 }, rng));
+    genomes.Set(4, 5, Substituted(shared, { 400 }, rng));
+    genomes.Set(5, 5, RandomSequence(800, rng));            // does not pair: not a vote
+    sn::Table neighbours;
+    neighbours.Set(1, { { 2, 0.02f }, { 3, 0.03f }, { 4, 0.04f }, { 5, 0.05f } });
+    an::Cache cache;
+    auto const sites = cache.Get(1, 5, genomes, neighbours);
+    EXPECT_EQ(sites->positions, (std::vector<uint16_t>{ 100, 500 }));
+    EXPECT_EQ(sites->bases, (std::vector<uint8_t>{ an::Code(shared[100]), an::Code(shared[500]) }));
+    EXPECT_EQ(sites->congeners, 3u);
+    EXPECT_EQ(sites->congener, 2u);  // all three at the same identity: the first
+}
+
+// With congener_gaps.tsv the cache compares a copy with the gene's nearest congener by alignment too: also one that
 // species_neighbours.tsv does not list (farther over all genes, or beyond its 16 within 0.15), and even without that
 // table; without the gene's nearest (an older table, or none for the gene) the species' neighbours as before.
 TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
@@ -185,7 +269,8 @@ TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
                                                                { 1, 6, protal::congener_gaps::Gap{ 25, 25, 1, 0 } } });
     an::Cache cache;
     auto const s5 = cache.Get(1, 5, genomes, neighbours, &gaps);
-    EXPECT_EQ(s5->congener, 7u);
+    EXPECT_EQ(s5->congener, 7u);  // the nearest of the two compared
+    EXPECT_EQ(s5->congeners, 2u);
     EXPECT_EQ(s5->positions, std::vector<uint16_t>{ 100 });
     // Gene 6's entry names no congener: the species' neighbour.
     EXPECT_EQ(cache.Get(1, 6, genomes, neighbours, &gaps)->congener, 2u);
@@ -196,4 +281,5 @@ TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
     // Without the gaps: the species' nearest, as before.
     an::Cache before;
     EXPECT_EQ(before.Get(1, 5, genomes, neighbours)->congener, 2u);
+    EXPECT_EQ(before.Get(1, 5, genomes, neighbours)->positions.size(), 5u);
 }

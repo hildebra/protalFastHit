@@ -24,6 +24,7 @@
 #include "RandomForest/ReadPipeline.h"
 #include "IO/Bgzf.h"
 #include "Utilities/BuildInfo.h"
+#include "Utilities/Zstd.h"
 
 namespace fs = std::filesystem;
 using protal::sim::AbundanceDistribution;
@@ -169,8 +170,10 @@ struct CliOptions {
     fs::path long_samples, long_genomes, long_model, long_stats, long_templates, long_out;
     std::string long_setup;
     fs::path genome_store;    // --genome_store
-    std::string tiles;        // --tiles LENGTH:STRIDE (tile_genomes)
+    std::string tiles;        // --tiles LENGTH:STRIDE (tile_genomes, tile_fasta)
     fs::path tile_out, tile_exclude;
+    fs::path tile_fasta;      // --tile_fasta: the records of a FASTA file instead of the genome table's genomes
+    std::size_t tile_per_header{0};  // --tile_per_header: at most this many records of each header (0: all)
     bool plain_pipes{false};  // --plain_pipes
 };
 
@@ -334,7 +337,14 @@ static cxxopts::Options build_cxxopts() {
         ("tile_out",        "With --tiles: the reads (.fq.zst or .fq.gz; a named pipe with --plain_pipes gets plain FASTQ)",
                             cxxopts::value<std::string>())
         ("tile_exclude",    "With --tiles: species to leave out, one per line in the first column (s__Genus species, as "
-                            "heldout_species.txt)", cxxopts::value<std::string>());
+                            "heldout_species.txt)", cxxopts::value<std::string>())
+        ("tile_fasta",      "With --tiles: the records of this FASTA file (plain or zstd; a database's full_reference.fna.zst: "
+                            "every genome's marker genes, >taxid_geneid) instead of the genome table's genomes, the reads named "
+                            "<header>:<record number>:<start>; <tile_out>.sources.tsv lists every header's records and tiles "
+                            "(scripts/foreign_rates.py)", cxxopts::value<std::string>())
+        ("tile_per_header", "With --tile_fasta: at most this many records of each header (0: all), so that a species with "
+                            "thousands of genomes gives no more reads of a gene than one with this many",
+                            cxxopts::value<std::size_t>()->default_value("0"));
 
     options.add_options("General")
         ("t,threads",       "Threads: the reads are made in work items of a few hundred kB on all of them, several samples at a time when one leaves threads idle; the same files for any number", cxxopts::value<int>()->default_value("1"))
@@ -387,12 +397,16 @@ static CliOptions parse_cli(int argc, char** argv) {
         if (result.count("seed")) opts.seed = result["seed"].as<std::uint64_t>();
         return opts;
     }
-    if (result.count("tiles")) {  // tiles of the genome table's genomes: no design
+    if (result.count("tiles")) {  // tiles of the genome table's genomes, or of a FASTA file's records: no design
         CliOptions opts;
         opts.tiles = result["tiles"].as<std::string>();
-        if (!result.count("tile_out") || !result.count("genome_table")) throw std::runtime_error("--tiles needs --tile_out and --genome_table");
+        if (!result.count("tile_out") || (!result.count("genome_table") && !result.count("tile_fasta"))) {
+            throw std::runtime_error("--tiles needs --tile_out and --genome_table or --tile_fasta");
+        }
         opts.tile_out = result["tile_out"].as<std::string>();
-        opts.genome_table = result["genome_table"].as<std::string>();
+        if (result.count("genome_table")) opts.genome_table = result["genome_table"].as<std::string>();
+        if (result.count("tile_fasta")) opts.tile_fasta = result["tile_fasta"].as<std::string>();
+        opts.tile_per_header = result["tile_per_header"].as<std::size_t>();
         if (result.count("tile_exclude")) opts.tile_exclude = result["tile_exclude"].as<std::string>();
         opts.threads = result["threads"].as<int>();
         if (result.count("genome_store")) opts.genome_store = result["genome_store"].as<std::string>();
@@ -815,17 +829,180 @@ static int illumina_report(const CliOptions& cli) {
 // order; those of the species --tile_exclude names (first column: s__Genus species, as heldout_species.txt) left out. A scan
 // of the genomes at hand against a database (scripts/foreign_rates.py): which gene copies other species' reads reach.
 // The genomes are read on --threads threads, a batch at a time, and written in order: the same file for any number.
-static int tile_genomes(const CliOptions& cli) {
-    auto const colon = cli.tiles.find(':');
+static std::pair<std::uint64_t, std::uint64_t> parse_tiles(std::string const& text) {
+    auto const colon = text.find(':');
     std::uint64_t length = 0, stride = 0;
     try {
         if (colon == std::string::npos) throw std::invalid_argument("no colon");
-        length = std::stoull(cli.tiles.substr(0, colon));
-        stride = std::stoull(cli.tiles.substr(colon + 1));
+        length = std::stoull(text.substr(0, colon));
+        stride = std::stoull(text.substr(colon + 1));
     } catch (std::exception const&) {
-        throw std::runtime_error("--tiles takes LENGTH:STRIDE (e.g. 150:500), not '" + cli.tiles + "'");
+        throw std::runtime_error("--tiles takes LENGTH:STRIDE (e.g. 150:500), not '" + text + "'");
     }
     if (length == 0 || stride == 0) throw std::runtime_error("--tiles: LENGTH and STRIDE must be positive");
+    return { length, stride };
+}
+
+// The reads of a tiling, packed for --tile_out (.fq.zst, .fq.gz or plain) and written in order; open until Close().
+class TileWriter {
+public:
+    TileWriter(fs::path const& out, bool plain_pipes, std::size_t threads)
+        : m_out(out), m_pipe(fs::is_fifo(out)),
+          m_packing(m_pipe && plain_pipes ? protal::sim::pipeline::Packing::Plain : protal::sim::pipeline::PackingOf(out)),
+          m_target(m_pipe ? out : fs::path(out.string() + ".partial")),
+          m_file(std::fopen(m_target.c_str(), "wb"), &std::fclose), m_threads(std::max<std::size_t>(1, threads)) {
+        if (!m_file) throw std::runtime_error("cannot write " + m_target.string());
+    }
+
+    protal::sim::pipeline::Packing Packing() const { return m_packing; }
+
+    // Packs these chunks of FASTQ text on the threads and writes them in order.
+    void Write(std::vector<std::string>& chunks) {
+        std::vector<std::string> packed(chunks.size());
+        std::atomic<std::size_t> next{0};
+        auto work = [&] {
+            for (std::size_t c; (c = next++) < chunks.size();) packed[c] = protal::sim::pipeline::Pack(chunks[c], m_packing);
+        };
+        std::vector<std::thread> pool;
+        for (std::size_t t = 1; t < std::min(m_threads, chunks.size()); t++) pool.emplace_back(work);
+        work();
+        for (auto& t : pool) t.join();
+        for (auto const& bytes : packed) {
+            if (std::fwrite(bytes.data(), 1, bytes.size(), m_file.get()) != bytes.size()) {
+                throw std::runtime_error("writing " + m_target.string() + " failed");
+            }
+        }
+        chunks.clear();
+    }
+
+    void Close() {
+        if (m_packing == protal::sim::pipeline::Packing::Bgzf &&
+            std::fwrite(protal::bgzf::kEof, 1, sizeof(protal::bgzf::kEof), m_file.get()) != sizeof(protal::bgzf::kEof)) {
+            throw std::runtime_error("writing " + m_target.string() + " failed");
+        }
+        if (std::fclose(m_file.release()) != 0) throw std::runtime_error("writing " + m_target.string() + " failed");
+        if (!m_pipe) fs::rename(m_target, m_out);
+    }
+
+private:
+    fs::path m_out;
+    bool m_pipe;
+    protal::sim::pipeline::Packing m_packing;
+    fs::path m_target;
+    std::unique_ptr<std::FILE, int (*)(std::FILE*)> m_file;
+    std::size_t m_threads;
+};
+
+// --tiles with --tile_fasta: error-free reads of LENGTH bases every STRIDE bases of every record of a FASTA file (plain or
+// zstd, read sequentially; a database's full_reference.fna.zst: every genome's marker genes under >taxid_geneid), named
+// <header>:<record>:<start> (the header's first word, the record's number in the file from 0, the tile's 0-based start),
+// into --tile_out. --tile_per_header N keeps the first N records of each header within one gene's run of records (the
+// full reference is gene by gene, the gene the header's part after '_'): a species with thousands of genomes then gives
+// no more reads of a gene than one with N. <tile_out>.sources.tsv lists, per header in file order (a header again when
+// its gene's records are not contiguous), the records seen and kept and the tiles made, so that scripts/foreign_rates.py
+// gives every gene copy a row, reached by a read or not. The records are read on one thread, the reads packed on
+// --threads threads a batch at a time and written in order: the same file for any number of threads.
+static int tile_fasta(const CliOptions& cli) {
+    auto const [length, stride] = parse_tiles(cli.tiles);
+    protal::zstd::InputFile input(cli.tile_fasta.string());
+    if (!input.IsOpen()) throw std::runtime_error("cannot read " + cli.tile_fasta.string());
+    std::istream& is = input.Stream();
+    std::size_t const threads = static_cast<std::size_t>(std::max(1, cli.threads));
+    TileWriter writer(cli.tile_out, cli.plain_pipes, threads);
+    fs::path const sources_path(cli.tile_out.string() + ".sources.tsv");
+    std::ofstream sources(sources_path.string() + ".partial");
+    if (!sources) throw std::runtime_error("cannot write " + sources_path.string());
+    sources << "header\trecords\tkept\ttiles\n";
+    struct Source { std::uint64_t seen = 0, kept = 0, tiles = 0; };
+    std::unordered_map<std::string, Source> current;  // the headers of the gene being read
+    std::vector<std::string> order;                   // in order of first appearance
+    std::string gene;                                 // the current records' gene (the header after '_'; "" without one)
+    std::uint64_t headers = 0, records = 0, kept = 0, reads = 0;
+    auto flush_sources = [&] {
+        for (auto const& key : order) {
+            auto const& s = current.at(key);
+            sources << key << '\t' << s.seen << '\t' << s.kept << '\t' << s.tiles << '\n';
+        }
+        headers += order.size();
+        current.clear();
+        order.clear();
+    };
+    std::string const quality(length, 'I');
+    std::size_t const chunk_bytes = std::size_t{4} << 20;
+    std::vector<std::string> chunks;
+    std::string chunk;
+    auto take = [&](std::string const& key, std::string const& seq) {
+        auto const us = key.find('_');
+        std::string group = us == std::string::npos ? std::string() : key.substr(us + 1);
+        if (group != gene) {
+            flush_sources();
+            gene = std::move(group);
+        }
+        auto& s = current[key];
+        if (s.seen++ == 0) order.push_back(key);
+        if (cli.tile_per_header > 0 && s.kept >= cli.tile_per_header) return;
+        s.kept++;
+        kept++;
+        for (std::uint64_t pos = 0; pos + length <= seq.size(); pos += stride) {
+            chunk += '@';
+            chunk += key;
+            chunk += ':';
+            chunk += std::to_string(records);
+            chunk += ':';
+            chunk += std::to_string(pos);
+            chunk += '\n';
+            chunk.append(seq, pos, length);
+            chunk += "\n+\n";
+            chunk += quality;
+            chunk += '\n';
+            s.tiles++;
+            reads++;
+        }
+        if (chunk.size() >= chunk_bytes) {
+            chunks.push_back(std::move(chunk));
+            chunk.clear();
+            if (chunks.size() >= threads * 4) writer.Write(chunks);
+        }
+    };
+    std::string line, key, seq;
+    bool in_record = false;
+    while (std::getline(is, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && line[0] == '>') {
+            if (in_record) {
+                take(key, seq);
+                records++;
+            }
+            auto const end = line.find_first_of(" \t", 1);
+            key = line.substr(1, end == std::string::npos ? std::string::npos : end - 1);
+            seq.clear();
+            in_record = true;
+        } else if (in_record) {
+            seq += line;
+        }
+    }
+    if (is.bad() || (!is.eof() && is.fail())) throw std::runtime_error("cannot read " + cli.tile_fasta.string() + " to its end");
+    if (in_record) {
+        take(key, seq);
+        records++;
+    }
+    flush_sources();
+    if (!chunk.empty()) chunks.push_back(std::move(chunk));
+    if (!chunks.empty()) writer.Write(chunks);
+    writer.Close();
+    sources.close();
+    if (!sources) throw std::runtime_error("writing " + sources_path.string() + " failed");
+    fs::rename(sources_path.string() + ".partial", sources_path);
+    std::cout << "Tiles: " << reads << " reads of " << length << " bases every " << stride << " bases of " << kept << " of "
+              << records << " records (" << headers << " headers"
+              << (cli.tile_per_header > 0 ? ", at most " + std::to_string(cli.tile_per_header) + " records each" : "")
+              << ") of " << cli.tile_fasta.string() << " into " << cli.tile_out.string() << "; their headers' records and tiles: "
+              << sources_path.string() << std::endl;
+    return 0;
+}
+
+static int tile_genomes(const CliOptions& cli) {
+    auto const [length, stride] = parse_tiles(cli.tiles);
     std::unordered_set<std::string> excluded;
     if (!cli.tile_exclude.empty()) {
         std::ifstream in(cli.tile_exclude);
@@ -973,7 +1150,7 @@ int main(int argc, char** argv) {
     }
     if (!cli.tiles.empty()) {
         try {
-            return tile_genomes(cli);
+            return cli.tile_fasta.empty() ? tile_genomes(cli) : tile_fasta(cli);
         } catch (const std::exception& ex) {
             std::cerr << "Tiling failed: " << ex.what() << '\n';
             return 1;

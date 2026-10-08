@@ -179,7 +179,8 @@ namespace protal {
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of genomes and how many came from other species) or congener_gaps.tsv (what --build writes). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species) or congener_gaps.tsv (what --build writes). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
@@ -293,6 +294,7 @@ namespace protal {
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
         std::string add_tables;  // --add_tables
+        std::string write_species_neighbours;  // --write_species_neighbours
         double knob = 0.5;
         bool knob_given = false;  // --knob on the command line: the models' depth knobs are not used
         std::optional<double> fdr;  // --fdr; none: a model's calibrated calls are not used
@@ -419,6 +421,7 @@ namespace protal {
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
         std::string m_add_tables;  // --add_tables
+        std::string m_write_species_neighbours;  // --write_species_neighbours
         double m_knob = 0.5;
         bool m_knob_given = false;  // --knob
         std::optional<double> m_fdr;  // --fdr
@@ -574,6 +577,7 @@ namespace protal {
                 m_read_type(std::move(d.read_type)),
                 m_add_model(std::move(d.add_model)),
                 m_add_tables(std::move(d.add_tables)),
+                m_write_species_neighbours(std::move(d.write_species_neighbours)),
                 m_knob(d.knob),
                 m_knob_given(d.knob_given),
                 m_fdr(d.fdr),
@@ -792,6 +796,12 @@ namespace protal {
                 if (!item.empty()) files.push_back(item);
             }
             return files;
+        }
+
+        // The file --write_species_neighbours writes the species' nearest congeners to (Build.h WriteSpeciesNeighboursOnly);
+        // empty without it.
+        std::string const& WriteSpeciesNeighboursFile() const {
+            return m_write_species_neighbours;
         }
 
         // The tables --add_tables may store, by file name.
@@ -2102,11 +2112,17 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             ResolveDatabase(error_log);
             bool const add_model = !m_add_model.empty();
             bool const add_tables = !m_add_tables.empty();
-            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model || add_tables;
+            bool const write_neighbours = !m_write_species_neighbours.empty();
+            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model || add_tables || write_neighbours;
             if (!m_build && !db_mode) ResolveReadTypes(warning_log, &note_log);
-            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(add_tables) + int(m_build) > 1) {
-                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db, --add_model and --add_tables cannot be "
-                                       "combined (--build compresses unless --no_compress)");
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(add_tables) + int(write_neighbours) +
+                int(m_build) > 1) {
+                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db, --add_model, --add_tables and "
+                                       "--write_species_neighbours cannot be combined (--build compresses unless --no_compress)");
+            }
+            if (write_neighbours && m_bundle) {
+                error_log.emplace_back("--write_species_neighbours needs a folder of separate files (reference.fna, reference.map, "
+                                       "internal_taxonomy.dmp), not a single-file database: --unpack_db it first");
             }
             if (add_tables) {
                 auto const allowed = AddableTables();
@@ -2176,7 +2192,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 if (!std::filesystem::exists(GetInternalTaxonomyFile())) {
                     error_log.emplace_back("Taxonomy file does not exist: " + GetInternalTaxonomyFile());
                 }
-                if (!m_build && !std::filesystem::exists(ResolvedIndexFile())) {
+                // --write_species_neighbours reads the references and the taxonomy only: a converted release has no index yet.
+                if (!m_build && !write_neighbours && !std::filesystem::exists(ResolvedIndexFile())) {
                     error_log.emplace_back("Index file does not exist: " + GetIndexFile() + " (nor " + GetIndexFile() +
                                            zstd::kExtension + ")");
                 }
@@ -2219,7 +2236,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     m_full_sequence_file = m_sequence_file;
                 }
             } else if (m_bundle || (m_location.missing.empty() && m_location.bundle.empty())) {  // not missing, nor a single file that failed to open
-                if (!m_no_profile && !UniqueKmersFileExists()) {
+                // Nothing is profiled with --no_profile or --write_species_neighbours: no unique k-mers or models needed.
+                if (!m_no_profile && !write_neighbours && !UniqueKmersFileExists()) {
                     error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
                 }
@@ -2227,7 +2245,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [this](ReadTypeInfo const& t) { return AnySample(t.type); });
                 for (auto const& info : kReadTypes) {
                     auto const type = info.type;
-                    if (m_no_profile || !(AnySample(type) || (type == ReadType::Paired && !any_sample)) || ModelDbFile(type).Exists()) continue;
+                    if (m_no_profile || write_neighbours || !(AnySample(type) || (type == ReadType::Paired && !any_sample)) ||
+                        ModelDbFile(type).Exists()) continue;
                     if (!ModelNamed(type).empty()) {
                         error_log.emplace_back("Model file does not exist: " + ModelDbFile(type).Name());
                         continue;
@@ -2928,7 +2947,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool const unpack_db = result.count("unpack_db") > 0;
             bool const add_model = !result["add_model"].as<std::string>().empty();
             bool const add_tables = !result["add_tables"].as<std::string>().empty();
-            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db && !add_model && !add_tables) {
+            bool const write_neighbours = !result["write_species_neighbours"].as<std::string>().empty();
+            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db && !add_model && !add_tables && !write_neighbours) {
                 if (first_list.empty()) {
                     std::cerr << "No input reads given. Provide reads via -1/--first (and -2/--second for paired-end "
                                  "reads), or a map file via --map (see --map_help)." << std::endl;
@@ -3166,6 +3186,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.read_type                = result["read_type"].as<std::string>();
             d.add_model                = result["add_model"].as<std::string>();
             d.add_tables               = result["add_tables"].as<std::string>();
+            d.write_species_neighbours = result["write_species_neighbours"].as<std::string>();
 
             auto options = Options(std::move(d));
 

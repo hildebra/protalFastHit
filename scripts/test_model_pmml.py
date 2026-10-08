@@ -334,12 +334,14 @@ class FeatureSetsTest(unittest.TestCase):
         # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06, the groups against
         # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07, the ancestry
         # sites since 0.7.9 (2026-10-07), and the congener gaps and the untried candidates (gaps, untried) since the merge of
-        # congener-gaps (2026-10-07). The foreign rates are in no named set (and so never chosen by --features auto): their
-        # scan read the genomes the samples are drawn from, which they told the models (r226 v17, 2026-10-08).
+        # congener-gaps (2026-10-07). The foreign rates are not in the default set: their first scan read the genomes
+        # the samples are drawn from, which they told the models (r226 v17, 2026-10-08); the scan of the full
+        # reference since then is offered to --features auto by one named set.
         self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
                                                  "consistency+shape+neighbourhood+ancestry+gaps+untried")
-        for named in mf.FEATURE_SETS + mf.AUTO_PRIORS_CANDIDATES:
-            self.assertNotIn("foreign", named.split("+"), named)
+        self.assertEqual([named for named in mf.FEATURE_SETS if "foreign" in named.split("+")],
+                         [mf.DEFAULT_FEATURE_SET + "+foreign"])
+        self.assertIn(mf.DEFAULT_FEATURE_SET + "+foreign", mf.AUTO_CANDIDATES)
         self.assertEqual(len(mf.FOREIGN_FEATURES), 3)
         copies = mf.GAP_FEATURES + mf.UNTRIED_FEATURES
         self.assertEqual(len(copies), 5)

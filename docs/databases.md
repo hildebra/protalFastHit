@@ -27,7 +27,7 @@ databases are in [development.md](development.md).
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
 | `species_neighbours.tsv` | optional (since 2026-10-06): each species' nearest congeners in the database by the distance of their marker genes, for the database-neighbourhood features and `unexpected_congener_fit_share` ([below](#2-build-the-index), [features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)) |
 | `congener_gaps.tsv` | optional (since 2026-10-07): per species' copy of each marker gene, the alignment distance to its nearest congener's copy and to a typical one, and which congener is the nearest, for the `gaps` features and the ancestry sites ([below](#2-build-the-index), [features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)) |
-| `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the genomes at hand that landed on it and how many came from other species and genera (`scripts/foreign_rates.py`, stored with `--add_tables`), for the `foreign` features, which leak the simulation's genomes: only with `build_gtdb_database.py --foreign-rates` since 2026-10-08 ([features.md](features.md#the-foreign-features-leak)) |
+| `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the full reference's marker genes (every species' alike, a few genomes each) that landed on it and how many came from other species and genera, every copy listed (`scripts/foreign_rates.py`, stored with `--add_tables`; `build_gtdb_database.py` does both for each database), for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); until 2026-10-08 the scan read the genomes at hand, which leaked the simulation's species ([features.md](features.md#the-foreign-features-leak)) |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
@@ -328,7 +328,8 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
 | `genomes_simulated.tsv`, `insilico_strains/` | the same with the in-silico strains, their FASTAs and `insilico_strains.tsv` (per strain: divergence drawn and reached, substitutions) |
-| `heldout_species.txt` | the species the training database leaves out, with the rank they were held out at and the clade |
+| `heldout_species.txt` | the species the training database leaves out, with the rank they were held out at and the clade; since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`) |
+| `species_clouds.tsv` | every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; also in `model_logs/` |
 | `training/`, `test/`, `training_db/` | one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`); with `--scratch` each protal run's log (`protal_runs/`); without `--scratch` also the samples, their profiles and the training database |
 | `.stages/`, `*.log` | what a rerun may skip; one log per step, and `console.log`, the console's lines |
 
@@ -403,11 +404,20 @@ sample or missed a fifth of the strains.
   Two kinds are held out:
   - whole clades (`--holdout-clades`: 2 phyla, 4 classes, 6 orders, 8 families, 12 genera, each at
     most 2% of the species);
-  - then 30% of the remaining species to simulate (`--holdout`).
+  - then 30% of the remaining species to simulate (`--holdout`), species complexes whole: before
+    anything is built, `protal --write_species_neighbours` compares every species' reference with
+    its congeners' (`species_clouds.tsv`, what `--build` stores as `species_neighbours.tsv`), and
+    congeners within `--holdout-complex-distance` (0.01, a strain's distance) are held out or kept
+    together. Torn, a held-out twin's reads teach "absent" at the identity where a divergent strain
+    teaches "present", and no feature can satisfy both
+    ([report](claude/2026-10-08-r226-v17/README.md)).
 
-  Every sample holds one species of a held-out clade of each rank. `heldout_species.txt` lists them,
-  and the report gives false positive and false negative rates by rank
-  ([below](#species-and-clades-the-database-lacks)). The finished
+  Every sample holds one species of a held-out clade of each rank. `heldout_species.txt` lists them
+  (with the distance to the nearest kept congener and the complex), `model_logs/holdout.txt` counts
+  them by that distance, the training table carries it per row (`meta_novel_distance`), and the
+  report gives false positive and false negative rates by rank and by that distance
+  ([below](#species-and-clades-the-database-lacks)); `machine_learning_cmdline.py --twin-weight`
+  can weigh down the absent rows beside a held-out twin (1 by default). The finished
   database has every species.
 
 The samples are as complex as real ones:
@@ -752,6 +762,7 @@ keeps the finished database.
 | `--seed` | 1 | |
 | `--holdout`, `--holdout-clades`, `--holdout-max-share` | 0.3, `phylum:2,class:4,order:6,family:8,genus:12`, 0.02 | species and clades left out of the training database; `--holdout-clades none` for species only |
 | `--holdout-species` | | a file of the species to leave out instead |
+| `--holdout-complex-distance`, `--species-clouds` | 0.01, | species within this distance of a congener on their references' marker genes form a complex that the training database leaves out or keeps whole, never torn (0: species drawn one by one, as before 2026-10-08); the distances come from `species_clouds.tsv`, which the build makes with `protal --write_species_neighbours` on the converted release, or from the table given ([below](#species-and-clades-the-database-lacks)) |
 | `--novel-clades-per-sample` | 1 | species of held-out clades per sample and rank |
 | `--insilico-strains`, `--insilico-ani` | 1, | share of one-genome species given an in-silico strain; or their ANI drawn from `MIN-MAX` |
 | `--samples` | 12 | samples per design point |
@@ -779,8 +790,8 @@ keeps the finished database.
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
-| `--foreign-rates` | | scan the genomes at hand against the training database (`scripts/foreign_rates.py`, after its build) and store `foreign_rates.tsv` in both databases; off by default since 2026-10-08, because the scan reads the genomes the samples are drawn from and the `foreign` features tell the models which species those are ([features.md](features.md#the-foreign-features-leak)); without it the features are unknown (-1). `--no-foreign-rates` (the default) overrides it |
-| `--foreign-stride` | 500 | the scan's reads: 150 bases every this many bases of every genome at hand (the held-out species left out) |
+| `--foreign-rates`, `--no-foreign-rates` | on | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); `--no-foreign-rates` skips both scans, and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
+| `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
 | `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |
 | `--training-db-level`, `--final-db-level` | 3, 9 | zstd levels of the two databases |
 | `--no-placeholder-models` | | no placeholder models for read types not trained |
@@ -1234,13 +1245,20 @@ Then make it the database's model of its read type with `protal --add_model trai
 `<prefix>.thresholds.tsv` is a start.
 
 The per-copy tables a run reads go in the same way, by their file names: `protal --add_tables foreign_rates.tsv --db DB`
-(also `congener_gaps.tsv`). `scripts/foreign_rates.py --db DB --genome-table genomes.tsv --out foreign_rates.tsv`
-makes the first: error-free reads every `--stride` bases of every genome of the table (`simulate_metagenomes --tiles`,
-`--exclude` leaves species out), aligned against the database once, each read's best record (MAPQ 4 or more) counted
-for its gene copy as a read of the copy's own species, of another species or of another genus. It needs the
-database's `internal_taxonomy.dmp` (`--taxonomy`: a built `database.protal` packs it). A table scanned from the genomes
-the training samples are drawn from tells the models which species those are ([features.md](features.md#the-foreign-features-leak)):
-the `foreign` features are in no default set.
+(also `congener_gaps.tsv`). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
+foreign_rates.tsv` makes the first: error-free reads every `--stride` bases (250) of at most `--per-header` (10) copies
+of each species' gene in the full reference (`simulate_metagenomes --tiles --tile_fasta --tile_per_header`; the reads
+named `<taxid_gene>:<record>:<start>`, the headers' records and tiles in `<tiles>.sources.tsv`), aligned against the
+database once, each read's best record (MAPQ 4 or more) counted for its gene copy as a read of the copy's own species,
+of another species or of another genus; every copy of the full reference gets a row, reached by a read or not, its
+reads the foreign ones plus one genome's worth of its own (own reads over the records tiled), so that the species'
+genome count stays out of the share. It
+needs the database's `internal_taxonomy.dmp` (`--taxonomy`: a built `database.protal` packs it) and the full reference
+the database was built from (a training database's lacks its held-out species, so the table knows nothing of them).
+Until 2026-10-08 the scan tiled the genomes the training samples are drawn from, and a copy was listed only when a read
+reached it, which told the models which species the simulation could draw
+([features.md](features.md#the-foreign-features-leak)): the `foreign` features are not in the default set until a build
+says what the new scan is worth; `--features auto` tries them.
 
 ### Knobs by sample depth
 

@@ -2960,12 +2960,13 @@ namespace protal {
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
         if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode() || !options.GetAddModel().empty() ||
-            !options.AddTables().empty()) {
+            !options.AddTables().empty() || !options.WriteSpeciesNeighboursFile().empty()) {
             // Each exits 8 on failure.
             if (options.CompressDbMode()) protal::build::CompressDatabase(options);
             else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
             else if (options.UnpackDbMode()) protal::build::UnpackDatabase(options);
             else if (!options.AddTables().empty()) protal::build::AddTables(options);
+            else if (!options.WriteSpeciesNeighboursFile().empty()) protal::build::WriteSpeciesNeighboursOnly(options);
             else {
                 std::vector<std::pair<std::string, std::string>> models;  // file, member
                 for (auto const& [file, read_type] : options.AddModels()) {

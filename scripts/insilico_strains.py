@@ -185,21 +185,23 @@ def kmer_codes(codes, k):
     return np.where((windows == 4).any(axis=1), -1, values)
 
 
-def substitutions(rep, other, k=SPECTRUM_KMER):
+def substitutions(rep, other, k=SPECTRUM_KMER, with_mask=False):
     """The substitutions between a representative's gene copy and another genome's (codes in reading orientation),
     without an alignment: the k-mers unique to each copy pair them on their main diagonal, and the bases are compared
     on the stretches between two paired k-mers that lie on that diagonal (an indel moves the diagonal and ends the
-    stretch). Returns (positions on the representative's copy that differ, bases compared)."""
+    stretch). Returns (positions on the representative's copy that differ, bases compared); with_mask adds which
+    positions of the representative's copy were compared (a bool array)."""
     a, b = kmer_codes(rep, k), kmer_codes(other, k)
+    none = (np.zeros(0, dtype=np.int64), 0, np.zeros(len(rep), dtype=bool)) if with_mask else (np.zeros(0, dtype=np.int64), 0)
     if not len(a) or not len(b):
-        return np.zeros(0, dtype=np.int64), 0
+        return none
     ua, ia, ca = np.unique(a, return_index=True, return_counts=True)
     ub, ib, cb = np.unique(b, return_index=True, return_counts=True)
     keep_a = (ca == 1) & (ua >= 0)
     keep_b = (cb == 1) & (ub >= 0)
     shared, pa, pb = np.intersect1d(ua[keep_a], ub[keep_b], assume_unique=True, return_indices=True)
     if len(shared) < 2:
-        return np.zeros(0, dtype=np.int64), 0
+        return none
     pos_a, pos_b = ia[keep_a][pa], ib[keep_b][pb]
     diagonals, counts = np.unique(pos_a - pos_b, return_counts=True)
     d = int(diagonals[np.argmax(counts)])
@@ -210,7 +212,7 @@ def substitutions(rep, other, k=SPECTRUM_KMER):
         compared[p:q + k] = True
     lo, hi = max(0, d), min(len(rep), len(other) + d)
     if hi <= lo:
-        return np.zeros(0, dtype=np.int64), 0
+        return none
     differ = np.zeros(len(rep), dtype=bool)
     differ[lo:hi] = rep[lo:hi] != other[lo - d:hi - d]
     compared[:lo] = False
@@ -218,6 +220,8 @@ def substitutions(rep, other, k=SPECTRUM_KMER):
     compared &= (rep < 4)
     compared[lo:hi] &= other[lo - d:hi - d] < 4  # another letter (N) on either copy: not compared
     differ &= compared
+    if with_mask:
+        return np.flatnonzero(differ), int(compared.sum()), compared
     return np.flatnonzero(differ), int(compared.sum())
 
 

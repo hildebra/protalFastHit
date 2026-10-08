@@ -309,6 +309,61 @@ class CladeHoldoutTest(unittest.TestCase):
         self.assertEqual(build.parse_clades("phylum:2,class:4"), {"phylum": 2, "class": 4})
         self.assertEqual(build.parse_clades("none"), {})
 
+    def test_holdout_keeps_species_complexes_whole(self):
+        # With the species' clouds (protal --write_species_neighbours: each species' nearest congeners), congeners within
+        # --holdout-complex-distance form a complex that is held out or kept whole; the draw is the old one without them.
+        import collect_training_data as collect
+        gtdb, db = shared_release()
+        taxonomy = os.path.join(db, "internal_taxonomy.dmp")
+        table = os.path.join(gtdb, "simulation", "genomes.tsv")
+        _, ids = lineages.from_taxonomy(taxonomy) if False else (None, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            # species_neighbours.tsv's format, by taxid: Mockella alpha and beta 0.08 apart, Fakibacter gamma alone.
+            by_id, _ = __import__("lineages").from_taxonomy(taxonomy)
+            taxid = {lin["species"]: tid for tid, lin in by_id.items() if "species" in lin}
+            path = os.path.join(tmp, "species_clouds.tsv")
+            with open(path, "w") as fh:
+                fh.write("taxid\tneighbours\n")
+                fh.write(f"{taxid['s__Mockella alpha']}\t{taxid['s__Mockella beta']}:0.08\n")
+                fh.write(f"{taxid['s__Mockella beta']}\t{taxid['s__Mockella alpha']}:0.08\n")
+                fh.write(f"{taxid['s__Fakibacter gamma']}\t\n")
+            clouds = collect.read_clouds(path, taxonomy)
+            self.assertEqual(clouds, {"s__Mockella alpha": [("s__Mockella beta", 0.08)],
+                                      "s__Mockella beta": [("s__Mockella alpha", 0.08)], "s__Fakibacter gamma": []})
+            self.assertEqual(build.species_complexes(clouds, 0.01), {})
+            self.assertEqual(build.species_complexes(clouds, 0.1), {"s__Mockella alpha": 1, "s__Mockella beta": 1})
+            # No complex within 0.01: the draw of before (one species of three at 0.34).
+            plain = build.choose_holdout(table, taxonomy, 0.34, {}, 1.0, 3)
+            self.assertEqual(plain, build.choose_holdout(table, taxonomy, 0.34, {}, 1.0, 3, clouds, 0.01))
+            self.assertEqual(len(plain), 1)
+            # Within 0.1, alpha and beta go together, whichever seed: both or neither.
+            for seed in range(6):
+                chosen = build.choose_holdout(table, taxonomy, 0.34, {}, 1.0, seed, clouds, 0.1)
+                self.assertEqual(chosen, build.choose_holdout(table, taxonomy, 0.34, {}, 1.0, seed, clouds, 0.1))
+                mockella = {"s__Mockella alpha", "s__Mockella beta"} & set(chosen)
+                self.assertIn(len(mockella), (0, 2), chosen)
+                self.assertTrue(chosen, chosen)
+                # heldout_species.txt with the distance to the nearest kept congener and the complex; read back
+                path = os.path.join(tmp, f"heldout{seed}.txt")
+                build.write_holdout(path, chosen, clouds, 0.1)
+                self.assertEqual(build.read_holdout(path), chosen)
+                self.assertEqual(collect.read_novel(path), chosen)
+                details = build.read_holdout_details(path)
+                self.assertEqual(set(details), set(chosen))
+                for s in chosen:
+                    self.assertEqual(details[s], (None, "c1" if s in mockella else ""), s)  # the kept congener: none
+                lines = build.describe_holdout(chosen, build.pool_species(table), details, 0.1)
+                self.assertTrue(any("nearest kept congener" in line and "farther or none" in line for line in lines), lines)
+                self.assertTrue(any(f"held out whole: {1 if mockella else 0}," in line for line in lines), lines)
+            # One of the complex held out by hand: its twin kept, the distance to it recorded.
+            torn = {"s__Mockella alpha": ("species", "s__Mockella alpha")}
+            path = os.path.join(tmp, "torn.txt")
+            build.write_holdout(path, torn, clouds, 0.1)
+            self.assertEqual(build.read_holdout_details(path), {"s__Mockella alpha": (0.08, "c1")})
+            self.assertEqual(build.cloud_band(0.08), "0.05-0.15")
+            self.assertEqual(build.cloud_band(None), "farther or none")
+            self.assertEqual(build.cloud_band(0.2), "farther or none")
+
 
 class BinaryCheckTest(unittest.TestCase):
     """The commit a build records for --version (protal_commit.cmake), and build_gtdb_database.py's check at its start

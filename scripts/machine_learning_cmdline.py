@@ -250,6 +250,14 @@ def parse_args(argv=None):
     p.add_argument("--scenario-weight", type=float, default=SCENARIO_WEIGHT,
                    help=f"the sample weight of the scenarios' rows (meta_scenario) in every model fitted, the design's 1 "
                         f"(default {SCENARIO_WEIGHT}; 1: as the design's)")
+    p.add_argument("--twin-weight", type=float, default=1.0,
+                   help="the sample weight of the absent rows beside a held-out twin, a congener within --twin-distance "
+                        "of the taxon's reference (meta_novel_distance, collect_training_data.py --species_clouds), times "
+                        "the row's other weight (default 1: as the others; 0: left out of every fit). A model is punished "
+                        "for calling a species whose twin is in the sample; the report gives the false positives by that "
+                        "distance whatever the weight")
+    p.add_argument("--twin-distance", type=float, default=0.01,
+                   help="--twin-weight's distance (default 0.01: a strain's distance on the marker genes)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the clades held out (with --taxonomy) and the studies (see above); basic: by rows, "
@@ -856,6 +864,28 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
             report.add("the same false positives by the deepest rank the taxon shares with that species:")
             report.table(pd.DataFrame(rows))
             data["false_positives_by_shared_rank"] = rows
+        if "meta_novel_distance" in df.columns and "meta_novel_congener" in df.columns:
+            distance = pd.to_numeric(df["meta_novel_distance"], errors="coerce").to_numpy()
+            congener = pd.to_numeric(df["meta_novel_congener"], errors="coerce").fillna(0).to_numpy() > 0
+            if np.isfinite(distance).any():
+                report.add("")
+                report.add("The false positives beside a held-out congener by the distance between the taxon's reference "
+                           "and the nearest held-out congener's in the sample (meta_novel_distance: species_clouds.tsv, "
+                           "the median Mash distance of their marker genes; 'farther or none': beyond 0.15), and the "
+                           "present taxa beside a held-out congener by the same distance (their FN). A species held out "
+                           "within a strain's distance of a kept one (0.01) is a twin the training database tore: the "
+                           "build keeps such complexes whole (--holdout-complex-distance), and --twin-weight weighs what "
+                           "is left.")
+                rows = []
+                for label, sel in distance_bands(distance):
+                    fp_mask = absent & (level == "species") & sel
+                    fn_mask = present & congener & sel
+                    if fp_mask.any() or fn_mask.any():
+                        row = {"held-out congener": label, **counts(fp_mask, False)}
+                        row.update({f"present {k}": v for k, v in counts(fn_mask, True).items()})
+                        rows.append(row)
+                report.table(pd.DataFrame(rows))
+                data["errors_by_congener_distance"] = rows
 
     if ranks_in("meta_neighbour_rank"):
         neighbour = df["meta_neighbour_rank"].fillna("").astype(str).to_numpy()
@@ -885,6 +915,31 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
         report.table(pd.DataFrame(rows))
         data["clades_held_out_in_training"] = rows
     report.data[key] = data
+
+
+def twin_rows(df, distance):
+    """The absent rows beside a held-out twin: a species held out of the training database within `distance` of the
+    taxon's reference in the sample (meta_novel_distance, collect_training_data.py --species_clouds); all False without
+    the column."""
+    if "meta_novel_distance" not in df.columns:
+        return np.zeros(len(df), dtype=bool)
+    d = pd.to_numeric(df["meta_novel_distance"], errors="coerce").to_numpy()
+    return (df["truth"].to_numpy() == 0) & np.isfinite(d) & (d <= distance)
+
+
+DISTANCE_BANDS = ((0.01, "within 0.01"), (0.02, "0.01-0.02"), (0.05, "0.02-0.05"), (0.15, "0.05-0.15"))
+
+
+def distance_bands(distance):
+    """(label, mask) of DISTANCE_BANDS over an array of distances, then 'farther or none' (beyond the last band, or
+    NaN)."""
+    out, below = [], np.zeros(len(distance), dtype=bool)
+    for limit, label in DISTANCE_BANDS:
+        sel = np.isfinite(distance) & (distance <= limit) & ~below
+        out.append((label, sel))
+        below |= sel
+    out.append(("farther or none", ~below))
+    return out
 
 
 def taxon_classes(df):
@@ -1855,6 +1910,12 @@ def train(opts):
     if in_scenarios.any() and opts.scenario_weight != 1:  # every fit weighs the scenarios' rows so (fit_model)
         ROW_WEIGHTS = np.where(in_scenarios, opts.scenario_weight, 1.0)
     report.data["scenario_weight"] = {"weight": opts.scenario_weight, "rows": int(in_scenarios.sum())}
+    if opts.twin_weight < 0:
+        sys.exit("--twin-weight cannot be negative")
+    twins = twin_rows(df, opts.twin_distance)
+    if twins.any() and opts.twin_weight != 1:
+        ROW_WEIGHTS = np.where(twins, opts.twin_weight, 1.0) * (ROW_WEIGHTS if ROW_WEIGHTS is not None else 1.0)
+    report.data["twin_weight"] = {"weight": opts.twin_weight, "distance": opts.twin_distance, "rows": int(twins.sum())}
     # The test table: the design's rows are the independent test set, a scenario's rows its hold-out samples.
     test_design = test_scenarios = None
     if opts.test_file:
@@ -1962,7 +2023,8 @@ def train(opts):
             whole = pd.concat(tested)
             scored = call_scores(whole, rf.predict_proba(whole[cols].to_numpy(dtype=np.float64))[:, 1])
             test_rows = (whole["truth"].to_numpy(), scored,
-                         np.where(scenario_of(whole) != "", opts.scenario_weight, 1.0))
+                         np.where(scenario_of(whole) != "", opts.scenario_weight, 1.0) *
+                         np.where(twin_rows(whole, opts.twin_distance), opts.twin_weight, 1.0))
         knob = choose_global_knob(report, df, y, p, opts, test_rows) if p else None
         if knob is not None:
             depth = float(np.median(sample_depths(df)))
@@ -2029,7 +2091,9 @@ def train(opts):
     elif depth_knobs:
         notes.append(f"knob curve by sample depth (log10 fragments: knob): {format_depth_knob_curve(depth_knobs)}")
     if ROW_WEIGHTS is not None:
-        notes.append(f"the scenarios' rows weighted {opts.scenario_weight:g} (--scenario-weight)")
+        notes.append(f"the scenarios' rows weighted {opts.scenario_weight:g} (--scenario-weight)" +
+                     (f"; the absent rows beside a held-out twin within {opts.twin_distance:g} weighted {opts.twin_weight:g} "
+                      f"(--twin-weight)" if opts.twin_weight != 1 else ""))
     if false_calls:
         notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated on species "
                      f"held out (prior {false_calls['prior']:.4f})")

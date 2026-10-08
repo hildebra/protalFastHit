@@ -133,6 +133,10 @@ class AncestrySites(unittest.TestCase):
         with open(self.out + ".auc.tsv") as fh:
             aucs = {(r["min_sites"], r["identity_band"], r["signal"]): r for r in csv.DictReader(fh, delimiter="\t")}
         self.assertEqual(aucs[("3", "all", "species_base_at_congener_sites")]["auc"], "1.0000")
+        # Two congeners only: protal's consensus sites fall back to the nearest congener's.
+        self.assertEqual(aucs[("3", "all", "species_base_at_consensus_sites")]["auc"], "1.0000")
+        self.assertEqual(groups["FN own"]["sites4"], groups["FN own"]["sites1"])
+        self.assertEqual(groups["FP genus"]["alt4"], groups["FP genus"]["alt1"])
         self.assertEqual(aucs[("3", "all", "fixed_site_identity")]["auc"], "1.0000")
         self.assertEqual(aucs[("10", "all", "identity")]["taxa"], "2")
         with open(self.out + ".summary.txt") as fh:

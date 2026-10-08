@@ -112,6 +112,15 @@ for this page.
   species, other strains, an independent test set, one model per read type, resumable reruns
   ([databases.md](databases.md#building-a-database), [databases.md](databases.md#the-presence-model)).
   0.6.0a shipped one model trained on older databases.
+- After 0.7.9 (2026-10-08): the hold-out keeps species complexes whole (congeners within 0.01 on
+  the references, `species_clouds.tsv` from `protal --write_species_neighbours` before anything is
+  built; the training table's `meta_novel_distance` and the report's errors by that distance), and
+  the foreign scan tiles each database's full reference (every species alike, every copy listed)
+  instead of the genomes the samples are drawn from, which had told the r226 v17 models the
+  simulation's species ([features.md](features.md#the-foreign-features-leak)); and the ancestry sites
+  are the consensus of the congeners (nine in ten of three or more compared, the nearest congener
+  alone with fewer) rather than the nearest congener's differences
+  ([features.md](features.md#which-side-the-reads-take-ancestry-079)).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;
   30% of the species held out; deeper design points) and the build faster (one simulation queue,

@@ -1230,10 +1230,9 @@ namespace protal::build {
     // held at once.
     inline constexpr size_t kNeighbourBatch = 10000;
 
-    static void WriteSpeciesNeighbours(protal::Options const& options, GenomeLoader& genomes) {
+    static void WriteSpeciesNeighbours(protal::Options const& options, GenomeLoader& genomes, std::string const& target) {
         Benchmark bm("Species neighbours");
         bm.Start();
-        std::string const target = options.GetSpeciesNeighboursFile();
         auto const genera = Genera(options, genomes);
         species_neighbours::Table table;
         for (auto const& [taxid, _] : genomes.GetGenomeMap()) table.Set(static_cast<uint32_t>(taxid), {});
@@ -1297,6 +1296,30 @@ namespace protal::build {
                   << " species, " << within_01 << " with a congener within 0.01, " << within_02 << " within 0.02: " << target << std::endl;
         bm.Stop();
         bm.PrintResults();
+    }
+
+    // --write_species_neighbours FILE: the species neighbours of a folder's references, written to FILE without a build: a
+    // converted release before its databases exist (build_gtdb_database.py chooses the species to hold out by it, so that a
+    // species complex is held out or kept whole), or a database of separate files. The genomes are loaded as for a build
+    // (reference.fna by reference.map), the genera read from internal_taxonomy.dmp. Exits 8 when a file is missing.
+    static void WriteSpeciesNeighboursOnly(protal::Options const& options) {
+        namespace fs = std::filesystem;
+        for (auto const& file : { options.ResolvedSequenceFile(), options.GetSequenceMapFile(), options.GetInternalTaxonomyFile() }) {
+            if (!fs::is_regular_file(file)) {
+                std::cerr << "--write_species_neighbours: " << file << " is missing (a converted release's folder has reference.fna, "
+                          << "reference.map and internal_taxonomy.dmp)" << std::endl;
+                exit(8);
+            }
+        }
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        GenomeLoader genomes(options.SequenceDbFile(), options.SequenceMapDbFile(), threads);
+        Benchmark bm("Preload genomes");
+        bm.Start();
+        genomes.LoadAllGenomes(threads);
+        bm.Stop();
+        bm.PrintResults();
+        std::cout << genomes.PreloadTimes() << std::endl;
+        WriteSpeciesNeighbours(options, genomes, options.WriteSpeciesNeighboursFile());
     }
 
     // congener_gaps.tsv in the database (CongenerGaps.h): gene by gene, every species' copy aligned against the copies of
@@ -1883,7 +1906,7 @@ namespace protal::build {
                                                         options.GetGeneConservationFile());
         WriteGeneCongeners(options, genomes, conservation.table);
         WriteSuspectCopies(options, genomes);
-        WriteSpeciesNeighbours(options, genomes);
+        WriteSpeciesNeighbours(options, genomes, options.GetSpeciesNeighboursFile());
         WriteCongenerGaps(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);

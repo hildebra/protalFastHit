@@ -1,12 +1,17 @@
-// ForeignRatesTable.h - foreign_rates.tsv: per species' copy of a marker gene, how many reads of a tiled scan of the
-// genomes at hand landed on it (their best record, as the profiler counts them), and how many of those came from a
-// genome of another species, and of another genus. scripts/foreign_rates.py makes it (simulate_metagenomes --tiles,
-// one protal run against the database) and protal --add_tables packs it into the database; a run loads it for the
-// profiler's "foreign" features: a copy that other species' reads reach (a transferred gene, a contaminating contig,
-// a gene conserved across the genus) is weaker evidence of its species than one that only its own reads reach
-// (docs/claude/2026-10-07-error-read-signatures, section 7 and the follow-up). The scan of a training database leaves
-// out the genomes of its held-out species, so that the table knows nothing of the species the models are trained to
-// find missing.
+// ForeignRatesTable.h - foreign_rates.tsv: per species' copy of a marker gene, how many reads of a tiled scan of the full
+// reference's marker genes (every genome's, a few genomes per species) landed on it (their best record, as the profiler
+// counts them), and how many of those came from a genome of another species, and of another genus. scripts/foreign_rates.py
+// makes it (simulate_metagenomes --tiles --tile_fasta, one protal run against the database) and protal --add_tables packs
+// it into the database; a run loads it for the profiler's "foreign" features: a copy that other species' reads reach (a
+// gene conserved across the genus, a strain of a congener that crosses the species boundary on it) is weaker evidence of
+// its species than one that only its own reads reach (docs/claude/2026-10-07-error-read-signatures, section 7 and the
+// follow-up). Every copy of the full reference has a row, reached by a read or not (reads 0): until 2026-10-08 the scan
+// tiled the genomes the training samples are drawn from, and a copy was listed only when a read reached it, which told
+// the models which species the simulation could draw (docs/claude/2026-10-07-congener-gaps, "The foreign features
+// leak"). A copy's reads are its foreign reads plus one genome's worth of its own species' reads (not every own read:
+// those scale with the species' genome count, the cluster-size rule the simulation cannot test), so ForeignShare is
+// foreign / (foreign + own per genome + 1). A training database's full reference lacks its held-out species, so the
+// table knows nothing of the species the models are trained to find missing.
 #pragma once
 
 #include <algorithm>
@@ -24,7 +29,8 @@ namespace protal::foreign_rates {
     inline const std::string kFileName = "foreign_rates.tsv";
     inline constexpr double kUnknown = -1;  // features without the table, or without a read on a scanned copy
 
-    // A copy's reads in the scan (saturated at UINT16_MAX), of them from other species and from other genera.
+    // A copy's reads in the scan (the foreign ones plus one genome's worth of its own; saturated at UINT16_MAX), of them
+    // from other species and from other genera.
     struct Rate {
         uint16_t reads = 0;
         uint16_t foreign = 0;

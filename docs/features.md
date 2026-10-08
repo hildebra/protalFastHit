@@ -353,25 +353,36 @@ have none), so for near-identical congeners the table's distance is the smaller 
 The reads of a false positive are mostly a species the database lacks, landing on its nearest congener at
 the same identity as a missed strain's reads on its own species, and nothing in the alignments told them
 apart ([report](claude/2026-10-07-error-read-signatures/README.md)). What does differ is *where* the
-mismatches fall. Where a species' gene copy differs from its nearest congener's copy, the species has its
-derived states (and the congener its own): a strain of the species carries the species' base at those
-sites; a species that branched off the lineage below some of them carries the congener's base there. At
-run time protal compares each hit gene's copy with the nearest congener's copy in the database: that
-gene's nearest by alignment (`congener_gaps.tsv`, since 2026-10-08, the same congener the `gaps` features
-measure), else the species' nearest (`species_neighbours.tsv`, nearest first), the first of three whose copy
-pairs along their shared 12-mers; keeps the differing positions with the congener's base, and reads each best
-record's base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
+mismatches fall. Where a species' gene copy carries a base its congeners do not, the species has its own
+derived state: a strain of the species carries the species' base at those sites; a species that branched
+off the lineage below some of them carries the congeners' base there. At run time protal compares each hit
+gene's copy with its congeners' copies in the database, along their shared 12-mers: that gene's nearest by
+alignment (`congener_gaps.tsv`, the same congener the `gaps` features measure) and the species' 16 nearest
+(`species_neighbours.tsv`), one vote each. Where three or more congeners were compared at a position, it is
+a site when nine in ten of them carry one base other than the species' (all of three to nine); where fewer
+were compared (a small genus, or a stretch past an indel in the others' copies), where the nearest congener
+differs, as 0.7.9 had everywhere. It keeps the sites with the congeners' base and reads each best record's
+base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
+
+0.7.9 compared the nearest congener alone. At r226 v17 that worked on the bulk (agreement 0.98-0.996 for
+present taxa against 0.68 for novel congeners) but not at the errors that remained: half of the differences
+between two species are the congener's own derived states, where any third species agrees with the species,
+so a novel congener agreed at 0.68 rather than near 0, and the misses and false positives left were the
+cases where that signal inverts ([report](claude/2026-10-08-r226-v17/README.md)). The consensus over the
+congeners (2026-10-08, untested at r226) leaves the species' own derived sites, and a large genus, whose
+nearest congener shares most of the species' history, gets as many as a small one.
 
 | feature | since | what it measures | importance pe / se / pb / ont | matters for |
 |---|---|---|---|---|
 | `ancestry_sites_per_record` | 0.7.9 | the sites the best records cover, per record | untested | how much the next two can say |
 | `ancestry_agreement` | 0.7.9 | of the covered sites, the share where the read has the reference's base; -1 without a site | untested | a strain near 1, a novel congener at the fraction of the branch it shares |
-| `ancestry_congener_share` | 0.7.9 | the share where the read has the congener's base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
+| `ancestry_congener_share` | 0.7.9 | the share where the read has the congeners' base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
 
 A species without a congener in the database (none for the gene in `congener_gaps.tsv`, none within 0.15
 in `species_neighbours.tsv`, or a database without both tables) has no sites: the shares are -1 and the
 model falls back on the other features. Species with a second genome could refine the sites further (a site
-where the species' own strains vary is no evidence either way); the build does not store that yet.
+where the species' own strains vary is no evidence either way); the build's ancestry report measures that
+(`--share-logs`), protal does not use it yet.
 
 ## The gene copies' gaps and foreign reads, and the untried candidates (`gaps`, `foreign`, `untried`, 2026-10-07)
 
@@ -385,32 +396,34 @@ ranked below its congeners by the seeds. Three groups add what the reads alone c
 | `gap_informative_share` | gaps | of the taxon's kept records, the share on gene copies whose nearest congener's copy is at least 0.005 away (`congener_gaps.tsv`); 0 without such records, -1 without the table | how much of the evidence can tell the species from its congeners at all |
 | `gap_within_min_share`, `gap_within_median_share` | gaps | of those records, the shares whose divergence is below the copy's distance to its nearest congener's copy, and below the median congener's; -1 without such records | **missing relative** (a congener the database lacks lies about as far from the reference as its congeners do) against a **strain** (within the species' gap) |
 | `gap_position` | gaps | their median divergence over the nearest congener's distance (0: identical to the reference, 1: as far as the nearest congener) | as above |
-| `foreign_scanned_share` | foreign | the share of the kept records on copies the tiled scan reached (`foreign_rates.tsv`); -1 without the table | none: whether the species' genome was scanned ([leak](#the-foreign-features-leak)) |
-| `foreign_copy_share`, `foreign_genus_copy_share` | foreign | those copies' mean shares of the scan's reads from other species and from other genera, foreign / (reads + 1); -1 without such records | **contamination, transferred genes, conserved genes**: a copy other species' reads reach is weak evidence of its species |
+| `foreign_scanned_share` | foreign | the share of the kept records on copies the tiled scan's reads reached (`foreign_rates.tsv`; every copy is scanned since 2026-10-08, so an unreached copy is one whose own tiles were ambiguous, a congener's copy identical to it); -1 without the table | **ambiguous copies**; until 2026-10-08 whether the species' genome was scanned ([leak](#the-foreign-features-leak)) |
+| `foreign_copy_share`, `foreign_genus_copy_share` | foreign | those copies' mean shares of the scan's reads from other species and from other genera, foreign / (reads + 1), where a copy's reads are its foreign reads plus one genome's worth of its own (not every own read, which would scale with the species' genome count: the cluster-size rule the simulation cannot test); -1 without such records | **conserved genes, congeners' strains that cross the species boundary**: a copy other species' reads reach is weak evidence of its species |
 | `untried_candidate_rate` | untried | the reads whose seeds fit the taxon as well as the taxa they were aligned against (`ZN`'s crowd) but never were aligned against it (beyond `--align_top`, their `ZC` tag), over those plus its reads | **missed strain**: its reads went to a congener without trying it |
 
 `congener_gaps.tsv` is written by `--build`: every species' copy of each marker gene aligned (WFA2, protal's
 scores, the ends partly free) against the copies of its genus: all of them up to 24 others, else its 4 nearest by
 their k-mer sketches and 16 others drawn by a hash of the pair, whose median gives the median. A read covers a part of
 a gene whose divergence varies along it, so the test of one read against the whole gene's gap is noisy: the features
-count over a taxon's reads. `foreign_rates.tsv` is made by `scripts/foreign_rates.py` (reads of 150 bases every 500
-of every genome at hand, `simulate_metagenomes --tiles`, aligned once; a training database's held-out species left out)
-and stored with `protal --add_tables`; `build_gtdb_database.py --foreign-rates` does both ([databases.md](databases.md)).
-Both tables describe the database in use, as `ref` does.
+count over a taxon's reads. `foreign_rates.tsv` is made by `scripts/foreign_rates.py` (reads of 150 bases every 250 of
+at most 10 copies of each species' gene in the database's full reference, `simulate_metagenomes --tiles --tile_fasta`,
+aligned once; a training database's full reference lacks its held-out species) and stored with `protal --add_tables`;
+`build_gtdb_database.py` does both for each database ([databases.md](databases.md)). Both tables describe the database
+in use, as `ref` does. Since 2026-10-08 every copy of the full reference has a row (reads 0 when none reached it), and
+the `foreign` group is offered to `--features auto` by one named set (`...+gaps+untried+foreign`) but is not in the
+default set until a build says what the scan is worth.
 
 ### The foreign features leak
 
-The `foreign` group is in no named feature set since 2026-10-08, so neither the default nor `--features auto` trains on
-it. The genomes at hand that the scan reads are the genomes the training samples are drawn from. A copy is in the
-table only if a scan read landed on it. A species whose genome was scanned has all its copies there
-(`foreign_scanned_share` about 1); any other species has only the copies other species' reads reached (about 0, and
-`foreign_copy_share` near 1 or -1). The features therefore tell the species the simulation can draw from the rest. In
-the r226 v17 build they ranked second and third in every model, and separated present taxa from absent congeners at the
-same identity with an AUC of 0.89-0.91 (docs/claude/2026-10-08-r226-v17). In use, the shipped database's scan covers
-the same ~50,000 genomes, so the 83% of GTDB species without one would be pushed towards absent. A scan without the
-leak would take every species' copies alike (the full reference's marker genes, the held-out species left out) and
-count only other species' reads per copy position
-([report](claude/2026-10-07-congener-gaps/README.md#the-foreign-features-leak-2026-10-08)).
+The scan of 2026-10-07 read the genomes at hand, which are the genomes the training samples are drawn from, and a copy
+was in the table only if a scan read landed on it. A species whose genome was scanned had all its copies there
+(`foreign_scanned_share` about 1); any other species had only the copies other species' reads reached (about 0, and
+`foreign_copy_share` near 1 or -1). The features therefore told the species the simulation could draw from the rest.
+In the r226 v17 build they ranked second and third in every model, separated present taxa from absent congeners at the
+same identity with an AUC of 0.89-0.91, and carried the build's whole F1 gain (docs/claude/2026-10-08-r226-v17). In
+use, the shipped database's scan covered the same ~50,000 genomes, so the 83% of GTDB species without one would have
+been pushed towards absent. The group left every feature set on 2026-10-08
+([report](claude/2026-10-07-congener-gaps/README.md#the-foreign-features-leak-2026-10-08)); the scan now tiles the
+full reference's marker genes, every species alike, and lists every copy (above).
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

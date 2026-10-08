@@ -756,10 +756,11 @@ namespace protal {
             // Mismatches (X) by codon position on the reference, whose genes are coding sequences in frame: all, and
             // those at third positions, which are mostly synonymous (MismatchesByCodonPosition).
             uint64_t mismatches = 0, third_mismatches = 0;
-            // The sites where the taxon's gene copies differ from its nearest congener's (AncestrySites.h) that the
-            // records cover, those where the read has the taxon's base and those where it has the congener's, and the
-            // records covering any: a strain of the taxon carries the taxon's base, a congener that branched off below
-            // some of them the congener's (docs/claude/2026-10-07-error-read-signatures).
+            // The taxon's gene copies' ancestry sites (AncestrySites.h: where the congeners' consensus differs from the
+            // copy, or the nearest congener where fewer than three were compared) that the records cover, those where
+            // the read has the taxon's base and those where it has the congeners', and the records covering any: a
+            // strain of the taxon carries the taxon's base, a congener that branched off below some of them the
+            // congeners' (docs/claude/2026-10-07-error-read-signatures, 2026-10-08-r226-v17).
             uint64_t ancestry_sites = 0, ancestry_agree = 0, ancestry_congener = 0;
             size_t ancestry_records = 0;
             // Mates (MicrobialProfile::PrepareMAPQ): fragments whose two mates both have a record on the taxon, and for
@@ -1481,8 +1482,10 @@ namespace protal {
                 return (static_cast<double>(kGapBins) - 0.5) * kGapBinWidth;
             }
             // The tiled scan's foreign reads on its copies (foreign_rates.tsv, RecordEvidence::foreign_records): the share of
-            // its kept records on copies the scan reached, and their copies' mean shares of reads from other species and
-            // from other genera. -1 without the table or without such a record (the share: 0 with the table).
+            // its kept records on copies the scan's reads reached (every copy is scanned since 2026-10-08, from the full
+            // reference's marker genes: an unreached copy is one whose own tiles were ambiguous), and those copies' mean shares
+            // of reads from other species and from other genera. -1 without the table or without such a record (the share: 0
+            // with the table).
             double ForeignScannedShare() const {
                 if (!m_records.foreign_known) return foreign_rates::kUnknown;
                 return m_records.kept == 0 ? 0 : static_cast<double>(m_records.foreign_records) / static_cast<double>(m_records.kept);
@@ -1533,9 +1536,9 @@ namespace protal {
             // See DivergenceDispersion and FailedGeneShare.
             double GeneDivergenceDispersion() const { return m_gene_divergence_dispersion; }
             double FailedGeneShare() const { return m_failed_gene_share; }
-            // The sites where its gene copies differ from its nearest congener's (AncestrySites.h) that its best records
-            // cover, per record; of them the share where the read has the taxon's base, and where it has the congener's
-            // (RecordEvidence::ancestry_*); the shares are kUnknown (-1) without a site.
+            // Its gene copies' ancestry sites (AncestrySites.h: where the congeners' consensus differs from the copy) that
+            // its best records cover, per record; of them the share where the read has the taxon's base, and where it has
+            // the congeners' (RecordEvidence::ancestry_*); the shares are kUnknown (-1) without a site.
             double AncestrySitesPerRecord() const { return m_ancestry_sites_per_record; }
             double AncestryAgreement() const { return m_ancestry_agreement; }
             double AncestryCongenerShare() const { return m_ancestry_congener_share; }
@@ -2509,10 +2512,11 @@ namespace protal {
             f.emplace_back("db_congeners_02", taxon.DatabaseCongeners(0.02));
             f.emplace_back("db_congeners_05", taxon.DatabaseCongeners(0.05));
             f.emplace_back("db_nearest_congener", taxon.DatabaseNearestCongener());
-            // Where its reference differs from its nearest congener's (AncestrySites.h): the sites its records cover, per
-            // record, and of them the share where the read has the reference's base and where it has the congener's. A
-            // strain carries the species' derived states; a congener that branched off below some of them carries the
-            // congener's base there (docs/claude/2026-10-07-error-read-signatures). The shares are -1 without a site.
+            // Where its reference differs from its congeners' consensus (AncestrySites.h; the nearest congener where fewer
+            // than three were compared): the sites its records cover, per record, and of them the share where the read has
+            // the reference's base and where it has the congeners'. A strain carries the species' derived states; a
+            // congener that branched off below some of them carries the congeners' base there
+            // (docs/claude/2026-10-07-error-read-signatures). The shares are -1 without a site.
             f.emplace_back("ancestry_sites_per_record", taxon.AncestrySitesPerRecord());
             f.emplace_back("ancestry_agreement", taxon.AncestryAgreement());
             f.emplace_back("ancestry_congener_share", taxon.AncestryCongenerShare());
@@ -3032,7 +3036,10 @@ namespace protal {
                 auto const& rates = m_genome_loader->GetForeignRates();
                 if (!rates.Empty()) {
                     e.foreign_known = true;
-                    if (auto const* rate = rates.Find(taxid, geneid)) {
+                    // A copy the scan's reads reached (reads > 0). The table lists every copy of the full reference; one listed with
+                    // no read (its own tiles placed with MAPQ below the profiler's: a congener's copy identical to it) counts as
+                    // unreached, like one the table lacks.
+                    if (auto const* rate = rates.Find(taxid, geneid); rate && rate->reads > 0) {
                         e.foreign_records++;
                         e.foreign_share += ShareUnits(rate->ForeignShare());
                         e.foreign_genus_share += ShareUnits(rate->ForeignGenusShare());

@@ -206,6 +206,12 @@ def parse_args(argv=None):
                         "them in each sample, meta_novel_congener marks the taxa of their genera, which their reads "
                         "land on, and meta_novel_level (with --taxonomy) the absent taxa whose closest species in the "
                         "sample is one of them, by the rank it was held out at")
+    p.add_argument("--species_clouds",
+                   help="the species' nearest congeners by their references' marker genes (species_clouds.tsv of "
+                        "build_gtdb_database.py, species_neighbours.tsv's format; needs --taxonomy): meta_novel_distance, "
+                        "the distance between a taxon beside a held-out congener in the sample (an absent one: the twin "
+                        "its reads come from; a present one: the congener simulated with it) and the nearest such "
+                        "congener; empty beyond 0.15 or without one")
     p.add_argument("--novel_clades", type=int, default=0,
                    help="species of held-out clades (--novel_species with ranks above species) in every sample, per "
                         "rank: each design point takes one clade of each rank, in turn, so that every clade is used "
@@ -282,7 +288,7 @@ def writes_unmapped(unit, opts):
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
                 "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain",
-                "meta_scenario"]
+                "meta_scenario", "meta_novel_distance"]
 # meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont); for a scenario its
 # preset's, around which each sample's own depth is drawn (scenarios.depth_factors).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
@@ -295,6 +301,10 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 # meta_insilico_strain: for a present taxon, 1 if a genome it was simulated from is an in-silico strain (a mutated copy
 # of a one-genome species' representative, insilico_strains.py; its meta_rep_genome is 0), else 0.
 # meta_scenario: the scenario the sample is of (--scenarios), empty for the design's samples.
+# meta_novel_distance (--species_clouds): for a taxon whose genus has a held-out species in the sample
+# (meta_novel_congener), the distance between its reference and the nearest such species' (the median Mash distance of
+# their marker genes, species_neighbours.tsv's): an absent taxon's distance to the twin its reads come from, a present
+# taxon's to the congener simulated beside it; empty beyond 0.15 or without the table.
 INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
@@ -351,6 +361,30 @@ def read_novel(path):
             rank = fields[1] if len(fields) > 1 and fields[1] else "species"
             novel[species] = (rank, fields[2] if len(fields) > 2 and fields[2] else species)
     return novel
+
+
+def read_clouds(path, taxonomy):
+    """{species: [(congener species, distance), ...]} nearest first, from a table in species_neighbours.tsv's format
+    (protal --write_species_neighbours, or a database's: taxid<TAB>congener:distance,...) and the internal_taxonomy.dmp
+    that names its taxids; species the taxonomy does not name are skipped."""
+    by_id, _ = lineages.from_taxonomy(taxonomy)
+    name_of = {taxid: lin["species"] for taxid, lin in by_id.items() if "species" in lin}
+    clouds = {}
+    with open(path) as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#") or line.startswith("taxid"):
+                continue
+            taxid, _, rest = line.rstrip("\n").partition("\t")
+            species = name_of.get(taxid)
+            if species is None:
+                continue
+            pairs = []
+            for entry in filter(None, rest.split(",")):
+                congener, _, distance = entry.partition(":")
+                if congener in name_of:
+                    pairs.append((name_of[congener], float(distance)))
+            clouds[species] = pairs
+    return clouds
 
 
 def species_lineages(genome_table):
@@ -1477,10 +1511,11 @@ def community_of(unit, sample, opts):
 
 def write_table(read_type, units, opts, context):
     """Joins the dumps of a read type's units into its table."""
-    domains, novel, reps, db_lineages, sim_lineages = context
+    domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     table = os.path.join(opts.out, TABLES[read_type])
     genomes_of = {}
+    distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
     with open(table + ".partial", "w", newline="") as out:
         writer = csv.writer(out, delimiter="\t", lineterminator="\n")
         for unit in units:
@@ -1495,6 +1530,9 @@ def write_table(read_type, units, opts, context):
                 in_sample = genomes_of[community_point["name"]].get(community, {})
                 novel_here = [s for s in in_sample if s in novel]
                 novel_genera = {genus_of(s) for s in novel_here}
+                novel_by_genus = collections.defaultdict(list)
+                for s in novel_here:
+                    novel_by_genus[genus_of(s)].append(s)
                 levels = collections.Counter(novel[s][0] for s in novel_here)
                 novel_levels = ",".join(f"{rank}:{levels[rank]}" for rank in ("species", *reversed(lineages.RANKS[1:-1]))
                                         if levels.get(rank))
@@ -1519,16 +1557,20 @@ def write_table(read_type, units, opts, context):
                             rep = "1" if all(g == reps[taxon] for g in in_sample[taxon]) else "0"
                         if is_present and taxon in in_sample:
                             insilico = str(int(any(g.startswith(INSILICO_PREFIX) for g in in_sample[taxon])))
-                        relative, level, neighbour = "", "", ""
+                        relative, level, neighbour, novel_distance = "", "", "", ""
                         if is_present:
                             relative = "species"
                             neighbour = relations.neighbour(db_lineages.get(taxon) or sim_lineages.get(taxon, {}), taxon)
                         elif taxon in db_lineages:
                             relative, level = relations.relation(db_lineages[taxon])
+                        if congener and taxon in distance_to:
+                            nearest = min((distance_to[taxon][s] for s in novel_by_genus[genus_of(taxon)]
+                                           if s in distance_to[taxon]), default=None)
+                            novel_distance = "" if nearest is None else f"{nearest:.4f}"
                         writer.writerow([unit["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
                                          novel_levels, level, relative, neighbour, read_type, insilico,
-                                         unit.get("scenario", "")] + row)
+                                         unit.get("scenario", ""), novel_distance] + row)
                         rows += 1
                         present += is_present
                         absent += not is_present
@@ -2165,6 +2207,13 @@ def collect(opts):
         by_id, _ = lineages.from_taxonomy(opts.taxonomy)
         db_lineages = {lin[max(lin, key=lineages.RANKS.index)]: lin for lin in by_id.values() if lin}
     sim_lineages = species_lineages(opts.genome_table)
+    clouds = {}
+    if opts.species_clouds:
+        if not opts.taxonomy:
+            sys.exit("--species_clouds needs --taxonomy (the names of its taxids)")
+        clouds = read_clouds(opts.species_clouds, opts.taxonomy)
+        print(f"species clouds: {len(clouds)} species' nearest congeners ({opts.species_clouds}): meta_novel_distance",
+              flush=True)
     clades = novel_clades(novel, opts.genome_table, opts.seed) if opts.novel_clades > 0 else {}
     if clades:
         print("held-out clades in every sample, one per rank and design point: "
@@ -2236,7 +2285,7 @@ def collect(opts):
             sys.exit(f"{unit['name']}: expected {unit['samples']} training dumps in {profile_dir(unit, opts)}, "
                      f"found {len(dumps_of(unit, opts))}")
 
-    context = (domains, novel, reps, db_lineages, sim_lineages)
+    context = (domains, novel, reps, db_lineages, sim_lineages, clouds)
     for read_type in opts.read_types:
         write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
 

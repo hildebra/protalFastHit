@@ -283,8 +283,9 @@ TEST(CopyFeatures, TheGapsForeignRatesAndUntriedCandidatesOfATaxon) {
         EXPECT_EQ(without.at(name), -1.0) << name;
     }
     // Gene 1 of taxon 1: nearest congener 0.05 away, median 0.10; scanned with 10 reads, 5 of other species, 1 of another genus.
+    // Gene 1 of taxon 2 is listed with no read (its own tiles were ambiguous): unreached, as a copy the table lacks.
     ref.loader->SetCongenerGaps(cg::Table::FromRows({ { 1, 1, cg::Gap{ 500, 1000, 4 } }, { 2, 1, cg::Gap{ 20, 30, 1 } } }));
-    ref.loader->SetForeignRates(fr::Table::FromRows({ { 1, 1, fr::Rate{ 10, 5, 1 } } }));
+    ref.loader->SetForeignRates(fr::Table::FromRows({ { 1, 1, fr::Rate{ 10, 5, 1 } }, { 2, 1, fr::Rate{ 0, 0, 0 } } }));
     for (size_t threads : { 1, 3 }) {
         SCOPED_TRACE(threads);
         auto const profile = Profile(ref, sam, threads);
