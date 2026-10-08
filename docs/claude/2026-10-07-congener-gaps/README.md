@@ -16,7 +16,9 @@ The user chose:
 
 **Short answer.** All of it is implemented and tested here. The gaps and untried groups are in the default feature set;
 the r226 v17 build is the first to train them. The foreign rates leaked the simulation's species there and are out of
-every named set since 2026-10-08 ([The foreign features leak](#the-foreign-features-leak-2026-10-08)). Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
+every named set since 2026-10-08 ([The foreign features leak](#the-foreign-features-leak-2026-10-08)). The ablation puts
+all of v17's gain on that leak (+0.022 of paired-end test F1). Without it, ancestry, gaps and untried together add
++0.002 over the set before them. Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
 audit-fixes after 0.7.9 (`0fe84e3`), its conflicts with the ancestry sites resolved by keeping both. The two now share
 the nearest congener: `congener_gaps.tsv` names each copy's nearest congener by that gene's alignment, and the ancestry
 sites compare against it first ([Overlap](#overlap-with-the-ancestry-sites-the-other-branch)).
@@ -219,8 +221,32 @@ means keeping both sides.
 
 **Found by** the parallel session, in the r226 v17 build: this branch's three groups and the ancestry sites, logs in
 `local/v17`, analysis in `docs/claude/2026-10-08-r226-v17` (`foreign_leak.py`). The build's paired-end test F1 was 0.983.
-That figure says nothing about the foreign features until the session's ablation (v17 against the same set without
-`foreign`) is in.
+
+**What it cost: the ablation** (the same session, `ablate_v17.py`, `ablate_results_pe.tsv`). Each variant refits v17's
+paired-end tables in the same way:
+- gradient boosting, 250 rounds at 0.1, 63 leaves, balanced classes, scenario rows weighted 0.25;
+- species held out in 5 folds by taxon;
+- the final model scored on the pooled test rows (design test and scenario hold-out);
+- the knob is the highest held-out F1 over 0.30-0.85, kept only if it gains 0.002 over 0.5.
+
+| variant | features | test F1 at knob | best test F1 | species held out, F1 at 0.5 | test FP / FN at knob |
+|---|---|---|---|---|---|
+| v17 (with `foreign`) | 81 | 0.9761 | 0.9774 | 0.9759 | 801 / 586 |
+| without ancestry | 78 | 0.9773 | 0.9774 | 0.9755 | 535 / 771 |
+| without gaps | 76 | 0.9757 | 0.9770 | 0.9758 | 813 / 600 |
+| **without foreign (today's default)** | 78 | **0.9545** | 0.9546 | 0.9476 | 1020 / 1587 |
+| without ancestry, gaps, foreign, untried | 70 | 0.9526 | 0.9527 | 0.9458 | 1141 / 1579 |
+| v15's set | 55 | 0.9512 | 0.9520 | 0.9453 | 1012 / 1772 |
+
+- **The leak was v17's whole gain.** The foreign group adds +0.022 of test F1 at the knob (+0.028 with species held
+  out). The test rows are simulated from the same pool, so the leak pays on them too: that gain will not show on real
+  samples. Without it, v17's model is at 0.9545.
+- **The other new groups are real but small.** Ancestry, gaps and untried together add +0.0019 at the knob (70 → 78
+  without foreign) and +0.0018 with species held out. With the fp-features they add +0.0033 over v15's set.
+- **The single-group rows mean little.** "Without ancestry" and "without gaps" still have the leaking group, which
+  masks them (±0.001); untried was not ablated alone.
+- **Next.** A per-scenario split is in `ablate_split_pe.txt` of the same folder. Whether a scan without the leak (below)
+  earns anything has to be measured against today's default.
 
 **What they measured.** `foreign_scanned_share` reflected whether the simulation could draw the species, not how foreign
 reads reach it.
