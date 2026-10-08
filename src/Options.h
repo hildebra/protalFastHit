@@ -127,7 +127,8 @@ namespace protal {
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_ont", "PMML model file for ONT samples, given as --model. Default: --model if given, else the database's model_ONT.xml.", cxxopts::value<std::string>()->default_value(""))
-                ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
+                ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""))
+                ("no_unknown_share", "Report the called species' abundances as shares of their summed depth (adding up to 1), as protal did before 2026-10-08. By default, where the database gives genome sizes (species_priors.tsv) and the SAM says how many reads were scanned, the profile ends with a line '?' of the genomes the called species do not explain (the reads they leave over, at their average genome size), and the abundances are shares of all genomes sequenced. <profile>.composition gives the numbers either way.");
 
         // Strain / SNP options
         options.add_options("Strains")
@@ -179,7 +180,7 @@ namespace protal {
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species) or congener_gaps.tsv (what --build writes). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv (what --build writes) or species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
                 ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
@@ -242,6 +243,7 @@ namespace protal {
         bool write_unmapped_reads = false;
         bool serial_index_passes = false;
         bool profile_ahead = false;
+        bool no_unknown_share = false;
         size_t index_batch_kb = 1024;
 
         // build
@@ -367,6 +369,7 @@ namespace protal {
         bool m_write_unmapped_reads = false;
         bool m_serial_index_passes = false;
         bool m_profile_ahead = false;
+        bool m_no_unknown_share = false;
         size_t m_index_batch_kb = 1024;
 
         size_t m_current_index = 0;
@@ -539,6 +542,7 @@ namespace protal {
                 m_write_unmapped_reads(d.write_unmapped_reads),
                 m_serial_index_passes(d.serial_index_passes),
                 m_profile_ahead(d.profile_ahead),
+                m_no_unknown_share(d.no_unknown_share),
                 m_index_batch_kb(d.index_batch_kb),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
@@ -806,7 +810,7 @@ namespace protal {
 
         // The tables --add_tables may store, by file name.
         static std::vector<std::string> AddableTables() {
-            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE };
+            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE };
         }
 
         // --adaptive_candidates: anchors a divergent read may try beyond --align_top (0: none).
@@ -1444,6 +1448,12 @@ namespace protal {
         // --profile_ahead: samples profiled while the next ones are aligned (ProfilingAhead in RunProtal.h); off by default.
         bool ProfileAhead() const {
             return m_profile_ahead;
+        }
+
+        // --no_unknown_share: the profile's abundances add up to 1 over the called species, without the "?" line
+        // (Composition.h).
+        bool NoUnknownShare() const {
+            return m_no_unknown_share;
         }
 
         // --index_batch_kb: bytes of the reference per batch in the parallel index passes.
@@ -2130,8 +2140,9 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 for (auto const& file : AddTables()) {
                     std::string const name = std::filesystem::path(file).filename().string();
                     if (std::find(allowed.begin(), allowed.end(), name) == allowed.end()) {
-                        error_log.emplace_back("--add_tables: " + file + " is none of the tables it stores (" + allowed[0] + ", " +
-                                               allowed[1] + ")");
+                        std::string list;
+                        for (auto const& table : allowed) list += (list.empty() ? "" : ", ") + table;
+                        error_log.emplace_back("--add_tables: " + file + " is none of the tables it stores (" + list + ")");
                     } else if (!names.insert(name).second) {
                         error_log.emplace_back("--add_tables names " + name + " twice");
                     }
@@ -2934,6 +2945,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool write_unmapped_reads = result.count("write_unmapped_reads");
             bool serial_index_passes = result.count("serial_index_passes");
             bool profile_ahead = result.count("profile_ahead");
+            bool no_unknown_share = result.count("no_unknown_share");
             size_t index_batch_kb = std::max<size_t>(result["index_batch_kb"].as<size_t>(), 1);
             bool force = result.count("force");
 
@@ -3111,6 +3123,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.write_unmapped_reads     = write_unmapped_reads;
             d.serial_index_passes      = serial_index_passes;
             d.profile_ahead  = profile_ahead;
+            d.no_unknown_share         = no_unknown_share;
             d.index_batch_kb           = index_batch_kb;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);

@@ -4,9 +4,10 @@ of a protal database folder, ready for `protal --build`.
 
 Reads from the GTDB release directory:
   {bac120,ar53}_taxonomy_r<R>.tsv[.gz]     accession -> GTDB lineage
-  {bac120,ar53}_metadata_r<R>.tsv[.gz]     species representatives (optional;
-                                           without it, genomes present in the
-                                           *_marker_genes_reps_* files are the reps)
+  {bac120,ar53}_metadata_r<R>.tsv[.gz]     species representatives, CheckM quality and
+                                           genome sizes (optional; without it, genomes
+                                           present in the *_marker_genes_reps_* files
+                                           are the reps, and sizes are unknown)
   genomic_files_reps/*_marker_genes_reps_r<R>/**.fna[.gz]   marker genes of reps
   genomic_files_all/*_marker_genes_all_r<R>/**.fna[.gz]     marker genes of all
                                            genomes (optional, for unique k-mers)
@@ -32,6 +33,10 @@ Writes to <outdir>:
                          full_reference.fna without the zstd command
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
+  species_priors.tsv     per species: the representative's markers, CheckM quality, GTDB's species
+                         cluster, and (since 2026-10-08) the species' genome size (the mean of its
+                         genomes' sizes corrected by CheckM), the representative's assembly size and
+                         the bases of its marker genes; --priors_only writes this file alone
   model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
                          models for other read types: protal --add_model, see README)
 
@@ -50,6 +55,7 @@ Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
       [--exclude_species FILE] [--genes LIST]
   gtdb_to_protal_db.py --from_db <db dir> [--exclude_species FILE] [--genes LIST] --outdir <copy>
+  gtdb_to_protal_db.py --gtdb <release dir> --priors_only --outdir <dir>   (then protal --add_tables)
 
 --genes keeps a subset of the marker genes (a reduced database: less memory, fewer hits): GTDB
 marker ids (PF00380.20, TIGR00001; PF00380 without its version matches any) or protal gene ids
@@ -138,10 +144,19 @@ def read_taxonomy(gtdb, rel):
     return lineage
 
 
-def read_quality(gtdb, rel):
-    """-> {accession: (completeness, contamination)} from the metadata's CheckM columns (checkm2_* where the release has
-    them, else checkm_*; a missing or empty value is None), or {} without metadata or columns."""
-    quality = {}
+def read_metadata(gtdb, rel):
+    """-> ({accession: (completeness, contamination)}, {accession: (genome size, species representative)}) from the
+    metadata: CheckM's columns (checkm2_* where the release has them, else checkm_*), genome_size and
+    gtdb_genome_representative (the accession itself where the column is missing); a missing or empty value is None.
+    Every genome of the release, not only the representatives. Empty dicts without metadata or columns."""
+    quality, sizes = {}, {}
+
+    def number(fields, col):
+        try:
+            return float(fields[col]) if col is not None and fields[col] not in ("", "none", "N/A", "NA") else None
+        except (ValueError, IndexError):
+            return None
+
     for mset in MARKER_SETS:
         path = find_one(gtdb, f"{mset}_metadata_r{rel}")
         if not path:
@@ -155,20 +170,47 @@ def read_quality(gtdb, rel):
             for what in ("completeness", "contamination"):
                 col = next((header.index(c) for c in (f"checkm2_{what}", f"checkm_{what}") if c in header), None)
                 cols.append(col)
-            if all(c is None for c in cols):
-                continue
+            size_col = header.index("genome_size") if "genome_size" in header else None
+            rep_col = header.index("gtdb_genome_representative") if "gtdb_genome_representative" in header else None
             for line in fh:
                 fields = line.rstrip("\n").split("\t")
                 if len(fields) <= acc_col:
                     continue
-                values = []
-                for col in cols:
-                    try:
-                        values.append(float(fields[col]) if col is not None and fields[col] not in ("", "none", "N/A", "NA") else None)
-                    except (ValueError, IndexError):
-                        values.append(None)
-                quality[normalize_accession(fields[acc_col])] = tuple(values)
-    return quality
+                acc = normalize_accession(fields[acc_col])
+                if any(c is not None for c in cols):
+                    quality[acc] = tuple(number(fields, col) for col in cols)
+                size = number(fields, size_col)
+                if size is not None and size > 0:
+                    rep = fields[rep_col] if rep_col is not None and rep_col < len(fields) else ""
+                    sizes[acc] = (size, normalize_accession(rep) if rep not in ("", "none", "N/A", "NA") else acc)
+    return quality, sizes
+
+
+# A genome's size is taken as its assembly's corrected by CheckM: size * (100 - contamination) / completeness
+# (Rodriguez-Gijon et al. 2022, Nat Ecol Evol). A species' size is the mean over its high-quality genomes (MIMAG:
+# completeness >= 90, contamination <= 5), else over its medium-quality ones (>= 50, <= 10), else the mean of its
+# genomes' assembly sizes as they are (a release without CheckM's columns, or no genome good enough).
+SIZE_QUALITY_TIERS = ((90.0, 5.0), (50.0, 10.0))
+
+
+def species_genome_sizes(quality, sizes):
+    """-> {species representative: (genome size, genomes averaged)} from read_metadata's dicts."""
+    by_rep = {}
+    for acc, (size, rep) in sizes.items():
+        by_rep.setdefault(rep, []).append((size, *quality.get(acc, (None, None))))
+    result = {}
+    for rep, genomes in by_rep.items():
+        chosen = None
+        for min_comp, max_cont in SIZE_QUALITY_TIERS:
+            corrected = [size * (100.0 - cont) / comp for size, comp, cont in genomes
+                         if comp is not None and cont is not None and comp >= min_comp and cont <= max_cont]
+            if corrected:
+                chosen = corrected
+                break
+        if chosen is None:
+            chosen = [size for size, _, _ in genomes]
+        result[rep] = (sum(chosen) / len(chosen), len(chosen))
+    return result
 
 
 SP_CLUSTERS_COLUMNS = {"radius": "ANI circumscription radius", "mean_ani": "Mean intra-species ANI",
@@ -278,7 +320,7 @@ def _parallel(threads, function, items):
 
 def _spool_representatives(item):
     """One marker: the representatives' records of all its files (a genome's first copy), spooled
-    to rep_<gene id>.tsv; -> (marker, their accessions, skipped counts, the genomes with more copies)."""
+    to rep_<gene id>.tsv; -> (marker, [(accession, bases of its copy)], skipped counts, the genomes with more copies)."""
     marker, paths = item
     lineage, reps = _WORK["lineage"], _WORK["reps"]
     counts = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
@@ -296,7 +338,7 @@ def _spool_representatives(item):
                     duplicated.add(acc)  # a single-copy marker twice in one genome: CheckM's contamination signature
                 else:
                     kept.add(acc)
-                    accessions.append(acc)
+                    accessions.append((acc, len(seq)))
                     out.write(f"{acc}\t{seq.upper()}\n")
     return marker, accessions, counts, sorted(duplicated)
 
@@ -721,9 +763,16 @@ def main():
                                     "TIGR00001; PF00380 matches any version) or protal gene ids, comma-separated or "
                                     "one per line in a file (first column, # comments). The genes keep their ids; "
                                     "with --from_db the gene neighbours are counted anew over them")
+    ap.add_argument("--priors_only", action="store_true",
+                    help="write species_priors.tsv only (into --outdir, nothing else there is touched): the priors with "
+                         "the genome sizes for a database converted from this release before 2026-10-08, to store with "
+                         "protal --add_tables (the taxids are the same for a release, with or without --exclude_species "
+                         "and --genes)")
     args = ap.parse_args()
     if bool(args.gtdb) == bool(args.from_db):
         ap.error("give --gtdb or --from_db")
+    if args.priors_only and not args.gtdb:
+        ap.error("--priors_only reads the release: give --gtdb")
     exclude = read_species_list(args.exclude_species) if args.exclude_species else set()
     if args.from_db:
         # Without --exclude_species and --genes: a plain copy of the converted files (a folder to build apart).
@@ -780,21 +829,24 @@ def main():
     for marker, path in rep_files:
         by_marker.setdefault(marker, []).append(path)
     species_rep = {}       # species name -> rep accession
-    markers_of = {}        # rep accession -> markers found, markers with more than one copy
+    markers_of = {}        # rep accession -> markers found, markers with more than one copy, bases of the markers
     for marker, accessions, counts, duplicated in _parallel(args.threads, _spool_representatives, list(by_marker.items())):
         for key, n in counts.items():
             skipped[key] += n
-        for acc in accessions:
+        for acc, bases in accessions:
             species = lineage[acc].split(";")[-1]
             other = species_rep.setdefault(species, acc)
             if other != acc:
                 sys.exit(f"Species {species} has two representatives with marker genes: {other}, {acc}")
-            markers_of.setdefault(acc, [0, 0])[0] += 1
+            found = markers_of.setdefault(acc, [0, 0, 0])
+            found[0] += 1
+            found[2] += bases
         for acc in duplicated:
-            markers_of.setdefault(acc, [0, 0])[1] += 1
+            markers_of.setdefault(acc, [0, 0, 0])[1] += 1
     phase(f"spooled the representatives' marker genes ({len(species_rep)} species)")
-    quality = read_quality(args.gtdb, args.release)
-    clusters = read_sp_clusters(args.gtdb, args.release)
+    quality, sizes = read_metadata(args.gtdb, rel)
+    genome_sizes = species_genome_sizes(quality, sizes)
+    clusters = read_sp_clusters(args.gtdb, rel)
 
     species_lineage = {sp: lineage[acc] for sp, acc in species_rep.items()}
     for sp, lin in species_lineage.items():
@@ -809,36 +861,52 @@ def main():
     drop = {int(t) for t in drop}
 
     os.makedirs(args.outdir, exist_ok=True)
-    clear_build_outputs(args.outdir)
     out = lambda name: os.path.join(args.outdir, name)
-
-    with open(out("internal_taxonomy.dmp"), "w", newline="\n") as fh:
-        fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n")
-        for row in rows:
-            fh.write("\t".join(map(str, row)) + "\n")
+    if not args.priors_only:
+        clear_build_outputs(args.outdir)
+        with open(out("internal_taxonomy.dmp"), "w", newline="\n") as fh:
+            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n")
+            for row in rows:
+                fh.write("\t".join(map(str, row)) + "\n")
 
     # species_priors.tsv: what GTDB knows of each species' representative and cluster before any read, for the
     # model's prior features (protal's SpeciesPriors.h; -1: unknown). Duplicated single-copy markers in the
     # representative are CheckM's contamination signature; a contaminating contig's genes put every present
-    # organism's reads on the species (docs/claude/2026-10-03-false-positive-anatomy).
+    # organism's reads on the species (docs/claude/2026-10-03-false-positive-anatomy). Since 2026-10-08 also the
+    # species' genome size (species_genome_sizes), the representative's assembly size and the bases of its marker genes
+    # (of every marker, as `markers`: a reduced database holds fewer), and their share of the assembly, for the profile's
+    # composition (protal's Composition.h: the reads the called species explain, the sample's unknown share).
     def number(v):
         return "-1" if v is None else (f"{v:g}" if isinstance(v, float) else str(v))
-    with_dups = with_quality = with_cluster = 0
+    with_dups = with_quality = with_cluster = with_size = 0
     with open(out("species_priors.tsv"), "w", newline="\n") as fh:
         fh.write("taxid\trep_genome\tmarkers\tduplicate_markers\tcheckm_completeness\tcheckm_contamination"
-                 "\tani_radius\tmean_intra_ani\tmin_intra_ani\tclustered_genomes\n")
+                 "\tani_radius\tmean_intra_ani\tmin_intra_ani\tclustered_genomes"
+                 "\tgenome_size\tsized_genomes\trep_genome_size\tmarker_bases\tmarker_share\n")
         for sp in sorted(taxid, key=lambda s: taxid[s]):
             acc = species_rep[sp]
-            found, dups = markers_of.get(acc, [0, 0])
+            found, dups, marker_bases = markers_of.get(acc, [0, 0, 0])
             comp, cont = quality.get(acc, (None, None))
             cl = clusters.get(acc, {})
+            size, sized = genome_sizes.get(acc, (None, 0))
+            rep_size = sizes[acc][0] if acc in sizes else None
             with_dups += dups > 0
             with_quality += comp is not None
             with_cluster += bool(cl)
+            with_size += size is not None
             fh.write("\t".join([str(taxid[sp]), acc, str(found), str(dups), number(comp), number(cont), number(cl.get("radius")),
-                                 number(cl.get("mean_ani")), number(cl.get("min_ani")), number(cl.get("genomes"))]) + "\n")
+                                 number(cl.get("mean_ani")), number(cl.get("min_ani")), number(cl.get("genomes")),
+                                 "-1" if size is None else str(round(size)), str(sized),
+                                 "-1" if rep_size is None else str(round(rep_size)), str(marker_bases),
+                                 f"{marker_bases / rep_size:.4g}" if rep_size else "-1"]) + "\n")
     phase(f"species priors ({with_dups} representatives with a duplicated marker, CheckM quality for {with_quality}, "
-          f"species clusters for {with_cluster} of {len(taxid)} species" + ("" if clusters else "; no sp_clusters file") + ")")
+          f"species clusters for {with_cluster}, genome sizes for {with_size} of {len(taxid)} species"
+          + ("" if clusters else "; no sp_clusters file") + ("" if sizes else "; no genome_size in the metadata") + ")")
+    if args.priors_only:
+        shutil.rmtree(tmp, ignore_errors=True)
+        sys.stderr.write(f"GTDB r{rel} -> {out('species_priors.tsv')} ({len(taxid)} species; store it in a database built "
+                         f"from this release with protal --add_tables {out('species_priors.tsv')} --db DB)\n")
+        return
 
     # Each gene's records, sorted by taxid, then all genes in gene id order (--order gene), or merged
     # by taxid, then gene (--order genome).

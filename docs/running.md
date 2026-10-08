@@ -105,6 +105,64 @@ cuts of species seen nowhere else, the full update, which is right only when the
 species: on 42 simulated samples drawn independently it removed a quarter of the calls, nearly all
 true, while the default changed nothing. Use `--check` to see how far the probabilities moved and how
 many calls flipped, and validate on a study with a truth first ([report](claude/2026-10-03-false-positive-fixes/README.md)).
+With `--profiles`, a sample whose own `.profile` ends with the unknown share keeps it, and the adjusted calls share the rest.
+
+## What the called species explain: the unknown share
+
+Since 2026-10-08 protal tells, per sample, how much of the sample the species it calls explain. A
+species' depth on its marker genes, times its genome size (`species_priors.tsv`,
+[databases.md](databases.md#species-priors)), is the bases its whole genome put into the sample.
+Their sum over the called species, against the bases read (a pair's overlapping bases counted once,
+as in the depth), is the share they explain. The rest came from organisms the profile does not
+name: species the database lacks or the model did not call, plasmids, viruses, eukaryotes, host. At
+the called species' average genome size, the rest is a number of genomes, and it ends the profile
+as a last line, the unknown share:
+
+```
+GCF_000005845.2	d__Bacteria;...;s__Escherichia coli	0.412
+...
+?	?	0.183
+```
+
+The species' abundances are then shares of all genomes sequenced (of cells), adding up to 1 with the
+`?` line; `--no_unknown_share` gives shares of the called species' summed depth as before. A
+profile has no `?` line when the database has no genome sizes (converted before 2026-10-08; the run
+says so when it loads it), or when the SAM does not say how many reads were read (aligned by protal
+before 2026-10-08, or with `--full_sam_header`). A sample without called species gets `? ? 1`. Where
+the called species explain more than was read (their depth or their sizes overestimated, or reads
+of the marker genes alone, as in the tests), the share is 0.
+`protal_profile_utils merge` puts the `?` row last, with NA for a profile without one, and
+`scripts/prevalence_calls.py --profiles` keeps a sample's `?`.
+
+The numbers behind it are in `<profile>.composition` (one header line and one line per sample;
+`protal_profile_utils composition --input '*.profile.composition'` makes one table of many), written
+with `--no_unknown_share` too, with NA where a number is not known:
+
+| Column | |
+|---|---|
+| `ScannedFragments`, `ScannedReads`, `ScannedBases` | what the aligner read: pairs (or single reads), reads, bases |
+| `FragmentBaseShare` | the aligned reads' fragment bases per read base: below 1 by the bases a pair's mates share |
+| `CalledSpecies`, `SpeciesWithGenomeSize` | the species called, and those the database gives a size (one without counts at the average size) |
+| `AttributedShare`, `AttributedFragments` | the share of the bases read (and as many fragments) that the called species' depth times genome size explains; above 1 where depths or sizes are overestimated |
+| `AverageGenomeSize`, `GenomeSizeSD` | the called species' genome sizes weighted by their depth, which counts cells: the genome of the average cell (the average genome size of MicrobeCensus, here from the called species), and the spread around it |
+| `GenomeSizeP10` to `GenomeSizeP90` | the depth-weighted 10%, 25%, 50%, 75% and 90% quantiles of the called species' genome sizes |
+| `GenomeEquivalents`, `UnknownGenomeEquivalents` | the called species' depths summed (genomes sequenced at 1x), and the bases left over divided by the average genome size |
+| `UnknownShare` | the profile's `?`: the unknown genome equivalents over all |
+| `MedianDepth`, `LowestDepth` | of the called species |
+| `MissingSpeciesAtMedianDepth`, `MissingSpeciesAtLowestDepth` | the unknown genome equivalents divided by the median and by the lowest depth of the called species: how many species the rest would be if each were as abundant as a typical called species, or as the least abundant one. Species below what protal detects would be more |
+
+`.profile.log` gives each taxon's `GenomeSize` and `GenomeFragments` (the fragments its depth implies
+over its whole genome), and the run prints a line per sample, e.g. `Sample S1: 81.7% of 1000000
+fragments explained by the 45 species called; average genome size 3.42 Mb (10-90%: 2.10-5.31 Mb);
+unknown 18.3% of genomes, about 12 species at the median depth (210 at the lowest)`. The aligner
+writes what it read into the SAM header (`@CO protal scanned reads: fragments=F reads=R bases=B`),
+so `--profile_only` and reruns compute the same.
+
+The estimate leans on two assumptions: that a called species' genome in the sample has its GTDB
+species' mean size (a strain's own size can differ by 10-20%), and that the organisms the profile
+does not name have the called species' average genome size. Host or eukaryotic reads count as
+unknown genomes of that size too, so in a host-rich sample remove host reads first or read the
+`AttributedShare` rather than the `?`.
 
 ## Read files
 
@@ -219,6 +277,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--knob` | 0.5 | detection threshold, 0 to 1. A model with a knob curve over the sample's depth uses the curve unless `--knob` is given; models trained with the depth as a feature (the default) have none ([databases.md](databases.md#how-protal-calls-species)). Choose it on data like yours |
 | `--fdr` | off | report each sample's species while their expected share of false calls stays at or below this, for a model with calibrated calls; at r226 it called slightly below the knob curve, so it is off ([databases.md](databases.md#calls-at-a-target-share-of-false-calls)) |
 | `--singleton_congener` | 0 | veto a single-fragment species beside a congener of at least this many fragments when its read looks like the congener's; 0: no rule ([databases.md](databases.md#the-singleton-rule)) |
+| `--no_unknown_share` | off | abundances as shares of the called species' summed depth (adding up to 1), without the profile's last line `?`, the share of the genomes the called species do not explain ([above](#what-the-called-species-explain-the-unknown-share)) |
 | `--keep_suspect_copies` | off | count reads on the database's suspect gene copies (near-identical to another genus's copy: contamination or a transferred gene) as evidence; by default they are left out, and the log says how many per sample ([databases.md](databases.md#2-build-the-index)) |
 | `--depth_identity_margin` | 0.08 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. The margin is the same on every gene unless `--gene_conservation` scales it. The default counts the reads of strains up to about 5% from the reference; 0.04, the earlier default, dropped up to 40% of the reads of strains 3–5% away and undercounted those strains ([report](claude/2026-09-30-depth-margin-stress/README.md), [scaled per gene](claude/2026-10-01-gene-scaled-margin/README.md)). 1 lets every read count. The depth counts each base a fragment covers on a gene once: where a pair's mates overlap there, the second mate adds only what the first did not cover, as the strain MSA counts them ([report](claude/2026-10-02-fragment-depth/README.md)) |
 | `--gene_conservation` | `none` | scale `--depth_identity_margin` per gene by its conservation factor: `db` for the database's, or a file of `geneid<TAB>factor`; a gene's margin is then 0.03 plus the rest times its factor. `none` did best over three simulated worlds ([report](claude/2026-10-01-gene-scaled-margin/README.md)). The model's conservation features use the factors either way |

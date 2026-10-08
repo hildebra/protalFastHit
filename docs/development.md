@@ -65,7 +65,8 @@ offsets would stop every test that aligns. zlib-ng is built with both sanitizers
 
 `tests/e2e/test_protal_e2e.py` simulates reads from the mini database's reference genes and runs the
 real `protal` and `simulate_metagenomes`: exit codes, output files, SAM records, strain MSAs, reruns,
-failures reported and kept to their sample, a profile's truth counts and abundances, an empty profile
+failures reported and kept to their sample, a profile's truth counts and abundances, its composition
+(the reads scanned, the genome sizes, the unknown share), a profile of the unknown alone (`? ? 1`)
 for reads of nothing in the database, every default feature group the model may use, and a small
 gradient-boosted model (`tests/e2e/data/model_gbm_small.xml`) scored end to end against probabilities
 computed by hand. It covers paired-end, single-end, PacBio and ONT reads and phasing.
@@ -90,8 +91,8 @@ database (the version, the simulator, qcmsa's contract, small builds, gene neigh
 (`test_downloads.py`), the training data collector and its scenarios (`test_collector.py`), the gene
 neighbours (`test_gene_neighbours.py`), the build script's parts (`test_gtdb_build.py`) and the GTDB
 build end to end (`test_gtdb_pipeline.py`); `scripts/test_*.py` the trainer and the model's PMML
-export (`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`, the
-profile scripts and the strain test scripts. A test whose prerequisite is missing is skipped;
+export (`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`,
+`composition_accuracy.py`, the profile scripts and the strain test scripts. A test whose prerequisite is missing is skipped;
 `PROTAL_TESTS_REQUIRED=1` makes it fail instead (`scripts/prerequisites.py`). With everything present
 they run in about 4 minutes on 4 cores, the GTDB build 3 of them:
 
@@ -99,7 +100,8 @@ they run in about 4 minutes on 4 cores, the GTDB build 3 of them:
 PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes PROTAL_TESTS_REQUIRED=1 \
     python3 -m unittest scripts/mini_db/test_*.py
 python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
-    scripts/test_profile_scripts.py scripts/test_strain_scripts.py scripts/test_model_pmml.py
+    scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
+    scripts/test_model_pmml.py
 ```
 
 **The GTDB build end to end** (`test_gtdb_pipeline.py`, `GtdbBuildTest`) needs `$PROTAL`, `$SIMULATE`,
@@ -107,7 +109,8 @@ and scikit-learn, joblib and pandas in `$PROTAL_TRAIN_PYTHON` (default: the Pyth
 running the tests). On a synthetic release of 60 species, downloaded from stand-ins of GTDB's mirror
 and NCBI, each build serves every check of what it does:
 - a build trained for pe and se with its genes ranked from the training database (`--rank-genes`),
-  and a rerun that builds nothing;
+  its samples' composition checked against the truth (`model_logs/composition_accuracy*.tsv`: the
+  species' genome sizes are their genomes'), and a rerun that builds nothing;
 - a reduced database of the 3 best genes (`--n-genes`) ranked from a full build of the training
   database, the same ranking as `--rank-genes`'s, its models with the relatives features and calls at
   a target share of false calls;
@@ -155,7 +158,8 @@ the release, the converter, the gene neighbours, `protal --build`. The scripts:
 `simulate_gtdb_release.py` evolves each marker from one random coding sequence down the lineage.
 Its options:
 - `--seed`, `--lineages FILE` (one GTDB lineage per line), `--genomes_per_species`,
-  `--genome_length`, `--contigs`, `--marker_loss`;
+  `--genome_length` (the background DNA, or a range `LOW-HIGH` from which each species' is drawn,
+  log-uniformly, so that genome sizes differ), `--contigs`, `--marker_loss`;
 - `--strain_divergence`, `--species_divergence`: a rate or a range `LOW-HIGH`, drawn per genome or
   species (`simulation/divergence.tsv`);
 - `--gene_rates r226`: each marker evolves at the real r226 gene's speed (strains at its
@@ -274,7 +278,7 @@ and build an HTML report. Set the database (`PROTAL_DB_PATH` or `strain_db=...`)
 |---|---|
 | `scripts/measure_performance.sh OUT_DIR DB TYPE:R1[:R2] ...` | repeated protal runs: wall and CPU time, peak memory (and protal's peak after the preload, the index load, aligning and profiling), stage times, protal's read and alignment counts, the seeding's lookups and flex cells, the seeds sharing a gene, the lookups dropped as too ubiquitous and the anchors, the SAM header's genes and finishing time, and with `perf` instructions and cache misses; medians per sample. With two samples or more, then a cohort run of all of them from their SAMs (`cohort.tsv`): profiling, building the strain MSAs and qcMSA (`COHORT=0` leaves it out, `QCMSA=0` runs it without qcMSA). On a cluster, run it on a whole node |
 | `scripts/db_compression_benchmark.sh` | compression ratio and speed per zstd level on a database, and load times |
-| `scripts/protal_profile_utils merge` | profiles into one abundance table |
+| `scripts/protal_profile_utils merge`, `composition` | profiles into one abundance table (the unknown share `?` last); the samples' `<profile>.composition` files into one table ([running.md](running.md#what-the-called-species-explain-the-unknown-share)) |
 | `scripts/protal_map_utils` | `generate`, `merge` (keeping the runs' SAMs), `flatten` and `validate` map files |
 | `scripts/recurrent_calls.py`, `scripts/prevalence_calls.py` | a run's thin recurring calls, and calls adjusted by prevalence across samples ([running.md](running.md#where-the-outputs-go)) |
 | `scripts/plot_abundances.R` | abundance plots for `simulate_metagenomes --plot_png` |

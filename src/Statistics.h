@@ -10,7 +10,8 @@
 
 namespace protal {
     struct Statistics {
-        size_t reads = 0;
+        size_t reads = 0;          // fragments: read pairs, or single reads
+        size_t bases = 0;          // their bases (both mates')
         size_t kmers_accepted = 0;
         size_t errors_anchor_finding = 0;
         size_t kmers_total = 0;
@@ -27,6 +28,7 @@ namespace protal {
 
         void Join(Statistics& statistics) {
             reads += statistics.reads;
+            bases += statistics.bases;
             kmers_total += statistics.kmers_total;
             kmers_accepted += statistics.kmers_accepted;
             errors_anchor_finding += statistics.errors_anchor_finding;

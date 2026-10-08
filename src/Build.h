@@ -24,6 +24,7 @@
 #include "SequenceUtils/GenomeLoader.h"
 #include "Profiling/SampleContext.h"
 #include "SequenceUtils/CongenerGaps.h"
+#include "Taxonomy.h"
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -686,9 +687,40 @@ namespace protal::build {
         bm.PrintResults();
     }
 
-    // --add_tables: stores per-copy tables (congener_gaps.tsv, foreign_rates.tsv) in the database by their file names, as
-    // AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder gets the
-    // files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
+    // Whether species_priors.tsv `file` is of the database's species: each of its taxids a species of the database's
+    // taxonomy with the same representative genome (a table converted from another release would give other species'
+    // values). Returns an error text, or "".
+    static std::string PriorsMatchTaxonomy(std::string const& file, protal::Options const& options) {
+        auto const taxonomy_file = options.TaxonomyDbFile();
+        auto input = taxonomy_file.Open();
+        if (!taxonomy_file.Exists() || !input->IsOpen()) return "the database's taxonomy cannot be read";
+        taxonomy::IntTaxonomy const tax(input->Stream(), taxonomy_file.Name());
+        std::ifstream is(file);
+        std::string line;
+        size_t number = 0;
+        while (std::getline(is, line)) {
+            number++;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#' || line.rfind("taxid", 0) == 0) continue;
+            size_t const tab = line.find('\t');
+            size_t const end = tab == std::string::npos ? std::string::npos : line.find('\t', tab + 1);
+            int const taxid = std::stoi(line.substr(0, tab));
+            std::string const rep = tab == std::string::npos ? "" : line.substr(tab + 1, end == std::string::npos ? std::string::npos : end - tab - 1);
+            if (!tax.map.contains(taxid) || tax.map.at(taxid).rank != "species") {
+                return "line " + std::to_string(number) + ": taxid " + std::to_string(taxid) + " is no species of the database";
+            }
+            auto const& known = tax.map.at(taxid).rep_genome;
+            if (!known.empty() && !rep.empty() && known != rep) {
+                return "line " + std::to_string(number) + ": taxid " + std::to_string(taxid) + " is " + rep + " in the table but " +
+                       known + " in the database (converted from another GTDB release?)";
+            }
+        }
+        return "";
+    }
+
+    // --add_tables: stores tables (congener_gaps.tsv, foreign_rates.tsv, species_priors.tsv) in the database by their file
+    // names, as AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder
+    // gets the files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
     static void AddTables(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<std::pair<std::string, std::string>> tables;  // file, member
@@ -696,23 +728,26 @@ namespace protal::build {
             std::string const name = fs::path(file).filename().string();
             std::ifstream is(file);
             std::string error = is ? "" : "cannot be opened";
-            size_t copies = 0, species = 0;
+            std::string summary;
             if (error.empty() && name == Options::PROTAL_CONGENER_GAPS_FILE) {
                 congener_gaps::Table table;
                 error = table.Read(is);
-                copies = table.Copies();
-                species = table.Species();
+                summary = std::to_string(table.Copies()) + " gene copies of " + std::to_string(table.Species()) + " species";
+            } else if (error.empty() && name == Options::PROTAL_SPECIES_PRIORS_FILE) {
+                species_priors::Table table;
+                error = table.Read(is);
+                if (error.empty()) error = PriorsMatchTaxonomy(file, options);
+                summary = std::to_string(table.Size()) + " species, " + std::to_string(table.WithGenomeSize()) + " with a genome size";
             } else if (error.empty()) {
                 foreign_rates::Table table;
                 error = table.Read(is);
-                copies = table.Copies();
-                species = table.Species();
+                summary = std::to_string(table.Copies()) + " gene copies of " + std::to_string(table.Species()) + " species";
             }
             if (!error.empty()) {
                 std::cerr << "--add_tables: " << file << " is no valid " << name << ": " << error << std::endl;
                 exit(8);
             }
-            std::cout << file << ": " << copies << " gene copies of " << species << " species" << std::endl;
+            std::cout << file << ": " << summary << std::endl;
             tables.emplace_back(file, name);
         }
         AddModel(options, tables, "tables");

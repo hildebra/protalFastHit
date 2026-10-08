@@ -1,0 +1,4 @@
+one strain, another genome: protal depth / truth median 0.9527 (n=21), low-identity share median 0.0002
+one strain, the reference: protal depth / truth median 0.9785 (n=27), low-identity share median 0.0000
+two strains: protal depth / truth median 0.9565 (n=24), low-identity share median 0.0003
+strain divergences: [0.005] ...

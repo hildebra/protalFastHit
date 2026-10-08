@@ -28,7 +28,9 @@ recurring artefact too (scripts/recurrent_calls.py finds those).
 Reads every <sample>.profile.log of a protal run (protal -o: every taxon the sample's reads hit, with Predicted,
 Probability, Lineage, Name and TaxID). Writes prevalence_calls.tsv (sample, taxid, species, hits, p, prevalence,
 p_adjusted, called, called_adjusted) and, with --profiles DIR, one <sample>.profile per sample in protal's format
-(representative genome, lineage, abundance) with the adjusted calls, abundances renormalised over them.
+(representative genome, lineage, abundance) with the adjusted calls, abundances renormalised over them; where the
+sample's own <sample>.profile beside its .profile.log ends with the unknown share ("?", protal since 2026-10-08), the
+adjusted calls share the rest and the "?" line is kept.
 
 Usage: prevalence_calls.py OUTPUT_DIR [more dirs or .profile.log files] [-o prevalence_calls.tsv] [--knob 0.5]
        [--prior P] [--pseudo-samples 2] [--profiles DIR] [--check]
@@ -71,6 +73,22 @@ def read_profile_log(path):
             except (TypeError, ValueError):
                 continue
     return rows
+
+
+def unknown_share(log_path):
+    """The unknown share ("?" line) of the <sample>.profile beside a <sample>.profile.log, or None without one."""
+    path = log_path[: -len(".log")]
+    if not os.path.isfile(path):
+        return None
+    with open(path) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 3 and fields[1] == "?":
+                try:
+                    return float(fields[2])
+                except ValueError:
+                    return None
+    return None
 
 
 def profile_logs(paths):
@@ -116,10 +134,11 @@ def main():
     args = ap.parse_args()
 
     files = profile_logs(args.paths)
-    samples = {}
+    samples, unknown = {}, {}
     for path in files:
         sample = os.path.basename(path)[: -len(".profile.log")]
         samples[sample] = read_profile_log(path)
+        unknown[sample] = unknown_share(path)
     if len(samples) < 2:
         sys.exit("prevalence needs two samples or more")
     # Every probability by taxon and sample.
@@ -176,9 +195,13 @@ def main():
         for sample in samples:
             taxa = adjusted.get(sample, [])
             total = sum(a for _, _, a in taxa if not math.isnan(a)) or 1.0
+            # The unknown share of the sample's profile stays; the adjusted calls share the rest.
+            rest = 1.0 - unknown[sample] if unknown[sample] is not None else 1.0
             with open(os.path.join(args.profiles, sample + ".profile"), "w") as fh:
                 for rep, lineage, abundance in taxa:
-                    fh.write(f"{rep}\t{lineage}\t{(abundance / total) if not math.isnan(abundance) else 0:.6g}\n")
+                    fh.write(f"{rep}\t{lineage}\t{(abundance / total * rest) if not math.isnan(abundance) else 0:.6g}\n")
+                if unknown[sample] is not None:
+                    fh.write(f"?\t?\t{unknown[sample]:.6g}\n")
     before = sum(r["called"] for r in out_rows)
     after = sum(r["called_adjusted"] for r in out_rows)
     print(f"{n_samples} samples, {len(out_rows)} taxa with records, base rate {base:.4f} ({'given' if args.prior is not None else 'the run mean'}); "

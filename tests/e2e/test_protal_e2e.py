@@ -395,8 +395,9 @@ def read_dicts(path):
 
 
 def profile_species(text):
-    """The species names a .profile reports (rep genome, lineage, abundance per line)."""
-    return sorted(line.split("\t")[1].split(";")[-1] for line in text.splitlines() if line.strip())
+    """The species names a .profile reports (rep genome, lineage, abundance per line), without its last line, the unknown
+    share ("?\t?\t<share>", since 2026-10-08)."""
+    return sorted(line.split("\t")[1].split(";")[-1] for line in text.splitlines() if line.strip() and line.split("\t")[1] != "?")
 
 
 def digest(path):
@@ -639,9 +640,9 @@ class AccuracyTest(DbTest):
         for sample, counts in expected.items():
             self.assertIn(f"Sample {sample}: {counts} true species not in the database)", self.base.log)
 
-    def test_reads_of_nothing_in_the_database_give_an_empty_profile(self):
+    def test_reads_of_nothing_in_the_database_give_a_profile_of_the_unknown(self):
         self.assertEqual(self.base.rc, 0)
-        self.assertEqual(self.base.text("foreign.profile"), "")
+        self.assertEqual(self.base.text("foreign.profile"), "?\t?\t1\n", "every genome sequenced is unknown")
         self.assertIn("No taxon passes the model in sample foreign", self.base.log)
         _, rows = read_table(self.base.path("foreign.profile.log"))
         self.assertEqual([row for row in rows if row[0] != "0"], [], "no taxon called")
@@ -670,6 +671,9 @@ class AccuracyTest(DbTest):
         expected = self.expected_abundances()
         for sample in ("sa", "sb"):
             rows = [line.split("\t") for line in self.base.text(f"{sample}.profile").splitlines()]
+            # The reads lie on the marker genes alone: the species explain more than was read, nothing is unknown.
+            self.assertEqual(rows[-1], ["?", "?", "0"], sample)
+            rows = rows[:-1]
             self.assertEqual(len(rows), 3, sample)
             found = {}
             for rep_genome, lineage, abundance in rows:  # three fields per line
@@ -681,6 +685,36 @@ class AccuracyTest(DbTest):
             for name, share in expected.items():
                 self.assertLess(abs(found[name] - share), self.ABUNDANCE_TOLERANCE,
                                 f"{sample}, {name}: abundance {found[name]:.4f}, its pairs give {share:.4f}")
+
+    def test_the_composition(self):
+        # <profile>.composition (since 2026-10-08): the reads scanned, as the SAM header says, the species called and their
+        # genome sizes (species_priors.tsv), the share of the reads they explain. sa's reads lie on the marker genes
+        # alone, so its species explain more than was read and nothing is unknown; foreign's reads are all unknown.
+        priors = {row["taxid"]: row for row in read_dicts(db_file("species_priors.tsv"))}
+        sizes = [int(priors[str(taxid)]["genome_size"]) for taxid in species().values()]
+        self.assertTrue(all(size > 0 for size in sizes), "the mini database gives every species a genome size")
+        for sample in ("sa", "foreign"):
+            with open(os.path.join(READS, f"{sample}_R1.fq")) as fh:
+                pairs = sum(1 for _ in fh) // 4
+            scanned = [line for line in sam_text(self.base.sam(sample)).splitlines() if line.startswith("@CO\tprotal scanned reads: ")]
+            self.assertEqual(len(scanned), 1, sample)
+            self.assertIn(f"fragments={pairs} reads={2 * pairs} bases=", scanned[0])
+            row = read_dicts(self.base.path(f"{sample}.profile.composition"))
+            self.assertEqual(len(row), 1)
+            self.assertEqual((row[0]["Sample"], int(row[0]["ScannedFragments"])), (sample, pairs))
+        sa = read_dicts(self.base.path("sa.profile.composition"))[0]
+        self.assertEqual((sa["CalledSpecies"], sa["SpeciesWithGenomeSize"], sa["UnknownShare"]), ("3", "3", "0"))
+        self.assertGreater(float(sa["AttributedShare"]), 1)
+        self.assertTrue(min(sizes) <= float(sa["AverageGenomeSize"]) <= max(sizes))
+        self.assertRegex(self.base.log, r"Sample sa: \d+\.\d% of \d+ fragments explained by the 3 species called; average genome "
+                                        r"size [\d.]+ Mb")
+        foreign = read_dicts(self.base.path("foreign.profile.composition"))[0]
+        self.assertEqual((foreign["CalledSpecies"], foreign["AttributedShare"], foreign["UnknownShare"], foreign["AverageGenomeSize"]),
+                         ("0", "0", "1", "NA"))
+        # .profile.log: each taxon's genome size, and the fragments its depth implies over its genome.
+        for row in read_dicts(self.base.path("sa.profile.log")):
+            self.assertEqual(row["GenomeSize"], priors[row["TaxID"]]["genome_size"])
+            self.assertGreater(int(row["GenomeFragments"]), 0)
 
 
 class OutputFilesTest(DbTest):
@@ -720,6 +754,14 @@ class OutputFilesTest(DbTest):
         self.assertIn("Sample sample_a: TP 3, FP 0, FN 0 (and 1 true species not in the database)", self.log)
         self.assertNotIn("Truth: 0", self.log)
         self.assertEqual(read_text(self.path("out", "pa.profile")), baseline().text("sa.profile"))
+
+    def test_without_the_unknown_share(self):
+        # --no_unknown_share: the called species' shares of their summed depth, without the "?" line (sa's is 0, so the
+        # species' shares are the same); the composition is written either way.
+        rc, log = profile_only(self.work, self.path("plain"), [baseline().sam("sa")], "--no_unknown_share", prefixes=["sa"])
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(read_text(self.path("plain", "sa.profile")), baseline().text("sa.profile").replace("?\t?\t0\n", ""))
+        self.assertEqual(read_text(self.path("plain", "sa.profile.composition")), baseline().text("sa.profile.composition"))
 
     def test_statistics_for_a_single_sample(self):
         # The per-taxon files are written only with --taxon_statistics (since 0.7.6), then with one sample, too.
@@ -1440,7 +1482,7 @@ class FalseCallsTest(KnobSample):
         log, strict = self.profile("strict", "--model", model, "--fdr", "0.000001")
         self.assertIn("; at --fdr 1e-06, the depth knobs are not used", log)
         self.assertRegex(log, r"Sample thin: \d+ fragments, 0 taxa at an expected share of false calls of at most 1e-06")
-        self.assertEqual(strict.strip(), "", "a target no taxon meets calls none")
+        self.assertEqual(strict.strip(), "?\t?\t1", "a target no taxon meets calls none: all unknown")
         log, generous = self.profile("generous", "--model", model, "--fdr", "0.9")
         self.assertIn("; at --fdr 0.9", log)
         self.assertRegex(log, r"Sample thin: \d+ fragments, 3 taxa at an expected share of false calls of at most 0.9")
@@ -2404,6 +2446,50 @@ class ReadTypeModelTest(DbTest):
     def profile_only(self, db, out, *extra, sam=None):
         return profile_only(self.work, self.path(out), [sam or baseline().sam("sa")], *extra, prefixes=["sa"], db=db)
 
+    def test_add_species_priors(self):
+        # --add_tables species_priors.tsv (gtdb_to_protal_db.py --priors_only): a table of another release (a species'
+        # representative differs) is refused; one without the genome sizes (converted before 2026-10-08) leaves the
+        # profile without its unknown share; the sizes stored reach .profile.log.
+        db, bundle = self.copy("db_priors")
+        with open(db_file("species_priors.tsv")) as fh:
+            lines = fh.read().splitlines()
+        header = lines[0].split("\t")
+        rows = [line.split("\t") for line in lines[1:]]
+        os.makedirs(self.path("tables"))
+        other = [row[:] for row in rows]
+        other[0][1] = "GCF_000000001.1"
+        table = self.path("tables", "species_priors.tsv")
+        with open(table, "w") as fh:
+            fh.write("\n".join("\t".join(r) for r in [header] + other) + "\n")
+        rc, log = run(self.work, "--add_tables", table, "--db", db, "-t", "2")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("in the database (converted from another GTDB release?)", log)
+
+        with open(table, "w") as fh:
+            fh.write("\n".join("\t".join(r[:10]) for r in [header] + rows) + "\n")
+        rc, log = run(self.work, "--add_tables", table, "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"{table}: {len(rows)} species, 0 with a genome size", log)
+        rc, log = self.profile_only(db, "out_unsized")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("0 with a genome size (converted before 2026-10-08", log)
+        self.assertEqual(read_text(self.path("out_unsized", "sa.profile")), baseline().text("sa.profile").replace("?\t?\t0\n", ""))
+
+        size = header.index("genome_size")
+        for row in rows:
+            row[size] = str(2 * int(row[size]))
+        with open(table, "w") as fh:
+            fh.write("\n".join("\t".join(r) for r in [header] + rows) + "\n")
+        rc, log = run(self.work, "--add_tables", table, "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        rc, log = self.profile_only(db, "out_sized")
+        self.assertEqual(rc, 0, log[-3000:])
+        doubled = {row[0]: row[size] for row in rows}
+        logged = read_dicts(self.path("out_sized", "sa.profile.log"))
+        self.assertTrue(logged)
+        for row in logged:
+            self.assertEqual(row["GenomeSize"], doubled[row["TaxID"]])
+
     def test_add_model_for_a_read_type(self):
         db, bundle = self.copy("db_add")
         rc, log = self.profile_only(db, "out_pe")
@@ -2450,7 +2536,7 @@ class ReadTypeModelTest(DbTest):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("Model of ONT reads: model_ONT.xml in " + bundle, log)
         self.assertIn(warning, log)
-        self.assertEqual(read_text(self.path("out_ont", "sa.profile")), "", "a placeholder reports no species")
+        self.assertEqual(read_text(self.path("out_ont", "sa.profile")), "?\t?\t1\n", "a placeholder reports no species")
         rc, log = self.profile_only(db, "out_ont_all", "--read_type", "ont", "--knob", "0")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertEqual(profile_species(read_text(self.path("out_ont_all", "sa.profile"))), sorted(species()))
@@ -2697,7 +2783,7 @@ class SamInputTest(DbTest):
         self.assertIn(f"skipped {own_unmapped + 1} record(s): unmapped", log)
         self.assertEqual(read_text(self.path("out_edited.sam", "edited.profile")), self.profile_text)
 
-    def test_header_only_sam_gets_an_empty_profile(self):
+    def test_header_only_sam_gets_a_profile_of_the_unknown(self):
         sam = self.write_sam("header_only", self.header)
         # A sample without records that do not fit gets no misc/<sample>.err, and an earlier run's is removed.
         os.makedirs(self.path("out_header_only.sam", "misc"))
@@ -2705,7 +2791,8 @@ class SamInputTest(DbTest):
             fh.write("an earlier run's\n")
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertEqual(read_text(self.path("out_header_only.sam", "header_only.profile")), "")
+        # Its header says reads were scanned, none of which aligned: all unknown.
+        self.assertEqual(read_text(self.path("out_header_only.sam", "header_only.profile")), "?\t?\t1\n")
         self.assertFalse(os.path.exists(self.path("out_header_only.sam", "misc", "header_only.err")))
 
     def test_records_that_do_not_fit_go_to_misc(self):

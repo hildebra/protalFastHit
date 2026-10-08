@@ -1,0 +1,2 @@
+Sample	ScannedFragments	ScannedReads	ScannedBases	FragmentBaseShare	CalledSpecies	SpeciesWithGenomeSize	AttributedShare	AttributedFragments	AverageGenomeSize	GenomeSizeSD	GenomeSizeP10	GenomeSizeP25	GenomeSizeMedian	GenomeSizeP75	GenomeSizeP90	GenomeEquivalents	UnknownGenomeEquivalents	UnknownShare	MedianDepth	LowestDepth	MissingSpeciesAtMedianDepth	MissingSpeciesAtLowestDepth
+mini	30000	60000	9000000	0.986482	3	3	0.962898	28887	274653	1415	271848	275046	275046	275535	275535	31.1264	1.19933	0.0371015	9.39147	6.2043	0.127705	0.193307

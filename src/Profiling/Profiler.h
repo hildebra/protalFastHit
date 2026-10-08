@@ -29,6 +29,7 @@
 #include "ReadType.h"
 #include "SamChunks.h"
 #include "SampleContext.h"
+#include "Composition.h"
 #include "ExactSum.h"
 #include <algorithm>
 #include <array>
@@ -4021,6 +4022,48 @@ namespace protal {
                 return total;
             }
 
+            // The called taxa (that pass the model) with their depth and genome size, in taxid order, for the sample's
+            // composition (Composition.h).
+            std::vector<composition::Species> CalledSpecies(TaxonFilterObj const& filter) {
+                std::vector<composition::Species> species;
+                for (auto const id : SortedTaxa()) {
+                    auto& taxon = m_taxa.at(id);
+                    if (filter.Pass(taxon)) species.push_back({ static_cast<uint32_t>(id), taxon.VerticalCoverage(), taxon.Priors().genome_size });
+                }
+                return species;
+            }
+
+            // Fragment bases per aligned read base over every taxon's genes: below 1 by the bases a pair's mates share,
+            // which the depth counts once (Gene::m_fragment_bases); 1 without reads.
+            double FragmentBaseShare() const {
+                uint64_t fragment = 0, mapped = 0;
+                for (auto const& [_, taxon] : m_taxa) {
+                    for (auto const& [id, gene] : taxon.GetGenes()) {
+                        fragment += gene.m_fragment_bases;
+                        mapped += gene.m_mapped_length;
+                    }
+                }
+                return mapped == 0 ? 1.0 : static_cast<double>(fragment) / static_cast<double>(mapped);
+            }
+
+            // The sample's composition (Composition.h), which the profile files take: with `fill_unknown` and an unknown
+            // share, the profile ends with a "?" line of that share and the called taxa's abundances are shares of all
+            // genomes sequenced (scaled by AbundanceScale), not of the called taxa's; .profile.log gives every taxon's
+            // genome size and the fragments its depth implies over its genome.
+            void SetComposition(composition::Result result, bool fill_unknown) {
+                m_composition = std::move(result);
+                m_fill_unknown = fill_unknown;
+            }
+
+            std::optional<composition::Result> const& GetComposition() const {
+                return m_composition;
+            }
+
+            // What the called taxa's shares of their summed depth are multiplied by: 1 minus the unknown share, or 1.
+            double AbundanceScale() const {
+                return m_fill_unknown && m_composition && m_composition->HasUnknownShare() ? 1 - m_composition->unknown_share : 1;
+            }
+
             // .genes.log: one line per gene hit, with its taxon's call. TaxAbundance is 0 for taxa the model
             // rejects; MAPQ and ANI are means over the gene's reads.
             // On `threads` threads, each taxon's lines apart, then written in the order of the taxa: the same file.
@@ -4046,7 +4089,7 @@ namespace protal {
                     bool prediction = model.Calls(taxon, model.GetKnob());
 
                     auto predicted_vcov = taxon.VerticalCoverage();
-                    double const predicted_abundance = prediction && total_vcov > 0 ? predicted_vcov / total_vcov : 0;
+                    double const predicted_abundance = prediction && total_vcov > 0 ? predicted_vcov / total_vcov * AbundanceScale() : 0;
 
                     for (auto gene_id : taxon.SortedGeneIds()) {
                         auto& gene = taxon.GetGenes().at(gene_id);
@@ -4091,10 +4134,11 @@ namespace protal {
                 for (auto const& text : lines) *os << text;
             }
 
-            // The profile (taxa that pass the model), .profile.log (every taxon with its call, features
-            // and per-gene coverage; one column per gene id of the database, so every file has the same
-            // columns) and .gene.log (statistics per gene hit). On `threads` threads, each taxon's lines
-            // apart, then written in the order of the taxa: the same files.
+            // The profile (taxa that pass the model; with the sample's composition, a last line "?" of its unknown
+            // share, see SetComposition), .profile.log (every taxon with its call, features, genome size and the
+            // fragments its depth implies over its genome, and per-gene coverage; one column per gene id of the
+            // database, so every file has the same columns) and .gene.log (statistics per gene hit). On `threads`
+            // threads, each taxon's lines apart, then written in the order of the taxa: the same files.
             void WriteSparseProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream &os_filtered=std::cout, std::ostream* os_total=nullptr, std::ostream* os_genes=nullptr,
                                     size_t threads=1) {
                 size_t max_gene_id = 0;
@@ -4104,7 +4148,7 @@ namespace protal {
 
                 if (os_total) {
                     *os_total << "Predicted\tProbability\tRepGenome\tLineage\tAbundance\tVCovStdDev\tGeneVariance\tGeneVariance5\t"
-                              << "Name\tTaxID\tSummary\tVCov\tLowIdentityShare\tMeanGeneCov\tMeanGeneCovRatio";
+                              << "Name\tTaxID\tSummary\tVCov\tLowIdentityShare\tMeanGeneCov\tMeanGeneCovRatio\tGenomeSize\tGenomeFragments";
                     for (size_t id = 0; id <= max_gene_id; id++) *os_total << "\tGeneCov" << id;
                     for (size_t id = 0; id <= max_gene_id; id++) *os_total << "\tGeneCovRatio" << id;
                     *os_total << '\n';
@@ -4116,6 +4160,7 @@ namespace protal {
                 }
 
                 double const total_vcov = PassingDepth(filter);
+                double const scale = AbundanceScale();
 
                 struct Lines {
                     std::string filtered, total, genes;
@@ -4136,7 +4181,7 @@ namespace protal {
                     bool prediction = model.Calls(taxon, model.GetKnob());
                     lines[k].prediction = prediction;
                     double const vcov = taxon.VerticalCoverage();
-                    double const abundance = prediction && total_vcov > 0 ? vcov / total_vcov : 0;
+                    double const abundance = prediction && total_vcov > 0 ? vcov / total_vcov * scale : 0;
 
                     for (auto id : taxon.SortedGeneIds()) {
                         auto& gene = taxon.GetGenes().at(id);
@@ -4178,8 +4223,11 @@ namespace protal {
                         total << '\t' << taxon.GetGeneVariance(5);
                         total << '\t' << taxon.ToString(taxonomy);
                         total << '\t' << vcov << '\t' << taxon.LowIdentityShare();
-                        total << '\t' << mean_gene_covs << '\t' << mean_gene_cov_ratios << gene_covs_str;
-                        total << gene_cov_ratios_str << '\n';
+                        total << '\t' << mean_gene_covs << '\t' << mean_gene_cov_ratios;
+                        double const size = taxon.Priors().genome_size;
+                        total << '\t' << composition::Value(size > 0 ? size : composition::kNaN, 15) << '\t'
+                              << composition::Value(m_composition ? std::round(m_composition->FragmentsOf(vcov, size)) : composition::kNaN, 15);
+                        total << gene_covs_str << gene_cov_ratios_str << '\n';
                     }
                     lines[k].filtered = filtered.str();
                     lines[k].total = total.str();
@@ -4192,6 +4240,9 @@ namespace protal {
                     if (os_total) *os_total << taxon_lines.total;
                     if (os_genes) *os_genes << taxon_lines.genes;
                     one_pass |= taxon_lines.prediction;
+                }
+                if (m_fill_unknown && m_composition && m_composition->HasUnknownShare()) {
+                    os_filtered << "?\t?\t" << m_composition->unknown_share << '\n';
                 }
                 os_filtered.flush();
 
@@ -4206,6 +4257,8 @@ namespace protal {
             ReadType m_read_type = ReadType::Paired;
             double m_knob = 0.5;      // see Knob
             double m_msa_knob = 0.5;  // see MSAKnob
+            std::optional<composition::Result> m_composition;  // see SetComposition
+            bool m_fill_unknown = false;
             mutable TaxonMap m_taxa;
             std::string m_spill_path;                             // SpillStrainEvidence's file, or none
             std::unordered_map<uint32_t, uint64_t> m_spill_offsets;  // and where each taxon's block starts in it
@@ -4281,6 +4334,7 @@ namespace protal {
             double m_depth_identity_margin = 1;
             size_t m_reads = 0;
             FailedCandidateCounts m_failed_candidates;  // the last ReadSamGroups' unmapped records' ZF entries per taxon
+            std::optional<ScannedReads> m_scanned;  // the last SAM's scanned reads (its header), if it says
             size_t m_rejected_reads = 0;
 
             // Variants are recorded with or without --no_strains: the model's allele features come
@@ -4432,6 +4486,7 @@ namespace protal {
                 size_t primary = 0;
                 size_t primary_without_alternatives = 0;
                 std::map<std::string, size_t> skipped;
+                std::optional<ScannedReads> scanned;  // the header's (in the chunk that holds it)
 
                 void Add(SamReader const& reader) {
                     records += reader.Records();
@@ -4439,6 +4494,7 @@ namespace protal {
                     primary += reader.PrimaryRecords();
                     primary_without_alternatives += reader.PrimaryRecordsWithoutAlternatives();
                     for (auto const& [reason, count] : reader.Skipped()) skipped[reason] += count;
+                    if (reader.Scanned()) scanned = reader.Scanned();
                 }
 
                 void Add(SamRecordCounts const& other) {
@@ -4447,6 +4503,7 @@ namespace protal {
                     primary += other.primary;
                     primary_without_alternatives += other.primary_without_alternatives;
                     for (auto const& [reason, count] : other.skipped) skipped[reason] += count;
+                    if (other.scanned) scanned = other.scanned;
                 }
             };
 
@@ -4523,6 +4580,7 @@ namespace protal {
                 SamRecordCounts counts;
                 counts.Add(reader);
                 m_failed_candidates = reader.FailedCandidates();  // for the profile (ProfileSam)
+                m_scanned = counts.scanned;
                 ReportSamRecords(file_path, counts);
                 return {};
             }
@@ -5339,6 +5397,7 @@ namespace protal {
                 }
                 if (failed) return input.ReadFailed() ? truncated() : "read error after line " + std::to_string(lines);
                 m_reads = read_offset;
+                m_scanned = counts.scanned;
                 ReportSamRecords(file_path, counts);
                 return {};
             }
@@ -5355,6 +5414,7 @@ namespace protal {
                                    size_t threads=1) {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
                 m_rejected_reads = 0;
+                m_scanned.reset();
                 m_read_detail.clear();
                 if (threads > 1) {
                     std::string rejected;
@@ -5414,6 +5474,9 @@ namespace protal {
             // lacks, a position past a gene's end, or bases that do not match the gene).
             size_t Reads() const { return m_reads; }
             size_t RejectedReads() const { return m_rejected_reads; }
+            // The reads the aligner read for the last ProfileSam's sample, from its SAM's header; nullopt if it does not say
+            // (a SAM of protal before 2026-10-08, or with --full_sam_header).
+            std::optional<ScannedReads> const& Scanned() const { return m_scanned; }
         };
     }
 }

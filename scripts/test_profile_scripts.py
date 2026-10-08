@@ -148,6 +148,18 @@ class PrevalenceCallsTest(unittest.TestCase):
         with open(os.path.join(self.tmp.name, "profiles", "s2.profile")) as fh:
             self.assertEqual(fh.read(), f"GCF_1.1\t{lineage('P1', 'F1', 'G1', 't')}\t1\n")  # Q's call stays off
 
+    def test_the_unknown_share_of_a_profile_stays(self):
+        # s1's own profile ends with an unknown share of 0.2: the adjusted calls (T, Q and R) share the other 0.8.
+        with open(os.path.join(self.run_dir, "s1.profile"), "w") as fh:
+            fh.write(f"GCF_2.1\t{lineage('P1', 'F1', 'G2', 'q')}\t0.3\nGCF_3.1\t{lineage('P2', 'F2', 'G3', 'r')}\t0.5\n?\t?\t0.2\n")
+        self.adjusted("--profiles", os.path.join(self.tmp.name, "profiles"))
+        with open(os.path.join(self.tmp.name, "profiles", "s1.profile")) as fh:
+            profile = [line.rstrip("\n").split("\t") for line in fh]
+        self.assertEqual([(rep, a) for rep, _, a in profile],
+                         [("GCF_1.1", "0.16"), ("GCF_2.1", "0.24"), ("GCF_3.1", "0.4"), ("?", "0.2")])
+        with open(os.path.join(self.tmp.name, "profiles", "s2.profile")) as fh:
+            self.assertNotIn("?", fh.read())  # s2 has no profile of its own here
+
     def test_the_full_update_cuts_rare_species(self):
         rows, stdout = self.adjusted("--direction", "both", "--check")
         q = rows[("s1", "G2 q")]
@@ -194,6 +206,31 @@ class ProfileUtilsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         # The same lineage twice in a profile is summed; one a sample lacks is 0.
         self.assertEqual(result.stdout, "taxon\ts1\ts2\nd__B;s__A\t0.5\t0.25\nd__B;s__B\t0.50\t0\nd__B;s__C\t0\t0.75\n")
+
+    def test_the_unknown_share_goes_last(self):
+        # A profile's "?" line (since 2026-10-08) is the last row; a profile without one (older, --no_unknown_share) has NA.
+        a, b = os.path.join(self.tmp.name, "s1.profile"), os.path.join(self.tmp.name, "s2.profile")
+        with open(a, "w") as fh:
+            fh.write("GCF_1.1\td__B;s__A\t0.6\n?\t?\t0.4\n")
+        with open(b, "w") as fh:
+            fh.write("GCF_1.1\td__B;s__A\t1\n")
+        result = self.merge("--input", a, b)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "taxon\ts1\ts2\nd__B;s__A\t0.6\t1\n?\t0.4\tNA\n")
+
+    def test_compositions(self):
+        header = "Sample\tScannedFragments\tUnknownShare\n"
+        for sample, row in (("s1", "s1\t100\t0.2\n"), ("s2", "s2\t50\tNA\n")):
+            with open(os.path.join(self.tmp.name, f"{sample}.profile.composition"), "w") as fh:
+                fh.write(header + row)
+        result = run("protal_profile_utils", "composition", "--input", os.path.join(self.tmp.name, "*.profile.composition"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, header + "s1\t100\t0.2\ns2\t50\tNA\n")
+        with open(os.path.join(self.tmp.name, "s3.profile.composition"), "w") as fh:
+            fh.write("Sample\tOther\ns3\t1\n")
+        result = run("protal_profile_utils", "composition", "--input", os.path.join(self.tmp.name, "*.profile.composition"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("columns differ", result.stderr)
 
     def test_sample_names(self):
         for folder in ("run1", "run2"):

@@ -112,6 +112,75 @@ class MiniDbTest(unittest.TestCase):
             with open(os.path.join(self.gtdb, f), "rb") as a, open(os.path.join(other, f), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"{f} differs between runs with the same seed")
 
+    def test_species_priors_genome_sizes(self):
+        # species_priors.tsv (since 2026-10-08): each species' genome size, the mean of its genomes' assembly sizes (the
+        # synthetic genomes are 100% complete, 0% contaminated: corrected as they are), the representative's size, the
+        # bases of its marker genes (as reference.fna holds them: a copy each) and their share of its assembly.
+        import gzip
+        meta = []
+        for name in ("bac120_metadata_r226.tsv.gz", "ar53_metadata_r226.tsv.gz"):
+            if os.path.exists(os.path.join(self.gtdb, name)):
+                with gzip.open(os.path.join(self.gtdb, name), "rt") as fh:
+                    meta += list(csv.DictReader(fh, delimiter="\t"))
+        by_rep = collections.defaultdict(list)
+        for row in meta:
+            by_rep[row["gtdb_genome_representative"].replace("RS_", "").replace("GB_", "")].append(int(row["genome_size"]))
+        size_of = {row["accession"].replace("RS_", "").replace("GB_", ""): int(row["genome_size"]) for row in meta}
+        marker_bases = collections.Counter()
+        for header, seq in read_fasta(os.path.join(self.db, "reference.fna")).items():
+            marker_bases[header.split("_")[0]] += len(seq)
+        with open(os.path.join(self.db, "species_priors.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(len(rows), sum(1 for r in self.taxonomy().values() if r[4] == "species"))
+        for row in rows:
+            sizes = by_rep[row["rep_genome"]]
+            self.assertEqual(int(row["genome_size"]), round(sum(sizes) / len(sizes)), row["taxid"])
+            self.assertEqual(int(row["sized_genomes"]), len(sizes))
+            self.assertEqual(int(row["rep_genome_size"]), size_of[row["rep_genome"]])
+            self.assertEqual(int(row["marker_bases"]), marker_bases[row["taxid"]])
+            self.assertAlmostEqual(float(row["marker_share"]), marker_bases[row["taxid"]] / size_of[row["rep_genome"]], places=3)
+            self.assertEqual(row["checkm_completeness"], "100")  # read from the release found without --release
+        # --priors_only writes that table alone, the same.
+        only = os.path.join(self.tmp.name, "priors_only")
+        os.makedirs(only)
+        with open(os.path.join(only, "keep.txt"), "w") as fh:
+            fh.write("left alone\n")
+        run(CONVERT, "--gtdb", self.gtdb, "--outdir", only, "--priors_only")
+        self.assertEqual(sorted(os.listdir(only)), ["keep.txt", "species_priors.tsv"])
+        same_files(self, self.db, only, "species_priors.tsv")
+
+    def test_genome_length_range(self):
+        # --genome_length LOW-HIGH: each species' background drawn from the range, shared by its genomes (strains differ
+        # by the markers they lost only).
+        other = os.path.join(self.tmp.name, "gtdb_lengths")
+        run(SIMULATE, "--outdir", other, "--genome_length", "20000-400000")
+        with open(os.path.join(other, "simulation", "genomes.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        by_species = collections.defaultdict(list)
+        for row in rows:
+            by_species[row["gtdb_taxonomy"]].append(int(row["genome_length"]))
+        means = sorted(sum(v) / len(v) for v in by_species.values())
+        self.assertEqual(len(means), 3)
+        self.assertGreater(means[-1] - means[0], 50000, means)
+        for lengths in by_species.values():
+            self.assertLess(max(lengths) - min(lengths), 15000, lengths)
+
+    def test_species_genome_size_tiers(self):
+        # A species' size: its high-quality genomes' sizes corrected by CheckM (size * (100 - contamination) /
+        # completeness), else its medium-quality ones', else its genomes' sizes as they are.
+        from gtdb_to_protal_db import species_genome_sizes
+        quality = {"a1": (90.0, 0.0), "a2": (100.0, 2.0), "a3": (60.0, 8.0),  # a: two high-quality genomes
+                   "b1": (60.0, 8.0), "b2": (40.0, 0.0),                    # b: one medium-quality genome
+                   "c1": (40.0, 20.0)}                                      # c: none good enough; d: no CheckM at all
+        sizes = {"a1": (900.0, "a1"), "a2": (1000.0, "a1"), "a3": (5000.0, "a1"), "b1": (600.0, "b1"), "b2": (100.0, "b1"),
+                 "c1": (300.0, "c1"), "d1": (700.0, "d1"), "d2": (900.0, "d1")}
+        result = species_genome_sizes(quality, sizes)
+        self.assertAlmostEqual(result["a1"][0], (900 * 100 / 90 + 1000 * 98 / 100) / 2)
+        self.assertEqual(result["a1"][1], 2)
+        self.assertAlmostEqual(result["b1"][0], 600 * 92 / 60)
+        self.assertEqual(result["c1"], (300.0, 1))
+        self.assertEqual(result["d1"], (800.0, 2))
+
     def test_parallel_conversion(self):
         # The marker files are read by -t workers; the database must not depend on how many.
         for order in ("gene", "genome"):

@@ -129,6 +129,7 @@ namespace protal::classify {
             if (more) take_kmers(record, kmers);
             while (more) {
                 thread_statistics.reads++;
+                thread_statistics.bases += record.sequence.size();
                 if constexpr(seeding_ahead) {
                     bm_anchor_finder.Start(false);
                     anchor_finder.PrepareLookups(kmers);
@@ -307,6 +308,7 @@ namespace protal::classify {
             while (reader(record)) {
                 bm_reader.Stop();
                 thread_statistics.reads++;
+                thread_statistics.bases += record.sequence.size();
 
                 bm_alignment.Start();
                 aligner(record, segments);
@@ -582,6 +584,7 @@ namespace protal::classify {
             if (more) take_kmers(record1, record2, kmers1, kmers2);
             while (more) {
                 thread_statistics.reads++;
+                thread_statistics.bases += record1.sequence.size() + record2.sequence.size();
                 if constexpr(seeding_ahead) {
                     bm_anchor_finder.Start(false);
                     anchor_finder1.PrepareLookups(kmers1);

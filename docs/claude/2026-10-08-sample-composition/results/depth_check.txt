@@ -1,0 +1,6 @@
+all: depth / simulated depth median 0.9697 (10-90%: 0.9102-1.0018, n=72)
+all: genome size / simulated genomes' median 1.0004 (10-90%: 0.9921-1.0084, n=72)
+all: bases explained / the called species' read bases, per sample median 0.9682 (10-90%: 0.9651-0.9759, n=6)
+held: depth / simulated depth median 1.0042 (10-90%: 0.9403-1.3474, n=54)
+held: genome size / simulated genomes' median 1.0006 (10-90%: 0.9952-1.0084, n=54)
+held: bases explained / the called species' read bases, per sample median 1.0324 (10-90%: 0.9723-1.1794, n=6)

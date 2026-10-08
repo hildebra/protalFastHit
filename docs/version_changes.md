@@ -82,6 +82,14 @@ for this page.
 - The per-taxon files `misc/<taxon>.statistics.tsv` are written only with `--taxon_statistics`
   (0.7.6). They took 15 s of a 107 s r226 run on a network file system; the per-sample profile files
   hold the same numbers.
+- After 0.7.9 (2026-10-08): the sample's composition. `species_priors.tsv` gives each species' genome
+  size (GTDB's genomes, corrected by CheckM) and its marker genes' share of it; the aligner writes the
+  reads it read into the SAM header; a profile ends with the share of the genomes its species do not
+  explain (`?`), and its abundances are shares of all genomes (`--no_unknown_share`: of the called
+  species, as before). `<profile>.composition` gives the share of the reads explained, the average
+  genome size and its quantiles, and how many species the rest would be
+  ([running.md](running.md#what-the-called-species-explain-the-unknown-share)). Older databases get the
+  sizes with `gtdb_to_protal_db.py --priors_only` and `--add_tables`.
 
 ### Speed
 

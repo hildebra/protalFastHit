@@ -1,0 +1,15 @@
+c (bases lost per gene): 2.4, from 4147 genes with 20 or more reads
+  genes by gene length, 0-299: depth ratio 0.9043 -> corrected 0.9124
+  genes 300-599: depth ratio 0.9830 -> corrected 0.9874
+  genes 600-1199: depth ratio 0.9949 -> corrected 0.9970
+  genes 1200 or more: depth ratio 1.0040 -> corrected 1.0052
+d__Archaea: species depth / true, uncorrected median 0.9723 (10-90%: 0.8340-1.0018, n=7)
+d__Archaea: species depth / true, corrected   median 0.9777 (10-90%: 0.8398-1.0041, n=7)
+d__Bacteria: species depth / true, uncorrected median 0.9724 (10-90%: 0.9202-1.0135, n=65)
+d__Bacteria: species depth / true, corrected   median 0.9765 (10-90%: 0.9232-1.0151, n=65)
+s_1: explained by the median gene depths 0.9669, corrected 0.9708 (protal: 0.9683)
+s_2: explained by the median gene depths 0.9792, corrected 0.9815 (protal: 0.9759)
+s_3: explained by the median gene depths 0.9668, corrected 0.9705 (protal: 0.9681)
+s_4: explained by the median gene depths 0.9633, corrected 0.9659 (protal: 0.9651)
+s_5: explained by the median gene depths 0.9764, corrected 0.9787 (protal: 0.9745)
+s_6: explained by the median gene depths 0.9713, corrected 0.9742 (protal: 0.9661)

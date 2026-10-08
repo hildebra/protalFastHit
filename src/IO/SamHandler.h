@@ -20,6 +20,7 @@
 #include <vector>
 #include "LineSplitter.h"
 #include "ReadType.h"
+#include "ScannedReads.h"
 #include <iostream>
 #include <omp.h>
 
@@ -521,6 +522,7 @@ namespace protal {
         size_t* m_unmapped = nullptr;  // m_skipped's count of unmapped records, once there is one (SkipUnmapped)
         FailedCandidateCounts m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
                                                                    // seeded on the taxon and aligned nowhere)
+        std::optional<ScannedReads> m_scanned;  // the header's kSamScannedReadsComment line, if it has one
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
         // The next line, without its newline (as getline reads it); false at the end.
@@ -574,6 +576,11 @@ namespace protal {
                         } catch (SamFormatError const& e) {
                             throw SamFormatError("line " + std::to_string(m_line_no) + ": " + e.what());
                         }
+                    }
+                    if (line.compare(0, kSamScannedReadsComment.size(), kSamScannedReadsComment) == 0) {
+                        m_scanned = ParseScannedReadsLine(line);
+                        if (!m_scanned) throw SamFormatError("line " + std::to_string(m_line_no) + ": the scanned reads' header line is "
+                                                             "not 'fragments=F reads=R bases=B': " + std::string(line));
                     }
                     if (m_on_header) m_on_header(std::string(line));
                     continue;
@@ -657,6 +664,9 @@ namespace protal {
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
         // Per taxon, the reads whose unmapped record names it as a failed candidate (ZF).
         FailedCandidateCounts const& FailedCandidates() const { return m_failed_candidates; }
+        // The reads the aligner read (the header's kSamScannedReadsComment line); nullopt for a SAM without the line
+        // (an older protal's, --full_sam_header, or a part of a SAM that does not hold the header).
+        std::optional<ScannedReads> const& Scanned() const { return m_scanned; }
     };
 
     // The reads a SAM stream holds: the kind its header names (kSamReadTypeComment, as protal writes it),

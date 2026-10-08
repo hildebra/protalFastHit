@@ -37,6 +37,9 @@ Usage:
 --lineages: one GTDB lineage per line (d__...;s__...); '#' lines are comments.
 --strain_divergence and --species_divergence take a rate or a range LOW-HIGH,
 drawn uniformly per genome or per species (written to simulation/divergence.tsv).
+--genome_length takes a length or a range LOW-HIGH, drawn log-uniformly per species
+(its genomes share it) by a generator of its own, so that genome sizes differ as
+the profile's composition (average genome size, unknown share) needs to be tested.
 Ranges make training data for the presence model harder: strains that differ
 from the representative by up to a few %, and congeneric species close enough
 that a missing one's reads land on the one the database has.
@@ -97,6 +100,19 @@ def gzip_text(path):
     with open(path, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, \
          io.TextIOWrapper(gz, encoding="ascii", newline="\n") as fh:
         yield fh
+
+
+def parse_length(text):
+    """A length in bases, or an inclusive range LOW-HIGH, as (low, high)."""
+    low, _, high = str(text).partition("-")
+    try:
+        low = int(float(low))
+        high = int(float(high)) if high else low
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a length or a range LOW-HIGH: {text!r}")
+    if not 0 < low <= high:
+        raise argparse.ArgumentTypeError(f"lengths must satisfy 0 < LOW <= HIGH: {text!r}")
+    return low, high
 
 
 def parse_rate(text):
@@ -283,7 +299,7 @@ class Simulator:
             else:
                 blocks.append(cluster)
         self.rng.shuffle(blocks)
-        spacer = self.args.genome_length // (len(blocks) + 1)
+        spacer = self._background_length(sp) // (len(blocks) + 1)
         order, strand, after = [], {}, [spacer]
         for block in blocks:
             for i, (m, s, gap) in enumerate(block):
@@ -361,6 +377,15 @@ class Simulator:
             seq = self.node_seq[key]
         return seq
 
+    def _background_length(self, sp):
+        """--genome_length: the species' background DNA, drawn log-uniformly from a range by a generator of its own, so
+        that every other draw is as with a single length."""
+        low, high = self.args.genome_length
+        if low == high:
+            return low
+        rng = random.Random(f"{self.args.seed}:genome_length:{sp['lineage']}")
+        return int(round(math.exp(rng.uniform(math.log(low), math.log(high)))))
+
     def _make_genomes(self, sp):
         a = self.args
         if a.operons:
@@ -370,7 +395,7 @@ class Simulator:
             order = list(sp["markers"])
             self.rng.shuffle(order)
             strand = {m: "+" if self.rng.random() < 0.5 else "-" for m in order}
-            spacer = a.genome_length // (len(order) + 1)
+            spacer = self._background_length(sp) // (len(order) + 1)
             background = [random_dna(self.rng, spacer, sp["gc"]) for _ in range(len(order) + 1)]
 
         for g in range(1, a.genomes_per_species + 1):
@@ -482,8 +507,9 @@ def main():
     ap.add_argument("--lineages", help="file with one GTDB lineage per line (default: 3 built-in species)")
     ap.add_argument("--genomes_per_species", type=int, default=3,
                     help="genomes per species; the first is the GTDB representative")
-    ap.add_argument("--genome_length", type=int, default=150_000,
-                    help="background (non-marker) DNA per genome")
+    ap.add_argument("--genome_length", type=parse_length, default=(150_000, 150_000),
+                    help="background (non-marker) DNA per genome, or a range LOW-HIGH from which each species' is drawn "
+                         "(log-uniformly; its genomes share it)")
     ap.add_argument("--contigs", type=int, default=3)
     ap.add_argument("--marker_loss", type=float, default=0.02,
                     help="probability that a genome lacks a given marker")

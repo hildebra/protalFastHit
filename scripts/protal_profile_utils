@@ -12,6 +12,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Dict, Iterable, List, Tuple
 
 
+UNKNOWN = "?"  # the lineage of a profile's unknown share
+
+
 @dataclass
 class Profile:
     path: str
@@ -188,7 +191,11 @@ def merge_profiles(inputs: Iterable[str], resolve_samples: bool = False) -> None
     ensure_unique_samples(samples, paths, hint="Use --resolve-samples to disambiguate.")
 
     profiles = [read_profile(path, sample) for path, sample in zip(paths, samples)]
-    taxa: List[str] = sorted({taxon for profile in profiles for taxon in profile.abundances})
+    # The unknown share ("?", since 2026-10-08: the genomes the called species do not explain) goes last; a profile
+    # without it (an older protal's, --no_unknown_share, a database without genome sizes) has NA there, not 0.
+    taxa: List[str] = sorted({taxon for profile in profiles for taxon in profile.abundances if taxon != UNKNOWN})
+    if any(UNKNOWN in profile.abundances for profile in profiles):
+        taxa.append(UNKNOWN)
 
     header = ["taxon"] + [profile.sample for profile in profiles]
     sys.stdout.write("\t".join(header) + "\n")
@@ -196,8 +203,31 @@ def merge_profiles(inputs: Iterable[str], resolve_samples: bool = False) -> None
     for taxon in taxa:
         row = [taxon]
         for profile in profiles:
-            row.append(str(profile.abundances.get(taxon, Decimal(0))))
+            missing = "NA" if taxon == UNKNOWN else Decimal(0)
+            row.append(str(profile.abundances.get(taxon, missing)))
         sys.stdout.write("\t".join(row) + "\n")
+
+
+def merge_compositions(inputs: Iterable[str]) -> None:
+    """One table of the samples' <prefix>.profile.composition files (a header and a line per sample each): the share of
+    their reads the called species explain, the average genome size and its spread, the unknown share."""
+    paths = expand_inputs(inputs)
+    if not paths:
+        raise ValueError("No input composition files provided")
+    header = None
+    for path in paths:
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8") as handle:
+            lines = [line.rstrip("\n") for line in handle if line.strip()]
+        if not lines:
+            raise ValueError(f"{path}: empty")
+        if header is None:
+            header = lines[0]
+            sys.stdout.write(header + "\n")
+        elif lines[0] != header:
+            raise ValueError(f"{path}: its columns differ from those of {paths[0]}")
+        for line in lines[1:]:
+            sys.stdout.write(line + "\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -212,6 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Try to disambiguate sample names by shortening filenames and adding path segments.",
     )
 
+    composition = sub.add_parser("composition", help="merge the samples' <prefix>.profile.composition files into one table")
+    composition.add_argument("--input", required=True, nargs="+")
+
     return parser
 
 
@@ -222,6 +255,9 @@ def main() -> int:
     try:
         if args.command == "merge":
             merge_profiles(args.input, resolve_samples=args.resolve_samples)
+            return 0
+        if args.command == "composition":
+            merge_compositions(args.input)
             return 0
     except Exception as exc:
         sys.stderr.write(f"Error: {exc}\n")

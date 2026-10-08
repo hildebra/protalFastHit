@@ -28,7 +28,7 @@ databases are in [development.md](development.md).
 | `species_neighbours.tsv` | optional (since 2026-10-06): each species' nearest congeners in the database by the distance of their marker genes, for the database-neighbourhood features and `unexpected_congener_fit_share` ([below](#2-build-the-index), [features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)) |
 | `congener_gaps.tsv` | optional (since 2026-10-07): per species' copy of each marker gene, the alignment distance to its nearest congener's copy and to a typical one, and which congener is the nearest, for the `gaps` features and the ancestry sites ([below](#2-build-the-index), [features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)) |
 | `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the full reference's marker genes (every species' alike, a few genomes each) that landed on it and how many came from other species and genera, every copy listed (`scripts/foreign_rates.py`, stored with `--add_tables`; `build_gtdb_database.py` does both for each database), for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); until 2026-10-08 the scan read the genomes at hand, which leaked the simulation's species ([features.md](features.md#the-foreign-features-leak)) |
-| `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)) |
+| `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)); since 2026-10-08 also its genome size and the share of it its marker genes cover, from which a run tells how much of a sample the called species explain and the profile's unknown share ([running.md](running.md#what-the-called-species-explain-the-unknown-share)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
@@ -299,6 +299,29 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
 [The presence model](#the-presence-model) explains the reports; [features.md](features.md) lists
 what the models use.
 
+Since 2026-10-08 the build also checks the samples' composition
+([running.md](running.md#what-the-called-species-explain-the-unknown-share)) against the simulator's
+truth, with the trained models' calls (`scripts/composition_accuracy.py`, a step after the parity
+check). For every training and test sample it computes the composition again from the depth and
+genome size of each taxon in the sample's `.profile.log` over the species the model calls
+(`trained_model*.calls.tsv.gz`), and compares it with the community the sample was drawn from:
+
+| Estimate | Against |
+|---|---|
+| the share of the reads explained | the share of the read pairs (drawn reads: bases) of the species called and present, and of all the database's species |
+| the unknown share `?` | the share of the cells of the species not called (correctly), and of the species the database lacks |
+| the average genome size | the cell-weighted size of the species called and present, and of all the community's cells |
+| a species' depth and genome size | the depth of its simulated reads, and the length of its simulated genomes |
+| the species missing at the median depth | the species present and not called |
+
+`model_logs/composition_accuracy.tsv` (`_se`, `_pb`, `_ont`) has a line per sample;
+`composition_accuracy.txt` and `summary.txt` the median and 10-90% range of each error, by set and
+read type, samples with a host's reads apart (the unknown share counts them as genomes of the
+called species' average size, so it is high there by design); the console a line of medians per
+read type. A sample's host share is its reads beyond its community's (a drawn sample's that of the
+paired-end sample it replays). The script runs on its own too, on a collection of
+`collect_training_data.py`, with the profiles' own calls without `--calls`.
+
 #### What it prints
 
 Every console line starts with the time and how long the run has taken. The first lines of the
@@ -323,7 +346,7 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores. The versions and the scripts' commit are those the run started with (since 2026-10-06; read at its end before), followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of |
-| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
+| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)), `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
 | `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
@@ -895,6 +918,7 @@ one-command route.
 | `--from_db` | | copy a converted folder instead of reading the release (with `--exclude_species` and `--genes`) |
 | `--genes` | | only these marker genes ([reduced marker sets](#reduced-marker-sets)) |
 | `--order` | `gene` | `reference.fna` by gene, then taxon (compresses ~2x better), or `genome` |
+| `--priors_only` | off | write `species_priors.tsv` alone into `--outdir`, touching nothing else there ([below](#species-priors)) |
 
 #### Species priors
 
@@ -906,7 +930,36 @@ optional prior features ([features.md](features.md#the-species-priors-priors-075
 - from the species clusters file, the cluster's ANI radius, mean and minimum intra-species ANI and
   number of genomes.
 
--1 means unknown. `--build` packs the table into `database.protal`.
+Since 2026-10-08 it also holds each species' genome size, which no model feature uses: runs take it
+for the sample's composition (how much of the sample the called species explain, its average
+genome size, the profile's unknown share; [running.md](running.md#what-the-called-species-explain-the-unknown-share)):
+
+| Column | |
+|---|---|
+| `genome_size` | the mean of the species' genomes' sizes in GTDB's metadata, each corrected for CheckM: assembly size × (100 − contamination) / completeness (Rodríguez-Gijón et al. 2022). Over the species' high-quality genomes (completeness ≥ 90%, contamination ≤ 5%), else its medium-quality ones (≥ 50%, ≤ 10%), else its genomes' assembly sizes as they are |
+| `sized_genomes` | the genomes averaged |
+| `rep_genome_size` | the representative's assembly size |
+| `marker_bases` | the bases of the representative's marker genes, a copy of each (of every marker found, as `markers`: a [reduced database](#reduced-marker-sets) holds fewer) |
+| `marker_share` | `marker_bases` over `rep_genome_size`: the share of the genome the markers cover |
+
+-1 means unknown. `--build` packs the table into `database.protal`. Runs read the size columns by
+their names, and a table without them (converted before 2026-10-08) leaves the sizes unknown: the
+profiles then have no unknown share, and the run says so when it loads the database. Such a
+database gets the sizes without being rebuilt: the converter's `--priors_only` writes the table
+alone from the same release (the taxids are the same for a release, with or without
+`--exclude_species` and `--genes`), and `--add_tables` stores it. protal checks that every taxid of
+the table is a species of the database with the same representative genome, so a table of another
+release is refused:
+
+```bash
+python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --priors_only --outdir /tmp/priors -t 16
+protal --add_tables /tmp/priors/species_priors.tsv --db /data/protal_r226_db
+```
+
+The first ten columns come out as before for a database `build_gtdb_database.py` converted (it
+passes `--release`), so a model trained with `+priors` scores the same. A conversion run without
+`--release` had left CheckM's and the clusters' values unknown (fixed on 2026-10-08: the release
+found from the file names serves them too), and its table now gains them.
 
 #### Gene neighbours
 
@@ -1245,7 +1298,7 @@ Then make it the database's model of its read type with `protal --add_model trai
 `<prefix>.thresholds.tsv` is a start.
 
 The per-copy tables a run reads go in the same way, by their file names: `protal --add_tables foreign_rates.tsv --db DB`
-(also `congener_gaps.tsv`). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
+(also `congener_gaps.tsv`, and `species_priors.tsv`: [species priors](#species-priors)). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
 foreign_rates.tsv` makes the first: error-free reads every `--stride` bases (250) of at most `--per-header` (10) copies
 of each species' gene in the full reference (`simulate_metagenomes --tiles --tile_fasta --tile_per_header`; the reads
 named `<taxid_gene>:<record>:<start>`, the headers' records and tiles in `<tiles>.sources.tsv`), aligned against the

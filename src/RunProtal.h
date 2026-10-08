@@ -299,13 +299,14 @@ namespace protal {
     }
 
     // The species' priors (species_priors.tsv, SpeciesPriors.h: duplicated markers in the representative, CheckM
-    // quality, the GTDB cluster's ANI radius and width), for the model's prior features. Exits 8 if the file cannot be
-    // read.
+    // quality, the GTDB cluster's ANI radius and width), for the model's prior features, and their genome sizes, for the
+    // profiles' composition (Composition.h). Exits 8 if the file cannot be read.
     static void LoadSpeciesPriors(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         auto const file = options.SpeciesPriorsDbFile();
         if (!file.Exists()) {
             out << "Species priors: the database has no " << Options::PROTAL_SPECIES_PRIORS_FILE
-                      << " (converted by an earlier protal): every species' priors are unknown (-1)" << std::endl;
+                      << " (converted by an earlier protal): every species' priors are unknown (-1), and the profiles have "
+                      << "no unknown share (no genome sizes)" << std::endl;
             return;
         }
         std::string error;
@@ -320,7 +321,9 @@ namespace protal {
             exit(8);
         }
         out << "Species priors: " << table.Size() << " species (" << file.Name() << "), " << table.Informative()
-                  << " with a duplicated marker, CheckM quality or a species cluster known" << std::endl;
+                  << " with a duplicated marker, CheckM quality or a species cluster known, " << table.WithGenomeSize()
+                  << " with a genome size" << (table.WithGenomeSize() > 0 ? "" : " (converted before 2026-10-08: the profiles have no unknown "
+                  "share; gtdb_to_protal_db.py --priors_only and protal --add_tables add the sizes)") << std::endl;
         genomes.SetSpeciesPriors(std::move(table));
     }
 
@@ -719,6 +722,7 @@ namespace protal {
                 bool read_success = true;
                 std::string read_problem;   // why reading failed, if it says
                 size_t reads_read = 0;
+                size_t bases_read = 0;  // for the header's ScannedReadsLine
                 std::string const read_files = single_file ? options.GetFirstFile(index) :
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
                 // An input that cannot be opened reads as empty: say why instead.
@@ -764,6 +768,7 @@ namespace protal {
                     PrintAlignmentCounts(options, index, read_type, protal_stats, long_read_aligner.GetAlignmentHandler(),
                                          long_read_aligner.GetAnchorFinder().m_seeding);
                     reads_read = protal_stats.reads;
+                    bases_read = protal_stats.bases;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
@@ -793,6 +798,7 @@ namespace protal {
                     }
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
+                    bases_read = protal_stats.bases;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
@@ -843,6 +849,7 @@ namespace protal {
                     }
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
+                    bases_read = protal_stats.bases;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     read_problem = read_error(is1);
@@ -887,6 +894,8 @@ namespace protal {
                     header_genes = genes.size();
                     genomes.WriteSamHeader(os, genes);
                     os << read_type_line;
+                    // The reads read, which the profile's composition compares with the reads the called species explain.
+                    os << ScannedReadsLine({ reads_read, single_file ? reads_read : 2 * reads_read, bases_read });
                     // The reads that aligned nowhere, counted per taxon they seeded on (--write_unmapped_reads: a record each).
                     if (!options.WriteUnmappedReads(index)) {
                         auto const failed = sam_output.FailedCandidates();
@@ -1282,8 +1291,16 @@ namespace protal {
                 }
             }
 
-
-
+            // The sample's composition (Composition.h): the share of its reads its called species explain, its average
+            // genome size and the unknown share that ends its profile ("?"; --no_unknown_share: the called species'
+            // abundances are shares of their summed depth, as before 2026-10-08).
+            {
+                auto result = composition::Compute(profile.CalledSpecies(filter), profiler.Scanned(), profile.FragmentBaseShare(),
+                                                   genomes.GetSpeciesPriors().WithGenomeSize() > 0);
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": " << composition::Summary(result) << std::endl;
+                profile.SetComposition(std::move(result), !options.NoUnknownShare());
+            }
 
             std::optional<TruthSet> truth = options.HasProfileTruths() ?
                                             std::optional<TruthSet>{ protal::GetTruth(options.ProfileTruthFile(i), taxonomy) } :
@@ -1327,15 +1344,19 @@ namespace protal {
             std::ofstream os_total(options.ProfileFile(i) + ".log", std::ios::out);
             std::ofstream os_dismissed(options.ProfileFile(i) + ".gene.log", std::ios::out);
             std::ofstream os_genes(options.ProfileFile(i) + ".genes.log", std::ios::out);
+            std::ofstream os_composition(options.ProfileFile(i) + ".composition", std::ios::out);
 
             profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed, threads_per_sample);
             profile.WriteGeneProfile(taxonomy, filter, &os_genes, threads_per_sample);
+            composition::WriteHeader(os_composition);
+            composition::WriteRow(os_composition, options.GetSampleId(i), *profile.GetComposition());
             os.close();
             os_total.close();
             os_dismissed.close();
             os_genes.close();
+            os_composition.close();
             bm_write.Stop();
-            if (os.fail() || os_total.fail() || os_dismissed.fail() || os_genes.fail()) {
+            if (os.fail() || os_total.fail() || os_dismissed.fail() || os_genes.fail() || os_composition.fail()) {
                 RunStatus::Get().Fail("Writing the profile of sample " + options.GetSampleId(i) + " failed: " + options.ProfileFile(i));
             }
             bm_sample.Stop();

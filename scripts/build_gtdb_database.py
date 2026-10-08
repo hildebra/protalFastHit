@@ -121,6 +121,7 @@ import csv
 import glob
 import gzip
 import hashlib
+import io
 import json
 import os
 import random
@@ -1505,6 +1506,36 @@ def summary_lines(read_types, prefixes, db):
             "sample (by the final model, fitted on them). Details: trained_model*.report.txt", ""] + table
 
 
+def composition_report(read_types, prefixes, training, test, heldout, logs, threads=1):
+    """model_logs/composition_accuracy[_<read type>].tsv and composition_accuracy.txt (composition_accuracy.py): how well
+    the samples' composition (the share of their reads the called species explain, the profile's unknown share "?", the
+    average genome size, the species' genome sizes and depths) matches the simulator's truth, with the trained models'
+    calls (PREFIX.calls.tsv.gz). -> ({read type: one line of medians}, the summary's lines). A failure is reported, and
+    does not stop the build."""
+    import composition_accuracy
+    briefs, text = {}, []
+    for t in read_types:
+        calls = prefixes[t] + ".calls.tsv.gz"
+        if not os.path.isfile(calls):
+            briefs[t] = f"no {os.path.basename(calls)}"
+            continue
+        argv = ["--calls", calls, "--training", training, "--read-type", t, "--threads", str(threads),
+                "--out", os.path.join(logs, "composition_accuracy" + ("" if t == "pe" else "_" + t) + ".tsv")]
+        argv += ["--test", test] if test else []
+        argv += ["--heldout", heldout] if heldout else []
+        output = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(output):
+                lines = composition_accuracy.main(argv)
+            briefs[t] = composition_accuracy.brief(lines)
+        except BaseException as e:  # SystemExit too: the build goes on
+            briefs[t] = f"failed: {e}"
+        text += output.getvalue().splitlines() + [""]
+    with open(os.path.join(logs, "composition_accuracy.txt"), "w") as fh:
+        fh.write("\n".join(text) + "\n")
+    return briefs, text
+
+
 def remove_full_reference(folder):
     """Removes a folder's full reference (full_reference.fna.zst) once its build is done: the marker genes of
     every genome (86 GB raw at r226), which only that build reads. A rebuild converts the release again (the
@@ -2237,7 +2268,7 @@ def main():
     has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
     clades = parse_clades(args.holdout_clades)
     steer_holdout = (args.holdout > 0 or bool(clades)) and not args.holdout_species and args.holdout_complex_distance > 0
-    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + steer_holdout
+    Steps.total = 8 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + steer_holdout
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -3039,6 +3070,15 @@ def main():
                 shutil.copy(name, logs)
         if os.path.isfile(parity):
             shutil.copy(parity, os.path.join(logs, "parity.txt" if t == "pe" else f"parity_{t}.txt"))
+    # The samples' composition against the simulator's truth, with the models' calls: how far the explained share, the
+    # unknown share and the genome sizes can be trusted (composition_accuracy.py).
+    Steps.start("checking the samples' composition against the truth (model_logs/composition_accuracy*.tsv)")
+    began = time.time()
+    composition_briefs, composition_text = composition_report(read_types, prefixes, training, test if has_test else None,
+                                                              heldout if training_db != db else None, logs, args.threads)
+    for t, line in composition_briefs.items():
+        Steps.done(f"{t}: {line}")
+    Steps.done(f"checked in {clock(time.time() - began)}; details: model_logs/composition_accuracy.txt")
     for name in [os.path.join(args.outdir, n) for n in ("training_data_simulation.log", "training_data.log",
                                                          "test_data_simulation.log", "test_data.log", "genome_table.txt")] + \
             [heldout, clouds_file]:
@@ -3080,7 +3120,7 @@ def main():
         shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)
     if os.path.isfile(os.path.join(db, "gene_incongruence.tsv")):
         shutil.copy(os.path.join(db, "gene_incongruence.tsv"), logs)
-    summary = summary_lines(read_types, prefixes, db)
+    summary = summary_lines(read_types, prefixes, db) + ["", *composition_text]
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     print("\n" + "\n".join(summary) + "\n", flush=True)

@@ -192,6 +192,21 @@ class GtdbBuildTest(unittest.TestCase):
                          (model_features.DEFAULT_FEATURE_SET, "basic"))
         self.assertNotIn("model_pe_features", metadata)
         self.assertNotIn("Feature sets chosen", self.text("out", "model_logs", "summary.txt"))
+        # The samples' composition against the simulator's truth, with the models' calls (composition_accuracy.py): a
+        # table per read type of the training and test samples; the species' genome sizes are the simulated genomes'
+        # (the release's metadata gives their lengths), the summary goes into summary.txt and the console.
+        for t, name in (("pe", "composition_accuracy.tsv"), ("se", "composition_accuracy_se.tsv")):
+            with open(os.path.join(out, "model_logs", name)) as fh:
+                rows = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual({row["set"] for row in rows}, {"training", "test"}, t)
+            self.assertEqual({row["read_type"] for row in rows}, {t})
+            sizes = [float(row["size_ratio"]) for row in rows if row["size_ratio"] != "NA"]
+            self.assertTrue(sizes, t)
+            self.assertLess(abs(sorted(sizes)[len(sizes) // 2] - 1), 0.05, t)
+            self.assertTrue(all(row["unknown"] != "NA" and 0 <= float(row["unknown"]) <= 1 for row in rows), t)
+        self.assertIn("Composition of the pe samples against their truth", self.text("out", "model_logs", "summary.txt"))
+        self.assertRegex(first.stdout, r"\d+/\d+ checking the samples' composition against the truth")
+        self.assertRegex(first.stdout, r"pe: median errors over \d+ test samples without a host: explained share [-+]")
         self.assertIn(f"--features {model_features.DEFAULT_FEATURE_SET} --model gbm",
                       self.text("out", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")

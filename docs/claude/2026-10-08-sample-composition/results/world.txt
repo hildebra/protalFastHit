@@ -1,0 +1,4 @@
+genome lengths: min 272813, median 687931, max 2062740 (80 genomes of 40 species)
+held out of db_held: 10 species
+spooled the representatives' marker genes (40 species): 0.0 s
+  marker genes:       168 ids, 4455 representative sequences

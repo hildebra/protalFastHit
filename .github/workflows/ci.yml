@@ -54,7 +54,8 @@ jobs:
       - name: Script, trainer and model export tests
         run: |
           python3 -m unittest -v scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
-            scripts/test_profile_scripts.py scripts/test_strain_scripts.py scripts/test_model_pmml.py
+            scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
+            scripts/test_model_pmml.py
 
   sanitizers:
     runs-on: ubuntu-24.04

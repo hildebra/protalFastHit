@@ -1,0 +1,7 @@
+gene length 0-299: median depth ratio 0.8818 n=294
+gene length 300-599: median depth ratio 0.9450 n=2078
+gene length 600-899: median depth ratio 0.9635 n=1248
+gene length 900-1199: median depth ratio 0.9639 n=1265
+gene length 1200-1499: median depth ratio 0.9972 n=1082
+gene length 1500-1799: median depth ratio 0.9752 n=450
+gene length 1800-2099: median depth ratio 0.9919 n=1190

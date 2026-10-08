@@ -1,0 +1,4 @@
+median reads per gene < 10: protal depth 0.9513 (0.856-1.036, n=22); median of genes 0.9666 (0.882-1.918, n=22); length-weighted mean 1.0241 (0.951-1.746, n=22)
+10-30: protal depth 0.9673 (0.928-0.996, n=18); median of genes 0.9674 (0.928-1.008, n=18); length-weighted mean 0.9827 (0.957-1.002, n=18)
+>= 30: protal depth 0.9731 (0.946-0.987, n=32); median of genes 0.9731 (0.946-0.988, n=32); length-weighted mean 0.9781 (0.960-0.997, n=32)
+all: protal depth 0.9697 (0.910-1.002, n=72); median of genes 0.9723 (0.920-1.013, n=72); length-weighted mean 0.9838 (0.954-1.056, n=72)
