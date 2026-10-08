@@ -245,8 +245,13 @@ paired-end tables in the same way:
   without foreign) and +0.0018 with species held out. With the fp-features they add +0.0033 over v15's set.
 - **The single-group rows mean little.** "Without ancestry" and "without gaps" still have the leaking group, which
   masks them (±0.001); untried was not ablated alone.
-- **Next.** A per-scenario split is in `ablate_split_pe.txt` of the same folder. Whether a scan without the leak (below)
-  earns anything has to be measured against today's default.
+- **The leak pays in every scenario** (`ablate_split_pe.txt`, F1 at each variant's knob, with and without foreign):
+  shallow soil 0.9625 against 0.9274 (+0.035), design test 0.9838 against 0.9621 (+0.022), soil hold-out 0.9719
+  against 0.9546 (+0.017), moderate 0.9867 against 0.9700 (+0.017), gut 0.9914 against 0.9871 (+0.004), host 1.0
+  both. It pays most where novel congeners are most frequent, as a prior on pool membership would. Without it, v17's
+  design test (0.962) and soils (0.955, 0.927) sit at or below v15's own build (0.9645, 0.9655, 0.9396). Those are
+  harder scenarios, so this is no regression one can claim either.
+- **Next.** Whether a scan without the leak (below) earns anything has to be measured against today's default.
 
 **What they measured.** `foreign_scanned_share` reflected whether the simulation could draw the species, not how foreign
 reads reach it.
