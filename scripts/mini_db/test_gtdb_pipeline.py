@@ -93,11 +93,12 @@ class GtdbBuildTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     @classmethod
-    def build(cls, out, *extra, protal=None, wait=True, scenarios=False, error_reads="none"):
+    def build(cls, out, *extra, protal=None, wait=True, scenarios=False, error_reads="none", foreign=True):
         """A run of build_gtdb_database.py into tmp/out; its console is also kept as tmp/out.log. The default scenarios
         (scenarios.py) have the depths of real studies, so the runs but test_f's (which defines small ones) have none;
         only test_f keeps the reads of the models' errors; zstd level 1 for both databases, whose content is the same at
-        any level."""
+        any level. The runs scan the full references for the foreign rates (--foreign-rates, off by default), so that
+        their tables compare; test_f has the default, no scan."""
         command = [cls.python, BUILD, "--inputs", cls.inputs, "--outdir", os.path.join(cls.tmp.name, out),
                    "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "2",
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
@@ -105,7 +106,8 @@ class GtdbBuildTest(unittest.TestCase):
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
                    "--test-read-pairs", "2000", "--ntree", "16", "--rounds", "40", "--evaluation", "basic",
                    "--progress-every", "5", "--training-db-level", "1", "--final-db-level", "1",
-                   "--error-reads", error_reads, *([] if scenarios else ["--scenarios", "none"]), *extra]
+                   "--error-reads", error_reads, *([] if scenarios else ["--scenarios", "none"]),
+                   *(["--foreign-rates"] if foreign else []), *extra]
         if not wait:
             return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
@@ -227,10 +229,10 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         # The gene copies' gaps to their congeners' copies (--build), in the databases the training samples were profiled
-        # with. The scan of each database's full reference for the gene copies other species' reads reach (the default;
-        # test_f has --no-foreign-rates): the training database's right after its build, from its full reference, which
-        # lacks the held-out species; the finished database's before its models went in; every copy listed; the full
-        # references gone after.
+        # with. The scan of each database's full reference for the gene copies other species' reads reach (--foreign-rates,
+        # which build() passes; test_f has the default, no scan): the training database's right after its build, from its
+        # full reference, which lacks the held-out species; the finished database's before its models went in; every copy
+        # listed; the full references gone after.
         self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
         for stage, folder in (("foreign_rates_training", os.path.join(self.tmp.name, "scratch", "training_db")),
                               ("foreign_rates", os.path.join(out, "work", "foreign_rates"))):
@@ -628,15 +630,15 @@ class GtdbBuildTest(unittest.TestCase):
         # out, scaled down; the feature sets chosen by the trainers (--features auto, not the default) and why; the
         # reads behind the models' errors (--error-reads all, the build's default), their SAMs and the archive to share
         # (--share-logs). Both collections profiled in one protal run, their reads kept (--profile-blocks 0). No scan of
-        # the full references for the foreign rates (--no-foreign-rates; test_a has the default): no table, the features
+        # the full references for the foreign rates (the default; test_a has --foreign-rates): no table, the features
         # unknown, and --features auto still tries the candidate set with them.
         import compressed
         definitions, host = self.scenario_inputs()
         scratch = os.path.join(self.tmp.name, "scenario_scratch")
         result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
                             "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch,
-                            "--profile-blocks", "0", "--features", "auto", "--share-logs", "--no-foreign-rates",
-                            scenarios=True, error_reads="all")
+                            "--profile-blocks", "0", "--features", "auto", "--share-logs",
+                            scenarios=True, error_reads="all", foreign=False)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         for stage in ("foreign_rates_training", "foreign_rates"):
             self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scenarios", "logs", stage + ".log")), stage)

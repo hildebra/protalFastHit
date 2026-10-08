@@ -420,10 +420,11 @@ a gene whose divergence varies along it, so the test of one read against the who
 count over a taxon's reads. `foreign_rates.tsv` is made by `scripts/foreign_rates.py` (reads of 150 bases every 250 of
 at most 10 copies of each species' gene in the database's full reference, `simulate_metagenomes --tiles --tile_fasta`,
 aligned once; a training database's full reference lacks its held-out species) and stored with `protal --add_tables`;
-`build_gtdb_database.py` does both for each database ([databases.md](databases.md)). Both tables describe the database
-in use, as `ref` does. Since 2026-10-08 every copy of the full reference has a row (reads 0 when none reached it), and
-the `foreign` group is offered to `--features auto` by one named set (`...+gaps+untried+foreign`) but is not in the
-default set until a build says what the scan is worth.
+`build_gtdb_database.py --foreign-rates` does both for each database ([databases.md](databases.md)). Both tables describe
+the database in use, as `ref` does. Since 2026-10-08 every copy of the full reference has a row (reads 0 when none
+reached it), and the `foreign` group is offered to `--features auto` by one named set (`...+gaps+untried+foreign`) but
+is not in the default set. The r226 v18 build measured that scan: no leak, and 0.001 of AUC where strains and novel
+congeners overlap ([report](claude/2026-10-08-r226-v18/README.md)), so the build scans only with `--foreign-rates`.
 
 ### The foreign features leak
 

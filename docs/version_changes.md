@@ -125,7 +125,8 @@ for this page.
   built; the training table's `meta_novel_distance` and the report's errors by that distance), and
   the foreign scan tiles each database's full reference (every species alike, every copy listed)
   instead of the genomes the samples are drawn from, which had told the r226 v17 models the
-  simulation's species ([features.md](features.md#the-foreign-features-leak)); and the ancestry sites
+  simulation's species ([features.md](features.md#the-foreign-features-leak)); after the r226 v18
+  build (no leak, 0.001 of AUC) the build scans only with `--foreign-rates`; and the ancestry sites
   are the consensus of the congeners (nine in ten of three or more compared, the nearest congener
   alone with fewer) rather than the nearest congener's differences, the comparison is chained
   across indels instead of ending at the first, and the indels the congeners share against the

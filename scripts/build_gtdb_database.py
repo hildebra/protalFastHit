@@ -1836,13 +1836,14 @@ def main():
                    help="zstd level of the training database (default 3)")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
-                        "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features: the default "
-                        "(kept for older command lines). The scan tiles every species' marker genes alike, so the table "
+                        "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
+                        "default since the r226 v18 build: the scan tiles every species' marker genes alike, so the table "
                         "tells the models nothing of the simulation's species (the scan of the genomes at hand did, r226 "
-                        "v17: docs/claude/2026-10-07-congener-gaps); the features are in no default set until a build says "
-                        "what they are worth")
+                        "v17: docs/claude/2026-10-07-congener-gaps), but it added 0.001 of AUC where strains and novel "
+                        "congeners overlap, for two scans of ~21 min, and the features are in no default set "
+                        "(docs/claude/2026-10-08-r226-v18)")
     p.add_argument("--no-foreign-rates", action="store_true",
-                   help="no scan: the 'foreign' features are unknown (-1)")
+                   help="no scan (the default): the 'foreign' features are unknown (-1); overrides --foreign-rates")
     p.add_argument("--foreign-stride", type=int, default=250,
                    help="the scan's reads: 150 bases every this many bases of a gene copy (default 250: four reads of a "
                         "marker gene of 1 kb)")
@@ -2171,6 +2172,7 @@ def main():
                         "zstd (.fq.zst, the default: as small as BGZF or smaller, several times faster to write) or "
                         "gzip (.fq.gz); protal reads both")
     args = p.parse_args()
+    args.no_foreign_rates = args.no_foreign_rates or not args.foreign_rates  # the scan only with --foreign-rates
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
@@ -2792,7 +2794,7 @@ def main():
     # species (so the table knows nothing of them); the finished database after its own build, from its full reference
     # (every species), before its models go in. A database's full reference goes once its scan is done (the training
     # database's with --share-logs after the ancestry report). The finished database's table waits in work/foreign_rates/
-    # for a rerun, not beside database.protal, which holds it.
+    # for a rerun, not beside database.protal, which holds it. Only with --foreign-rates (r226 v18: 0.001 of AUC for ~21 min).
     scan = not args.no_foreign_rates
 
     def foreign_rates(against):
