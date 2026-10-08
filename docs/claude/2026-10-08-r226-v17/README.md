@@ -327,6 +327,13 @@ Items 1-3 above and the scan without the leak, for the next r226 build to measur
   between two main-diagonal anchors that straddled an indel and its compensating indel with misaligned bases, so
   it counted spurious sites there, which a strain's read "agreed" with; the chain compares that stretch on its own
   diagonals. Unit 459 (two test expectations corrected), Python 53, e2e 142, pipeline test_a pass.
+- **What the next build said** ([2026-10-08-r226-v18](../2026-10-08-r226-v18/README.md), the other session's):
+  the consensus, chained and indel sites separate the classes no better than v17's nearest-congener sites (band
+  agreement AUC pe 0.815 against 0.837), the indel features are empty for short reads, the leak-free foreign scan has
+  no leak and adds 0.001 AUC. And the ancestry report's fixed-site AUC (0.81-0.86) was circular: a missed real
+  strain's own GTDB genome was usually among the six alleles. Fixed afterwards: the converter names each
+  full-reference record's genome (`>taxid_geneid accession`), and `ancestry_sites.py` leaves a read's own source
+  genome (its `xg` tag) out of the alleles per record, so the next build's report gives the honest number.
 
 Tests: `test_foreign_rates.py` rewritten, `test_gtdb_build.py` gains the complex hold-out, the pipeline's `test_a`
 asserts both scans and the steered hold-out, `test_f` runs `--no-foreign-rates`; `tests/test_CongenerGaps.cpp` the

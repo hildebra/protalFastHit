@@ -29,8 +29,8 @@ The gene copies are compared along their shared 12-mers (insilico_strains.substi
 stretch past an indel is not compared.
 
     python3 ancestry_sites.py --sams model_logs/error_reads/pe --reference training_db/reference.fna \\
-        --full-reference training_db/full_reference.fna.zst --taxonomy internal_taxonomy.dmp \\
-        --heldout heldout_species.txt --out model_logs/ancestry_sites/pe
+        --full-reference training_db/full_reference.fna.zst --taxonomy work/internal_taxonomy.dmp \\
+        --heldout model_logs/heldout_species.txt --out model_logs/ancestry_sites/pe
     (a bundled database: protal --db training_db/database.protal --unpack_db --unpack_dir DIR gives its reference.fna;
     the full reference is one pass of 86 GB at r226, about 10 minutes, and a few GB of memory for pe)
 """
@@ -147,10 +147,10 @@ def open_text(path):
 
 
 def records_of(path, tax, seen):
-    """The counted records of the error taxa in one SAM: (qname, taxid, gene, pos, cigar, seq, role, source taxid)
-    for primary records at MAPQ >= 4 whose taxon is an FP taxon of the read (xe FP:<taxid>) or an FN taxon the read
-    belongs to (xe FN:<taxid> and xs the taxon's species); a record in both of a sample's files (FP and FN) once
-    (seen)."""
+    """The counted records of the error taxa in one SAM: (qname, taxid, gene, pos, cigar, seq, role, source taxid,
+    source genome) for primary records at MAPQ >= 4 whose taxon is an FP taxon of the read (xe FP:<taxid>) or an FN
+    taxon the read belongs to (xe FN:<taxid> and xs the taxon's species); a record in both of a sample's files (FP and
+    FN) once (seen). The source genome is the xg tag's accession (accession_of), "" without one."""
     out = []
     for line in open_text(path):
         if line.startswith(b"@"):
@@ -162,12 +162,14 @@ def records_of(path, tax, seen):
         if flag & 0x904 or mapq < MIN_MAPQ or rname == b"*":
             continue
         taxid, _, gene = rname.partition(b"_")
-        xs = xe = ""
+        xs = xe = xg = ""
         for tag in f[11:]:
             if tag.startswith(b"xs:Z:"):
                 xs = tag[5:].decode()
             elif tag.startswith(b"xe:Z:"):
                 xe = tag[5:].decode()
+            elif tag.startswith(b"xg:Z:"):
+                xg = tag[5:].decode()
         t = taxid.decode()
         reasons = set(xe.split(","))
         source = tax.name_id.get(xs.replace(" (not in the database)", ""), "")
@@ -181,7 +183,8 @@ def records_of(path, tax, seen):
         if key in seen:
             continue
         seen.add(key)
-        out.append((f[0].decode(), t, int(gene), int(f[3]), f[5], f[9], role, source))
+        out.append((f[0].decode(), t, int(gene), int(f[3]), f[5], f[9], role, source,
+                    accession_of(xg) if xg and xg != "?" else ""))
     return out
 
 
@@ -206,31 +209,48 @@ def aligned_pairs(pos, cigar, seq):
     return np.concatenate([p[0] for p in pairs]), np.concatenate([p[1] for p in pairs])
 
 
+ACCESSION_RE = re.compile(r"(GC[AF]_\d{9}\.\d+)")
+
+
+def accession_of(text):
+    """The GTDB accession in a genome's name (GCA_ or GCF_, nine digits, a version), else the name's first token: how
+    the full reference's records (the converter, after the name) and the error reads' xg tag name genomes."""
+    m = ACCESSION_RE.search(text)
+    if m:
+        return m.group(1)
+    return text.split()[0] if text.split() else text
+
+
 def fasta_records(path, wanted):
-    """(header first token, sequence bytes) of the FASTA records whose first token is in wanted."""
-    name, chunks = None, []
+    """(header first token, the header's second token or "", sequence bytes) of the FASTA records whose first token is
+    in wanted."""
+    name, genome, chunks = None, "", []
     for line in open_text(path):
         if line.startswith(b">"):
             if name is not None:
-                yield name, b"".join(chunks)
-            token = line[1:].split()[0].decode() if line[1:].split() else ""
+                yield name, genome, b"".join(chunks)
+            tokens = line[1:].split()
+            token = tokens[0].decode() if tokens else ""
             name, chunks = (token, []) if token in wanted else (None, [])
+            genome = tokens[1].decode() if len(tokens) > 1 else ""
         elif name is not None:
             chunks.append(line.strip())
     if name is not None:
-        yield name, b"".join(chunks)
+        yield name, genome, b"".join(chunks)
 
 
 def load_copies(path, wanted):
     """{header first token: codes} of the reference's records whose first token is in wanted."""
-    return {name: CODE[np.frombuffer(seq, dtype=np.uint8)] for name, seq in fasta_records(path, wanted)}
+    return {name: CODE[np.frombuffer(seq, dtype=np.uint8)] for name, _, seq in fasta_records(path, wanted)}
 
 
 def load_alleles(path, wanted, reps, cap):
-    """{header: [codes]}: up to cap distinct copies per wanted header that differ from the representative's."""
+    """{header: [(genome accession or "", codes)]}: up to cap distinct copies per wanted header that differ from the
+    representative's, each with its genome (the record's second token, as the converter writes it since 2026-10-08; ""
+    from an older full reference, which then leaves no read's own genome out)."""
     alleles = collections.defaultdict(list)
     seen = collections.defaultdict(set)
-    for name, seq in fasta_records(path, wanted):
+    for name, genome, seq in fasta_records(path, wanted):
         rep = reps.get(name)
         if rep is None or len(alleles[name]) >= cap or seq in seen[name]:
             continue
@@ -238,7 +258,7 @@ def load_alleles(path, wanted, reps, cap):
         if len(codes) == len(rep) and (codes == rep).all():
             continue
         seen[name].add(seq)
-        alleles[name].append(codes)
+        alleles[name].append((accession_of(genome) if genome else "", codes))
     return alleles
 
 
@@ -260,7 +280,10 @@ class Sites:
     where it differs from T, -1 elsewhere), against the majority of the NEAREST nearest (alt3), protal's consensus over
     every congener compared (alt4: where MIN_CONGENERS or more were compared at the position, the base CONSENSUS of
     them carry if it is not T's; with fewer, the nearest's difference), and the sites where T's own alleles differ
-    from the representative (poly)."""
+    from the representative (poly; per allele in poly_by, so that a read's own source genome can be left out:
+    poly_without). A missed real strain was simulated from a GTDB genome, usually one of the alleles, whose every
+    difference from the representative would otherwise be polymorphic by construction (docs/claude/2026-10-08-r226-v18,
+    section 3)."""
 
     def __init__(self, t_copy, congener_copies, alleles):
         n = len(t_copy)
@@ -302,13 +325,32 @@ class Sites:
             self.alt4[~enough] = self.alt1[~enough]
             consensus = enough & (count > 0) & (count >= CONSENSUS * compared_by)
             self.alt4[consensus] = majority[consensus]
-        for copy in alleles:
+        self.poly_by = []  # (genome accession or "", its allele's polymorphic sites)
+        for genome, copy in alleles:
             positions, compared = substitutions(t_copy, copy)
             if compared < n // 2:
                 continue
-            self.poly[positions] = True
+            mask = np.zeros(n, dtype=bool)
+            mask[positions] = True
+            self.poly_by.append((genome, mask))
+            self.poly |= mask
             self.allele_divergence = max(self.allele_divergence, len(positions) / compared)
         self.fixed1 = (self.alt1 >= 0) & ~self.poly  # differs from the nearest congener, fixed in T's alleles
+
+    def has_allele_of(self, genome):
+        """Whether one of the alleles is `genome`'s copy."""
+        return bool(genome) and any(g == genome for g, _ in self.poly_by)
+
+    def poly_without(self, genome):
+        """The polymorphic sites by the alleles of the other genomes than `genome` (a read's own source genome left
+        out); all of them when `genome` is not among them."""
+        if not self.has_allele_of(genome):
+            return self.poly
+        poly = np.zeros(len(self.poly), dtype=bool)
+        for g, mask in self.poly_by:
+            if g != genome:
+                poly |= mask
+        return poly
 
 
 def auc(y, x):
@@ -332,16 +374,19 @@ def auc(y, x):
     return float((ranks[y].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
 
 
-def count_record(sites, own, ref_pos, bases):
-    """The site counts of one record on T's copy (COUNTS)."""
+def count_record(sites, own, ref_pos, bases, genome=""):
+    """The site counts of one record on T's copy (COUNTS); the polymorphic and fixed sites by the alleles of other
+    genomes than the read's own source `genome`."""
     mism = bases != own[ref_pos]
     out = [len(ref_pos), int(mism.sum())]
     for alt in (sites.alt1, sites.alt3, sites.alt4):
         covered = alt[ref_pos] >= 0
         out += [int(covered.sum()), int((~mism[covered]).sum()), int((bases[covered] == alt[ref_pos][covered]).sum())]
-    covered = sites.fixed1[ref_pos]
+    polymorphic = sites.poly_without(genome)
+    fixed1 = (sites.alt1 >= 0) & ~polymorphic
+    covered = fixed1[ref_pos]
     out += [int(covered.sum()), int((~mism[covered]).sum()), int((bases[covered] == sites.alt1[ref_pos][covered]).sum())]
-    poly = sites.poly[ref_pos]
+    poly = polymorphic[ref_pos]
     out += [int(poly.sum()), int(mism[poly].sum()), int((~poly).sum()), int(mism[~poly].sum())]
     return out
 
@@ -456,8 +501,12 @@ def main(argv=None):
     if opts.full_reference:
         alleles = load_alleles(opts.full_reference, own_keys, {k: copies[k] for k in own_keys if k in copies},
                                opts.max_alleles)
+        named = sum(1 for v in alleles.values() for genome, _ in v if genome)
         head.append(f"alleles: {sum(len(v) for v in alleles.values())} copies of {len(alleles)} taxon-genes from "
-                    f"{opts.full_reference}; taxa with any: {len({k.split('_')[0] for k, v in alleles.items() if v})} of {len(hits)}")
+                    f"{opts.full_reference}; taxa with any: {len({k.split('_')[0] for k, v in alleles.items() if v})} of {len(hits)}"
+                    f"; {named} with their genome named (a read's own source genome is left out of its alleles)" +
+                    ("" if named else "; NONE named: an older full reference, so no read's own genome is left out and the "
+                                      "fixed sites of real strains are circular"))
         print(head[-1], flush=True)
 
     sites = {}
@@ -470,10 +519,11 @@ def main(argv=None):
 
     os.makedirs(os.path.dirname(os.path.abspath(opts.out)) or ".", exist_ok=True)
     per = collections.defaultdict(lambda: [0, np.zeros(len(COUNTS), dtype=np.int64)])
+    left_out = collections.Counter()  # records whose own source genome's allele was left out, by role
     with gzip.open(opts.out + ".fragments.tsv.gz", "wt") as fh:
         fh.write("sample\tqname\ttaxid\trole\trelation\tgene\tnearest_identity\tallele_divergence\t" + "\t".join(COUNTS) + "\n")
         for sample, recs in records.items():
-            for qname, t, g, pos, cigar, seq, role, source in recs:
+            for qname, t, g, pos, cigar, seq, role, source, genome in recs:
                 key = (t, g)
                 own = copies.get(f"{t}_{g}")
                 if own is None or key not in sites:
@@ -481,7 +531,8 @@ def main(argv=None):
                 s = sites[key]
                 ref_pos, bases = aligned_pairs(pos, cigar, seq)
                 inside = ref_pos < len(own)
-                counts = count_record(s, own, ref_pos[inside], bases[inside])
+                left_out[role] += s.has_allele_of(genome)
+                counts = count_record(s, own, ref_pos[inside], bases[inside], genome)
                 rel = tax.relation(source, t)
                 fh.write("\t".join(map(str, [sample, qname, t, role, rel, g,
                                              "" if s.nearest_identity is None else f"{s.nearest_identity:.4f}",
@@ -497,6 +548,10 @@ def main(argv=None):
         for sample, t, group, n, counts in taxa:
             idn = 1 - counts[1] / counts[0] if counts[0] else float("nan")
             fh.write("\t".join(map(str, [sample, t, group, n, f"{idn:.4f}"] + counts.tolist())) + "\n")
+    if opts.full_reference:
+        head.append("records whose own source genome's allele was left out: " +
+                    (", ".join(f"{role} {n}" for role, n in sorted(left_out.items())) or "none"))
+        print(head[-1], flush=True)
     lines, aucs = summarize(taxa, bool(opts.full_reference))
     with open(opts.out + ".auc.tsv", "w") as fh:
         fh.write("min_sites\tidentity_band\tsignal\ttaxa\tfn\tauc\n")

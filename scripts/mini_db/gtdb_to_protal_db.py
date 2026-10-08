@@ -387,7 +387,9 @@ def _write_full_reference(item):
                 if sp not in taxid or taxid[sp] in drop or acc in seen:
                     continue
                 seen.add(acc)
-                record = f">{taxid[sp]}_{gid}\n{seq.upper()}\n".encode()
+                # The genome's accession after the name, so that a report can leave a read's own genome out of a
+                # species' alleles (ancestry_sites.py); protal and the tiler read the first word.
+                record = f">{taxid[sp]}_{gid} {acc}\n{seq.upper()}\n".encode()
                 fh.write(record)
                 n += 1
                 size += len(record)
@@ -671,7 +673,7 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
                 seq = fh.readline()
                 if not header.startswith(">") or not seq:
                     sys.exit(f"{path}: expected a header and one sequence line per record")
-                tid, gid = header[1:].rstrip("\n").split("_", 1)
+                tid, gid = header[1:].split()[0].split("_", 1)
                 yield header, seq, tid, gid
 
     def wanted(tid, gid):
@@ -703,7 +705,7 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
                 seq = fin.readline()
                 if not header.startswith(b">") or not seq:
                     sys.exit(f"{full}: expected a header and one sequence line per record")
-                tid, gid = header[1:].rstrip(b"\n").split(b"_", 1)
+                tid, gid = header[1:].split()[0].split(b"_", 1)  # the name; the genome's accession follows it
                 if wanted(tid.decode(), gid.decode()):
                     if gid != frame_gene:
                         out.new_frame()
