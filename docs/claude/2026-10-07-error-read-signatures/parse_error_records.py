@@ -118,13 +118,18 @@ def main(argv=None):
     os.makedirs(opts.out, exist_ok=True)
     for rt in opts.types.split(","):
         rows, taxa = [], []
+        # v15's one SAM per sample (<sample>.sam.zst), or the build's FP and FN files per sample since d5ffc20
+        # (<sample>.FP.sam.zst, <sample>.FN.sam.zst; a record in both is read twice: fragments.py keys by sample and
+        # read name, and the two files hold the same record only for a read with both reasons)
         sams = sorted(glob.glob(os.path.join(opts.dir, rt, "*", "*", "*.sam.zst")))
+        taxa_read = set()
         for path in sams:
             which, point = path.split(os.sep)[-3], path.split(os.sep)[-2]
-            sample = os.path.basename(path)[:-len(".sam.zst")]
+            sample = os.path.basename(path).split(".")[0]
             rows.extend(parse_sam(path, rt, which, point, sample))
-            tpath = path[:-len(".sam.zst")] + ".taxa.tsv"
-            if os.path.isfile(tpath):
+            tpath = os.path.join(os.path.dirname(path), sample + ".taxa.tsv")
+            if os.path.isfile(tpath) and tpath not in taxa_read:
+                taxa_read.add(tpath)
                 t = pd.read_csv(tpath, sep="\t", dtype={"taxid": str})
                 t["type"], t["point"], t["scenario"] = rt, point, scenario_of(point)
                 taxa.append(t)

@@ -1,0 +1,21 @@
+143614 species in the taxonomy, 133014 kept, 10600 held out ([('species', 7324), ('phylum', 1346), ('class', 725), ('order', 553), ('family', 386), ('genus', 266)])
+genera: 29405, with 2 or more species 14538; species whose genus has another species: 0.896
+
+held out alone (7324): kept congeners none 0.085, 1 0.063, 2-4 0.117, 5 or more 0.735; of those without, kept species of other genera in the family: none 0.141
+held out as a genus clade (266): kept congeners none 1.000 (the clade's congeners are held out with them)
+held out as a family clade (386): kept congeners none 1.000 (the clade's congeners are held out with them, and their genus too)
+held out as a order clade (553): kept congeners none 1.000 (the clade's congeners are held out with them, and their genus too)
+held out as a class clade (725): kept congeners none 1.000 (the clade's congeners are held out with them, and their genus too)
+held out as a phylum clade (1346): kept congeners none 1.000 (the clade's congeners are held out with them, and their genus too)
+
+kept (133014): held-out congeners none 0.468, 1 0.150, 2 or more 0.382; kept species whose genus is otherwise all held out: 442
+  kept species in genera of 2-2 species (9297): with a held-out congener 0.045
+  kept species in genera of 3-5 species (16820): with a held-out congener 0.126
+  kept species in genera of 6-20 species (32774): with a held-out congener 0.408
+  kept species in genera of 21-more species (60188): with a held-out congener 0.911
+
+559446 rows of the build's tables: absent beside a held-out congener 312375, present 104424
+  absent beside a held-out congener (3+ fragments, 113699): identity 10/25/50/75/90% [0.9166, 0.925, 0.9371, 0.9533, 0.968]; at or above 0.985: 0.021, 0.97-0.985: 0.065
+  present, another genome than the representative (3+ fragments, 61346): identity 10/25/50/75/90% [0.98, 0.9881, 0.9936, 0.9959, 0.9967]; at or above 0.985: 0.824, 0.97-0.985: 0.147
+  present, the representative (3+ fragments, 25964): identity 10/25/50/75/90% [0.9937, 0.9954, 0.9962, 0.9967, 0.9975]; at or above 0.985: 0.973, 0.97-0.985: 0.015
+  db_nearest_congener (the kept congener nearest the taxon's reference, by the training database): 10/25/50/75/90% [0.0289, 0.0457, 0.0905, 0.147, 1.0]; within 0.02: 0.035, within 0.05: 0.273; -1 (none within 0.15 or no table): 0.000

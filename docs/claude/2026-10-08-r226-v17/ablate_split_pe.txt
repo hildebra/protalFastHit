@@ -1,0 +1,52 @@
+rows         design test     gut  host  moderate  scenario hold-out    soil  soil_shallow
+variant                                                                                  
+no_ancestry       0.9830  0.9910   1.0    0.9879             0.9762  0.9750        0.9631
+no_foreign        0.9621  0.9871   1.0    0.9700             0.9530  0.9546        0.9274
+no_gaps           0.9838  0.9907   1.0    0.9861             0.9741  0.9715        0.9619
+no_new            0.9605  0.9868   1.0    0.9687             0.9511  0.9517        0.9257
+v15_set           0.9584  0.9858   1.0    0.9684             0.9498  0.9508        0.9229
+v17               0.9838  0.9914   1.0    0.9867             0.9746  0.9719        0.9625
+
+    variant              rows      n  knob  F1 at knob     FP/FN  F1 at 0.5
+no_ancestry       design test  22326  0.71      0.9830     61/97     0.9844
+no_ancestry scenario hold-out 142811  0.71      0.9762   474/674     0.9739
+no_ancestry               gut   9937  0.71      0.9910      9/19     0.9917
+no_ancestry              host    665  0.71      1.0000       0/0     1.0000
+no_ancestry          moderate  28912  0.71      0.9879    68/102     0.9864
+no_ancestry              soil  69855  0.71      0.9750   177/225     0.9708
+no_ancestry      soil_shallow  33442  0.71      0.9631   220/328     0.9616
+ no_foreign       design test  22326  0.74      0.9621   111/238     0.9640
+ no_foreign scenario hold-out 142811  0.74      0.9530  909/1349     0.9459
+ no_foreign               gut   9937  0.74      0.9871     10/30     0.9837
+ no_foreign              host    665  0.74      1.0000       0/0     1.0000
+ no_foreign          moderate  28912  0.74      0.9700   194/229     0.9644
+ no_foreign              soil  69855  0.74      0.9546   302/424     0.9447
+ no_foreign      soil_shallow  33442  0.74      0.9274   403/666     0.9215
+    no_gaps       design test  22326  0.50      0.9838     78/73     0.9838
+    no_gaps scenario hold-out 142811  0.50      0.9741   735/527     0.9741
+    no_gaps               gut   9937  0.50      0.9907     14/15     0.9907
+    no_gaps              host    665  0.50      1.0000       0/0     1.0000
+    no_gaps          moderate  28912  0.50      0.9861    118/79     0.9861
+    no_gaps              soil  69855  0.50      0.9715   299/165     0.9715
+    no_gaps      soil_shallow  33442  0.50      0.9619   304/268     0.9619
+     no_new       design test  22326  0.72      0.9605   130/235     0.9631
+     no_new scenario hold-out 142811  0.72      0.9511 1011/1344     0.9456
+     no_new               gut   9937  0.72      0.9868     11/30     0.9856
+     no_new              host    665  0.72      1.0000       0/0     1.0000
+     no_new          moderate  28912  0.72      0.9687   207/234     0.9645
+     no_new              soil  69855  0.72      0.9517   355/421     0.9454
+     no_new      soil_shallow  33442  0.72      0.9257   438/659     0.9193
+    v15_set       design test  22326  0.77      0.9584   117/265     0.9622
+    v15_set scenario hold-out 142811  0.77      0.9498  895/1507     0.9443
+    v15_set               gut   9937  0.77      0.9858      9/35     0.9856
+    v15_set              host    665  0.77      1.0000       0/0     1.0000
+    v15_set          moderate  28912  0.77      0.9684   186/258     0.9647
+    v15_set              soil  69855  0.77      0.9508   320/467     0.9437
+    v15_set      soil_shallow  33442  0.77      0.9229   380/747     0.9168
+        v17       design test  22326  0.50      0.9838     76/75     0.9838
+        v17 scenario hold-out 142811  0.50      0.9746   725/511     0.9746
+        v17               gut   9937  0.50      0.9914     13/14     0.9914
+        v17              host    665  0.50      1.0000       0/0     1.0000
+        v17          moderate  28912  0.50      0.9867    116/73     0.9867
+        v17              soil  69855  0.50      0.9719   295/162     0.9719
+        v17      soil_shallow  33442  0.50      0.9625   301/262     0.9625

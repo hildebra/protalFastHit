@@ -1,0 +1,705 @@
+
+# pe: 301 samples, 1964 FP and 2721 FN taxa; 81518 fragments
+
+## Where the FP taxa's counted fragments come from
+
+Counted FP fragments by the source's relation to the FP taxon (share of fragments):
+relation      family  genus  order  other
+scenario                                 
+design         0.017  0.955  0.008  0.020
+gut            0.015  0.880  0.030  0.075
+host           0.000  1.000  0.000  0.000
+soil           0.011  0.973  0.003  0.013
+soil_shallow   0.012  0.968  0.003  0.017
+All            0.013  0.967  0.004  0.016
+
+... by what the source species is:
+source_is     FN of the sample  held out (novel)  in the database (TP or unseen)
+scenario                                                                        
+design                   0.010             0.939                           0.052
+gut                      0.000             0.842                           0.158
+host                     0.000             0.000                           1.000
+soil                     0.003             0.967                           0.030
+soil_shallow             0.005             0.961                           0.034
+All                      0.005             0.957                           0.038
+
+... by the source genome:
+source_genome  insilico    rep  strain
+scenario                              
+design            0.055  0.405   0.540
+gut               0.098  0.474   0.429
+host              0.000  0.500   0.500
+soil              0.051  0.388   0.561
+soil_shallow      0.059  0.389   0.551
+All               0.055  0.393   0.552
+
+FP taxa with counted fragments here: 1962; fragments per FP taxon: {'count': 1962.0, 'mean': 8.0, 'std': 7.6, 'min': 1.0, '50%': 4.0, '90%': 20.0, 'max': 22.0}
+one source species: 0.852; all fragments from held-out species: 0.884; main relation: {'genus': 0.855, 'other': 0.08, 'family': 0.049, 'order': 0.016}
+
+## Where the FN taxa's reads went
+
+FN taxa by the fragments counted for them (best on the taxon, MAPQ >= 4):
+bin               0      1      2    3-5     >5
+scenario                                       
+design        0.004  0.388  0.142  0.173  0.293
+gut           0.000  0.245  0.151  0.038  0.566
+soil          0.005  0.317  0.136  0.163  0.378
+soil_shallow  0.005  0.461  0.182  0.162  0.189
+
+The FN species' own fragments with a record: 2184845; best on itself, MAPQ >= 4: 0.010; best on itself below MAPQ 4: 0.008; best elsewhere: 0.050; no alignment: 0.932
+
+The FN species' fragments in the SAMs (capped per reason in newer builds), where their best record is, by the relation of that taxon:
+relation       family  genus  order  other   own  unaligned
+went                                                       
+an FP taxon         1     78      0      0     0          0
+another taxon      16   1025      5      7     0          0
+itself              0      0      0      0  8768          0
+unaligned           0      0      0      0     0      42105
+FP taxa fed by an FN species of the same sample: 17 of 1964 FP taxa
+FN own fragments on itself: counted (MAPQ >= 4) 0.658; of those below MAPQ 4, ZA negative (another taxon fits better) 0.247, ZA tie 0.698
+
+## Read level: counted fragments, wrong (FP) against own reads (means; AUC > 0.5: higher in FP reads)
+
+group
+wrong (FP)       11476
+own (FN)          5765
+wrong (other)      913
+own (TP)            78
+            feature  wrong (FP)  wrong (other)  own (FN)  own (TP)  AUC FP vs own  AUC FP vs own FN  AUC FP vs own TP
+                 gc       0.495          0.546     0.526     0.537          0.424             0.424             0.399
+               za_n       0.992          1.474     1.325     1.513          0.446             0.446             0.397
+               mapq      57.482         50.223    49.993    45.141          0.549             0.549             0.584
+           identity       0.971          0.943     0.975     0.992          0.452             0.455             0.196
+      longest_match      90.363         62.073    96.419   117.321          0.454             0.456             0.303
+               zf_n       2.096          4.193     1.842     3.167          0.543             0.545             0.412
+                 zt       7.255          0.636     6.478     6.513          0.539             0.539             0.498
+         mismatches       6.983         10.674     6.387     1.795          0.538             0.534             0.817
+                 zu       9.613          1.030     8.727     8.885          0.536             0.537             0.495
+        homopolymer       4.853          4.314     4.748     4.564          0.531             0.530             0.560
+  top_trinucleotide       0.068          0.064     0.067     0.064          0.522             0.522             0.558
+            aligned     245.201        192.356   252.606   191.154          0.480             0.477             0.685
+             za_min       1.399          0.751     1.270     0.957          0.518             0.518             0.540
+             za_tie       0.086          0.103     0.119     0.244          0.483             0.483             0.421
+      mate_unmapped       0.256          0.433     0.229     0.385          0.513             0.514             0.436
+             proper       0.739          0.373     0.768     0.449          0.488             0.485             0.645
+              mates       1.740          1.373     1.768     1.449          0.488             0.486             0.645
+           abs_tlen     145.368        119.139   148.364   119.231          0.488             0.487             0.583
+       gene_between       1.040          0.971     1.051     0.960          0.489             0.488             0.595
+     gene_identical       0.001          0.001     0.001     0.002          0.490             0.491             0.415
+           read_len     151.024        149.617   152.888   151.282          0.490             0.490             0.490
+gene_near_identical       0.009          0.010     0.009     0.015          0.496             0.498             0.406
+          two_genes       0.033          0.012     0.026     0.038          0.503             0.503             0.497
+            at_edge       0.304          0.220     0.297     0.462          0.503             0.504             0.421
+        za_negative       0.063          0.131     0.068     0.038          0.498             0.498             0.512
+              za_fp       0.007          0.003     0.003     0.000          0.502             0.502             0.504
+            clipped       0.277          0.206     0.271     0.436          0.502             0.503             0.420
+         clip_bases      17.452         13.175    17.568    27.436          0.502             0.503             0.416
+              za_fn       0.006          0.062     0.008     0.013          0.499             0.499             0.496
+            rel_pos       0.504          0.468     0.506     0.426          0.499             0.498             0.577
+              zf_fp       0.003          0.001     0.001     0.000          0.501             0.501             0.501
+        gene_within       1.116          1.085     1.120     0.971          0.499             0.498             0.615
+        mates_split       0.004          0.194     0.003     0.167          0.499             0.501             0.419
+ other_taxa_records       0.004          0.194     0.003     0.167          0.500             0.501             0.419
+     share_on_taxon       0.998          0.907     0.999     0.933          0.500             0.499             0.581
+             indels       0.039          0.095     0.034     0.038          0.500             0.500             0.502
+          gap_opens       0.019          0.049     0.017     0.013          0.500             0.500             0.502
+              zf_fn       0.001          0.010     0.002     0.000          0.500             0.500             0.501
+                 zr       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+      supplementary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+            zf_self       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          secondary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+
+boosted model, wrong (FP) against own reads, sample-grouped 5-fold: AUC 0.639 (identity alone 0.548); 17319 fragments
+  without identity, mismatches, longest match: AUC 0.619
+  without the ZA/ZF tags: AUC 0.639
+
+## Taxon level: FP against FN taxa, from their counted fragments (AUC > 0.5: higher in FN)
+
+bin      1    2  3-5   >5
+role                     
+FN    1060  428  471  747
+FP     658  260  367  675
+       feature  FP mean  FN mean  AUC (FN high)  AUC n=1  AUC n=2  AUC n=3-5  AUC n=>5
+      identity    0.978    0.960          0.279    0.251    0.301      0.272     0.257
+            zu   10.335    4.403          0.245    0.204    0.285      0.259     0.279
+            zt    7.711    3.128          0.264    0.228    0.295      0.277     0.306
+           zu0    0.184    0.453          0.683    0.694    0.663      0.693     0.672
+gene_identical    0.001    0.001          0.491    0.503    0.493      0.503     0.525
+         genes    5.268    4.170          0.441    0.500    0.448      0.493     0.422
+share_on_taxon    0.997    0.993          0.489    0.495    0.492      0.489     0.474
+   za_negative    0.064    0.135          0.559    0.545    0.573      0.586     0.598
+        za_tie    0.101    0.157          0.533    0.542    0.552      0.544     0.535
+         za_fn    0.006    0.011          0.506    0.503    0.501      0.517     0.508
+         zf_fn    0.001    0.004          0.505    0.501    0.501      0.509     0.512
+       zf_self    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+   mates_split    0.006    0.014          0.511    0.505    0.508      0.511     0.526
+ mate_unmapped    0.262    0.355          0.555    0.563    0.535      0.565     0.591
+       clipped    0.299    0.273          0.464    0.469    0.484      0.477     0.477
+       at_edge    0.326    0.296          0.462    0.470    0.472      0.474     0.469
+     two_genes    0.034    0.025          0.478    0.493    0.494      0.482     0.481
+
+joined to the model's table: 4666 of 4666 taxa; Spearman correlation of the new signatures with the model's features (FP and FN taxa):
+                fragments  identity  identity  top_identity  low_identity_share  mean_mapq  low_mapq_share  lu_per_kb  lsu_per_kb  lu_gene_rate3  congener_fit_share  other_genus_fit_share  failed_candidate_rate  mate_lost_share  excess_scaled_median  gene_presence_ratio  hit_gene_fraction  adjacent_unlikely_share  relative_spill  em_own_share
+identity            -0.25      1.00      1.00          0.46               -0.35      -0.30            0.21       0.24        0.17          -0.03                0.11                  -0.15                   0.04            -0.47                 -0.83                -0.01              -0.15                    -0.02           -0.25         -0.03
+identity            -0.25      1.00      1.00          0.46               -0.35      -0.30            0.21       0.24        0.17          -0.03                0.11                  -0.15                   0.04            -0.47                 -0.83                -0.01              -0.15                    -0.02           -0.25         -0.03
+zu                   0.18      0.22      0.22          0.31                0.14       0.44           -0.44       0.96        0.92           0.63               -0.42                  -0.06                  -0.01            -0.05                 -0.14                 0.06               0.13                    -0.00            0.25          0.34
+zt                   0.23      0.15      0.15          0.30                0.18       0.51           -0.48       0.93        0.97           0.64               -0.44                  -0.04                  -0.03            -0.00                 -0.08                 0.05               0.17                     0.00            0.29          0.35
+zu0                  0.10     -0.22     -0.22         -0.06                0.09      -0.27            0.33      -0.73       -0.65          -0.30                0.37                   0.13                  -0.10             0.17                  0.12                -0.07               0.14                    -0.00            0.03         -0.38
+gene_identical       0.30     -0.05     -0.05          0.17                0.24       0.12           -0.09       0.17        0.17           0.28               -0.09                   0.06                  -0.15             0.11                  0.17                 0.11               0.31                     0.02            0.31          0.02
+genes                0.95     -0.24     -0.24          0.47                0.60       0.15           -0.04       0.16        0.21           0.71                0.07                   0.25                  -0.50             0.39                  0.21                 0.10               0.92                     0.02            0.92         -0.24
+share_on_taxon      -0.12      0.13      0.13         -0.00               -0.11       0.00           -0.03       0.06        0.05          -0.03               -0.02                  -0.09                   0.05            -0.23                 -0.11                 0.05              -0.10                    -0.03           -0.11          0.09
+za_negative          0.31     -0.19     -0.19          0.10                0.21      -0.22            0.22      -0.24       -0.21           0.10                0.44                   0.22                  -0.20             0.03                  0.11                -0.05               0.30                     0.01            0.27         -0.38
+za_tie               0.25      0.05      0.05          0.21                0.11      -0.34            0.33      -0.26       -0.25           0.07                0.52                   0.16                  -0.22            -0.04                 -0.09                -0.00               0.30                     0.01            0.20         -0.48
+za_fn                0.08     -0.01     -0.01          0.05                0.07      -0.06            0.09      -0.10       -0.08          -0.01                0.13                   0.05                  -0.09             0.02                 -0.01                -0.04               0.09                    -0.00            0.06         -0.15
+zf_fn                0.11     -0.09     -0.09          0.05                0.14       0.04           -0.00      -0.02       -0.01           0.06                0.02                   0.07                  -0.06             0.11                  0.08                -0.04               0.10                    -0.00            0.11         -0.06
+zf_self               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mates_split          0.12     -0.13     -0.13          0.00                0.11      -0.00            0.03      -0.06       -0.05           0.03                0.02                   0.09                  -0.05             0.22                  0.11                -0.05               0.10                     0.03            0.11         -0.08
+mate_unmapped        0.16     -0.23     -0.23         -0.09                0.16       0.11           -0.06      -0.02       -0.01           0.02               -0.22                   0.04                   0.00             0.40                  0.24                -0.04               0.10                     0.02            0.17          0.07
+clipped              0.20      0.03      0.03          0.16                0.14       0.10           -0.09       0.12        0.14           0.16               -0.03                   0.02                  -0.09             0.02                  0.01                 0.07               0.19                    -0.02            0.20          0.01
+at_edge              0.17      0.06      0.06          0.16                0.12       0.09           -0.08       0.13        0.14           0.15               -0.03                   0.01                  -0.07            -0.00                 -0.01                 0.08               0.17                    -0.02            0.18          0.02
+two_genes            0.33     -0.05     -0.05          0.20                0.24       0.10           -0.07       0.10        0.13           0.31               -0.00                   0.08                  -0.20             0.12                  0.07                 0.22               0.36                     0.01            0.32         -0.03
+
+## Genes: where the FP fragments lie against the own reads
+
+genes with FP fragments: 165; the 10 most FP-rich hold 0.194 of the FP fragments (own reads: 0.179)
+Spearman(enrichment, congeners' identical share): -0.20
+group  own (FN)  own (TP)  wrong (FP)  FP share  own share  enrichment  identical_share
+gene                                                                                   
+167.0         2         0          12    0.0010     0.0003        3.05           0.0004
+117.0        12         1          52    0.0045     0.0022        2.04           0.0049
+85.0         11         0          40    0.0035     0.0019        1.85           0.0062
+101.0        48         2         154    0.0134     0.0086        1.57           0.0006
+36.0         43         0         129    0.0112     0.0074        1.53           0.0004
+126.0         2         0           6    0.0005     0.0003        1.53           0.0027
+136.0         2         0           6    0.0005     0.0003        1.53           0.0009
+155.0         1         0           3    0.0003     0.0002        1.53           0.0029
+108.0        49         1         150    0.0131     0.0086        1.53           0.0002
+84.0         16         0          47    0.0041     0.0027        1.50           0.0116
+21.0         26         0          76    0.0066     0.0044        1.49           0.0004
+102.0        35         0          99    0.0086     0.0060        1.44           0.0003
+
+# se: 270 samples, 1596 FP and 1262 FN taxa; 46179 fragments
+
+## Where the FP taxa's counted fragments come from
+
+Counted FP fragments by the source's relation to the FP taxon (share of fragments):
+relation  family  genus  order  other
+scenario                             
+design     0.012  0.959  0.009  0.020
+soil       0.009  0.976  0.003  0.012
+All        0.010  0.970  0.005  0.015
+
+... by what the source species is:
+source_is  FN of the sample  held out (novel)  in the database (TP or unseen)
+scenario                                                                     
+design                0.007             0.951                           0.042
+soil                  0.001             0.963                           0.036
+All                   0.003             0.958                           0.038
+
+... by the source genome:
+source_genome  insilico    rep  strain
+scenario                              
+design            0.061  0.429   0.510
+soil              0.052  0.416   0.532
+All               0.055  0.421   0.524
+
+FP taxa with counted fragments here: 1596; fragments per FP taxon: {'count': 1596.0, 'mean': 9.1, 'std': 7.9, 'min': 1.0, '50%': 6.0, '90%': 20.0, 'max': 20.0}
+one source species: 0.865; all fragments from held-out species: 0.875; main relation: {'genus': 0.856, 'other': 0.08, 'family': 0.044, 'order': 0.021}
+
+## Where the FN taxa's reads went
+
+FN taxa by the fragments counted for them (best on the taxon, MAPQ >= 4):
+bin         0      1      2    3-5     >5
+scenario                                 
+design    0.0  0.435  0.140  0.152  0.272
+soil      0.0  0.355  0.143  0.173  0.328
+
+The FN species' own fragments with a record: 1519839; best on itself, MAPQ >= 4: 0.007; best on itself below MAPQ 4: 0.009; best elsewhere: 0.052; no alignment: 0.932
+
+The FN species' fragments in the SAMs (capped per reason in newer builds), where their best record is, by the relation of that taxon:
+relation       family  genus   own  unaligned
+went                                         
+an FP taxon         2     44     0          0
+another taxon       6    411     0          0
+itself              0      0  4673          0
+unaligned           0      0     0      20544
+FP taxa fed by an FN species of the same sample: 13 of 1596 FP taxa
+FN own fragments on itself: counted (MAPQ >= 4) 0.600; of those below MAPQ 4, ZA negative (another taxon fits better) 0.005, ZA tie 0.375
+
+## Read level: counted fragments, wrong (FP) against own reads (means; AUC > 0.5: higher in FP reads)
+
+group
+wrong (FP)       10417
+own (FN)          2804
+wrong (other)      115
+own (TP)             1
+            feature  wrong (FP)  wrong (other)  own (FN)  own (TP)  AUC FP vs own  AUC FP vs own FN  AUC FP vs own TP
+                 zu       9.043          0.504     7.408     0.000          0.570             0.570             0.907
+                 zt       6.832          0.391     5.566     0.000          0.569             0.569             0.869
+               zf_n       1.262          1.991     1.012    15.000          0.563             0.564             0.001
+               mapq      57.016         45.209    47.091     9.000          0.563             0.563             0.724
+         mismatches       6.590          8.478     5.432     3.000          0.560             0.560             0.638
+           identity       0.969          0.956     0.973     0.971          0.449             0.449             0.537
+                 gc       0.496          0.513     0.515     0.671          0.451             0.451             0.085
+      longest_match      96.977         82.887   106.900    77.000          0.455             0.455             0.556
+               za_n       0.307          0.530     0.449     0.000          0.462             0.462             0.605
+          gap_opens       1.102          1.313     1.239     4.000          0.475             0.475             0.039
+             indels       1.150          1.443     1.316     4.000          0.476             0.476             0.047
+gene_near_identical       0.009          0.007     0.008     0.002          0.520             0.520             0.807
+            rel_pos       0.498          0.507     0.516     0.522          0.483             0.483             0.469
+         clip_bases      38.383         46.765    34.078     0.000          0.517             0.517             0.694
+            at_edge       0.324          0.357     0.293     0.000          0.516             0.515             0.662
+            clipped       0.307          0.348     0.277     0.000          0.515             0.515             0.654
+        homopolymer       4.952          4.974     4.926     4.000          0.515             0.514             0.771
+        gene_within       1.118          1.155     1.136     1.066          0.487             0.487             0.635
+             za_min       3.565          3.436     3.524       NaN          0.513             0.513               NaN
+            aligned     240.150        226.783   243.066   240.000          0.488             0.488             0.616
+     gene_identical       0.001          0.001     0.001     0.000          0.510             0.510             0.705
+       gene_between       1.039          1.052     1.050     0.936          0.490             0.490             0.695
+  top_trinucleotide       0.056          0.058     0.057     0.050          0.491             0.491             0.537
+           read_len     278.499        273.548   277.143   240.000          0.502             0.502             0.836
+              za_fp       0.004          0.000     0.001     0.000          0.501             0.501             0.502
+              zf_fn       0.001          0.035     0.003     0.000          0.499             0.499             0.500
+              za_fn       0.001          0.122     0.003     0.000          0.499             0.499             0.500
+              zf_fp       0.002          0.000     0.001     0.000          0.501             0.501             0.501
+        za_negative       0.000          0.000     0.001     0.000          0.500             0.500             0.500
+             za_tie       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+              mates       1.000          1.000     1.000     1.000          0.500             0.500             0.500
+          two_genes       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+        mates_split       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+                 zr       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+           abs_tlen       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+      mate_unmapped       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+             proper       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+     share_on_taxon       1.000          1.000     1.000     1.000          0.500             0.500             0.500
+            zf_self       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+ other_taxa_records       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+      supplementary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          secondary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+
+boosted model, wrong (FP) against own reads, sample-grouped 5-fold: AUC 0.622 (identity alone 0.551); 13222 fragments
+  without identity, mismatches, longest match: AUC 0.601
+  without the ZA/ZF tags: AUC 0.619
+
+## Taxon level: FP against FN taxa, from their counted fragments (AUC > 0.5: higher in FN)
+
+bin     1    2  3-5   >5
+role                    
+FN    491  185  236  346
+FP    507  188  269  632
+       feature  FP mean  FN mean  AUC (FN high)  AUC n=1  AUC n=2  AUC n=3-5  AUC n=>5
+      identity    0.976    0.964          0.344    0.300    0.322      0.341     0.305
+            zu    9.194    4.339          0.281    0.284    0.307      0.297     0.278
+            zt    6.938    3.169          0.293    0.296    0.322      0.314     0.302
+           zu0    0.216    0.463          0.662    0.646    0.663      0.679     0.692
+gene_identical    0.001    0.001          0.474    0.532    0.519      0.439     0.478
+         genes    5.784    4.052          0.415    0.500    0.456      0.453     0.394
+share_on_taxon    1.000    1.000          0.500    0.500    0.500      0.500     0.500
+   za_negative    0.000    0.002          0.501    0.502    0.500      0.500     0.501
+        za_tie    0.000    0.000          0.499    0.500    0.503      0.496     0.499
+         za_fn    0.001    0.004          0.505    0.500    0.503      0.509     0.512
+         zf_fn    0.000    0.003          0.504    0.500    0.505      0.506     0.510
+       zf_self    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+   mates_split    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+ mate_unmapped    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+       clipped    0.320    0.323          0.488    0.496    0.505      0.495     0.494
+       at_edge    0.336    0.336          0.486    0.495    0.495      0.494     0.494
+     two_genes    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+
+joined to the model's table: 2854 of 2854 taxa; Spearman correlation of the new signatures with the model's features (FP and FN taxa):
+                fragments  identity  identity  top_identity  low_identity_share  mean_mapq  low_mapq_share  lu_per_kb  lsu_per_kb  lu_gene_rate3  congener_fit_share  other_genus_fit_share  failed_candidate_rate  mate_lost_share  excess_scaled_median  gene_presence_ratio  hit_gene_fraction  adjacent_unlikely_share  relative_spill  em_own_share
+identity            -0.35      1.00      1.00          0.44               -0.33      -0.32            0.20       0.14        0.07          -0.20                0.08                  -0.04                   0.07              NaN                 -0.83                -0.04              -0.27                      NaN           -0.34         -0.02
+identity            -0.35      1.00      1.00          0.44               -0.33      -0.32            0.20       0.14        0.07          -0.20                0.08                  -0.04                   0.07              NaN                 -0.83                -0.04              -0.27                      NaN           -0.34         -0.02
+zu                   0.19      0.08      0.08          0.21                0.15       0.49           -0.50       0.94        0.91           0.61               -0.36                  -0.06                   0.13              NaN                 -0.00                -0.00               0.12                      NaN            0.25          0.32
+zt                   0.22      0.03      0.03          0.20                0.17       0.54           -0.55       0.92        0.96           0.61               -0.37                  -0.06                   0.09              NaN                  0.04                -0.02               0.15                      NaN            0.28          0.33
+zu0                  0.12     -0.15     -0.15         -0.01                0.06      -0.31            0.36      -0.73       -0.65          -0.26                0.38                   0.09                  -0.17              NaN                  0.05                -0.06               0.16                      NaN            0.05         -0.38
+gene_identical       0.29     -0.10     -0.10          0.16                0.23       0.15           -0.13       0.18        0.19           0.30               -0.10                   0.02                  -0.09              NaN                  0.19                 0.02               0.28                      NaN            0.30          0.07
+genes                0.95     -0.36     -0.36          0.40                0.52       0.20           -0.11       0.15        0.20           0.75                0.14                   0.09                  -0.41              NaN                  0.33                -0.04               0.93                      NaN            0.93         -0.22
+share_on_taxon        NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+za_negative          0.03     -0.02     -0.02          0.02                0.01      -0.01            0.01       0.00        0.00           0.03                0.01                   0.06                   0.01              NaN                  0.03                -0.04               0.03                      NaN            0.03         -0.00
+za_tie               0.01     -0.01     -0.01         -0.02               -0.02      -0.01            0.02      -0.02       -0.01          -0.00                0.04                   0.04                  -0.02              NaN                  0.00                -0.00               0.01                      NaN            0.01         -0.03
+za_fn                0.09     -0.02     -0.02          0.03                0.04      -0.05            0.05      -0.05       -0.04           0.04                0.08                   0.00                  -0.05              NaN                  0.00                -0.06               0.08                      NaN            0.08         -0.10
+zf_fn                0.09     -0.06     -0.06          0.01                0.06       0.01           -0.00      -0.02       -0.01           0.07                0.02                   0.01                  -0.03              NaN                  0.06                -0.02               0.08                      NaN            0.09         -0.03
+zf_self               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mates_split           NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mate_unmapped         NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+clipped              0.15     -0.07     -0.07          0.09                0.10       0.09           -0.08       0.07        0.07           0.10               -0.04                   0.04                   0.18              NaN                  0.06                -0.03               0.12                      NaN            0.15         -0.00
+at_edge              0.14     -0.07     -0.07          0.09                0.10       0.09           -0.08       0.07        0.07           0.09               -0.04                   0.04                   0.18              NaN                  0.06                -0.02               0.10                      NaN            0.14          0.00
+two_genes             NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+
+## Genes: where the FP fragments lie against the own reads
+
+genes with FP fragments: 163; the 10 most FP-rich hold 0.200 of the FP fragments (own reads: 0.194)
+Spearman(enrichment, congeners' identical share): 0.07
+group  own (FN)  own (TP)  wrong (FP)  FP share  own share  enrichment  identical_share
+gene                                                                                   
+152.0         1         0          11    0.0011     0.0004        2.96           0.0005
+98.0          4         0          38    0.0036     0.0014        2.56           0.0011
+99.0          3         0          27    0.0026     0.0011        2.42           0.0076
+93.0          7         0          60    0.0058     0.0025        2.31           0.0023
+22.0          5         0          40    0.0038     0.0018        2.15           0.0017
+137.0         1         0           8    0.0008     0.0004        2.15           0.0009
+107.0         5         0          39    0.0037     0.0018        2.10           0.0011
+78.0          5         0          38    0.0036     0.0018        2.05           0.0079
+46.0         12         0          91    0.0087     0.0043        2.04           0.0004
+19.0          9         0          67    0.0064     0.0032        2.00           0.0006
+104.0         9         0          64    0.0061     0.0032        1.91           0.0018
+130.0         1         0           7    0.0007     0.0004        1.88           0.0012
+
+# pb: 140 samples, 997 FP and 1203 FN taxa; 18274 fragments
+
+## Where the FP taxa's counted fragments come from
+
+Counted FP fragments by the source's relation to the FP taxon (share of fragments):
+relation      family  genus  order  other
+scenario                                 
+design         0.023  0.961  0.003  0.013
+gut            0.029  0.943  0.029  0.000
+host           1.000  0.000  0.000  0.000
+soil           0.006  0.977  0.005  0.012
+soil_shallow   0.003  0.992  0.002  0.004
+All            0.013  0.972  0.004  0.010
+
+... by what the source species is:
+source_is     FN of the sample  held out (novel)  in the database (TP or unseen)
+scenario                                                                        
+design                   0.006             0.939                           0.055
+gut                      0.029             0.586                           0.386
+host                     0.000             0.000                           1.000
+soil                     0.001             0.944                           0.054
+soil_shallow             0.004             0.989                           0.008
+All                      0.003             0.944                           0.053
+
+... by the source genome:
+source_genome  insilico    rep  strain
+scenario                              
+design            0.036  0.400   0.564
+gut               0.014  0.357   0.629
+host              0.000  0.000   1.000
+soil              0.054  0.429   0.518
+soil_shallow      0.047  0.401   0.552
+All               0.047  0.413   0.540
+
+FP taxa with counted fragments here: 978; fragments per FP taxon: {'count': 978.0, 'mean': 5.1, 'std': 5.8, 'min': 1.0, '50%': 2.0, '90%': 17.0, 'max': 20.0}
+one source species: 0.951; all fragments from held-out species: 0.942; main relation: {'genus': 0.954, 'other': 0.019, 'family': 0.016, 'order': 0.01}
+
+## Where the FN taxa's reads went
+
+FN taxa by the fragments counted for them (best on the taxon, MAPQ >= 4):
+bin               0      1      2    3-5     >5
+scenario                                       
+design        0.070  0.432  0.147  0.150  0.201
+gut           0.061  0.303  0.030  0.121  0.485
+soil          0.073  0.393  0.126  0.182  0.225
+soil_shallow  0.077  0.555  0.182  0.100  0.087
+
+The FN species' own fragments with a record: 40210; best on itself, MAPQ >= 4: 0.109; best on itself below MAPQ 4: 0.060; best elsewhere: 0.191; no alignment: 0.640
+
+The FN species' fragments in the SAMs (capped per reason in newer builds), where their best record is, by the relation of that taxon:
+relation       family  genus  order   own  unaligned
+went                                                
+an FP taxon         0     17      0     0          0
+another taxon       1   1004      1     0          0
+itself              0      0      0  2583          0
+unaligned           0      0      0     0       5988
+FP taxa fed by an FN species of the same sample: 6 of 997 FP taxa
+FN own fragments on itself: counted (MAPQ >= 4) 0.784; of those below MAPQ 4, ZA negative (another taxon fits better) 0.102, ZA tie 0.113
+
+## Read level: counted fragments, wrong (FP) against own reads (means; AUC > 0.5: higher in FP reads)
+
+group
+wrong (FP)       4168
+own (FN)         2024
+wrong (other)     680
+own (TP)          111
+            feature  wrong (FP)  wrong (other)  own (FN)  own (TP)  AUC FP vs own  AUC FP vs own FN  AUC FP vs own TP
+                 zu      64.448         12.768    47.871   118.369          0.573             0.584             0.369
+                 zt      48.622          8.538    35.499    95.838          0.569             0.580             0.382
+                 gc       0.487          0.490     0.509     0.464          0.447             0.442             0.543
+               mapq      69.630         30.265    61.608    48.892          0.548             0.547             0.559
+             za_min      -3.123        -26.292    -5.769   -10.000          0.542             0.519             0.868
+     share_on_taxon       0.984          0.770     0.978     0.715          0.533             0.509             0.972
+ other_taxa_records       0.092          1.326     0.107     1.324          0.468             0.492             0.034
+      supplementary       1.103          2.390     1.087     3.162          0.469             0.486             0.163
+               za_n       0.075          0.371     0.141     0.135          0.477             0.478             0.462
+           identity       0.972          0.963     0.970     0.989          0.523             0.540             0.217
+                 zr       0.185          0.228     0.225     0.198          0.481             0.480             0.494
+         mismatches      40.184         57.694    43.337    16.928          0.486             0.472             0.734
+           read_len   15336.378      15741.484 15475.867 15709.622          0.487             0.488             0.466
+        za_negative       0.017          0.187     0.032     0.135          0.490             0.493             0.441
+          gap_opens       0.377          0.531     0.403     0.396          0.491             0.490             0.497
+             indels       1.068          1.475     1.688     0.928          0.491             0.490             0.502
+            aligned    1407.699       1616.237  1428.124  1696.144          0.491             0.496             0.395
+         clip_bases   13960.978      14215.518 14047.743 14013.477          0.491             0.491             0.497
+       gene_between       1.059          1.003     1.068     1.051          0.491             0.491             0.498
+        gene_within       1.144          1.105     1.149     1.214          0.492             0.496             0.423
+      longest_match     284.928        303.478   282.576   744.793          0.508             0.526             0.183
+     gene_identical       0.001          0.001     0.001     0.000          0.494             0.492             0.545
+  top_trinucleotide       0.049          0.047     0.050     0.046          0.505             0.499             0.617
+               zf_n      50.697         47.735    51.444    45.667          0.495             0.490             0.594
+gene_near_identical       0.007          0.008     0.007     0.005          0.504             0.501             0.561
+            rel_pos       0.501          0.502     0.505     0.503          0.497             0.493             0.555
+        homopolymer       5.792          5.835     5.826     5.856          0.503             0.503             0.497
+             za_tie       0.004          0.018     0.008     0.000          0.498             0.498             0.502
+              zf_fn       0.010          0.012     0.014     0.000          0.498             0.498             0.505
+              za_fn       0.000          0.112     0.001     0.045          0.499             0.500             0.478
+              zf_fp       0.011          0.018     0.013     0.009          0.499             0.499             0.501
+              mates       1.002          1.006     1.000     1.000          0.501             0.501             0.501
+              za_fp       0.001          0.032     0.000     0.000          0.500             0.500             0.500
+            clipped       1.000          1.000     1.000     1.000          0.500             0.500             0.500
+            at_edge       1.000          1.000     1.000     1.000          0.500             0.500             0.500
+           abs_tlen       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+             proper       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          two_genes       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+        mates_split       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+      mate_unmapped       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+            zf_self       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          secondary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+
+boosted model, wrong (FP) against own reads, sample-grouped 5-fold: AUC 0.685 (identity alone 0.477); 6303 fragments
+  without identity, mismatches, longest match: AUC 0.670
+  without the ZA/ZF tags: AUC 0.692
+
+## Taxon level: FP against FN taxa, from their counted fragments (AUC > 0.5: higher in FN)
+
+bin     1    2  3-5   >5
+role                    
+FN    549  175  186  205
+FP    416  157  157  232
+       feature  FP mean  FN mean  AUC (FN high)  AUC n=1  AUC n=2  AUC n=3-5  AUC n=>5
+      identity    0.976    0.957          0.274    0.268    0.252      0.260     0.276
+            zu   63.504   27.309          0.273    0.255    0.288      0.267     0.334
+            zt   47.372   19.434          0.285    0.263    0.304      0.280     0.355
+           zu0    0.061    0.207          0.577    0.585    0.590      0.607     0.534
+gene_identical    0.001    0.001          0.529    0.548    0.490      0.543     0.552
+         genes    3.548    2.896          0.462    0.500    0.486      0.452     0.442
+share_on_taxon    0.977    0.962          0.473    0.477    0.451      0.432     0.487
+   za_negative    0.017    0.057          0.524    0.524    0.518      0.549     0.528
+        za_tie    0.005    0.011          0.504    0.504    0.503      0.512     0.505
+         za_fn    0.000    0.004          0.503    0.501    0.506      0.500     0.508
+         zf_fn    0.011    0.013          0.499    0.499    0.501      0.510     0.501
+       zf_self    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+   mates_split    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+ mate_unmapped    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+       clipped    1.000    1.000          0.500    0.500    0.500      0.500     0.500
+       at_edge    1.000    1.000          0.500    0.500    0.500      0.500     0.500
+     two_genes    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+
+joined to the model's table: 2077 of 2077 taxa; Spearman correlation of the new signatures with the model's features (FP and FN taxa):
+                fragments  identity  identity  top_identity  low_identity_share  mean_mapq  low_mapq_share  lu_per_kb  lsu_per_kb  lu_gene_rate3  congener_fit_share  other_genus_fit_share  failed_candidate_rate  mate_lost_share  excess_scaled_median  gene_presence_ratio  hit_gene_fraction  adjacent_unlikely_share  relative_spill  em_own_share
+identity            -0.12      1.00      1.00          0.65               -0.19      -0.28            0.16       0.17        0.11          -0.05                0.10                  -0.00                   0.07              NaN                 -0.86                -0.03              -0.04                    -0.16           -0.15         -0.11
+identity            -0.12      1.00      1.00          0.65               -0.19      -0.28            0.16       0.17        0.11          -0.05                0.10                  -0.00                   0.07              NaN                 -0.86                -0.03              -0.04                    -0.16           -0.15         -0.11
+zu                   0.25      0.11      0.11          0.20                0.11       0.42           -0.41       0.89        0.88           0.48               -0.30                  -0.02                   0.00              NaN                 -0.09                 0.18               0.17                    -0.02            0.29          0.27
+zt                   0.25      0.07      0.07          0.18                0.12       0.47           -0.44       0.90        0.92           0.47               -0.31                  -0.02                  -0.01              NaN                 -0.06                 0.16               0.18                    -0.01            0.30          0.28
+zu0                  0.04      0.05      0.05          0.05                0.03      -0.17            0.23      -0.54       -0.52          -0.26                0.35                   0.04                  -0.11              NaN                 -0.07                -0.18               0.08                     0.07           -0.01         -0.34
+gene_identical       0.18     -0.05     -0.05          0.12                0.16       0.09           -0.09       0.10        0.10           0.13               -0.05                   0.03                  -0.11              NaN                  0.18                -0.03               0.16                     0.12            0.19         -0.01
+genes                0.84     -0.16     -0.16          0.31                0.37       0.21           -0.06       0.15        0.18           0.75                0.13                   0.08                  -0.46              NaN                  0.11                 0.11               0.83                     0.19            0.82         -0.22
+share_on_taxon      -0.21      0.00      0.00         -0.11               -0.07       0.13           -0.16       0.16        0.16          -0.12               -0.21                  -0.09                   0.12              NaN                  0.00                 0.10              -0.21                    -0.16           -0.17          0.32
+za_negative          0.18     -0.11     -0.11          0.03                0.08      -0.09            0.09      -0.14       -0.13           0.05                0.40                   0.08                  -0.11              NaN                  0.07                -0.06               0.14                     0.08            0.16         -0.18
+za_tie               0.07      0.03      0.03          0.09                0.04      -0.00            0.02      -0.08       -0.08           0.02                0.18                  -0.02                  -0.07              NaN                 -0.05                -0.08               0.10                     0.01            0.06         -0.19
+za_fn                0.07     -0.01     -0.01          0.03                0.01      -0.02            0.03      -0.07       -0.06           0.01                0.09                  -0.01                  -0.04              NaN                  0.01                -0.03               0.06                     0.04            0.05         -0.09
+zf_fn                0.14     -0.03     -0.03          0.08                0.10       0.04            0.01       0.03        0.04           0.14                0.03                  -0.00                  -0.05              NaN                  0.02                -0.02               0.14                     0.06            0.14         -0.05
+zf_self               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mates_split           NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mate_unmapped         NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+clipped               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+at_edge               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+two_genes             NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+
+## Genes: where the FP fragments lie against the own reads
+
+genes with FP fragments: 143; the 10 most FP-rich hold 0.195 of the FP fragments (own reads: 0.137)
+Spearman(enrichment, congeners' identical share): -0.23
+group  own (FN)  own (TP)  wrong (FP)  FP share  own share  enrichment  identical_share
+gene                                                                                   
+87.0         11         0         127    0.0305     0.0052        5.91           0.0003
+104.0         2         0          21    0.0050     0.0009        5.38           0.0018
+19.0          2         0          13    0.0031     0.0009        3.33           0.0006
+74.0          1         0           6    0.0014     0.0005        3.07           0.0034
+115.0         1         0           6    0.0014     0.0005        3.07           0.0045
+133.0         2         0          12    0.0029     0.0009        3.07           0.0008
+29.0          3         0          15    0.0036     0.0014        2.56           0.0162
+105.0         3         0          15    0.0036     0.0014        2.56           0.0006
+9.0          13         0          62    0.0149     0.0061        2.44           0.0004
+48.0          8         0          38    0.0091     0.0037        2.43           0.0003
+61.0         15         1          74    0.0178     0.0075        2.37           0.0001
+107.0         2         0           8    0.0019     0.0009        2.05           0.0011
+
+# ont: 151 samples, 1201 FP and 1405 FN taxa; 24901 fragments
+
+## Where the FP taxa's counted fragments come from
+
+Counted FP fragments by the source's relation to the FP taxon (share of fragments):
+relation      family  genus  order  other
+scenario                                 
+design         0.007  0.973  0.004  0.017
+gut            0.000  0.934  0.016  0.049
+host           1.000  0.000  0.000  0.000
+soil           0.007  0.985  0.002  0.006
+soil_shallow   0.005  0.990  0.001  0.004
+All            0.008  0.981  0.002  0.009
+
+... by what the source species is:
+source_is     FN of the sample  held out (novel)  in the database (TP or unseen)
+scenario                                                                        
+design                   0.011             0.965                           0.023
+gut                      0.000             0.836                           0.164
+host                     0.000             0.000                           1.000
+soil                     0.000             0.991                           0.009
+soil_shallow             0.001             0.990                           0.009
+All                      0.003             0.981                           0.016
+
+... by the source genome:
+source_genome  insilico    rep  strain
+scenario                              
+design            0.020  0.426   0.553
+gut               0.000  0.426   0.574
+host              1.000  0.000   0.000
+soil              0.047  0.386   0.568
+soil_shallow      0.064  0.399   0.537
+All               0.045  0.399   0.556
+
+FP taxa with counted fragments here: 1194; fragments per FP taxon: {'count': 1194.0, 'mean': 5.1, 'std': 5.8, 'min': 1.0, '50%': 2.0, '90%': 16.0, 'max': 20.0}
+one source species: 0.951; all fragments from held-out species: 0.956; main relation: {'genus': 0.941, 'other': 0.027, 'family': 0.023, 'order': 0.008}
+
+## Where the FN taxa's reads went
+
+FN taxa by the fragments counted for them (best on the taxon, MAPQ >= 4):
+bin               0      1      2    3-5     >5
+scenario                                       
+design        0.052  0.497  0.113  0.153  0.184
+gut           0.026  0.308  0.103  0.051  0.513
+soil          0.044  0.433  0.174  0.172  0.177
+soil_shallow  0.058  0.600  0.144  0.121  0.077
+
+The FN species' own fragments with a record: 90783; best on itself, MAPQ >= 4: 0.054; best on itself below MAPQ 4: 0.028; best elsewhere: 0.138; no alignment: 0.780
+
+The FN species' fragments in the SAMs (capped per reason in newer builds), where their best record is, by the relation of that taxon:
+relation       family  genus  order  other   own  unaligned
+went                                                       
+an FP taxon         0     19      0      0     0          0
+another taxon       1    845      1      3     0          0
+itself              0      0      0      0  2581          0
+unaligned           0      0      0      0     0      11147
+FP taxa fed by an FN species of the same sample: 3 of 1201 FP taxa
+FN own fragments on itself: counted (MAPQ >= 4) 0.762; of those below MAPQ 4, ZA negative (another taxon fits better) 0.076, ZA tie 0.166
+
+## Read level: counted fragments, wrong (FP) against own reads (means; AUC > 0.5: higher in FP reads)
+
+group
+wrong (FP)       4991
+own (FN)         1966
+wrong (other)     608
+own (TP)          124
+            feature  wrong (FP)  wrong (other)  own (FN)  own (TP)  AUC FP vs own  AUC FP vs own FN  AUC FP vs own TP
+                 zt      24.181          4.365    17.847    66.113          0.576             0.591             0.345
+                 zu      31.946          6.669    23.982    84.065          0.575             0.591             0.328
+               mapq      69.212         35.324    56.826    51.573          0.568             0.568             0.556
+                 gc       0.484          0.499     0.512     0.485          0.435             0.431             0.494
+      longest_match     140.485        147.038   156.823   315.831          0.439             0.456             0.172
+         mismatches      61.228         77.979    55.067    38.782          0.544             0.537             0.652
+           identity       0.937          0.931     0.940     0.964          0.462             0.475             0.254
+     share_on_taxon       0.986          0.771     0.981     0.711          0.535             0.507             0.975
+ other_taxa_records       0.070          1.266     0.088     1.605          0.465             0.493             0.025
+        homopolymer       5.808          5.729     5.722     5.871          0.529             0.532             0.485
+          gap_opens      14.361         15.043    15.413    17.782          0.475             0.478             0.443
+             indels      18.729         19.961    20.343    22.895          0.476             0.477             0.451
+             za_min      -9.771        -26.517    -6.541   -12.067          0.524             0.512             0.697
+               za_n       0.089          0.370     0.166     0.121          0.477             0.477             0.474
+  top_trinucleotide       0.049          0.047     0.049     0.046          0.522             0.519             0.576
+      supplementary       0.800          2.181     0.733     3.452          0.483             0.506             0.120
+                 zr       0.155          0.201     0.171     0.210          0.490             0.492             0.473
+        za_negative       0.020          0.158     0.035     0.081          0.491             0.493             0.470
+         clip_bases    9611.833      10797.266  9631.134 12450.177          0.492             0.500             0.367
+           read_len   10838.913      12172.594 10838.121 14111.097          0.492             0.501             0.353
+        gene_within       1.111          1.056     1.116     1.130          0.492             0.494             0.471
+gene_near_identical       0.008          0.010     0.008     0.009          0.506             0.505             0.521
+               zf_n      35.461         36.107    35.668    40.339          0.495             0.498             0.439
+            aligned    1239.199       1406.163  1220.578  1660.919          0.497             0.506             0.343
+            rel_pos       0.498          0.497     0.501     0.498          0.503             0.497             0.590
+              za_fn       0.000          0.128     0.002     0.065          0.497             0.499             0.468
+       gene_between       1.052          0.989     1.057     0.999          0.498             0.494             0.559
+     gene_identical       0.001          0.001     0.001     0.001          0.498             0.494             0.553
+             za_tie       0.005          0.021     0.010     0.000          0.498             0.498             0.503
+            at_edge       0.993          0.998     0.989     1.000          0.502             0.502             0.497
+              zf_fn       0.012          0.028     0.009     0.000          0.502             0.501             0.506
+            clipped       0.993          0.998     0.989     1.000          0.502             0.502             0.496
+              zf_fp       0.011          0.007     0.008     0.000          0.501             0.501             0.505
+              za_fp       0.000          0.018     0.001     0.000          0.500             0.500             0.500
+              mates       1.001          1.002     1.001     1.000          0.500             0.500             0.501
+           abs_tlen       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+             proper       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          two_genes       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+        mates_split       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+      mate_unmapped       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+            zf_self       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+          secondary       0.000          0.000     0.000     0.000          0.500             0.500             0.500
+
+boosted model, wrong (FP) against own reads, sample-grouped 5-fold: AUC 0.666 (identity alone 0.538); 7081 fragments
+  without identity, mismatches, longest match: AUC 0.646
+  without the ZA/ZF tags: AUC 0.667
+
+## Taxon level: FP against FN taxa, from their counted fragments (AUC > 0.5: higher in FN)
+
+bin     1    2  3-5   >5
+role                    
+FN    698  210  217  210
+FP    510  190  209  275
+       feature  FP mean  FN mean  AUC (FN high)  AUC n=1  AUC n=2  AUC n=3-5  AUC n=>5
+      identity    0.940    0.923          0.335    0.326    0.341      0.372     0.286
+            zu   30.999   11.944          0.266    0.282    0.257      0.275     0.266
+            zt   23.303    8.366          0.278    0.297    0.264      0.283     0.289
+           zu0    0.125    0.317          0.615    0.606    0.624      0.645     0.643
+gene_identical    0.001    0.001          0.519    0.537    0.524      0.540     0.542
+         genes    3.741    2.872          0.443    0.500    0.520      0.504     0.426
+share_on_taxon    0.984    0.972          0.481    0.482    0.456      0.466     0.448
+   za_negative    0.020    0.079          0.538    0.540    0.554      0.516     0.564
+        za_tie    0.007    0.016          0.507    0.508    0.502      0.515     0.506
+         za_fn    0.000    0.001          0.502    0.500    0.500      0.505     0.508
+         zf_fn    0.011    0.009          0.494    0.499    0.492      0.506     0.492
+       zf_self    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+   mates_split    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+ mate_unmapped    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+       clipped    0.993    0.993          0.503    0.501    0.496      0.493     0.508
+       at_edge    0.993    0.993          0.502    0.501    0.496      0.491     0.506
+     two_genes    0.000    0.000          0.500    0.500    0.500      0.500     0.500
+
+joined to the model's table: 2519 of 2519 taxa; Spearman correlation of the new signatures with the model's features (FP and FN taxa):
+                fragments  identity  identity  top_identity  low_identity_share  mean_mapq  low_mapq_share  lu_per_kb  lsu_per_kb  lu_gene_rate3  congener_fit_share  other_genus_fit_share  failed_candidate_rate  mate_lost_share  excess_scaled_median  gene_presence_ratio  hit_gene_fraction  adjacent_unlikely_share  relative_spill  em_own_share
+identity            -0.00      1.00      1.00          0.66               -0.06      -0.28            0.11       0.33        0.27           0.14                0.05                  -0.00                  -0.00              NaN                 -0.44                 0.03               0.04                    -0.11           -0.03         -0.08
+identity            -0.00      1.00      1.00          0.66               -0.06      -0.28            0.11       0.33        0.27           0.14                0.05                  -0.00                  -0.00              NaN                 -0.44                 0.03               0.04                    -0.11           -0.03         -0.08
+zu                   0.31      0.30      0.30          0.38                0.23       0.30           -0.30       0.90        0.89           0.63               -0.25                  -0.01                  -0.05              NaN                  0.02                 0.13               0.22                     0.05            0.34          0.16
+zt                   0.31      0.25      0.25          0.35                0.24       0.36           -0.34       0.90        0.93           0.62               -0.26                  -0.00                  -0.05              NaN                  0.05                 0.12               0.23                     0.06            0.35          0.18
+zu0                  0.05     -0.14     -0.14         -0.05                0.08      -0.15            0.23      -0.63       -0.58          -0.28                0.29                   0.06                  -0.10              NaN                 -0.05                -0.13               0.10                     0.07            0.01         -0.29
+gene_identical       0.20     -0.02     -0.02          0.14                0.22       0.08           -0.08       0.15        0.14           0.15               -0.03                   0.05                  -0.08              NaN                  0.12                -0.00               0.20                     0.13            0.22          0.01
+genes                0.88     -0.02     -0.02          0.49                0.66       0.15            0.02       0.18        0.21           0.73                0.17                   0.11                  -0.46              NaN                  0.14                 0.17               0.85                     0.31            0.85         -0.29
+share_on_taxon      -0.25     -0.02     -0.02         -0.17               -0.20       0.14           -0.17       0.12        0.12          -0.14               -0.23                  -0.09                   0.18              NaN                  0.00                 0.07              -0.25                    -0.18           -0.23          0.30
+za_negative          0.14     -0.08     -0.08          0.03                0.12      -0.11            0.10      -0.13       -0.12           0.04                0.44                   0.08                  -0.07              NaN                  0.11                -0.08               0.12                     0.08            0.12         -0.19
+za_tie               0.07      0.07      0.07          0.08                0.03      -0.03            0.03      -0.11       -0.11          -0.02                0.23                   0.01                  -0.06              NaN                 -0.07                -0.02               0.09                     0.02            0.04         -0.19
+za_fn                0.09      0.00      0.00          0.05                0.08      -0.01            0.04      -0.03       -0.02           0.05                0.07                   0.11                  -0.08              NaN                  0.00                -0.07               0.08                     0.09            0.08         -0.10
+zf_fn                0.17      0.00      0.00          0.11                0.17       0.04           -0.00       0.05        0.06           0.15                0.01                  -0.02                  -0.07              NaN                  0.05                -0.02               0.16                     0.07            0.16         -0.05
+zf_self               NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mates_split           NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+mate_unmapped         NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+clipped             -0.14     -0.02     -0.02         -0.09               -0.11       0.00           -0.02      -0.02       -0.03          -0.13               -0.02                   0.02                   0.11              NaN                 -0.01                 0.02              -0.13                    -0.06           -0.14          0.03
+at_edge             -0.14     -0.02     -0.02         -0.09               -0.11       0.00           -0.02      -0.02       -0.02          -0.13               -0.03                   0.02                   0.10              NaN                 -0.00                 0.03              -0.13                    -0.05           -0.13          0.04
+two_genes             NaN       NaN       NaN           NaN                 NaN        NaN             NaN        NaN         NaN            NaN                 NaN                    NaN                    NaN              NaN                   NaN                  NaN                NaN                      NaN             NaN           NaN
+
+## Genes: where the FP fragments lie against the own reads
+
+genes with FP fragments: 152; the 10 most FP-rich hold 0.161 of the FP fragments (own reads: 0.149)
+Spearman(enrichment, congeners' identical share): -0.23
+group  own (FN)  own (TP)  wrong (FP)  FP share  own share  enrichment  identical_share
+gene                                                                                   
+139.0         1         0          12    0.0024     0.0005        5.03           0.0023
+76.0          3         0          20    0.0040     0.0014        2.79           0.0036
+90.0          3         0          19    0.0038     0.0014        2.65           0.0011
+48.0         10         0          60    0.0120     0.0048        2.51           0.0003
+132.0         1         0           6    0.0012     0.0005        2.51           0.0009
+74.0          3         0          17    0.0034     0.0014        2.37           0.0034
+3.0           4         0          19    0.0038     0.0019        1.99           0.0054
+79.0          2         0           9    0.0018     0.0010        1.88           0.0091
+89.0         10         0          43    0.0086     0.0048        1.80           0.0002
+87.0         13         2          62    0.0124     0.0072        1.73           0.0003
+21.0          9         1          41    0.0082     0.0048        1.72           0.0004
+55.0          3         0          12    0.0024     0.0014        1.68           0.0010
