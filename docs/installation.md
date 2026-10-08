@@ -92,7 +92,12 @@ and the other x86-64-v3 instructions (Intel Core since Haswell, 2013; AMD since 
 in the places where that was measured to pay. It chooses when it starts, and its output is the
 same on every CPU.
 
-- The syncmer scan and sequence packing have AVX2 kernels of protal's own.
+- The flex-cell scan of every seed lookup and the syncmer scan have AVX2 and AVX-512 kernels of
+  protal's own, and sequence packing an AVX2 one. The AVX-512 kernels need the AVX-512 of Intel Ice
+  Lake (2019) or AMD Zen 4 (2022) and later (F, BW, VL, DQ, VBMI, VBMI2, VPOPCNTDQ); earlier AVX-512
+  CPUs use the AVX2 ones. `PROTAL_SIMD=avx2` (or `scalar`) in the environment caps the level, for
+  comparing runs or for a virtual machine that reports instructions it cannot run; `auto`, the
+  default, uses the CPU's highest.
 - ISA-L, zlib-ng and zstd choose their own. The gzip that protal writes (`.sam.gz`, the simulator's
   `.fq.gz`) is the same byte for byte for one ISA-L version on CPUs with SSE4.2 (Intel since 2008,
   AMD since 2011) up to AVX2, as checked (AVX-512 CPUs were not checked; CPUs without SSE4.2 write

@@ -28,6 +28,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include "SimdLevel.h"
 
 // AddressSanitizer builds poison the part of a gene window that is not decoded (see GeneSequence).
 #if defined(__SANITIZE_ADDRESS__)
@@ -177,9 +178,10 @@ namespace protal::packed {
 #endif
     }
 
-    // Whether packing and unpacking use AVX2. On where the CPU has it; tests switch it to compare both.
+    // Whether packing and unpacking use AVX2. On where the CPU has it, unless PROTAL_SIMD=scalar (Utilities/SimdLevel.h);
+    // tests switch it to compare both.
     inline std::atomic<bool>& Avx2Enabled() {
-        static std::atomic<bool> enabled{ CpuHasAvx2() };
+        static std::atomic<bool> enabled{ CpuHasAvx2() && simd::Cap() != simd::Level::scalar };
         return enabled;
     }
 

@@ -1,0 +1,8 @@
+src/Utilities/SimdLevel.h
+src/Hash/FlexScan.h
+src/Hash/KmerLookup.h
+src/SequenceUtils/KmerIterator.h
+src/SequenceUtils/PackedSequence.h
+tests/test_FlexScan.cpp
+tests/test_PackedIndex.cpp
+tests/test_Syncmers.cpp

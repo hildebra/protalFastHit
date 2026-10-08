@@ -1,0 +1,85 @@
+== unit tests, work build (12:58:54)
+exit 0
+[  PASSED  ] 452 tests.
+[  SKIPPED ] 3 tests.
+kernel suites exit 0
+[       OK ] PackedIndex.HoldsEveryFlexCellAndEntryOfTheStoredLayout (130 ms)
+no AVX-512 here: AVX2 against scalar only
+[       OK ] PackedIndex.LookupsGiveTheSameSeedsAtEveryVectorLevel (93 ms)
+[       OK ] PackedIndex.TheColumnFormatPacksChunkByChunkToTheSameValues (67 ms)
+[       OK ] PackedIndex.ABuildIntoThePackedLayoutWritesTheSameIndex (157 ms)
+[       OK ] PackedIndex.ABuildStopsAtAValueWiderThanItsLayout (8 ms)
+[       OK ] PackedIndex.AValueOutsideTheLayoutStopsTheLoad (10 ms)
+[       OK ] PackedIndex.AValueOutsideTheLayoutStopsTheColumnLoad (40 ms)
+[       OK ] PackedIndex.AColumnIndexWhoseLayoutIsNotItsHeadersStopsTheLoad (67 ms)
+[       OK ] PackedIndex.PutBitsSharesBytesBetweenRanges (0 ms)
+[       OK ] PackedIndex.LayoutWidthsFollowTheReference (0 ms)
+[       OK ] PackedIndex.TaxidAndGeneAsOneNumberComeBackForEveryGeneCount (76 ms)
+no AVX-512 here: not tested
+[       OK ] Syncmers.ScanGivesTheKmersOfTheDefinition (172 ms)
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+no AVX-512 here: not tested
+[       OK ] Syncmers.ScanGivesTheDefinitionsKmersForOtherShapes (543 ms)
+[       OK ] Syncmers.TheLevelIsTheCpusUnlessCapped (0 ms)
+no AVX-512 here: not tested
+[       OK ] Syncmers.ScanCodesEveryByteAndEveryLengthAsTheDefinition (15 ms)
+[       OK ] PackedSequence.CodesOfEveryCharacter (0 ms)
+[       OK ] PackedSequence.RoundTripOfAllLengthsOnBothPaths (2 ms)
+[       OK ] PackedSequence.OtherCharactersAreStoredAsTheirFirstBase (9 ms)
+[       OK ] PackedSequence.TheTwoPathsGiveTheSameBytes (0 ms)
+[       OK ] PackedSequence.ThreadsFillPiecesOfOneGene (474 ms)
+[       OK ] PackedSequence.AnyRangeUnpacksAsTheWholeGeneDoes (0 ms)
+[       OK ] AlignmentScreen.TheBoundForShortReads (0 ms)
+[       OK ] AlignmentScreen.AReadOfItsOwnGenePasses (0 ms)
+[       OK ] AlignmentScreen.RefusesOnlyWhatWFA2Fails (636 ms)
+[       OK ] AlignmentScreen.TheReadsSharedCodesGiveTheDefinitionsAnswer (261 ms)
+[       OK ] AlignmentScreen.TheHandlerAlignsTheSameWithAndWithoutIt (137 ms)
+2976 blocks, 2173 with an exact match
+[       OK ] FlexScan.Avx2ScoresAndTiesAsTheScalarScan (19 ms)
+[       OK ] FlexScan.ABlockWithoutASharedBaseHasEveryCellBest (0 ms)
+no AVX-512 (Ice Lake / Zen 4 level) here
+this CPU: AVX2
+[       OK ] FlexScan.LevelsFollowTheCpu (0 ms)
+-- the same suites with PROTAL_SIMD=scalar (default levels scalar)
+exit 0
+[  PASSED  ] 24 tests.
+== whole runs, 4 threads (12:59:18)
+-- pe
+    pe.ref: exit 0
+    pe.work: exit 0
+    pe.scalar: exit 0
+    ref vs work: SAM records identical (418464); other files differing: none
+    ref vs scalar: SAM records identical (418464); other files differing: none
+    ref: 		Seeding took 440ms mean over 4 threads
+    work: 		Seeding took 375ms mean over 4 threads
+    scalar: 		Seeding took 537ms mean over 4 threads
+-- pb
+    pb.ref: exit 0
+    pb.work: exit 0
+    pb.scalar: exit 0
+    ref vs work: SAM records identical (24947); other files differing: none
+    ref vs scalar: SAM records identical (24947); other files differing: none
+-- ont
+    ont.ref: exit 0
+    ont.work: exit 0
+    ont.scalar: exit 0
+    ref vs work: SAM records identical (34871); other files differing: none
+    ref vs scalar: SAM records identical (34871); other files differing: none
+== callgrind, one thread (13:00:48)
+    pe.ref: 29,015,345,700 (100.0%)  PROGRAM TOTALS
+    pb.ref: 15,396,708,667 (100.0%)  PROGRAM TOTALS
+    pe.work: 28,828,216,324 (100.0%)  PROGRAM TOTALS
+    pb.work: 15,344,904,970 (100.0%)  PROGRAM TOTALS
+    pe RunPairedEnd: ref 15,864,284,619, work 15,677,058,299
+    pe ScanWindowsAvx2: ref 1,215,312,977, work 1,017,831,667
+    pe FillAvx2: ref -, work 504,601,604
+    pe GetFromLookup: ref 514,657,493, work 518,504,780
+    pb RunLongReads: ref 3,160,263,938, work 3,108,739,612
+    pb ScanWindowsAvx2: ref 170,367,270, work -
+== done (13:05:10)

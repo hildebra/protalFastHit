@@ -77,8 +77,9 @@ if (OPENMP_FLAG)
 endif()
 
 # One binary for every x86-64 CPU: plain x86-64 (SSE2), with the hot functions compiled a second time for
-# x86-64-v3 and chosen at run time (PROTAL_CLONE_V3, src/Utilities/TargetClones.h), as are the AVX2
-# kernels of the syncmer scan, sequence packing, ISA-L, zlib-ng and zstd. -ffp-contract=off keeps
+# x86-64-v3 and chosen at run time (PROTAL_CLONE_V3, src/Utilities/TargetClones.h), as are the AVX2 and
+# AVX-512 kernels of the flex scan and the syncmer scan (src/Utilities/SimdLevel.h), the AVX2 ones of
+# sequence packing, and those of ISA-L, zlib-ng and zstd. -ffp-contract=off keeps
 # the x86-64-v3 copies from fusing multiplications and additions (FMA), so that both round alike.
 add_library(isa_baseline INTERFACE)
 target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic -ffp-contract=off)

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <random>
 #include <string>
@@ -32,10 +33,10 @@ namespace {
         return (flex >> 16) << kFlexHigh | core << 16 | (flex & 0xffff);
     }
 
-    // Restores flex_scan's AVX2 switch when it goes out of scope, also when an assertion ends the test early.
-    struct Avx2Setting {
-        bool const enabled = protal::flex_scan::Avx2Enabled().load();
-        ~Avx2Setting() { protal::flex_scan::UseAvx2(enabled); }
+    // Restores flex_scan's level when it goes out of scope, also when an assertion ends the test early.
+    struct FlexScanSetting {
+        protal::simd::Level const level = protal::flex_scan::Kernel().load();
+        ~FlexScanSetting() { protal::flex_scan::Kernel().store(level); }
     };
 
     struct SmallValue { uint64_t key, taxid, gene, pos; };
@@ -185,12 +186,18 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
     EXPECT_GT(compared, 100u);
 }
 
-// A lookup's seeds come out the same with the AVX2 scan (BestAvx2, TiesAvx2) and the scalar one: the same entries in
-// the same order with the same flags, and the same lookups dropped as too ubiquitous, for keys whose flex part matches
-// a stored one exactly, in a few bases or not at all.
-TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
-    if (!protal::flex_scan::CpuHasAvx2()) GTEST_SKIP() << "no AVX2 here";
-    Avx2Setting const restore;
+// A lookup's seeds come out the same with the AVX2 scan (BestAvx2, TiesAvx2), the AVX-512 one (ScanAvx512) and the
+// scalar one: the same entries in the same order with the same flags, and the same lookups dropped as too ubiquitous,
+// for keys whose flex part matches a stored one exactly, in a few bases or not at all. Each level the CPU has.
+TEST(PackedIndex, LookupsGiveTheSameSeedsAtEveryVectorLevel) {
+    using protal::simd::Level;
+    std::vector<Level> levels;
+    for (Level level : { Level::avx2, Level::avx512 }) {
+        if (protal::simd::Supported(level) == level) levels.push_back(level);
+    }
+    if (levels.empty()) GTEST_SKIP() << "no AVX2 here";
+    if (levels.size() < 2) std::cout << "no AVX-512 here: AVX2 against scalar only" << std::endl;
+    FlexScanSetting const restore;
     auto const values = SmallValues(9, 3000);
     Seedmap map(kCoreBases);
     Fill(map, values);
@@ -215,24 +222,27 @@ TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
                 std::vector<protal::LookupPointer> pointers;
                 lookup.Get(pointers, kmer, static_cast<uint32_t>(rng() % 120));
                 ASSERT_EQ(pointers.size(), 1u) << "the core is stored";
-                protal::LookupList with, without;
-                protal::flex_scan::UseAvx2(true);
-                bool const taken_with = lookup.GetFromLookup(with, pointers[0]);
-                protal::flex_scan::UseAvx2(false);
+                protal::LookupList without;
+                protal::flex_scan::Use(Level::scalar);
                 bool const taken_without = lookup.GetFromLookup(without, pointers[0]);
-                ASSERT_EQ(taken_with, taken_without) << "key " << k << " variant " << variant;
-                ASSERT_EQ(with.size(), without.size()) << "key " << k << " variant " << variant;
-                for (size_t i = 0; i < with.size(); i++) {
-                    EXPECT_EQ(with[i].taxid, without[i].taxid);
-                    EXPECT_EQ(with[i].geneid, without[i].geneid);
-                    EXPECT_EQ(with[i].genepos, without[i].genepos);
-                    EXPECT_EQ(with[i].readpos, without[i].readpos);
-                    EXPECT_EQ(with[i].unique, without[i].unique);
-                    EXPECT_EQ(with[i].unique_dist_two, without[i].unique_dist_two);
+                for (Level level : levels) {
+                    protal::LookupList with;
+                    ASSERT_EQ(protal::flex_scan::Use(level), level);
+                    bool const taken_with = lookup.GetFromLookup(with, pointers[0]);
+                    ASSERT_EQ(taken_with, taken_without) << protal::simd::Name(level) << ", key " << k << " variant " << variant;
+                    ASSERT_EQ(with.size(), without.size()) << protal::simd::Name(level) << ", key " << k << " variant " << variant;
+                    for (size_t i = 0; i < with.size(); i++) {
+                        EXPECT_EQ(with[i].taxid, without[i].taxid);
+                        EXPECT_EQ(with[i].geneid, without[i].geneid);
+                        EXPECT_EQ(with[i].genepos, without[i].genepos);
+                        EXPECT_EQ(with[i].readpos, without[i].readpos);
+                        EXPECT_EQ(with[i].unique, without[i].unique);
+                        EXPECT_EQ(with[i].unique_dist_two, without[i].unique_dist_two);
+                    }
                 }
                 compared++;
-                seeds += with.size();
-                dropped += !taken_with;
+                seeds += without.size();
+                dropped += !taken_without;
             }
         }
     }

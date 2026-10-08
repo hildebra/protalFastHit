@@ -269,7 +269,14 @@ namespace protal {
             uint32_t const words = static_cast<uint32_t>(flex_scan::TieWords(size));
             if (m_tie_masks.size() < words) m_tie_masks.resize(words);
             uint32_t max = 0, max_count = 0;
-            if (flex_scan::Avx2Enabled().load(std::memory_order_relaxed)) {
+            simd::Level const level = flex_scan::Kernel().load(std::memory_order_relaxed);
+            if (level == simd::Level::avx512) {
+                // The scores, the best, the masks and their count in one call (FlexScan.h); scores of the block's
+                // cells only, nothing read or written past them.
+                if (flex_vector.size() < size) flex_vector.resize(size);
+                std::tie(max, max_count) = flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data());
+                if (max_count > m_max_ubiquity) return false;
+            } else if (level == simd::Level::avx2) {
                 // Every cell's score and the best in one pass, the masks and their count in another (FlexScan.h).
                 size_t const bytes = std::max<size_t>(size + flex_scan::kScorePadding, flex_scan::TieScoreBytes(size));
                 if (flex_vector.size() < bytes) flex_vector.resize(bytes);

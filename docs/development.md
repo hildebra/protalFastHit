@@ -46,6 +46,15 @@ cmake --build build-asan --target protal_tests
 ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build-asan --output-on-failure -j4
 ```
 
+The AVX-512 kernels' tests (`FlexScan.Avx512ScoresAndTiesAsTheScalarScan`,
+`PackedIndex.LookupsGiveTheSameSeedsAtEveryVectorLevel`, the `Syncmers` tests) run only on a CPU with the AVX-512
+level of `src/Utilities/SimdLevel.h` (Intel Ice Lake, AMD Zen 4 and later); elsewhere they skip it or print
+"no AVX-512 here". Intel's Software Development Emulator runs them on any x86-64 CPU:
+
+```bash
+sde64 -icx -- build/tests/protal_tests --gtest_filter='FlexScan.*:Syncmers.*:PackedIndex.*'
+```
+
 Benchmarks are not unit tests: the flex-cell scan's is
 [`docs/claude/2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp`](claude/2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp).
 

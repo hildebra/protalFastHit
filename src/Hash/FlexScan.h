@@ -7,8 +7,10 @@
 // ScoreScalar writes every cell's score (0-16) to a byte array and returns the best score and how many cells have it.
 // With AVX2, BestAvx2 scores 8 cells per step (the same scores) and returns the best, and TiesAvx2 finds the cells with
 // it, 32 scores per step, as bit masks: a scalar walk over the scores for the best cells was a third of a lookup's
-// instructions at r226's block sizes (docs/claude/2026-10-06-performance-profiling). The AVX2 functions are used where
-// the CPU has AVX2; PROTAL_FLEX_SCAN=scalar in the environment keeps the scalar scan (for comparing runs).
+// instructions at r226's block sizes (docs/claude/2026-10-06-performance-profiling). With AVX-512, ScanAvx512 does both,
+// 16 cells a step, with the instructions AVX2 lacks (VPOPCNTD, ternary logic, funnel shifts, masks): ~9 instructions
+// where BestAvx2 takes ~26 for 8 cells (docs/claude/2026-10-08-avx512-assessment.md). Lookups use the CPU's highest
+// level (Kernel(); the cap PROTAL_SIMD sets, Utilities/SimdLevel.h); PROTAL_FLEX_SCAN=scalar keeps the scalar scan.
 #pragma once
 
 #include <atomic>
@@ -20,6 +22,7 @@
 #include <immintrin.h>
 
 #include "Seedmap.h"
+#include "SimdLevel.h"
 
 namespace protal::flex_scan {
     // (best score, cells with it) of the block's flex cells against key, each cell's score in scores[0, size). The
@@ -114,20 +117,65 @@ namespace protal::flex_scan {
         return count;
     }
 
-    inline bool CpuHasAvx2() {
-        __builtin_cpu_init();
-        return __builtin_cpu_supports("avx2");
+    // ScoreScalar, BestAvx2 and TiesAvx2 in one, with AVX-512 (the level of simd::Level::avx512): every cell's score
+    // in scores[0, size) (nothing written past it), the cells with the best score as bit masks in masks[0,
+    // TieWords(size)) (the bits past size 0), and (best score, cells with it). 16 cells a step: cell i is the funnel
+    // shift of words i and i+1 by flex_shift (VBMI2), the equal base pairs by two ternary-logic steps, their count by
+    // VPOPCNTD; the last step's lanes past the block are masked off, in the loads too, so nothing past the block's
+    // cells (and the 4 bytes after them that FlexCell also reads) is read. The ties then 64 scores a step, by mask
+    // compares. Not inlined into its caller (which is not compiled for AVX-512): one call per lookup.
+    PROTAL_TARGET_AVX512 inline std::pair<uint32_t, uint32_t> ScanAvx512(Seedmap::PackedBlock const& block, uint32_t key,
+                                                                       uint8_t* scores, uint32_t* masks) {
+        uint32_t const size = block.size;
+        __m512i const k = _mm512_set1_epi32(static_cast<int>(key));
+        __m512i const shift = _mm512_set1_epi32(static_cast<int>(block.flex_shift));
+        __m512i const pairs = _mm512_set1_epi32(0x55555555);
+        __m512i best16 = _mm512_setzero_si512();
+        for (uint32_t i = 0; i < size; i += 16) {
+            uint32_t const left = size - i;
+            __mmask16 const lanes = left >= 16 ? __mmask16{ 0xFFFF } : static_cast<__mmask16>((1u << left) - 1);
+            uint8_t const* p = block.flex + 4 * static_cast<size_t>(i);
+            __m512i const a = _mm512_maskz_loadu_epi32(lanes, p);
+            __m512i const b = _mm512_maskz_loadu_epi32(lanes, p + 4);
+            __m512i const cells = _mm512_shrdv_epi32(a, b, shift);  // (b:a) >> shift, the low 32 bits
+            // Similarity: equal bases are 2-bit pairs with both bits 0 in cell ^ key. same = ~(cell ^ key) (0xC3: 1
+            // where the first two inputs agree); equal = (same >> 1) & same & pairs (0x80: the AND of all three).
+            __m512i const same = _mm512_ternarylogic_epi32(cells, k, k, 0xC3);
+            __m512i const equal = _mm512_ternarylogic_epi32(_mm512_srli_epi32(same, 1), same, pairs, 0x80);
+            __m512i const per_cell = _mm512_maskz_popcnt_epi32(lanes, equal);
+            best16 = _mm512_max_epu32(best16, per_cell);
+            _mm512_mask_cvtepi32_storeu_epi8(scores + i, lanes, per_cell);
+        }
+        uint32_t const best = _mm512_reduce_max_epu32(best16);
+        __m512i const target = _mm512_set1_epi8(static_cast<char>(best));
+        uint32_t const words = static_cast<uint32_t>(TieWords(size));
+        uint32_t count = 0;
+        for (uint32_t i = 0; i < size; i += 64) {
+            uint32_t const left = size - i;
+            __mmask64 const lanes = left >= 64 ? ~__mmask64{ 0 } : static_cast<__mmask64>(_bzhi_u64(~uint64_t{ 0 }, left));
+            uint64_t const bits = _cvtmask64_u64(_mm512_mask_cmpeq_epi8_mask(lanes, _mm512_maskz_loadu_epi8(lanes, scores + i), target));
+            masks[i / 32] = static_cast<uint32_t>(bits);
+            if (i / 32 + 1 < words) masks[i / 32 + 1] = static_cast<uint32_t>(bits >> 32);
+            count += static_cast<uint32_t>(__builtin_popcountll(bits));
+        }
+        return { best, count };
     }
 
-    // Whether lookups use BestAvx2 and TiesAvx2: where the CPU has AVX2, unless PROTAL_FLEX_SCAN=scalar.
-    inline std::atomic<bool>& Avx2Enabled() {
-        static std::atomic<bool> enabled{ [] {
+    // The version lookups use: simd::Default() (the CPU's highest level, capped by PROTAL_SIMD), scalar if
+    // PROTAL_FLEX_SCAN=scalar.
+    inline std::atomic<simd::Level>& Kernel() {
+        static std::atomic<simd::Level> level{ [] {
             char const* choice = std::getenv("PROTAL_FLEX_SCAN");
-            return CpuHasAvx2() && !(choice && std::string_view(choice) == "scalar");
+            if (choice && std::string_view(choice) == "scalar") return simd::Level::scalar;
+            return simd::Default();
         }() };
-        return enabled;
+        return level;
     }
 
-    // For tests: the AVX2 functions on (where the CPU has them) or off.
-    inline void UseAvx2(bool use) { Avx2Enabled().store(use && CpuHasAvx2(), std::memory_order_relaxed); }
+    // For tests and benchmarks: lookups use `wanted`, or the highest level below it the CPU supports, which is returned.
+    inline simd::Level Use(simd::Level wanted) {
+        simd::Level const level = simd::Supported(wanted);
+        Kernel().store(level, std::memory_order_relaxed);
+        return level;
+    }
 }
