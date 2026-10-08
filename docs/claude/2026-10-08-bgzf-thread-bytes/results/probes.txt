@@ -1,0 +1,100 @@
+== compare_s2.sh: the two s2.fq.gz of fixed_suite.39.log rebuilt from the gtest output
+one_s2.fq.gz: 146182 bytes
+four_s2.fq.gz: 146178 bytes
+one_s2: gzip OK
+one_s2: 302899 bytes, 151 reads, md5 bbb51487a494
+four_s2: gzip OK
+four_s2: 302899 bytes, 151 reads, md5 bbb51487a494
+same FASTQ content
+one_s2.fq.gz four_s2.fq.gz differ: byte 141832, line 523
+one_s2.fq.gz block 0 at 0: 33292 bytes, content 65280 at 0
+one_s2.fq.gz block 1 at 33292: 33782 bytes, content 65280 at 65280
+one_s2.fq.gz block 2 at 67074: 16498 bytes, content 32669 at 130560
+one_s2.fq.gz block 3 at 83572: 29268 bytes, content 65280 at 163229
+one_s2.fq.gz block 4 at 112840: 28787 bytes, content 65280 at 228509
+one_s2.fq.gz block 5 at 141627: 188 bytes, content 256 at 293789
+one_s2.fq.gz block 6 at 141815: 1905 bytes, content 3580 at 294045
+one_s2.fq.gz block 7 at 143720: 2434 bytes, content 5274 at 297625
+one_s2.fq.gz block 8 at 146154: 28 bytes, content 0 at 302899
+(four_s2.fq.gz: the same but block 6 1901 bytes, so blocks 7 and 8 4 bytes earlier)
+
+== run_probe.sh: block 6 (content 294045, 3580 bytes) recompressed, fresh Deflaters unless said
+one-thread block: 1879 bytes of deflate; four-thread block: 1875
+fresh, exact-size buffer                                     1875 bytes  f49e2d268e099578
+fresh, followed by zeros                                     1875 bytes  f49e2d268e099578
+fresh, followed by 0xff                                      1875 bytes  f49e2d268e099578
+fresh, followed by the file's next bytes                     1875 bytes  f49e2d268e099578
+fresh, followed by the input again                           1875 bytes  f49e2d268e099578
+fresh, followed by its last 300 bytes again                  1875 bytes  f49e2d268e099578
+fresh, followed by random FASTQ-like letters 0               1875 bytes  f49e2d268e099578
+fresh, followed by random FASTQ-like letters 1               1875 bytes  f49e2d268e099578
+fresh, followed by random FASTQ-like letters 2               1875 bytes  f49e2d268e099578
+after the file's blocks, followed by zeros                   1875 bytes  f49e2d268e099578
+input followed by its own last 1-600 bytes:  1875 bytes x600
+(valgrind memcheck of the same: the same lines, no error)
+
+== run_probe_address.sh: block 6 with the isal_zstream at 8192 addresses 64 KB apart
+one-thread payload 1879 bytes 4bbcedc55e6c4dc8, four-thread 1875 bytes f49e2d268e099578
+8192 addresses, 2 distinct outputs:
+  4bbcedc55e6c4dc8 1879 bytes x4  <- the one-thread run's
+  f49e2d268e099578 1875 bytes x8188  <- the four-thread runs'
+  one-thread output at 0x7870a6cb0000
+  one-thread output at 0x7870aac00000
+  one-thread output at 0x7870b2d60000
+  one-thread output at 0x7870bedd0000
+
+== run_probe_buckets.sh: block 6 with one stream place per bucket value G (mask 4095 for 3580 bytes)
+block hashes & 4095: pos0 3586 pos1 1264 pos2 2814 pos3 2578; at 1859: 3586 1264 2814 2578
+4096 of 4096 bucket values have a place
+output 4bbcedc55e6c4dc8 (1879 bytes): 1 bucket values 3586
+output f49e2d268e099578 (1875 bytes): 4095 bucket values
+(then MapStream's first version: it counted places in use as failed tries, so the 5th stream found none)
+
+== run_probe_fix.sh: the fix (Bgzf.h of the working tree), three processes
+== process 1
+Crc32cWord against _mm_crc32_u32: 0 of 1000000 differ
+20 placed Deflaters at once in 11.0 ms (0.548 ms each), 20 placed
+100 placed Deflaters at once in 173.2 ms (1.732 ms each), 100 placed
+100 Deflaters one after the other in 8.9 ms
+deflater 1: heap (G  193 vs    5 under 255)  26 of 3000 blocks differ from deflater 0; placed 0
+deflater 2: heap (G  166 vs    5 under 255)  19 of 3000 blocks differ from deflater 0; placed 0
+deflater 3: heap (G   15 vs    5 under 255)  23 of 3000 blocks differ from deflater 0; placed 0
+deflater 4: heap (G  104 vs    5 under 255)  17 of 3000 blocks differ from deflater 0; placed 0
+deflater 5: heap (G   75 vs    5 under 255)  18 of 3000 blocks differ from deflater 0; placed 0
+deflater 6: heap (G   17 vs    5 under 255)  25 of 3000 blocks differ from deflater 0; placed 0
+deflater 7: heap (G  133 vs    5 under 255)  26 of 3000 blocks differ from deflater 0; placed 0
+bgzf::Compress on 4 other threads: 4 of 4 the same as on the main thread
+block 6 with the placed stream: 1875 bytes of deflate
+== process 2
+Crc32cWord against _mm_crc32_u32: 0 of 1000000 differ
+20 placed Deflaters at once in 10.1 ms (0.504 ms each), 20 placed
+100 placed Deflaters at once in 164.3 ms (1.643 ms each), 100 placed
+100 Deflaters one after the other in 6.9 ms
+deflater 1: heap (G  112 vs   23 under 255)  23 of 3000 blocks differ from deflater 0; placed 0
+deflater 2: heap (G   19 vs   23 under 255)  24 of 3000 blocks differ from deflater 0; placed 0
+deflater 3: heap (G  215 vs   23 under 255)  17 of 3000 blocks differ from deflater 0; placed 0
+deflater 4: heap (G  176 vs   23 under 255)  18 of 3000 blocks differ from deflater 0; placed 0
+deflater 5: heap (G   25 vs   23 under 255)  16 of 3000 blocks differ from deflater 0; placed 0
+deflater 6: heap (G  126 vs   23 under 255)  22 of 3000 blocks differ from deflater 0; placed 0
+deflater 7: heap (G   93 vs   23 under 255)  11 of 3000 blocks differ from deflater 0; placed 0
+bgzf::Compress on 4 other threads: 4 of 4 the same as on the main thread
+block 6 with the placed stream: 1875 bytes of deflate
+== process 3
+Crc32cWord against _mm_crc32_u32: 0 of 1000000 differ
+20 placed Deflaters at once in 11.2 ms (0.559 ms each), 20 placed
+100 placed Deflaters at once in 166.9 ms (1.669 ms each), 100 placed
+100 Deflaters one after the other in 11.4 ms
+deflater 1: heap (G   61 vs  148 under 255)  24 of 3000 blocks differ from deflater 0; placed 0
+deflater 2: heap (G   90 vs  148 under 255)  23 of 3000 blocks differ from deflater 0; placed 0
+deflater 3: heap (G  158 vs  148 under 255)  17 of 3000 blocks differ from deflater 0; placed 0
+deflater 4: heap (G  196 vs  148 under 255)  19 of 3000 blocks differ from deflater 0; placed 0
+deflater 5: heap (G   80 vs  148 under 255)  15 of 3000 blocks differ from deflater 0; placed 0
+deflater 6: heap (G   42 vs  148 under 255)  20 of 3000 blocks differ from deflater 0; placed 0
+deflater 7: heap (G  101 vs  148 under 255)  24 of 3000 blocks differ from deflater 0; placed 0
+bgzf::Compress on 4 other threads: 4 of 4 the same as on the main thread
+block 6 with the placed stream: 1875 bytes of deflate
+
+== the new unit test on the old Bgzf.h (bin/tests_newtest_oldcode, --gtest_filter='BgzfWriter.*')
+every comparison failed: deflaters 1-3 against deflater 0 (23, 20 and 25 of 3000 blocks differ in the second run),
+threads 0-2 against the main thread
+[  FAILED  ] BgzfWriter.BlocksDoNotDependOnTheThread (110 ms; 249 ms in the second run)
