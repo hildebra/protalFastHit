@@ -27,6 +27,7 @@ databases are in [development.md](development.md).
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
 | `species_neighbours.tsv` | optional (since 2026-10-06): each species' nearest congeners in the database by the distance of their marker genes, for the database-neighbourhood features and `unexpected_congener_fit_share` ([below](#2-build-the-index), [features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)) |
 | `congener_gaps.tsv` | optional (since 2026-10-07): per species' copy of each marker gene, the alignment distance to its nearest congener's copy and to a typical one, and which congener is the nearest, for the `gaps` features and the ancestry sites ([below](#2-build-the-index), [features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)) |
+| `strain_alleles.tsv` | optional (since 2026-10-08, `--build` with `--full_reference`): per species' copy of each marker gene, up to 4 alleles of the species' other genomes (`--strain_alleles`) as edits of the representative's copy, each nearer the representative than the gene's nearest congener's copy; for the alignment scores (`--no_allele_scores`) and the `alleles` features ([below](#2-build-the-index), [features.md](features.md#the-strain-alleles-alleles-2026-10-08)) |
 | `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the full reference's marker genes (every species' alike, a few genomes each) that landed on it and how many came from other species and genera, every copy listed (`scripts/foreign_rates.py`, stored with `--add_tables`; `build_gtdb_database.py --foreign-rates` does both for each database), for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); until 2026-10-08 the scan read the genomes at hand, which leaked the simulation's species ([features.md](features.md#the-foreign-features-leak)) |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)); since 2026-10-08 also its genome size and the share of it its marker genes cover, from which a run tells how much of a sample the called species explain and the profile's unknown share ([running.md](running.md#what-the-called-species-explain-the-unknown-share)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
@@ -823,6 +824,8 @@ keeps the finished database.
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
+| `--strain-alleles` | 4 | strain alleles per species and gene in both databases (`protal --build --strain_alleles`; 0: none) |
+| `--allele-genome-share` | 0.5 | the share of each species' genomes that give the strain alleles, by a hash of the accession (`protal --allele_genome_share`). The genome table loses those (but the representatives), so that no simulated strain is its species' own allele, a gain no real sample would see; the in-silico strains are made after it, for the species left with one genome. The ancestry report takes its alleles from the same genomes |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
 | `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |
@@ -1043,6 +1046,14 @@ alone (before the index takes its memory), then the index:
    all of them up to 24 others, else the 4 nearest by k-mer sketch and 16 drawn by a hash of the pair) and writes each
    copy's distance to its nearest congener's copy and the median distance to `congener_gaps.tsv` (since 2026-10-07):
    where in that gap a taxon's reads lie tells a strain from a congener the database lacks (the `gaps` features).
+   Then takes the species' strain alleles from the full reference (since 2026-10-08): every other genome's copy of a
+   gene (of `--allele_genome_share` of the genomes, by a hash of the accession the converter writes after each record's
+   name) aligned against the representative's, its differences kept as edits; per copy up to `--strain_alleles` (4) of
+   the distinct alleles, chosen farthest first among 16 sampled by hash, each nearer the representative than the
+   gene's nearest congener's copy (`congener_gaps.tsv`) and within 0.1 of it, into `strain_alleles.tsv`. A run scores
+   each candidate alignment of a short read with its species' best allele (a read of a known strain then scores on its
+   species as on the strain's gene; the records keep their alignment to the reference) and counts the alleles
+   features. One pass over the full reference, as for the conservation factors. `--strain_alleles 0`: none.
 5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
    k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`.
 6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load: the index straight
@@ -1309,7 +1320,7 @@ Then make it the database's model of its read type with `protal --add_model trai
 `<prefix>.thresholds.tsv` is a start.
 
 The per-copy tables a run reads go in the same way, by their file names: `protal --add_tables foreign_rates.tsv --db DB`
-(also `congener_gaps.tsv`, and `species_priors.tsv`: [species priors](#species-priors)). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
+(also `congener_gaps.tsv`, `strain_alleles.tsv`, and `species_priors.tsv`: [species priors](#species-priors)). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
 foreign_rates.tsv` makes the first: error-free reads every `--stride` bases (250) of at most `--per-header` (10) copies
 of each species' gene in the full reference (`simulate_metagenomes --tiles --tile_fasta --tile_per_header`; the reads
 named `<taxid_gene>:<record>:<start>`, the headers' records and tiles in `<tiles>.sources.tsv`), aligned against the

@@ -134,7 +134,14 @@ for this page.
   ([features.md](features.md#which-side-the-reads-take-ancestry-079)). The build's `--outdir` holds
   `protal_db/`, `model_logs/`, `logs/`, `work/` and `console.log`, each file once: ~118 files at
   r226 instead of ~11,900 (the in-silico strains on the samples' disk, one error-read table per read
-  type; [outputs](databases.md#outputs), [report](claude/2026-10-08-build-outputs.md)).
+  type; [outputs](databases.md#outputs), [report](claude/2026-10-08-build-outputs.md)). Strain
+  alleles: `--build` keeps up to 4 alleles of each species' other genomes per gene
+  (`strain_alleles.tsv`, edits of the representative's copy, each nearer it than the nearest
+  congener's), a short read's candidates are scored with their species' best allele
+  (`--no_allele_scores`: not), and two `alleles` features join the default set (82); the GTDB
+  build takes the alleles from half of the genomes by a hash of the accession and simulates strains
+  from the other half only, so that no simulated strain is its own allele
+  ([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;
   30% of the species held out; deeper design points) and the build faster (one simulation queue,

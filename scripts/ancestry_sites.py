@@ -50,6 +50,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from insilico_strains import CODE, kmer_codes, substitutions  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "mini_db"))
+from gtdb_to_protal_db import allele_genome  # noqa: E402
 
 MIN_MAPQ = 4
 CIGAR = re.compile(rb"(\d+)([MIDNSHP=X])")
@@ -75,6 +77,11 @@ def parse_args(argv=None):
     p.add_argument("--out", required=True, help="output prefix")
     p.add_argument("--max-congeners", type=int, default=8)
     p.add_argument("--max-alleles", type=int, default=6, help="other genomes' copies kept per species and gene")
+    p.add_argument("--allele-genome-share", type=float, default=1.0,
+                   help="take alleles only from the genomes that give protal's strain alleles (gtdb_to_protal_db.allele_genome, "
+                        "protal --allele_genome_share): build_gtdb_database.py simulates strains from the others, so the "
+                        "report's polymorphic sites are those of the alleles protal knows and never a simulated strain's own "
+                        "(default 1: every genome)")
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args(argv)
 
@@ -244,15 +251,19 @@ def load_copies(path, wanted):
     return {name: CODE[np.frombuffer(seq, dtype=np.uint8)] for name, _, seq in fasta_records(path, wanted)}
 
 
-def load_alleles(path, wanted, reps, cap):
+def load_alleles(path, wanted, reps, cap, share=1.0):
     """{header: [(genome accession or "", codes)]}: up to cap distinct copies per wanted header that differ from the
     representative's, each with its genome (the record's second token, as the converter writes it since 2026-10-08; ""
-    from an older full reference, which then leaves no read's own genome out)."""
+    from an older full reference, which then leaves no read's own genome out). With share below 1 only the copies of
+    genomes that give strain alleles (allele_genome), as protal --build --allele_genome_share takes them; a copy
+    without its genome named is kept (an older full reference cannot be split)."""
     alleles = collections.defaultdict(list)
     seen = collections.defaultdict(set)
     for name, genome, seq in fasta_records(path, wanted):
         rep = reps.get(name)
         if rep is None or len(alleles[name]) >= cap or seq in seen[name]:
+            continue
+        if share < 1 and genome and not allele_genome(accession_of(genome), share):
             continue
         codes = CODE[np.frombuffer(seq, dtype=np.uint8)]
         if len(codes) == len(rep) and (codes == rep).all():
@@ -500,11 +511,13 @@ def main(argv=None):
     alleles = {}
     if opts.full_reference:
         alleles = load_alleles(opts.full_reference, own_keys, {k: copies[k] for k in own_keys if k in copies},
-                               opts.max_alleles)
+                               opts.max_alleles, opts.allele_genome_share)
         named = sum(1 for v in alleles.values() for genome, _ in v if genome)
         head.append(f"alleles: {sum(len(v) for v in alleles.values())} copies of {len(alleles)} taxon-genes from "
                     f"{opts.full_reference}; taxa with any: {len({k.split('_')[0] for k, v in alleles.items() if v})} of {len(hits)}"
                     f"; {named} with their genome named (a read's own source genome is left out of its alleles)" +
+                    (f"; only from the genomes that give strain alleles (--allele-genome-share {opts.allele_genome_share:g})"
+                     if opts.allele_genome_share < 1 else "") +
                     ("" if named else "; NONE named: an older full reference, so no read's own genome is left out and the "
                                       "fixed sites of real strains are circular"))
         print(head[-1], flush=True)

@@ -124,6 +124,9 @@ namespace protal {
         // congeners of its best alignment, and every taxon's genus.
         size_t m_adaptive_candidates = 0;
         std::shared_ptr<std::vector<uint32_t> const> m_genera;
+        // Strain alleles (SetAlleleScores): each candidate scored with its species' best known allele (AlignmentInfo::allele_shift).
+        bool m_allele_scores = false;
+        strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
         AlignmentScreen m_screen;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
@@ -168,6 +171,10 @@ namespace protal {
         std::vector<uint32_t> const& Untried() const { return m_untried; }
         // Anchors aligned beyond align_top by the adaptive candidates (TryCongeners), over all calls.
         size_t m_adaptive_alignments = 0;
+        // Alignments on a copy with strain alleles (SetAlleleScores), and of them those a known allele scored better, over all
+        // calls.
+        size_t m_allele_scored = 0;
+        size_t m_allele_shifted = 0;
         // A read whose best alignment's identity (GetProxyANI) is below this is divergent: its crowd's congeners of that
         // alignment's taxon are tried too (TryCongeners).
         static constexpr double kAdaptiveIdentity = 0.99;
@@ -214,6 +221,8 @@ namespace protal {
         void JoinCounts(SimpleAlignmentHandler const& other) {
             m_attempted_alignments += other.m_attempted_alignments;
             m_adaptive_alignments += other.m_adaptive_alignments;
+            m_allele_scored += other.m_allele_scored;
+            m_allele_shifted += other.m_allele_shifted;
             m_screened_alignments += other.m_screened_alignments;
             m_anchored_alignments += other.m_anchored_alignments;
             m_whole_window_alignments += other.m_whole_window_alignments;
@@ -249,7 +258,8 @@ namespace protal {
                 m_anchored(other.m_anchored),
                 m_screen_on(other.m_screen_on),
                 m_adaptive_candidates(other.m_adaptive_candidates),
-                m_genera(other.m_genera) {
+                m_genera(other.m_genera),
+                m_allele_scores(other.m_allele_scores) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
 
@@ -258,6 +268,13 @@ namespace protal {
         void SetAdaptiveCandidates(size_t candidates, std::shared_ptr<std::vector<uint32_t> const> genera) {
             m_adaptive_candidates = candidates;
             m_genera = std::move(genera);
+        }
+
+        // Strain alleles (--no_allele_scores off): each candidate alignment on a copy with known alleles (the GenomeLoader's
+        // strain_alleles.tsv) gets the shift of its best allele, so that a read of a known strain scores on its species as on
+        // the strain's own gene. Its CIGAR stays the reference's. Nothing without the table.
+        void SetAlleleScores(bool on) {
+            m_allele_scores = on;
         }
 
         void SetAnchoredAlignment(bool anchored) {
@@ -734,6 +751,7 @@ namespace protal {
                 }
 
                 // (The operations cover the read: `covers` above checked it from the counts.)
+                if (m_allele_scores) ScoreAlleles(anchor, info, read);
             }
             bm_alignment.Stop();
             return true;
@@ -818,6 +836,20 @@ namespace protal {
     private:
         uint32_t GenusOf(uint32_t taxid) const {
             return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
+        }
+
+        // An alignment's best strain allele (StrainAlleles.h): `info` of `anchor`, the read as it was aligned. Its shift, 0 or
+        // below, goes into the score (AlignmentInfo::Score); a copy without alleles keeps the reference's score.
+        template<typename A>
+        void ScoreAlleles(A const& anchor, AlignmentInfo& info, std::string const& read) {
+            auto const& table = m_genome_loader.GetStrainAlleles();
+            if (table.Empty()) return;
+            uint32_t const taxid = static_cast<uint32_t>(anchor.taxid), gene = static_cast<uint32_t>(anchor.geneid);
+            if (table.Of(taxid, gene).empty()) return;
+            strain_alleles::FromColumns(info.cigar, read, static_cast<uint32_t>(std::max(info.gene_alignment_start, 0)), m_read_diffs);
+            info.allele_shift = strain_alleles::BestAllele(table, taxid, gene, m_read_diffs).shift;
+            m_allele_scored++;
+            m_allele_shifted += info.allele_shift < 0;
         }
 
         // The adaptive candidates: a read whose best alignment so far is divergent (identity below kAdaptiveIdentity)

@@ -44,6 +44,33 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build.max_leaves(bad, "pe")
 
+    def test_the_genomes_of_the_strain_alleles_are_not_simulated(self):
+        # The genomes that give strain alleles: a hash of the accession, the same in protal (tests/test_StrainAlleles.cpp
+        # pins the same values); the genome table to simulate from loses them, but the representatives.
+        from gtdb_to_protal_db import allele_genome
+        self.assertTrue(allele_genome("GCF_000005845.2", 0.5))   # 0.278
+        self.assertTrue(allele_genome("GCA_000001405.29", 0.5))  # 0.090
+        self.assertFalse(allele_genome("GCA_900000000.1", 0.5))  # 0.696
+        self.assertFalse(allele_genome("GCF_000195955.2", 0.5))  # 0.508
+        self.assertTrue(allele_genome("GCF_000195955.2", 0.51))
+        self.assertTrue(allele_genome("GCA_900000000.1", 1))
+        self.assertFalse(allele_genome("GCF_000005845.2", 0))
+        with tempfile.TemporaryDirectory() as root:
+            table = os.path.join(root, "genomes.tsv")
+            with open(table, "w") as fh:
+                fh.write("GCF_000005845.2\td__Bacteria;s__A\t/a.fna\t10\n"      # an allele genome, but the representative
+                         "RS_GCA_000001405.29\td__Bacteria;s__A\t/b.fna\t10\n"  # an allele genome
+                         "GCA_900000000.1\td__Bacteria;s__A\t/c.fna\t10\n"      # a strain
+                         "GCF_000195955.2\td__Bacteria;s__B\t/d.fna\t10\n")
+            kept = os.path.join(root, "kept.tsv")
+            out, removed = build.split_allele_genomes(table, {"GCF_000005845.2", "GCF_000195955.2"}, 0.5, kept)
+            self.assertEqual((out, removed), (kept, 1))
+            with open(kept) as fh:
+                self.assertEqual([line.split("\t")[0] for line in fh], ["GCF_000005845.2", "GCA_900000000.1", "GCF_000195955.2"])
+            # Without the representatives known every genome is judged; none to remove: the table itself.
+            self.assertEqual(build.split_allele_genomes(table, None, 0.5, kept)[1], 2)
+            self.assertEqual(build.split_allele_genomes(table, None, 0.05, kept), (table, 0))
+
     def test_versions_are_those_the_run_started_with(self):
         # build_metadata.tsv records the versions read at the run's start, with what they were at its end if a pull or
         # a rebuild changed them meanwhile (r226 v14 recorded the end's commit alone for a run that began with another).

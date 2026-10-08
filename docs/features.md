@@ -34,11 +34,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `gaps` | 2026-10-07 | where the reads lie in the gaps to the congeners' copies of their genes (`congener_gaps.tsv`) | yes, untested at r226 |
 | `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | no: its scan reads the simulation's genomes, which it tells the models ([below](#the-foreign-features-leak)); in the default set from the merge to 2026-10-08 |
 | `untried` | 2026-10-07 | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
+| `alleles` | 2026-10-08 | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried`
-(80 features since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles`
+(82 features since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -438,6 +439,38 @@ use, the shipped database's scan covered the same ~50,000 genomes, so the 83% of
 been pushed towards absent. The group left every feature set on 2026-10-08
 ([report](claude/2026-10-07-congener-gaps/README.md#the-foreign-features-leak-2026-10-08)); the scan now tiles the
 full reference's marker genes, every species alike, and lists every copy (above).
+
+## The strain alleles (`alleles`, 2026-10-08)
+
+The missed species of the r226 builds are mostly strains of species the database knows from other genomes too: 60-80%
+of v18's false negatives ([report](claude/2026-10-08-r226-v18/README.md), section 5). `--build` keeps, per species' copy
+of each marker gene, up to 4 alleles of the species' other genomes in the full reference as edits of the representative's
+copy (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)). A run uses them twice:
+
+- **In the alignment scores.** Each candidate alignment of a short read gets its species' best allele: the read's
+  differences that allele explains count as matches (`AlignmentInfo::Score`), so that a read of a known strain scores on
+  its species as on the strain's gene, and wins against a congener that fits it better by the references alone. The
+  records keep their alignment to the reference (CIGAR, identity); `--no_allele_scores` turns it off.
+- **As features:**
+
+| feature | what | against |
+|---|---|---|
+| `allele_explained_share` | of the taxon's kept records' differences from the reference, the share their copies' best alleles explain (the allele's base, or its indel nearby); 0 without such a difference, a species without alleles too; -1 without the table | **missed strain** (its few differences sit where its species' known strains differ) against a **novel congener** (mostly elsewhere) |
+| `allele_identity_gain` | the identity those alleles gain over the taxon's kept records (differences explained less the allele's own the read lacks, over all their aligned columns); 0 without, -1 without the table | as above |
+
+The training table also has `allele_copy_share`, the share of the taxon's kept records on copies with alleles, in no
+feature group: whether a species has alleles is whether GTDB has other genomes of it, the cluster size that the opt-in
+`priors` carry (a rule the simulation cannot test). The two features above give a species without alleles 0, as for reads
+its alleles would not explain, so they do not tell it apart.
+
+**No simulated strain is its own allele.** The training database's alleles come only from the genomes of
+`--allele_genome_share` (0.5 in `build_gtdb_database.py`), chosen by a hash of the accession, and the build simulates
+strains only from the others. An index with every genome's alleles would hold each simulated real strain exactly (its
+reads at 0.99 and more on an allele): a gain no real sample sees, as the ancestry report's fixed sites were circular
+with the strain's own genome among their alleles ([report](claude/2026-10-08-r226-v18/README.md), section 3). The
+finished database takes its alleles from the same genomes, so the features mean in use what they meant in training.
+The in-silico strains (species with one genome left) have no alleles, as in use a species known from one genome has
+none.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

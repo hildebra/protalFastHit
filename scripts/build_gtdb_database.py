@@ -162,7 +162,7 @@ ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
 import lineages  # noqa: E402
-from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, marker_files, normalize_accession,  # noqa: E402
+from gtdb_to_protal_db import (allele_genome, clear_build_outputs, full_reference_path, marker_files, normalize_accession,  # noqa: E402
                                read_gene_ids, read_gene_list, read_representatives,
                                remove_full_reference as remove_full_reference_files)
 import rank_genes  # noqa: E402
@@ -1145,6 +1145,7 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
                    "--taxonomy", taxonomy, "--out", os.path.join(out_dir, kind)]
         command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
         command += ["--full-reference", full] if full else []
+        command += ["--allele-genome-share", f"{ALLELE_SHARE:g}"] if full and ALLELE_SHARE < 1 else []
         log = os.path.join(steps, f"ancestry_sites_{kind}.log")
         fh = open(log, "w")
         fh.write(" ".join(command) + "\n")
@@ -1569,12 +1570,42 @@ def full_reference_fate(folder, keep, why="the ancestry report"):
     return f"; {os.path.basename(path)} kept for {why} ({gigabytes(os.path.getsize(path))})" if path else ""
 
 
+# The strain alleles' options of every protal --build of the run (--strain-alleles, --allele-genome-share), set by main():
+# both databases take their alleles from the same genomes, none the simulations draw strains from.
+ALLELE_ARGS = []
+# The share of the genomes the strain alleles come from (1: all), for the ancestry report's alleles (ancestry_reports).
+ALLELE_SHARE = 1.0
+
+
 def build_command(protal, db, threads, *extra):
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *extra]
     if full_reference_path(db):
-        command += ["--full_reference", full_reference_path(db)]
+        command += ["--full_reference", full_reference_path(db), *ALLELE_ARGS]
     return command
+
+
+def split_allele_genomes(table, reps, share, output):
+    """The genome table to simulate from, without the genomes that give strain alleles: of each species' genomes other
+    than its representative, those allele_genome() picks at `share` (protal --build --allele_genome_share takes its
+    alleles from them), so that no simulated strain is its species' own allele. Without the representatives known
+    (reps None) every genome is judged. Writes the kept rows to `output` in their order; -> (the table, rows removed).
+    `table` itself, unchanged, if none is removed."""
+    kept, removed = [], 0
+    with open(table) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            accession = normalize_accession(fields[0]) if len(fields) >= 3 and fields[0] else ""
+            if accession and (reps is None or accession not in reps) and allele_genome(accession, share):
+                removed += 1
+                continue
+            kept.append(line)
+    if not removed:
+        return table, 0
+    with open(output + ".partial", "w") as fh:
+        fh.writelines(kept)
+    os.replace(output + ".partial", output)
+    return output, removed
 
 
 def stop_jobs():
@@ -1834,6 +1865,15 @@ def main():
                         "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3)")
+    p.add_argument("--strain-alleles", type=int, default=4,
+                   help="up to this many strain alleles per species and gene in both databases (protal --build --strain_alleles: "
+                        "the other genomes' copies in the full reference as edits of the representative's, for the alignment "
+                        "scores and the 'alleles' features; default 4, 0: none)")
+    p.add_argument("--allele-genome-share", type=float, default=0.5,
+                   help="the share of each species' genomes that give strain alleles, by a hash of the accession "
+                        "(protal --allele_genome_share); the genome table loses those but the representatives, so that no "
+                        "simulated strain is its species' own allele, and the ancestry report takes its alleles from the "
+                        "same genomes (default 0.5)")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -2173,6 +2213,11 @@ def main():
                         "gzip (.fq.gz); protal reads both")
     args = p.parse_args()
     args.no_foreign_rates = args.no_foreign_rates or not args.foreign_rates  # the scan only with --foreign-rates
+    if args.strain_alleles < 0 or not 0 <= args.allele_genome_share <= 1:
+        p.error("--strain-alleles is a count (0: none), --allele-genome-share a share from 0 to 1")
+    ALLELE_ARGS[:] = ["--strain_alleles", str(args.strain_alleles), "--allele_genome_share", f"{args.allele_genome_share:g}"]
+    global ALLELE_SHARE
+    ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
@@ -2320,11 +2365,19 @@ def main():
     else:  # with the genomes' lengths, if it has none: the simulator would read every genome for them
         genome_table = with_lengths(args.genome_table, os.path.join(work, "genomes.tsv"), args.threads)
     reps = read_representatives(args.gtdb, release)
+    # The genomes that give strain alleles are no strains to simulate (split_allele_genomes); the representatives stay.
+    allele_split = ""
+    if args.strain_alleles > 0 and args.allele_genome_share > 0:
+        genome_table, removed = split_allele_genomes(genome_table, reps, args.allele_genome_share, os.path.join(work, "genomes.tsv"))
+        allele_split = (f"; {removed} genomes left to the strain alleles, not simulated (--allele-genome-share "
+                        f"{args.allele_genome_share:g})")
     # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
     summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
+    if allele_split:
+        summary.append(allele_split[2:])
     with open(os.path.join(logs, "genome_table.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
-    Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}")
+    Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}{allele_split}")
     if warning:
         say(warning)
 
@@ -2333,7 +2386,7 @@ def main():
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
                    "placeholders": not args.no_placeholder_models,
                    "gene_neighbours": None if args.no_gene_neighbours else [content_hash(GENE_NEIGHBOURS), content_hash(genome_table)]}
-    final_key = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level}
+    final_key = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level, "alleles": ALLELE_ARGS}
     final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
@@ -2659,7 +2712,7 @@ def main():
         Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
-                        "level": args.training_db_level}
+                        "level": args.training_db_level, "alleles": ALLELE_ARGS}
         if subset:
             training_key["genes"] = final_key["genes"]
         # The key is kept in the training database's folder too: on a --scratch that several OUTDIRs share, another

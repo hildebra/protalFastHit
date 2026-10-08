@@ -49,6 +49,7 @@
 #include "AncestrySites.h"
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
+#include "StrainAlleles.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -855,6 +856,7 @@ namespace protal {
         species_neighbours::Table m_species_neighbours;  // empty: no species' congeners known (SpeciesNeighbours.h)
         congener_gaps::Table m_congener_gaps;  // empty: no copy's gap to its congeners known (CongenerGapsTable.h)
         foreign_rates::Table m_foreign_rates;  // empty: no copy's foreign reads known (ForeignRatesTable.h)
+        strain_alleles::Table m_strain_alleles;  // empty: no copy's strain alleles known (StrainAlleles.h)
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
 
         int m_threads = 1;  // for reading reference.map
@@ -1129,6 +1131,7 @@ namespace protal {
                 m_species_neighbours(other.m_species_neighbours),
                 m_congener_gaps(other.m_congener_gaps),
                 m_foreign_rates(other.m_foreign_rates),
+                m_strain_alleles(other.m_strain_alleles),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -1223,6 +1226,16 @@ namespace protal {
 
         void SetForeignRates(foreign_rates::Table table) {
             m_foreign_rates = std::move(table);
+        }
+
+        // Each gene copy's strain alleles (StrainAlleles.h), for the alignment scores and the "alleles" features; empty unless
+        // set (a database without strain_alleles.tsv): the scores are the reference's alone and those features unknown (-1).
+        strain_alleles::Table const& GetStrainAlleles() const {
+            return m_strain_alleles;
+        }
+
+        void SetStrainAlleles(strain_alleles::Table table) {
+            m_strain_alleles = std::move(table);
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

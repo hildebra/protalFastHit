@@ -395,6 +395,32 @@ namespace protal {
         }
     }
 
+    // Each gene copy's strain alleles (strain_alleles.tsv, StrainAlleles.h): for the alignment scores (--no_allele_scores) and
+    // the "alleles" features. Loaded for alignment too (the scores), not only for profiling.
+    static void LoadStrainAlleles(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        auto const file = options.StrainAllelesDbFile();
+        if (!file.Exists()) {
+            out << "Strain alleles: the database has none (built without --full_reference, before 2026-10-08 or with "
+                << "--strain_alleles 0): alignments are scored against the references alone, the alleles features unknown (-1)" << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        strain_alleles::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid strain alleles " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << "Strain alleles: " << table.Alleles() << " alleles of " << table.Copies() << " gene copies of " << table.Species()
+            << " species (" << file.Name() << ")" << (options.NoAlleleScores() ? "; not in the alignment scores (--no_allele_scores)" : "")
+            << std::endl;
+        genomes.SetStrainAlleles(std::move(table));
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -475,6 +501,11 @@ namespace protal {
             std::cout << "Sample " << options.GetSampleId(index) << " adaptive candidates: " << handler.m_adaptive_alignments
                       << " of the candidate alignments tried beyond --align_top on congeners of divergent reads' best "
                       << "alignment (--adaptive_candidates)" << std::endl;
+        }
+        if (handler.m_allele_scored > 0) {
+            std::cout << "Sample " << options.GetSampleId(index) << " strain alleles: " << handler.m_allele_scored
+                      << " candidate alignments on gene copies with known alleles, " << handler.m_allele_shifted
+                      << " of them scored higher on an allele than on the reference (strain_alleles.tsv; --no_allele_scores: not)" << std::endl;
         }
     }
 
@@ -685,6 +716,7 @@ namespace protal {
                 alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
                 alignment_handler.SetAlignmentScreen(!options.NoAlignmentScreen());
                 if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
+                if (!IsLongReadType(read_type)) alignment_handler.SetAlleleScores(!options.NoAlleleScores());
 
 
 
@@ -3119,6 +3151,8 @@ namespace protal {
         Benchmark bm_tables("Loading the taxonomy, models and tables");
         std::vector<profiler::TaxonFilterObj> loaded_models;
         std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, gaps_log, foreign_log, neighbours_log;
+        std::ostringstream alleles_log;
+        bool const need_alleles = !options.BuildMode() && (run_alignment || run_profiling);
         std::optional<gene_neighbours::Table> neighbours;
         if (concurrent) {
             bm_tables.Start();
@@ -3136,6 +3170,7 @@ namespace protal {
                 tables.push_back(std::async(std::launch::async, [&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); }));
             }
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
+            if (need_alleles) tables.push_back(std::async(std::launch::async, [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); }));
             // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile.
             preload();
             for (auto& t : tables) t.get();
@@ -3144,6 +3179,7 @@ namespace protal {
         } else {
             preload();
             bm_tables.Start();
+            if (need_alleles) LoadStrainAlleles(options, db.GetGenomes());
             if (run_profiling) {
                 db.LoadTaxonomy(options.TaxonomyDbFile());
                 loaded_models = load_models();
@@ -3207,6 +3243,7 @@ namespace protal {
                 LoadForeignRates(options, db.GetGenomes());
             }
         }
+        if (concurrent && need_alleles) std::cout << alleles_log.str();
         if (need_neighbours) {
             if (!concurrent) neighbours = ReadGeneNeighbours(options);
             std::cout << neighbours_log.str();

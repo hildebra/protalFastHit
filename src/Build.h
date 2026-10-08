@@ -24,6 +24,7 @@
 #include "SequenceUtils/GenomeLoader.h"
 #include "Profiling/SampleContext.h"
 #include "SequenceUtils/CongenerGaps.h"
+#include "SequenceUtils/StrainAllelesBuild.h"
 #include "Taxonomy.h"
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -293,6 +294,7 @@ namespace protal::build {
         if (fs::exists(options.GetSpeciesPriorsFile())) sources.push_back({Options::PROTAL_SPECIES_PRIORS_FILE, options.GetSpeciesPriorsFile()});
         if (fs::exists(options.GetSpeciesNeighboursFile())) sources.push_back({Options::PROTAL_SPECIES_NEIGHBOURS_FILE, options.GetSpeciesNeighboursFile()});
         if (fs::exists(options.GetCongenerGapsFile())) sources.push_back({Options::PROTAL_CONGENER_GAPS_FILE, options.GetCongenerGapsFile()});
+        if (fs::exists(options.GetStrainAllelesFile())) sources.push_back({Options::PROTAL_STRAIN_ALLELES_FILE, options.GetStrainAllelesFile()});
         if (fs::exists(options.GetForeignRatesFile())) sources.push_back({Options::PROTAL_FOREIGN_RATES_FILE, options.GetForeignRatesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
@@ -718,7 +720,7 @@ namespace protal::build {
         return "";
     }
 
-    // --add_tables: stores tables (congener_gaps.tsv, foreign_rates.tsv, species_priors.tsv) in the database by their file
+    // --add_tables: stores tables (congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, species_priors.tsv) in the database by their file
     // names, as AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder
     // gets the files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
     static void AddTables(protal::Options const& options) {
@@ -733,6 +735,11 @@ namespace protal::build {
                 congener_gaps::Table table;
                 error = table.Read(is);
                 summary = std::to_string(table.Copies()) + " gene copies of " + std::to_string(table.Species()) + " species";
+            } else if (error.empty() && name == Options::PROTAL_STRAIN_ALLELES_FILE) {
+                strain_alleles::Table table;
+                error = table.Read(is);
+                summary = std::to_string(table.Alleles()) + " alleles of " + std::to_string(table.Copies()) + " gene copies of " +
+                          std::to_string(table.Species()) + " species";
             } else if (error.empty() && name == Options::PROTAL_SPECIES_PRIORS_FILE) {
                 species_priors::Table table;
                 error = table.Read(is);
@@ -1361,7 +1368,7 @@ namespace protal::build {
     // its congeners (all of them up to congener_gaps::Settings::all others, else its nearest by sketch and a hashed
     // sample), its nearest congener's distance and the sample's median kept. Each gene's sequences are held while it is
     // compared (a gene's copies at r226: ~140 MB), the alignments on all threads.
-    static void WriteCongenerGaps(protal::Options const& options, GenomeLoader& genomes) {
+    static congener_gaps::Table WriteCongenerGaps(protal::Options const& options, GenomeLoader& genomes) {
         namespace fs = std::filesystem;
         Benchmark bm("Congener gaps");
         bm.Start();
@@ -1431,6 +1438,145 @@ namespace protal::build {
                   << stats.sampled_genera << " genus-gene groups above " << settings.all << " others sampled; the nearest "
                   << "congener's distance: quartiles " << quantile(0.25) << ", " << quantile(0.5) << ", " << quantile(0.75)
                   << ": " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+        return table;
+    }
+
+    // strain_alleles.tsv in the database (StrainAllelesBuild.h): every copy of a database species' gene in the full
+    // reference from a genome that may give alleles (--allele_genome_share) aligned against the representative's copy,
+    // and up to --strain_alleles of each copy's alleles kept, each nearer the representative than the copy's nearest
+    // congener's copy (`gaps`, congener_gaps.tsv). One pass over the full reference, as WriteGeneConservation's. No file
+    // without an allele (or with --strain_alleles 0); an earlier build's is removed.
+    static void WriteStrainAlleles(protal::Options const& options, GenomeLoader& genomes, congener_gaps::Table const& gaps) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Strain alleles");
+        bm.Start();
+        std::string const target = options.GetStrainAllelesFile();
+        std::error_code ec;
+        fs::remove(target, ec);
+        strain_alleles::Settings settings;
+        settings.alleles = options.GetStrainAlleles();
+        settings.share = options.GetAlleleGenomeShare();
+        if (settings.alleles == 0) {
+            std::cout << "Strain alleles: none (--strain_alleles 0)" << std::endl;
+            return;
+        }
+        std::string const full_reference = options.GetFullSequenceFilePath();
+        strain_alleles::Collector collector(settings.candidates);
+        strain_alleles::Stats stats;
+        std::string failure;
+        std::atomic<bool> unnamed{ false };  // a record without its genome's accession, with --allele_genome_share below 1
+        // A record's allele (StrainAllelesBuild.h AddRecord); `state` is the thread's.
+        struct State {
+            WFA2Wrapper2 aligner{ 4, 6, 2, 0 };
+            std::string rep, copy, ops, header;
+            strain_alleles::Stats stats;
+        };
+        auto add = [&](State& state, std::string_view record_header, std::string_view sequence) {
+            size_t const space = record_header.find_first_of(" \t");
+            state.header.assign(record_header.substr(0, space));
+            std::string_view accession;
+            if (space != std::string_view::npos) {
+                accession = record_header.substr(space + 1);
+                accession = accession.substr(0, accession.find_first_of(" \t"));
+            }
+            auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(state.header);
+            if (taxid > UINT32_MAX || geneid > UINT16_MAX || !genomes.HasGene(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid)) ||
+                !options.BuildGeneAllowed(geneid)) {
+                return;
+            }
+            if (accession.empty() && settings.share < 1) {
+                unnamed = true;
+                return;
+            }
+            auto const rep = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
+            state.rep.assign(rep.View());
+            state.copy.assign(sequence);
+            auto const gap = gaps.Find(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid));
+            strain_alleles::AddRecord(collector, state.stats, settings, static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid),
+                                      accession, state.rep, state.copy, gap ? gap->Min() : -1.0, state.aligner, state.ops);
+        };
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        std::string error;
+        auto const frames = FastaFrames::Open(zstd::Resolve(full_reference), error);
+        if (!error.empty()) {
+            std::cerr << "Cannot read the full reference: " << error << std::endl;
+            exit(8);
+        }
+        if (frames) {
+            std::atomic<size_t> next{ 0 };
+#pragma omp parallel num_threads(static_cast<int>(std::min<size_t>(static_cast<size_t>(threads), frames->Frames())))
+            {
+                State state;
+                FastaFrames::Reader reader(*frames);
+                std::string batch, scratch;
+                for (size_t f; (f = next.fetch_add(1)) < frames->Frames();) {
+                    reader.Take(f);
+                    while (reader.Next(batch, size_t{1} << 20)) {
+                        ForEachFastaRecord(batch, scratch, [&](std::string_view record_header, std::string_view sequence) {
+                            add(state, record_header, sequence);
+                        });
+                    }
+                    if (!reader.Error().empty()) {
+#pragma omp critical(alleles_failure)
+                        if (failure.empty()) failure = reader.Error();
+                        break;
+                    }
+                }
+#pragma omp critical(alleles_stats)
+                stats.Add(state.stats);
+            }
+        } else {
+            auto input = OpenInput(full_reference);
+            std::istream& is = input->Stream();
+            bool parsed = true;
+#pragma omp parallel num_threads(threads)
+            {
+                State state;
+                FastxRecord record;
+                SeqReader reader { is };
+                while (reader(record)) add(state, record.header, record.sequence);
+#pragma omp critical(alleles_stats)
+                {
+                    parsed = parsed && reader.Success();
+                    stats.Add(state.stats);
+                }
+            }
+            if (is.bad() || !parsed) failure = "truncated or corrupt file?";
+        }
+        if (!failure.empty()) {
+            std::cerr << "Cannot read the full reference " << full_reference << " to its end: " << failure << std::endl;
+            exit(8);
+        }
+        if (unnamed) {
+            std::cerr << "--allele_genome_share " << settings.share << ": the full reference " << full_reference << " does not name "
+                      << "the genome of each record (>taxid_geneid accession, as gtdb_to_protal_db.py writes it since 2026-10-08): "
+                      << "convert the release again, or give --allele_genome_share 1" << std::endl;
+            exit(8);
+        }
+        auto const table = strain_alleles::Table::FromRows(collector.Rows(settings.alleles));
+        std::ostringstream counts;
+        counts << "of " << stats.records << " full-reference copies of the database's species and genes: " << stats.outside_share
+               << " of genomes outside --allele_genome_share " << settings.share << ", " << stats.identical
+               << " identical to the representative's, " << stats.duplicates << " repeated, " << stats.unaligned
+               << " covering less than " << strain_alleles::kMinCover << " of it or more than " << strain_alleles::kMaxDivergence
+               << " apart, " << stats.beyond_congener << " as far as the nearest congener's copy or farther; " << stats.offered
+               << " alleles offered";
+        if (table.Empty()) {
+            std::cout << "Strain alleles: none (" << counts.str() << ")" << std::endl;
+        } else {
+            std::ofstream os(target);
+            table.Write(os);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << target << " failed" << std::endl;
+                exit(8);
+            }
+            std::cout << "Strain alleles: " << table.Alleles() << " alleles (" << table.Edits() << " edits) of " << table.Copies()
+                      << " gene copies of " << table.Species() << " species, up to " << settings.alleles << " each (" << counts.str()
+                      << "): " << target << std::endl;
+        }
         bm.Stop();
         bm.PrintResults();
     }
@@ -1942,7 +2088,8 @@ namespace protal::build {
         WriteGeneCongeners(options, genomes, conservation.table);
         WriteSuspectCopies(options, genomes);
         WriteSpeciesNeighbours(options, genomes, options.GetSpeciesNeighboursFile());
-        WriteCongenerGaps(options, genomes);
+        auto const gaps = WriteCongenerGaps(options, genomes);
+        WriteStrainAlleles(options, genomes, gaps);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
         ReleaseFreeMemory();

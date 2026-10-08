@@ -18,6 +18,7 @@ import gzip
 import json
 import os
 import random
+import re
 import shutil
 import signal
 import subprocess
@@ -234,6 +235,15 @@ class GtdbBuildTest(unittest.TestCase):
         # full reference, which lacks the held-out species; the finished database's before its models went in; every copy
         # listed; the full references gone after.
         self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
+        # The strain alleles (--strain-alleles 4, --allele-genome-share 0.5): both builds took them from the genomes of the
+        # allele share, which the genome table lost (none of them simulated).
+        for log in ("index_and_package.log", "training_db_index.log"):
+            self.assertRegex(self.text("out", "logs", log), r"Strain alleles: (\d+ alleles \(\d+ edits\) of \d+ gene copies of \d+ "
+                                                            r"species, up to 4 each|none) \(of \d+ full-reference copies")
+            self.assertIn("outside --allele_genome_share 0.5", self.text("out", "logs", log))
+        self.assertRegex(first.stdout, r"genome table \(genomes\.tsv, genome_table\.txt\): .*; \d+ genomes left to the strain "
+                                       r"alleles, not simulated \(--allele-genome-share 0\.5\)")
+        alleles = re.search(r"Strain alleles: (\d+) alleles", self.text("out", "logs", "training_db_index.log"))
         for stage, folder in (("foreign_rates_training", os.path.join(self.tmp.name, "scratch", "training_db")),
                               ("foreign_rates", os.path.join(out, "work", "foreign_rates"))):
             self.assertRegex(self.text("out", "logs", stage + ".log"),
@@ -309,6 +319,8 @@ class GtdbBuildTest(unittest.TestCase):
             # or empty.
             for feature in ("gap_informative_share", "untried_candidate_rate", "foreign_scanned_share"):
                 self.assertTrue(any(float(r[feature]) >= 0 for r in rows), f"{table}: {feature}")
+            # The strain alleles' features: known wherever the training database has the table.
+            self.assertEqual(any(float(r["allele_copy_share"]) >= 0 for r in rows), alleles is not None, table)
             self.assertTrue(all(r["meta_novel_distance"] == "" or 0 <= float(r["meta_novel_distance"]) <= 0.15 for r in rows), table)
         # A stage running for a while (5 s here, --progress-every) says how it is doing.
         self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")

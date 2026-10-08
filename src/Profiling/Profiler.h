@@ -816,6 +816,12 @@ namespace protal {
             // Reads whose seeds fit the taxon as well as the taxa they were aligned against (ZN's crowd) but that never were
             // aligned against it (beyond --align_top; their ZC tags, FoldFailedCandidates).
             size_t untried_candidates = 0;
+            // The strain alleles (strain_alleles.tsv, NoteAlleles): kept records on a copy with known alleles; every kept record's
+            // differences from the reference and aligned columns; of those the ones the copies' best alleles explain and the
+            // edits they save (their shifts); alleles_known: the database has the table.
+            size_t allele_records = 0;
+            uint64_t allele_differences = 0, allele_explained = 0, allele_gain = 0, allele_aligned = 0;
+            bool alleles_known = false;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -873,6 +879,12 @@ namespace protal {
                 foreign_genus_share += other.foreign_genus_share;
                 foreign_known = foreign_known || other.foreign_known;
                 untried_candidates += other.untried_candidates;
+                allele_records += other.allele_records;
+                allele_differences += other.allele_differences;
+                allele_explained += other.allele_explained;
+                allele_gain += other.allele_gain;
+                allele_aligned += other.allele_aligned;
+                alleles_known = alleles_known || other.alleles_known;
                 return *this;
             }
         };
@@ -1467,6 +1479,27 @@ namespace protal {
             double UntriedCandidateRate() const {
                 size_t const all = m_records.untried_candidates + m_records.fragments_all;
                 return all == 0 ? 0 : static_cast<double>(m_records.untried_candidates) / static_cast<double>(all);
+            }
+            // The strain alleles (strain_alleles.tsv, RecordEvidence::allele_*), -1 without the table: of its kept records' differences
+            // from the reference the share their copies' best alleles explain, and the identity those alleles gain over all its
+            // kept records' columns; 0 where nothing is explained, a species without alleles too. A strain of the species has
+            // its few differences where its known strains differ; a novel congener mostly elsewhere. Whether a species has
+            // alleles at all is whether GTDB has other genomes of it, the cluster size the priors carry (opt-in): these two do
+            // not tell a species without alleles from one whose reads they do not explain. AlleleCopyShare does (the share of
+            // its kept records on copies with alleles): a column of the training table, in no feature group.
+            double AlleleCopyShare() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.kept == 0 ? 0 : static_cast<double>(m_records.allele_records) / static_cast<double>(m_records.kept);
+            }
+            double AlleleExplainedShare() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.allele_differences == 0 ? 0
+                    : static_cast<double>(m_records.allele_explained) / static_cast<double>(m_records.allele_differences);
+            }
+            double AlleleIdentityGain() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.allele_aligned == 0 ? 0
+                    : static_cast<double>(m_records.allele_gain) / static_cast<double>(m_records.allele_aligned);
             }
             // The gaps to the congeners' copies (congener_gaps.tsv, RecordEvidence::gap_records): the share of its kept
             // records on copies with a congener's copy at least congener_gaps::kMinGap away, of those the shares whose
@@ -2553,6 +2586,11 @@ namespace protal {
             f.emplace_back("foreign_copy_share", taxon.ForeignCopyShare());
             f.emplace_back("foreign_genus_copy_share", taxon.ForeignGenusCopyShare());
             f.emplace_back("untried_candidate_rate", taxon.UntriedCandidateRate());
+            // Its reads against its species' known strain alleles (strain_alleles.tsv); -1 without the table. allele_copy_share is
+            // in no feature group (it tells a species with other genomes in GTDB from one without: the cluster size).
+            f.emplace_back("allele_copy_share", taxon.AlleleCopyShare());
+            f.emplace_back("allele_explained_share", taxon.AlleleExplainedShare());
+            f.emplace_back("allele_identity_gain", taxon.AlleleIdentityGain());
             return f;
         }
 
@@ -3022,6 +3060,7 @@ namespace protal {
                     e.crowding_log2 += static_cast<uint64_t>(std::llround(std::log2(static_cast<double>(sam.m_crowding)) * kLog2Unit));
                 }
                 if (kept) NoteCopy(e, taxid, geneid, differences, aligned);
+                if (kept) NoteAlleles(e, taxid, geneid, sam);
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
@@ -3040,6 +3079,23 @@ namespace protal {
                 e.congener_fit += congener;
                 e.other_genus_fit += other;
                 e.unexpected_fit += unexpected;
+            }
+
+            // A kept record against its copy's strain alleles (strain_alleles.tsv): its differences from the reference (CIGAR and SEQ)
+            // and columns, every kept record's, and on a copy with alleles those the best allele explains (StrainAlleles.h
+            // BestAllele). Nothing without the table; a record without SEQ is not counted.
+            void NoteAlleles(RecordEvidence& e, uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
+                auto const& table = m_genome_loader->GetStrainAlleles();
+                if (table.Empty()) return;
+                e.alleles_known = true;
+                if (!strain_alleles::FromSamRecord(sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, m_allele_diffs)) return;
+                e.allele_differences += m_allele_diffs.diffs.size();
+                e.allele_aligned += m_allele_diffs.columns;
+                if (table.Of(taxid, geneid).empty()) return;
+                auto const best = strain_alleles::BestAllele(table, taxid, geneid, m_allele_diffs);
+                e.allele_records++;
+                e.allele_explained += best.explained;
+                e.allele_gain += static_cast<uint64_t>(-best.shift);
             }
 
             // A kept record's copy (taxid, gene) in the database's per-copy tables: where its divergence lies in the copy's gap
@@ -3334,6 +3390,7 @@ namespace protal {
             // The ancestry sites of the (taxon, gene) pairs this collector's records touched (NoteRecord), from the
             // run's cache (GenomeLoader::AncestrySitesOf) once each.
             std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
+            strain_alleles::ReadDiffs m_allele_diffs;  // NoteAlleles' scratch
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
             std::vector<uint32_t> m_link_taxa;  // FinishLink's scratch

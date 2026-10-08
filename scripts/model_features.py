@@ -148,12 +148,21 @@ r226 v17 these features told the species the samples were drawn from (scanned sh
 in disguise (docs/claude/2026-10-07-congener-gaps, "The foreign features leak"): train on them only to measure that.
 UNTRIED_FEATURES ("untried"): the reads whose seeds fit it as well as the taxa they were aligned against but never tried
 it, beyond --align_top (ZC), over those plus its reads (untried_candidate_rate).
+ALLELE_FEATURES ("alleles", since 2026-10-08), its reads against its species' known strain alleles (strain_alleles.tsv,
+written by --build from the full reference): of its kept records' differences from the reference the share their copies'
+best alleles explain, and the identity those alleles gain (allele_explained_share, allele_identity_gain); -1 without the
+table, 0 for a species without alleles as for reads they do not explain. A strain of the species has its few
+differences where its known strains differ, a novel congener mostly elsewhere. The share of its records on copies with
+alleles (allele_copy_share, a column of the dump) is in no group: whether a species has alleles is whether GTDB has
+other genomes of it, the cluster size the priors carry, which the simulation cannot test. The training database's alleles come from genomes
+the simulations never draw strains from (build_gtdb_database.py --allele-genome-share), so that no simulated strain is
+its species' own allele.
 
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
-unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, priors; "all" is every
+unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, alleles, priors; "all" is every
 feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance+depth+
-divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried" (with foreign from the
-congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles" (without alleles
+before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
 foreign and untried in 0.7.9 before the congener-gaps merge; without ancestry before 0.7.9; without consistency, shape
 and neighbourhood before 2026-10-07, when the false-positive groups were merged; without ref and complexity before
 2026-10-06; the set without them is the one every model of the r226 v12 and v13
@@ -251,6 +260,9 @@ ANCESTRY_FEATURES = ["ancestry_sites_per_record", "ancestry_agreement", "ancestr
 GAP_FEATURES = ["gap_informative_share", "gap_within_min_share", "gap_within_median_share", "gap_position"]
 FOREIGN_FEATURES = ["foreign_scanned_share", "foreign_copy_share", "foreign_genus_copy_share"]
 UNTRIED_FEATURES = ["untried_candidate_rate"]
+# Its reads against its species' known strain alleles (strain_alleles.tsv): see above. In the default set since 2026-10-08,
+# untested at r226.
+ALLELE_FEATURES = ["allele_explained_share", "allele_identity_gain"]
 
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
@@ -258,7 +270,7 @@ FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEAT
                   "unfiltered": UNFILTERED_FEATURES, "ref": REF_FEATURES, "complexity": COMPLEXITY_FEATURES,
                   "consistency": CONSISTENCY_FEATURES, "shape": SHAPE_FEATURES, "neighbourhood": NEIGHBOURHOOD_FEATURES,
                   "ancestry": ANCESTRY_FEATURES, "gaps": GAP_FEATURES, "foreign": FOREIGN_FEATURES, "untried": UNTRIED_FEATURES,
-                  "priors": PRIORS_FEATURES}
+                  "alleles": ALLELE_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
@@ -273,7 +285,9 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
                 "gaps+untried",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
-                "gaps+untried+foreign",
+                "gaps+untried+alleles",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
+                "gaps+untried+alleles+foreign",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -286,8 +300,9 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # r226 v17 models learnt from its first scan (of the genomes the samples are drawn from) which species the simulation
 # could draw (same report, "The foreign features leak"); the scan reads every species' marker genes alike since
 # 2026-10-08, and the named set with foreign lets --features auto say whether that scan earns anything.
+# alleles (since 2026-10-08) are in it untested at r226 too: the next build says what its strain alleles are worth.
 DEFAULT_FEATURE_SET = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+"
-                       "neighbourhood+ancestry+gaps+untried")
+                       "neighbourhood+ancestry+gaps+untried+alleles")
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
 # another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.

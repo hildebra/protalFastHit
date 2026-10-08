@@ -30,6 +30,9 @@ namespace protal {
 
         int alignment_score = 0;
         int gene_alignment_start = 0;
+        // The read's differences from its candidate's best strain allele less those from the reference (StrainAlleles.h): 0, or
+        // below 0 where a known allele of the species explains some; Score counts them as matches.
+        int allele_shift = 0;
         uint32_t alignment_length = 0;
         float alignment_ani = 0.0f;
 
@@ -60,6 +63,7 @@ namespace protal {
             softclips = 0;
             hardclips = 0;
             alignment_score = 0;
+            allele_shift = 0;
 
             cigar_start = 0;
             cigar_end = 0;
@@ -153,8 +157,11 @@ namespace protal {
             return cigar.length() - softclips;
         }
 
+        // allele_shift moves differences the candidate's best strain allele explains to matches (each counted as a
+        // mismatch would be, an indel too: allele_shift is a count of edits).
         int Score(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) const {
-            return (matches * match_score) - (mismatch_penalty * mismatches + gap_open_penalty * (insertion_blocks + deletion_blocks) + gap_extend_penalty * (insertions + deletions));
+            return (matches * match_score) - (mismatch_penalty * mismatches + gap_open_penalty * (insertion_blocks + deletion_blocks) + gap_extend_penalty * (insertions + deletions)) -
+                   (match_score + mismatch_penalty) * allele_shift;
         }
 
         void UpdateScore(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) {

@@ -43,6 +43,7 @@ add_executable(protal_tests
         test_GoldenModelRules.cpp
         test_GeneConservation.cpp
         test_CongenerGaps.cpp
+        test_StrainAlleles.cpp
         test_ModelFeatures.cpp
         test_AncestrySites.cpp
         test_Composition.cpp)

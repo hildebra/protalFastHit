@@ -128,6 +128,21 @@ def normalize_accession(text):
     return token[3:] if token[:3] in ("RS_", "GB_") else token
 
 
+def allele_genome(accession, share):
+    """Whether the genome `accession` (normalize_accession's form, which the full reference names after each record's
+    name) may give strain alleles: the top 53 bits of its FNV-1a 64 hash as a fraction below `share`. protal --build
+    (--allele_genome_share, StrainAlleles.h AlleleGenome) and ancestry_sites.py take alleles from these genomes,
+    build_gtdb_database.py simulates strains from the others, so that no simulated strain is its species' own allele."""
+    if share >= 1:
+        return True
+    if share <= 0:
+        return False
+    h = 1469598103934665603
+    for byte in accession.encode():
+        h = ((h ^ byte) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return (h >> 11) / float(1 << 53) < share
+
+
 def read_taxonomy(gtdb, rel):
     lineage = {}
     for mset in MARKER_SETS:

@@ -393,6 +393,13 @@ aligned against (beyond `--align_top`), the strongest anchor first; the profiler
 between its own species' reference and a congener's ranks its own species below the congeners by its seeds, and
 `--align_top` alone never aligned it there ([report](claude/2026-10-07-error-read-signatures/README.md), section 5).
 `--adaptive_candidates 0` aligns as before; the log's `adaptive candidates:` line counts the extra alignments.
+Since 2026-10-08, with a database that has strain alleles (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)),
+each candidate alignment of a short read is scored with its species' best known allele: the read's differences from the
+reference that allele explains count as matches, so a read of a known strain scores on its species as on the strain's
+gene. The records keep their alignment to the reference (CIGAR, identity), while `AS` and MAPQ count the alleles. The log's
+`strain alleles:` line counts the candidates on copies with alleles and those an allele scored higher. A database's models
+are trained with these scores; `--no_allele_scores` turns them off, to measure them
+([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
 
 ### Developer options
 

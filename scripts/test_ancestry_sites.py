@@ -102,6 +102,19 @@ class AncestrySites(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    def test_alleles_only_of_the_genomes_that_give_strain_alleles(self):
+        # --allele-genome-share: the report takes alleles only from the genomes protal --build takes its strain alleles
+        # from (gtdb_to_protal_db.allele_genome), the others being the ones the build simulates strains from.
+        from gtdb_to_protal_db import allele_genome
+        d = self.tmp.name
+        reps = an.load_copies(os.path.join(d, "reference.fna"), {"11_5"})
+        full = os.path.join(d, "full_reference.fna")
+        everyone = an.load_alleles(full, {"11_5"}, reps, 6)
+        self.assertEqual([genome for genome, _ in everyone["11_5"]], ["GCA_000000012.1"])
+        self.assertEqual(an.load_alleles(full, {"11_5"}, reps, 6, 1e-12).get("11_5", []), [])
+        half = an.load_alleles(full, {"11_5"}, reps, 6, 0.5).get("11_5", [])
+        self.assertEqual(bool(half), allele_genome("GCA_000000012.1", 0.5))
+
     def test_fragments(self):
         rows = rows_of(self.out + ".fragments.tsv.gz")
         self.assertEqual([r["qname"] for r in rows], ["r1", "r4", "r2"])  # the secondary record and the repeat left out
