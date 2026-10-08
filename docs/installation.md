@@ -96,7 +96,8 @@ same on every CPU.
 - ISA-L, zlib-ng and zstd choose their own. The gzip that protal writes (`.sam.gz`, the simulator's
   `.fq.gz`) is the same byte for byte for one ISA-L version on CPUs with SSE4.2 (Intel since 2008,
   AMD since 2011) up to AVX2, as checked (AVX-512 CPUs were not checked; CPUs without SSE4.2 write
-  other bytes); its content is the same everywhere.
+  other bytes), whichever thread compresses it (since 2026-10-08: ISA-L let the address of its state
+  choose a few matches); its content is the same everywhere.
 - The hot functions marked `PROTAL_CLONE_V3` (`src/Utilities/TargetClones.h`) are compiled twice,
   for x86-64 and for x86-64-v3, and the loader picks one (GCC's `target_clones`). This needs GCC
   12 or later on Linux with glibc. With other compilers, or with

@@ -7,9 +7,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <vector>
 #include <unistd.h>
 #include "IO/Bgzf.h"
 #include "Utilities/RunStatus.h"
@@ -107,4 +110,60 @@ TEST(BgzfWriter, PiecesOfAnySizeGiveTheSameFile) {
     bgzf::Writer bad((dir.path / "no_such_dir" / "x.gz").string());
     EXPECT_FALSE(bad.Error().empty());
     EXPECT_FALSE(bad.Close());
+}
+
+// A block's bytes depend on its content alone, not on the Deflater (the thread) that compresses it. ISA-L's level 1
+// hashed a block's third byte from the address of its stream (Bgzf.h, Deflater), and where that hit the bucket of the
+// block's first four bytes, their next occurrence lost its match. Here blocks of two records named alike, the names
+// random so that the blocks' first bytes fill every bucket of their size: before the fix, any two Deflaters (streams at
+// different addresses) deflated 11-26 of these 3000 blocks differently.
+TEST(BgzfWriter, BlocksDoNotDependOnTheThread) {
+    namespace bgzf = protal::bgzf;
+    std::mt19937 rng(11);
+    std::vector<std::string> blocks;
+    for (int b = 0; b < 3000; b++) {
+        std::string name = "@";
+        for (int i = 0; i < 3; i++) name += static_cast<char>('A' + rng() % 26);
+        std::string block;
+        for (int r = 1; r <= 2; r++) {
+            std::string seq(50, 'A');
+            for (auto& c : seq) c = "ACGT"[rng() % 4];
+            block += name + "_" + std::to_string(r) + "\n" + seq + "\n+\n" + std::string(50, 'I') + "\n";
+        }
+        blocks.push_back(std::move(block));
+    }
+    auto deflate = [&](bgzf::Deflater& deflater) {
+        std::vector<std::string> out;
+        std::vector<unsigned char> buffer(bgzf::kMaxBlock);
+        for (auto const& block : blocks) {
+            size_t const n = deflater.Compress(block.data(), block.size(), buffer.data(), buffer.size());
+            out.emplace_back(reinterpret_cast<char const*>(buffer.data()), n);
+        }
+        return out;
+    };
+    std::vector<std::unique_ptr<bgzf::Deflater>> deflaters;
+    for (int i = 0; i < 4; i++) deflaters.push_back(std::make_unique<bgzf::Deflater>());
+    auto const first = deflate(*deflaters[0]);
+    for (size_t i = 1; i < deflaters.size(); i++) {
+        auto const other = deflate(*deflaters[i]);
+        size_t differ = 0;
+        for (size_t b = 0; b < blocks.size(); b++) differ += other[b] != first[b];
+        EXPECT_EQ(differ, 0u) << "blocks deflated otherwise by deflater " << i << " than by deflater 0";
+    }
+
+    // bgzf::Compress, with each thread's own Deflater: the same BGZF blocks on other threads.
+    auto compress = [&] {
+        std::string out;
+        for (auto const& block : blocks) {
+            if (!bgzf::Compress(block.data(), block.size(), out)) return std::string();
+        }
+        return out;
+    };
+    std::string const here = compress();
+    ASSERT_FALSE(here.empty());
+    std::vector<std::string> there(3);
+    std::vector<std::thread> threads;
+    for (auto& out : there) threads.emplace_back([&out, &compress] { out = compress(); });
+    for (auto& thread : threads) thread.join();
+    for (size_t t = 0; t < there.size(); t++) EXPECT_TRUE(there[t] == here) << "thread " << t;
 }

@@ -12,13 +12,15 @@
 // 10-20% faster on whole blocks but cannot stream); at level 1 it deflates about 7x as fast as
 // libdeflate's level 6, which wrote BGZF before, into files about 16% larger. Its levels 1 and 2 wrote
 // the same bytes through its SSE4.2, AVX and AVX2 code (AVX-512 not checked), level 3 not (its AVX2
-// path matches differently).
+// path matches differently). Level 1 writes the same bytes on any thread since 2026-10-08 (Deflater).
 #pragma once
 
 #include <isa-l/crc.h>
 #include <isa-l/igzip_lib.h>
+#include <sys/mman.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -26,8 +28,13 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
+
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000  // Linux 4.17; an older kernel takes the address as a hint (MapStream checks)
+#endif
 
 namespace protal::bgzf {
     inline constexpr size_t kBlockInput = 0xff00;      // input bytes per block, as htslib
@@ -52,11 +59,83 @@ namespace protal::bgzf {
         return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
     }
 
+    // Where a Deflater's ISA-L stream is put. ISA-L's level 1 (the SSE4.2, AVX and AVX2 versions of
+    // igzip_icf_body_h1_gr_bt.asm, 2.31.0 to 2.32.1 and its master of 2026-10) hashes the input's third
+    // byte, at the start of a stream without history (every stateless call), from a register it does not
+    // load there (its level 0 does), which holds the address of the isal_zstream: bits 16-47 of it chose a
+    // hash bucket, and with it now and then a match (in the block that showed it, the bucket of its first
+    // four bytes: their next occurrence lost its match). So a block's bytes depended on the thread (and the
+    // run) that compressed it, though they always held the same content (2026-10-08: one block of a
+    // simulated sample in 50 unit suite runs; docs/claude/2026-10-08-bgzf-thread-bytes). A Deflater's
+    // stream is therefore mapped where the CRC-32C of those bits (ISA-L's hash) is kStreamHash under the
+    // level's hash mask: every stream hashes that byte into the same bucket, and a block gets the same
+    // bytes on any thread. Where no such place is mapped, the stream is on the heap (the output is valid,
+    // but may differ by thread).
+    namespace detail {
+        static_assert(kLevel == 1, "the hash mask is level 1's");
+        inline constexpr uint32_t kStreamHashMask = IGZIP_LVL1_HASH_SIZE - 1;  // a block's mask is a part of it
+        inline constexpr uint32_t kStreamHash = 0;
+        inline constexpr uintptr_t kStreamStep = uintptr_t{1} << 16;  // the bits below do not count
+
+        inline constexpr auto kCrc32cTable = [] {
+            std::array<uint32_t, 256> table{};
+            for (uint32_t i = 0; i < 256; i++) {
+                uint32_t crc = i;
+                for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0x82f63b78u & (0u - (crc & 1u)));
+                table[i] = crc;
+            }
+            return table;
+        }();
+
+        // The CRC-32C of a 32-bit word, from 0 and without the final complement: the x86 crc32
+        // instruction on a 32-bit operand, ISA-L's hash.
+        inline uint32_t Crc32cWord(uint32_t word) {
+            uint32_t crc = 0;
+            for (int byte = 0; byte < 4; byte++) crc = (crc >> 8) ^ kCrc32cTable[(crc ^ (word >> (8 * byte))) & 0xff];
+            return crc;
+        }
+
+        inline bool IsStreamPlace(uintptr_t address) {
+            return (Crc32cWord(static_cast<uint32_t>(address >> 16)) & kStreamHashMask) == kStreamHash;
+        }
+
+        // `size` bytes of zeroes at an address that IsStreamPlace (one in 8192 places 64 KB apart), mapped
+        // below where the kernel maps now (the first free such place: one freed is used again); null if
+        // none was found within 64 GB.
+        inline void* MapStream(size_t size) {
+            void* const probe = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (probe == MAP_FAILED) return nullptr;
+            uintptr_t at = reinterpret_cast<uintptr_t>(probe) & ~(kStreamStep - 1);
+            munmap(probe, size);
+            int failed = 0;
+            for (int step = 0; step < (1 << 20) && failed < 4 && at > (uintptr_t{1} << 32); step++, at -= kStreamStep) {
+                if (!IsStreamPlace(at)) continue;
+                void* const p = mmap(reinterpret_cast<void*>(at), size, PROT_READ | PROT_WRITE,
+                                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+                if (p == reinterpret_cast<void*>(at)) return p;
+                if (p == MAP_FAILED && errno == EEXIST) continue;  // in use: further down
+                if (p != MAP_FAILED) munmap(p, size);  // mapped elsewhere: the flag was taken for a hint
+                failed++;
+            }
+            return nullptr;
+        }
+    }
+
     // An ISA-L compressor at kLevel, for one thread: raw deflate of a whole block. Its state and level
-    // buffer (~80 and ~280 KB) are kept for the thread's blocks.
+    // buffer (~80 and ~280 KB) are kept for the thread's blocks; the state is mapped by MapStream.
     class Deflater {
     public:
-        Deflater() : m_stream(std::make_unique<isal_zstream>()), m_level_buffer(kLevelBuffer) {}
+        Deflater() : m_level_buffer(kLevelBuffer) {
+            void* const place = detail::MapStream(sizeof(isal_zstream));
+            m_mapped = place != nullptr;
+            m_stream = m_mapped ? new (place) isal_zstream() : new isal_zstream();
+        }
+        ~Deflater() {
+            if (m_mapped) munmap(m_stream, sizeof(isal_zstream));
+            else delete m_stream;
+        }
+        Deflater(Deflater const&) = delete;
+        Deflater& operator=(Deflater const&) = delete;
 
         // Raw deflate of [in, in + size) into out; the compressed size, or 0 if it does not fit. A block
         // that does not shrink is stored (ISA-L does it), so kBlockInput bytes always fit the BGZF limit.
@@ -76,7 +155,8 @@ namespace protal::bgzf {
         }
 
     private:
-        std::unique_ptr<isal_zstream> m_stream;
+        isal_zstream* m_stream = nullptr;
+        bool m_mapped = false;
         std::vector<uint8_t> m_level_buffer;
     };
 
