@@ -436,6 +436,146 @@ TEST(ThreadedGzStream, WhatFollowsAGzipMemberMustBeAMember) {
     EXPECT_NE(error.find("the data at byte " + std::to_string(bgzf.size() + two.size())), npos) << error;
 }
 
+namespace {
+    // Sets the BGZF inflating threads for files opened in its scope; back to one after.
+    struct BgzfThreads {
+        explicit BgzfThreads(unsigned n) { ThreadedGzStreambuf::SetBgzfThreads(n); }
+        ~BgzfThreads() { ThreadedGzStreambuf::SetBgzfThreads(1); }
+    };
+
+    struct ReadResult {
+        std::string text, error;
+        bool failed = false;
+        unsigned threads = 0;
+    };
+
+    ReadResult ReadWithThreads(std::string const& path, unsigned threads) {
+        BgzfThreads const setting(threads);
+        ThreadedGzIstream is(path.c_str());
+        ReadResult r;
+        r.threads = is.rdbuf()->inflate_threads();
+        r.text = ReadAllOf(is);
+        r.failed = is.rdbuf()->read_failed();
+        r.error = is.rdbuf()->read_error_message();
+        return r;
+    }
+}
+
+// BGZF inflated on several threads gives the bytes one thread gives: files of no, one and many blocks, BGZF files
+// concatenated (end-of-file blocks inside), and BGZF followed by gzip members of another kind.
+TEST(ThreadedGzStream, BgzfOnSeveralThreadsReadsAsOnOne) {
+    ScratchDir dir;
+    auto const big = Fastq(40000, "p");  // ~12 MB: ~200 blocks, a dozen output blocks
+    auto const small = Fastq(30, "s");
+    std::string many_text, many_bytes;
+    for (int i = 0; i < 60; i++) {  // 60 files of 1-3 blocks each, one after the other
+        auto const part = Fastq(50 + 97 * static_cast<size_t>(i), "c" + std::to_string(i) + "_");
+        many_text += part;
+        many_bytes += FileBytes(Bgzf(dir, "part" + std::to_string(i) + ".fq.gz", part));
+    }
+    std::vector<std::pair<std::string, std::string>> files = {  // (path, content)
+        { Bgzf(dir, "empty.fq.gz", ""), "" },
+        { Bgzf(dir, "small.fq.gz", small), small },
+        { Bgzf(dir, "big.fq.gz", big), big },
+        { dir.Write("many.fq.gz", many_bytes), many_text },
+        { dir.Write("mixed.fq.gz", FileBytes(Bgzf(dir, "first.fq.gz", big)) + GzipBytes(small) + GzipBytes(big)), big + small + big },
+    };
+    for (auto const& [path, content] : files) {
+        for (unsigned threads : { 1u, 2u, 3u, 4u, 7u }) {
+            SCOPED_TRACE(path + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            EXPECT_EQ(r.threads, threads);
+            EXPECT_EQ(r.text.size(), content.size());
+            EXPECT_TRUE(r.text == content);
+            EXPECT_FALSE(r.failed) << r.error;
+        }
+    }
+    // A file that is not BGZF inflates on its own thread whatever the setting.
+    auto const gzip = Gzip(dir, "plain.fq.gz", small);
+    EXPECT_EQ(ReadWithThreads(gzip, 4).threads, 1u);
+    EXPECT_EQ(ReadWithThreads(gzip, 4).text, small);
+}
+
+// A cut or corrupt BGZF file reads the same on several threads as on one: the same bytes up to the damage, the same
+// error, wherever the damage is (a flipped byte in each of many blocks, a damaged header, a cut at or inside a block,
+// a missing end-of-file block, a gzip member after the blocks that is cut).
+TEST(ThreadedGzStream, ADamagedBgzfFileReadsAlikeOnAnyThreads) {
+    ScratchDir dir;
+    auto const content = Fastq(40000, "d");
+    auto const good = FileBytes(Bgzf(dir, "good.fq.gz", content));
+    std::vector<std::string> variants;
+    for (size_t at : { size_t{100}, good.size() / 7, good.size() / 3, good.size() / 2, good.size() - 400 }) {
+        std::string flipped = good;
+        flipped[at] = static_cast<char>(flipped[at] ^ 0x5a);
+        variants.push_back(flipped);
+    }
+    std::string header = good;
+    size_t const second_block = bgzf::BlockSize(reinterpret_cast<unsigned char const*>(good.data()));
+    header[second_block] = 0;  // the second block's gzip magic (a changed BC subfield would still be a valid gzip member)
+    variants.push_back(header);
+    variants.push_back(good.substr(0, good.size() - sizeof(bgzf::kEof)));  // no end-of-file block
+    variants.push_back(good.substr(0, good.size() / 2));                   // cut inside a block
+    variants.push_back(good.substr(0, second_block * 5));                  // cut at a block boundary
+    variants.push_back(good.substr(0, second_block * 5 + 10));             // cut inside a header
+    std::string const member = GzipBytes(content);
+    variants.push_back(good + member.substr(0, member.size() / 2));        // a cut gzip member after the blocks
+    for (size_t v = 0; v < variants.size(); v++) {
+        auto const path = dir.Write("damaged" + std::to_string(v) + ".fq.gz", variants[v]);
+        auto const one = ReadWithThreads(path, 1);
+        EXPECT_TRUE(one.failed) << "variant " << v;
+        EXPECT_EQ(content.compare(0, std::min(one.text.size(), content.size()), one.text, 0, std::min(one.text.size(), content.size())), 0);
+        for (unsigned threads : { 2u, 4u, 7u }) {
+            SCOPED_TRACE("variant " + std::to_string(v) + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            EXPECT_EQ(r.failed, one.failed);
+            EXPECT_EQ(r.error, one.error);
+            EXPECT_EQ(r.text.size(), one.text.size());
+            EXPECT_TRUE(r.text == one.text);
+        }
+    }
+}
+
+// Read pairs taken by several threads from two BGZF files inflated on several threads each: every pair once.
+TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceFromParallelBgzf) {
+    ScratchDir dir;
+    size_t const n = 30000;
+    std::string r1, r2;
+    for (size_t i = 0; i < n; i++) {
+        std::string const seq(100 + i % 50, "ACGT"[i % 4]);
+        r1 += "@r" + std::to_string(i) + "/1\n" + seq + "\n+\n" + std::string(seq.size(), 'I') + "\n";
+        r2 += "@r" + std::to_string(i) + "/2\n" + seq + "\n+\n" + std::string(seq.size(), 'J') + "\n";
+    }
+    auto const p1 = Bgzf(dir, "R1.fq.gz", r1), p2 = Bgzf(dir, "R2.fq.gz", r2);
+    BgzfThreads const setting(3);
+    ThreadedGzIstream is1(p1.c_str()), is2(p2.c_str());
+    ASSERT_EQ(is1.rdbuf()->inflate_threads(), 3u);
+    SeqReaderPE global(is1, is2);
+    std::vector<std::vector<size_t>> taken(4);
+#pragma omp parallel num_threads(4)
+    {
+        SeqReaderPE reader(global);
+        FastxRecord a, b;
+        auto& mine = taken[static_cast<size_t>(omp_get_thread_num())];
+        while (reader(a, b)) {
+            if (a.id.substr(0, a.id.size() - 2) == b.id.substr(0, b.id.size() - 2)) mine.push_back(std::stoul(a.id.substr(1)));
+        }
+    }
+    std::vector<size_t> all;
+    for (auto const& t : taken) all.insert(all.end(), t.begin(), t.end());
+    std::sort(all.begin(), all.end());
+    ASSERT_EQ(all.size(), n);
+    for (size_t i = 0; i < n; i++) ASSERT_EQ(all[i], i);
+}
+
+TEST(ThreadedGzStream, BgzfThreadsFollowTheRunsThreads) {
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(1, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(8, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(16, 2), 2u);
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(32, 2), 4u);
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(128, 2), 4u);
+    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(12, 1), 3u);
+}
+
 TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
     ScratchDir dir;
     auto const path = Gzip(dir, "reads.fq.gz", Fastq(40000, "c"));
@@ -445,6 +585,16 @@ TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
         ASSERT_TRUE(std::getline(is, line));
         EXPECT_EQ(line, "@c0/1");
         if (i % 2) is.close();  // else the destructor closes it
+    }
+    // A BGZF file on several threads: the dispatcher and the workers blocked or busy when it is closed.
+    auto const bgzf = Bgzf(dir, "reads.bgzf.gz", Fastq(40000, "b"));
+    BgzfThreads const setting(4);
+    for (int i = 0; i < 20; i++) {
+        ThreadedGzIstream is(bgzf.c_str());
+        std::string line;
+        ASSERT_TRUE(std::getline(is, line));
+        EXPECT_EQ(line, "@b0/1");
+        if (i % 2) is.close();
     }
 }
 

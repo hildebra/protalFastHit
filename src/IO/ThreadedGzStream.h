@@ -6,10 +6,12 @@
 #include <zstd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <istream>
@@ -50,11 +52,41 @@ namespace protal {
     // (<(zcat ...)) work; only a regular file is checked for BGZF.
     // The buffer is read by one thread at a time (the reader lock serialises it); its inflating
     // thread is stopped by close().
+    //
+    // A BGZF file's blocks are independent deflate streams, so they can inflate on several threads
+    // (SetBgzfThreads, protal: BgzfThreadsFor its -t): one thread then reads the compressed blocks in
+    // order and hands them out in batches of up to 1 MB of output, worker threads inflate the
+    // batches with ISA-L, and the reader takes them in file order, as if one thread had inflated
+    // them: the same bytes, and an error (a corrupt block, a cut file) where the file has it, with
+    // everything before it read. One gzip member cannot be split this way (its deflate blocks are
+    // found only by decoding it from the start, and refer back up to 32 KB): other gzip files
+    // inflate on one thread.
     class ThreadedGzStreambuf : public std::streambuf {
     public:
         static constexpr size_t kBlockSize = size_t{1} << 20;  // inflated bytes per block
-        static constexpr size_t kBlocks = 4;
+        static constexpr size_t kBlocks = 4;                   // with one inflating thread; 2 per worker + 2 with more
         static constexpr uint32_t kInputBuffer = 1u << 17;     // compressed bytes per read()
+        static constexpr unsigned kMaxBgzfThreads = 16;
+
+        // Threads that inflate a BGZF file opened from now on (1: the file's own thread does it; at most
+        // kMaxBgzfThreads). PROTAL_INFLATE_THREADS in the environment overrides it (for comparing runs).
+        static void SetBgzfThreads(unsigned threads) {
+            BgzfThreadsSetting().store(std::clamp(threads, 1u, kMaxBgzfThreads), std::memory_order_relaxed);
+        }
+        static unsigned BgzfThreads() {
+            if (char const* env = std::getenv("PROTAL_INFLATE_THREADS")) {
+                long const n = std::strtol(env, nullptr, 10);
+                if (n >= 1) return static_cast<unsigned>(std::min<long>(n, kMaxBgzfThreads));
+            }
+            return BgzfThreadsSetting().load(std::memory_order_relaxed);
+        }
+        // protal's choice for a run on `threads` threads reading `files` files at once: a worker per 4
+        // alignment threads and file, 1 to 4 per file (a paired-end run on 32 threads: 4 per file, ~4 GB/s
+        // of FASTQ each; one ISA-L thread inflates ~1 GB/s).
+        static unsigned BgzfThreadsFor(size_t threads, size_t files) {
+            size_t const per_file = threads / (4 * std::max<size_t>(files, 1));
+            return static_cast<unsigned>(std::clamp<size_t>(per_file, 1, 4));
+        }
 
         ThreadedGzStreambuf() = default;
         ThreadedGzStreambuf(ThreadedGzStreambuf const&) = delete;
@@ -91,18 +123,36 @@ namespace protal {
                 m_fd = -1;
                 return false;
             }
-            m_blocks.assign(kBlocks, std::vector<char>(kBlockSize));
+            m_opened_bgzf = m_bgzf;
+            m_workers = m_bgzf ? BgzfThreads() : 1;
+            size_t const blocks = m_workers > 1 ? 2 * size_t{m_workers} + 2 : kBlocks;
+            m_blocks.assign(blocks, std::vector<char>(kBlockSize));
+            m_jobs.assign(blocks, Job{});
             m_free.clear();
             m_ready.clear();
-            for (size_t i = 0; i < kBlocks; i++) m_free.push_back(i);
+            m_todo.clear();
+            for (size_t i = 0; i < blocks; i++) m_free.push_back(i);
             m_current = kNone;
             m_stop = false;
             m_done = false;
+            m_failed = false;
             m_error.clear();
+            m_dispatch_error.clear();
             setg(nullptr, nullptr, nullptr);
-            m_thread = std::thread(&ThreadedGzStreambuf::Inflate, this);
+            if (m_workers > 1) {
+                m_thread = std::thread(&ThreadedGzStreambuf::Dispatch, this);
+                for (unsigned w = 0; w < m_workers; w++) m_worker_threads.emplace_back(&ThreadedGzStreambuf::Work, this);
+            } else {
+                m_thread = std::thread(&ThreadedGzStreambuf::Inflate, this);
+            }
             return true;
         }
+
+        // The threads inflating BGZF blocks of the open file (1: the file's own thread).
+        unsigned inflate_threads() const { return m_workers; }
+
+        // Whether the open file began as BGZF (else gzip, zstd or uncompressed, read on one thread).
+        bool opened_as_bgzf() const { return m_opened_bgzf; }
 
         bool is_open() const { return m_fd >= 0; }
 
@@ -117,6 +167,9 @@ namespace protal {
             }
             m_cv.notify_all();
             if (m_thread.joinable()) m_thread.join();
+            for (auto& worker : m_worker_threads) worker.join();
+            m_worker_threads.clear();
+            m_jobs.clear();
             m_inflate.reset();
             if (m_zstd) ZSTD_freeDCtx(m_zstd);
             m_zstd = nullptr;
@@ -179,21 +232,51 @@ namespace protal {
                 m_current = kNone;
                 m_cv.notify_all();
             }
-            m_cv.wait(lock, [this] { return !m_ready.empty() || m_done; });
-            if (m_ready.empty()) {
-                setg(nullptr, nullptr, nullptr);
-                return traits_type::eof();
+            // The blocks in file order: the next one once it is inflated (a worker may finish a later one first).
+            while (!m_failed) {
+                m_cv.wait(lock, [this] { return (!m_ready.empty() && m_jobs[m_ready.front()].complete) || (m_ready.empty() && m_done); });
+                if (m_ready.empty()) {
+                    // The end, or what stopped the dispatcher, after everything before it was read.
+                    if (!m_dispatch_error.empty() && m_error.empty()) m_error = m_dispatch_error;
+                    break;
+                }
+                size_t const index = m_ready.front();
+                m_ready.pop_front();
+                Job const& job = m_jobs[index];
+                if (!job.error.empty()) {
+                    // A corrupt block: what precedes it in the batch is read, then the file ends here.
+                    if (m_error.empty()) m_error = job.error;
+                    m_failed = true;
+                    m_stop = true;
+                    m_cv.notify_all();
+                }
+                if (job.size == 0) {
+                    m_free.push_back(index);
+                    m_cv.notify_all();
+                    continue;
+                }
+                m_current = index;
+                char* data = m_blocks[index].data();
+                setg(data, data, data + job.size);
+                return traits_type::to_int_type(*gptr());
             }
-            auto const [index, size] = m_ready.front();
-            m_ready.pop_front();
-            m_current = index;
-            char* data = m_blocks[index].data();
-            setg(data, data, data + size);
-            return traits_type::to_int_type(*gptr());
+            setg(nullptr, nullptr, nullptr);
+            return traits_type::eof();
         }
 
     private:
         static constexpr size_t kNone = SIZE_MAX;
+
+        // An output block's batch: with several inflating threads, the compressed BGZF blocks to inflate into it.
+        struct Job {
+            std::vector<unsigned char> in;               // whole BGZF blocks, one after the other
+            std::vector<size_t> ends;                    // where each ends in `in`
+            uint64_t offset = 0;                         // the file offset of the first
+            size_t size = 0;                             // inflated bytes in the output block
+            bool complete = false;                       // inflated (or filled): the reader may take it
+            std::string error;                           // the block that could not be inflated, if one
+        };
+
 
         void Inflate() {
             bool end = false;
@@ -212,7 +295,10 @@ namespace protal {
                 end = m_bgzf ? FillBgzf(data, size, error) : FillStream(data, size, error);
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    if (size > 0) m_ready.emplace_back(index, size);
+                    m_jobs[index].size = size;
+                    m_jobs[index].error.clear();
+                    m_jobs[index].complete = true;
+                    if (size > 0) m_ready.push_back(index);
                     else m_free.push_back(index);
                     if (!error.empty() && m_error.empty()) m_error = error;
                 }
@@ -223,6 +309,143 @@ namespace protal {
                 m_done = true;
             }
             m_cv.notify_all();
+        }
+
+        // With several inflating threads (a BGZF file): reads the blocks in order into batches (ReadBgzfJob), one per
+        // free output block, and queues them for the workers (Work) and, in the same order, for the reader. If a gzip
+        // member of another kind follows the BGZF blocks, it is inflated here, as Inflate does, into the next blocks.
+        // What stops the reading (a cut file, a damaged header, a missing end-of-file block) is the reader's error once
+        // it has read every block before it.
+        void Dispatch() {
+            bool end = false;
+            while (!end) {
+                size_t index;
+                {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_cv.wait(lock, [this] { return !m_free.empty() || m_stop; });
+                    if (m_stop) break;
+                    index = m_free.front();
+                    m_free.pop_front();
+                }
+                Job& job = m_jobs[index];  // this thread's until it is queued
+                job.complete = false;
+                job.size = 0;
+                job.error.clear();
+                std::string error;
+                bool const bgzf = m_bgzf;
+                if (bgzf) {
+                    end = ReadBgzfJob(job, error);
+                } else {
+                    size_t size = 0;
+                    end = FillStream(m_blocks[index].data(), size, error);
+                    job.size = size;
+                    job.complete = true;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (bgzf && !job.ends.empty()) {
+                        m_ready.push_back(index);
+                        m_todo.push_back(index);
+                    } else if (!bgzf && job.size > 0) {
+                        m_ready.push_back(index);
+                    } else {
+                        m_free.push_back(index);
+                    }
+                    if (!error.empty() && m_dispatch_error.empty()) m_dispatch_error = error;
+                }
+                m_cv.notify_all();
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_done = true;
+            }
+            m_cv.notify_all();
+        }
+
+        // A worker: inflates queued batches block by block into their output blocks (bgzf::DecompressBlock, ISA-L, a
+        // state per thread), until the dispatcher is done and nothing is queued, or the file is closed. A corrupt
+        // block ends its batch there, with the error and the byte where the block starts.
+        void Work() {
+            while (true) {
+                size_t index;
+                {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_cv.wait(lock, [this] { return !m_todo.empty() || m_done || m_stop; });
+                    if (m_stop || m_todo.empty()) return;
+                    index = m_todo.front();
+                    m_todo.pop_front();
+                }
+                Job& job = m_jobs[index];
+                char* out = m_blocks[index].data();
+                size_t size = 0, begin = 0;
+                uint64_t offset = job.offset;
+                std::string error;
+                for (size_t const end : job.ends) {
+                    size_t n = 0;
+                    if (!bgzf::DecompressBlock(job.in.data() + begin, end - begin, out + size, kBlockSize - size, n, error)) {
+                        error += " at byte " + std::to_string(offset);
+                        break;
+                    }
+                    size += n;
+                    offset += end - begin;
+                    begin = end;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    job.size = size;
+                    job.error = std::move(error);
+                    job.complete = true;
+                }
+                m_cv.notify_all();
+            }
+        }
+
+        // FillBgzf without the inflating: reads whole BGZF blocks into job (job.in, each block's end in job.ends)
+        // while their contents, as their footers give them, leave room for one more block of 64 KB in an output block;
+        // true at the end of the file or on an error (then set). A gzip member of another kind after the blocks
+        // switches the file to FillStream (StartGzip), and false is returned.
+        bool ReadBgzfJob(Job& job, std::string& error) {
+            job.in.clear();
+            job.ends.clear();
+            job.offset = m_offset;
+            size_t out = 0;
+            while (out + bgzf::kMaxBlock <= kBlockSize) {
+                unsigned char* head = m_block_in.data();
+                size_t const got = ReadUpTo(head, bgzf::kHeaderBytes, error);
+                if (!error.empty()) return true;
+                if (got == 0) {
+                    if (!m_last_empty) error = "the BGZF end-of-file block is missing (truncated file?)";
+                    return true;
+                }
+                if (got < bgzf::kHeaderBytes || !bgzf::IsBlockHeader(head)) {
+                    if (got >= 2 && head[0] == 0x1f && head[1] == 0x8b) return !StartGzip(got, error);
+                    error = got < bgzf::kHeaderBytes ? "the file ends inside a BGZF block header (truncated file?)"
+                                                     : "no BGZF block at byte " + std::to_string(m_offset) +
+                                                       " (a damaged block header?)";
+                    return true;
+                }
+                size_t const block_size = bgzf::BlockSize(head);
+                if (block_size < bgzf::kHeaderBytes + bgzf::kFooterBytes) {
+                    error = "an invalid BGZF block size at byte " + std::to_string(m_offset);
+                    return true;
+                }
+                size_t const start = job.in.size();
+                job.in.resize(start + block_size);
+                std::memcpy(job.in.data() + start, head, bgzf::kHeaderBytes);
+                size_t const rest = block_size - bgzf::kHeaderBytes;
+                if (ReadUpTo(job.in.data() + start + bgzf::kHeaderBytes, rest, error) != rest) {
+                    job.in.resize(start);
+                    if (error.empty()) error = "the file ends inside a BGZF block (truncated file?)";
+                    return true;
+                }
+                uint32_t const isize = bgzf::LE32(job.in.data() + start + block_size - 4);
+                job.ends.push_back(job.in.size());
+                m_last_empty = isize == 0;
+                m_members++;
+                m_offset += block_size;
+                out += isize;
+            }
+            return false;
         }
 
         // Reads up to size bytes at the file's current offset; the bytes read (fewer only at its end).
@@ -511,13 +734,25 @@ namespace protal {
         ZSTD_DCtx* m_zstd = nullptr;                     // a zstd file's decompression
         bool m_zstd_in_frame = false;                    // a zstd frame has begun and not ended
         bool m_last_empty = false;                       // the last block read was empty (the EOF marker)
-        std::thread m_thread;
+        static std::atomic<unsigned>& BgzfThreadsSetting() {
+            static std::atomic<unsigned> threads{ 1 };
+            return threads;
+        }
+
+        std::thread m_thread;                            // Inflate, or with several inflating threads Dispatch
+        unsigned m_workers = 1;                          // threads inflating BGZF blocks (1: m_thread does)
+        bool m_opened_bgzf = false;                      // the file began as BGZF
+        std::vector<std::thread> m_worker_threads;       // Work, with several
         std::vector<std::vector<char>> m_blocks;
-        std::deque<size_t> m_free;                       // blocks the inflating thread may fill
-        std::deque<std::pair<size_t, size_t>> m_ready;   // (block, bytes) in file order
+        std::vector<Job> m_jobs;                         // per output block
+        std::deque<size_t> m_free;                       // blocks the inflating thread (dispatcher) may fill
+        std::deque<size_t> m_ready;                      // blocks in file order; the reader takes the first once complete
+        std::deque<size_t> m_todo;                       // batches for the workers
         size_t m_current = kNone;                        // the block the get area points into
-        bool m_stop = false;                             // close() asks the inflating thread to end
-        bool m_done = false;                             // no more blocks will come
+        bool m_stop = false;                             // close() asks the inflating threads to end
+        bool m_done = false;                             // no more blocks will be queued
+        bool m_failed = false;                           // the reader reached a corrupt block: nothing more is read
+        std::string m_dispatch_error;                    // what stopped the dispatcher, the reader's once it gets there
         std::string m_error;
         mutable std::mutex m_mutex;
         std::condition_variable m_cv;

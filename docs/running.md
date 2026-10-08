@@ -115,7 +115,13 @@ a_R2.fq.xz) --prefix a` (give `--prefix`: the pipe's name, `/dev/fd/63`, names n
 file may hold several members, one after the other (`cat a.fq.gz b.fq.gz`, also after BGZF ones),
 and zero bytes of padding; a zstd file several frames (`cat a.fq.zst b.fq.zst`, `pzstd`'s and the
 seekable format's skippable frames, any `zstd --long` window). Each file is decompressed in a
-thread of its own, so the alignment threads only copy reads that are already decompressed.
+thread of its own, so the alignment threads only copy reads that are already decompressed. A BGZF
+file (as `bgzip` and, by default, bcl2fastq write) is inflated on 1 to 4 threads per file (one per 4
+alignment threads and file: 4 per file for a paired-end run on 32 threads), about 1 GB/s of FASTQ
+each; one gzip member cannot be split, so other gzip files, and zstd files, are read on one thread
+(ISA-L inflates about 1 GB/s). `--verbose` says how each file is read. For runs on many threads,
+`bgzip -@ 8 -c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 > reads.bgz.fq.gz`) turns
+a gzip file into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the threads per BGZF file.
 
 A read file that is missing, a directory or not readable stops protal before the index is loaded.
 A sample fails (exit 1, no SAM file) when its reads are not FASTQ or FASTA, when a record is
@@ -209,7 +215,7 @@ alignment. Workflow managers can rely on a non-zero status.
 
 | Option | Default | |
 |---|---|---|
-| `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads): gzip, BGZF or not, with ISA-L at about 1 GB/s of FASTQ, zstd with libzstd; at many threads a paired-end run can still wait for its input. Samples are profiled in parallel, the largest SAM first, each on threads in proportion to its SAM's share of all the samples' bytes (at least one; a single sample on all), with the same results as on one thread. A sample profiled on several threads also has its SAM read by a thread of its own; from 8 threads on, the zstd frames of a `.sam.zst` that protal wrote are decompressed ahead by `-t`/6 more threads (2 to 8) |
+| `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads): gzip with ISA-L at about 1 GB/s of FASTQ, zstd with libzstd, and a BGZF file on 1 to 4 threads (`-t`/4 per file; see [Read files](#read-files)); at many threads a paired-end run of one-member gzip files can still wait for its input. Samples are profiled in parallel, the largest SAM first, each on threads in proportion to its SAM's share of all the samples' bytes (at least one; a single sample on all), with the same results as on one thread. A sample profiled on several threads also has its SAM read by a thread of its own; from 8 threads on, the zstd frames of a `.sam.zst` that protal wrote are decompressed ahead by `-t`/6 more threads (2 to 8) |
 | `--knob` | 0.5 | detection threshold, 0 to 1. A model with a knob curve over the sample's depth uses the curve unless `--knob` is given; models trained with the depth as a feature (the default) have none ([databases.md](databases.md#how-protal-calls-species)). Choose it on data like yours |
 | `--fdr` | off | report each sample's species while their expected share of false calls stays at or below this, for a model with calibrated calls; at r226 it called slightly below the knob curve, so it is off ([databases.md](databases.md#calls-at-a-target-share-of-false-calls)) |
 | `--singleton_congener` | 0 | veto a single-fragment species beside a congener of at least this many fragments when its read looks like the congener's; 0: no rule ([databases.md](databases.md#the-singleton-rule)) |

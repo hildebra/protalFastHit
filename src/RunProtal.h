@@ -710,6 +710,10 @@ namespace protal {
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
+                // A BGZF read file inflates on several threads, 1 to 4 per file by -t (ThreadedGzStream.h); other gzip
+                // files on one each.
+                ThreadedGzStreambuf::SetBgzfThreads(ThreadedGzStreambuf::BgzfThreadsFor(options.GetThreads(), single_file ? 1 : 2));
+
                 // Main Run Call. This is where the reads are read and alignment happens
                 bool truncated = false;
                 bool read_success = true;
@@ -729,9 +733,19 @@ namespace protal {
                     auto const message = is.rdbuf()->read_error_message();
                     return message.empty() ? std::string() : ": " + message;
                 };
+                // With --verbose, how each input is inflated: a BGZF file on several threads, any other on one.
+                auto tell_input = [&](ThreadedGzIstream& is, std::string const& path) {
+                    if (!options.Verbose()) return;
+                    auto const* buf = is.rdbuf();
+                    std::cout << "Input " << path << ": "
+                              << (buf->opened_as_bgzf() ? "BGZF, inflated on " + std::to_string(buf->inflate_threads()) + " thread(s)"
+                                                        : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
+                              << std::endl;
+                };
                 if (IsLongReadType(read_type)) {
                     ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
                     if (cannot_read(is, options.GetFirstFile(index))) continue;
+                    tell_input(is, options.GetFirstFile(index));
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
@@ -794,6 +808,8 @@ namespace protal {
                     ThreadedGzIstream is1 { options.GetFirstFile(index).c_str() };
                     ThreadedGzIstream is2 { options.GetSecondFile(index).c_str() };
                     if (cannot_read(is1, options.GetFirstFile(index)) || cannot_read(is2, options.GetSecondFile(index))) continue;
+                    tell_input(is1, options.GetFirstFile(index));
+                    tell_input(is2, options.GetSecondFile(index));
                     SeqReaderPE reader{ is1, is2, FastaQualityChar(read_type) };
                     Statistics protal_stats;
 
