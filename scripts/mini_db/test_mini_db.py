@@ -228,14 +228,27 @@ class MiniDbTest(unittest.TestCase):
         self.assertNotIn(taxids["s__Mockella beta"], kept)
         self.assertEqual(len(kept), len(taxids) - 1)
         check_reference_map(self, direct)  # reference.map still points at each sequence line
+        # The copy on several processes (reference.fna in pieces, the full reference frame by frame, the gene neighbours
+        # beside them) writes the same files.
+        on_three = os.path.join(self.tmp.name, "db_copied_t3")
+        run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", on_three, "-t", "3")
+        for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp", "gene2geneid.tsv", "gene_neighbours.tsv",
+                  "gene_positions.tsv"):
+            if os.path.isfile(os.path.join(copied, f)):
+                with open(os.path.join(copied, f), "rb") as a, open(os.path.join(on_three, f), "rb") as b:
+                    self.assertEqual(a.read(), b.read(), f"{f}: -t 1 and -t 3 differ")
+        self.assertEqual(full_reference(copied), full_reference(on_three))
+        self.assertFalse(os.path.exists(os.path.join(on_three, ".derive_parts")))
         # The full reference in zstd frames that each begin a record, listed by a seek table (protal --build reads its
-        # frames on several threads): a frame per marker file of a conversion, per gene of a copy.
+        # frames on several threads): a frame per marker file of a conversion, the frames a copy keeps of them.
         if shutil.which("zstd"):
-            for folder in (self.db, copied):
+            for folder in (self.db, copied, on_three):
                 frames = self.zstd_frames(os.path.join(folder, "full_reference.fna.zst"))
                 self.assertGreater(len(frames), 1, folder)
                 self.assertTrue(all(f.startswith(b">") and f.endswith(b"\n") for f in frames if f), folder)
                 self.assertEqual(b"".join(frames), full_reference(folder))
+            self.assertEqual(self.zstd_frames(os.path.join(copied, "full_reference.fna.zst")),
+                             self.zstd_frames(os.path.join(on_three, "full_reference.fna.zst")))
         with self.assertRaises(subprocess.CalledProcessError):
             with open(excluded, "w") as fh:
                 fh.write("s__Nonexistent species\n")

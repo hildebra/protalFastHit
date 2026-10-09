@@ -145,13 +145,21 @@ def genome_contigs(paths, threads, cache=None):
         with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(todo)))) as pool:
             known.update(zip(todo, pool.map(contig_names, todo, chunksize=16)))
         if cache:
-            # One gzip member written at once under the lock: runs side by side (build_gtdb_database.py's reports) add
-            # to the cache without mixing their writes, nor reading one half written.
-            os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
-            text = "".join(f"{path}\t{stamps[path]}\t{' '.join(known[path])}\n" for path in todo if stamps[path])
-            with cache_lock(cache, fcntl.LOCK_EX), open(cache, "ab") as fh:
-                fh.write(gzip.compress(text.encode(), compresslevel=1))
+            add_to_contig_cache(cache, [(path, stamps[path], known[path]) for path in todo if stamps[path]])
     return {p: known[p] for p in paths}
+
+
+def add_to_contig_cache(cache, rows):
+    """Adds [(FASTA path, "size:mtime_ns", [contig names])] to genome_contigs' cache. One gzip member written at once
+    under the lock: runs side by side (build_gtdb_database.py's reports, and its genome table, which takes the names in
+    the pass that counts the genomes' lengths) add to the cache without mixing their writes, nor reading one half
+    written."""
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
+    text = "".join(f"{path}\t{stamp}\t{' '.join(names)}\n" for path, stamp, names in rows)
+    with cache_lock(cache, fcntl.LOCK_EX), open(cache, "ab") as fh:
+        fh.write(gzip.compress(text.encode(), compresslevel=1))
 
 
 @contextlib.contextmanager

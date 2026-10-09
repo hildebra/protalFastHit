@@ -25,6 +25,7 @@
 #include <optional>
 #include "RunStatus.h"
 #include "BuildInfo.h"
+#include "CpuLog.h"
 
 #include <atomic>
 #include <iomanip>
@@ -704,6 +705,8 @@ namespace protal {
                     if (sample_done) sample_done(index);
                     continue;
                 }
+                // Its row of misc/cpu.tsv when this iteration ends, however it ends (CpuLog.h).
+                CpuLog::Stage cpu_stage("aligning " + options.GetSampleId(index));
 
                 // AnchorFinder. A long read is seeded from all its k-mers: stopping at -s seeds, as for a
                 // short read, would leave most of it unseeded.
@@ -3269,6 +3272,12 @@ namespace protal {
             }
         }
 
+        // misc/cpu.tsv: each stage's wall-clock and CPU seconds from here on (CpuLog.h), the start-up's first.
+        if (run_alignment || run_profiling) {
+            CpuLog::Get().Open(std::filesystem::path(options.GetMiscOutputDir()) / "cpu.tsv", options.GetThreads());
+            CpuLog::Get().Mark("start-up");
+        }
+
         /*
          *  READ ALIGNMENT SECTION
          */
@@ -3320,6 +3329,7 @@ namespace protal {
             auto& filter = loaded->value();
             bm_profiling.Stop();
             bm_profiling.PrintResults();
+            CpuLog::Get().Mark("profiling");
             protal::build::PrintMemory("profiling");
 
             // Per taxon: its statistics in every sample it has reads in, one file per taxon (misc/<taxon>.statistics.tsv),
@@ -3368,6 +3378,7 @@ namespace protal {
             }
         }
 
+        CpuLog::Get().Mark("rest of the run");  // a row only if the table was opened
         bm_total.Stop();
         bm_total.PrintResults();
         teardown.Arm();

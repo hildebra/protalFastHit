@@ -351,14 +351,16 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(self.text("out", "logs", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         # The training database is built alone; then the finished database in the background at the idle scheduling
         # class, and both collections' simulations, what to stream chosen from the room on the samples' disk (here all
-        # of it is room: nothing streamed). The models go into the database before the reports.
+        # of it is room: nothing streamed). The reports of what the models' errors rest on start right after the training,
+        # beside the parity check, the composition, the wait for the finished database and --add_model (before 2026-10-09
+        # they waited for "Ready").
         self.assertLess(first.stdout.index("built training_db in"),
                         first.stdout.index("building protal_db meanwhile, in the background at the idle scheduling class"))
         self.assertLess(first.stdout.index("built training_db in"),
                         first.stdout.index("simulating the training data and the independent test set in the background"))
         self.assertRegex(first.stdout, r"room on \S+scratch: [\d.]+ [MG]B free; besides the reads the run needs")
         self.assertRegex(first.stdout, r"--profile-blocks 0: none of the \d+ simulations streamed")
-        self.assertLess(first.stdout.index("Ready protal database"), first.stdout.index("Reports of what the models' errors"))
+        self.assertLess(first.stdout.index("trained in"), first.stdout.index("Reports of what the models' errors"))
         self.assertTrue(self.text("out", "logs", "protal_runs_training.log").startswith("==> all <==\n"),
                         "the protal run's log copied off the scratch disk")
         simulation = self.text("out", "logs", "training_data_simulation.log")
@@ -822,7 +824,8 @@ class GtdbBuildTest(unittest.TestCase):
             for suffix in (".taxa.tsv.gz", ".fragments.tsv.gz"):
                 with gzip.open(ancestry + suffix, "rt") as fh:
                     self.assertTrue(fh.readline().startswith("sample\t"), suffix)
-            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", "logs", f"ancestry_sites_{t}.log")))
+            # One run for every read type, one log (the references read once).
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", "logs", "ancestry_sites.log")))
         console = self.text("scenarios", "console.log")
         self.assertIn("the ancestry sites of the errors' reads (model_logs/ancestry_sites", console)
         self.assertIn("full_reference.fna", console)  # kept for the report, then removed

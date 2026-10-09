@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """ancestry_sites.py on a synthetic genus: a strain's read sides with its species at the sites where the species
 differs from its nearest congener and its private differences fall at the species' polymorphic sites; a novel
-congener's read sides with the congener at half of the sites, at fixed ones.
+congener's read sides with the congener at half of the sites, at fixed ones. A run on several SAM folders writes at
+each prefix what a run on that folder alone writes, byte for byte.
 
     python3 -m unittest scripts/test_ancestry_sites.py
 """
+import contextlib
 import csv
 import gzip
+import io
 import os
 import sys
 import tempfile
@@ -176,6 +179,176 @@ class AncestrySites(unittest.TestCase):
         self.assertAlmostEqual(an.auc([1, 1, 0, 0], [0.9, 0.8, 0.2, 0.1]), 1.0)
         self.assertAlmostEqual(an.auc([1, 0, 1, 0], [0.5, 0.5, 0.5, 0.5]), 0.5)
         self.assertAlmostEqual(an.auc([1, 1, 0, 0], [0.1, 0.2, 0.8, 0.9]), 0.0)
+
+
+OUTPUTS = (".fragments.tsv.gz", ".taxa.tsv.gz", ".auc.tsv", ".summary.txt")
+X = "s__G X (not in the database)"  # the held-out congener the false positives' reads come from
+
+
+def genome(t, k):
+    """The accession of species t's k-th genome (k = 0: its representative)."""
+    return f"GCA_{t:06d}{k:03d}.1"
+
+
+def sam_line(qname, header, lo, seq, xs, xe, xg="", flag=0, mapq=60):
+    """A record of error_reads.py's SAMs: 150 bases at gene position lo + 1, its source species, reasons and genome."""
+    return (f"{qname}\t{flag}\t{header}\t{lo + 1}\t{mapq}\t150M\t*\t0\t0\t{seq}\t*\t" + (f"xg:Z:{xg}\t" if xg else "") +
+            f"xs:Z:{xs}\txe:Z:{xe}\n")
+
+
+def run(args):
+    """ancestry_sites.main on args: its stdout."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        an.main(args)
+    return out.getvalue()
+
+
+class SeveralFolders(unittest.TestCase):
+    """One run on two SAM folders (two read types' error reads) against a run on each alone: genus 10 has species 11-15
+    in the training database and 16 held out (the false positives' reads come from it), more than --max-congeners 2,
+    so that each folder's congeners are drawn at random; genus 20 has species 21 alone, without a congener. The
+    folders' taxa overlap (11 in both, as its own taxon in one and as a congener in the other), their samples share a
+    name and a record, and the full reference holds up to three other genomes' copies per species-gene (one twice),
+    more than --max-alleles 2 for some."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(23)
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = cls.tmp.name
+        base = {g: "".join(rng.choice(list(LETTERS), size=600)) for g in (5, 6)}
+        differences = {11: 0, 12: 15, 13: 30, 14: 45, 15: 60, 16: 20}
+        copy = {(t, g): mutate(base[g], rng.choice(600, n, replace=False).tolist(), rng)
+                for t, n in differences.items() for g in (5, 6)}
+        copy[(21, 5)] = "".join(rng.choice(list(LETTERS), size=600))
+        kept = [key for key in copy if key[0] != 16]
+        with open(os.path.join(d, "reference.fna"), "w") as fh:
+            for t, g in kept:
+                fh.write(f">{t}_{g}\n{copy[(t, g)]}\n")
+        # The species' other genomes: k = 1, 2, 3 per species-gene, 12_5's third the same as its first.
+        allele = {}
+        for (t, g), n in (((11, 5), 3), ((11, 6), 2), ((12, 5), 3), ((13, 6), 1), ((21, 5), 2)):
+            for k in range(1, n + 1):
+                allele[(t, g, k)] = mutate(copy[(t, g)], rng.choice(600, 4 * k, replace=False).tolist(), rng)
+        allele[(12, 5, 3)] = allele[(12, 5, 1)]
+        with open(os.path.join(d, "full_reference.fna"), "w") as fh:
+            for t, g in kept:
+                fh.write(f">{t}_{g} {genome(t, 0)}\n{copy[(t, g)]}\n")
+            for k in (1, 2, 3):
+                for (t, g, j), seq in allele.items():
+                    if j == k:
+                        fh.write(f">{t}_{g} {genome(t, k)}\n{seq}\n")
+        with open(os.path.join(d, "internal_taxonomy.dmp"), "w") as fh:
+            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n")
+            fh.write("1\t1\t\td__Bacteria\tdomain\t0\t\n10\t1\t\tg__G\tgenus\t5\t\n20\t1\t\tg__H\tgenus\t5\t\n")
+            for t in (11, 12, 13, 14, 15):
+                fh.write(f"{t}\t10\t\ts__G T{t}\tspecies\t6\t{genome(t, 0)}\n")
+            fh.write(f"16\t10\t\ts__G X\tspecies\t6\t{genome(16, 0)}\n21\t20\t\ts__H T21\tspecies\t6\t{genome(21, 0)}\n")
+        with open(os.path.join(d, "heldout_species.txt"), "w") as fh:
+            fh.write("s__G X\tspecies\n")
+
+        def own(t, g, lo, k=0):
+            """A strain's read of species t: genome k's copy (the representative's for 0) with two private differences."""
+            seq = allele[(t, g, k)] if k else copy[(t, g)]
+            return mutate(seq, [lo + 17, lo + 101], rng)[lo:lo + 150]
+
+        def novel(g, lo):
+            return copy[(16, g)][lo:lo + 150]
+
+        shared = sam_line("r1", "11_5", 100, own(11, 5, 100, 2), "s__G T11", "FN:11", genome(11, 2))
+        cls.sams = {"pe": os.path.join(d, "error_reads", "pe"), "se": os.path.join(d, "error_reads", "se")}
+        files = {
+            ("pe", "s1.FN.sam"): [shared, sam_line("r2", "11_6", 200, own(11, 6, 200), "s__G T11", "FN:11", genome(11, 9))],
+            ("pe", "s1.FP.sam"): [shared, sam_line("r3", "11_5", 100, novel(5, 100), X, "FP:11"),
+                                  sam_line("r4", "13_6", 300, novel(6, 300), X, "FP:13"),
+                                  sam_line("r5", "11_5", 100, novel(5, 100), X, "FP:11", flag=256)],
+            ("pe", "s2.FN.sam"): [sam_line("r6", "14_5", 50, own(14, 5, 50), "s__G T14", "FN:14", genome(14, 1))],
+            ("pe", "s2.FP.sam"): [sam_line("r7", "14_5", 50, novel(5, 50), X, "FP:14")],
+            ("se", "s1.FN.sam"): [shared, sam_line("r8", "12_5", 120, own(12, 5, 120, 1), "s__G T12", "FN:12", genome(12, 1)),
+                                  sam_line("r9", "15_6", 400, own(15, 6, 400), "s__G T15", "FN:15", genome(15, 1))],
+            ("se", "s1.FP.sam"): [sam_line("r10", "12_5", 120, novel(5, 120), X, "FP:12"),
+                                  sam_line("r11", "11_6", 200, novel(6, 200), X, "FP:11"),
+                                  sam_line("r12", "21_5", 10, mutate(copy[(21, 5)], [30, 60, 90], rng)[10:160], X, "FP:21")],
+            ("se", "s3.FP.sam"): [sam_line("r13", "12_5", 300, novel(5, 300), X, "FP:12", mapq=2),
+                                  sam_line("r14", "12_5", 300, novel(5, 300), X, "FP:12")],
+        }
+        for (kind, name), lines in files.items():
+            point = os.path.join(cls.sams[kind], "training", "point")
+            os.makedirs(point, exist_ok=True)
+            with open(os.path.join(point, name), "w") as fh:
+                fh.write("@HD\tVN:1.6\n" + "".join(lines))
+        cls.common = ["--reference", os.path.join(d, "reference.fna"), "--taxonomy", os.path.join(d, "internal_taxonomy.dmp"),
+                      "--heldout", os.path.join(d, "heldout_species.txt"), "--max-congeners", "2"]
+        cls.full = os.path.join(d, "full_reference.fna")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def compare(self, name, extra):
+        """Runs on each folder alone and on both (one after the other, and side by side): the same bytes at each
+        prefix, and each folder's lines on stdout after a line naming its prefix."""
+        d = os.path.join(self.tmp.name, name)
+        kinds = ("pe", "se")
+        alone = {}
+        for kind in kinds:
+            alone[kind] = run(["--sams", self.sams[kind], "--out", os.path.join(d, "alone", kind)] + self.common + extra)
+            self.assertNotIn("==", alone[kind])
+        for how, threads in (("serial", "1"), ("forked", "2")):
+            prefix = {kind: os.path.join(d, how, kind) for kind in kinds}
+            both = run(["--sams"] + [self.sams[k] for k in kinds] + ["--out"] + [prefix[k] for k in kinds] +
+                       ["--threads", threads] + self.common + extra)
+            starts = []
+            for kind in kinds:
+                for suffix in OUTPUTS:
+                    with open(os.path.join(d, "alone", kind) + suffix, "rb") as fh:
+                        expected = fh.read()
+                    with open(prefix[kind] + suffix, "rb") as fh:
+                        self.assertEqual(fh.read(), expected, f"{name}, {how}: {kind}{suffix}")
+                block = f"== {prefix[kind]} (the SAMs of {self.sams[kind]}) ==\n" + alone[kind]
+                self.assertIn(block, both, f"{name}, {how}: {kind}'s lines")
+                starts.append(both.index(block))
+            self.assertEqual(starts, sorted(starts))
+        # Not vacuous: every counted record of each folder (the record both folders hold counted in each, the secondary
+        # and the low-MAPQ ones in neither), both kinds of taxa, and the taxon without a congener in the second.
+        self.assertEqual([r["qname"] for r in rows_of(os.path.join(d, "alone", "pe.fragments.tsv.gz"))],
+                         ["r1", "r2", "r3", "r4", "r6", "r7"])
+        self.assertEqual([r["qname"] for r in rows_of(os.path.join(d, "alone", "se.fragments.tsv.gz"))],
+                         ["r1", "r8", "r9", "r10", "r11", "r12", "r14"])
+        self.assertIn("taxa without a congener in the training database: 0", alone["pe"])
+        self.assertIn("taxa without a congener in the training database: 1", alone["se"])
+        self.assertIn("N >=  3:", alone["pe"])
+        return alone
+
+    def test_congener_sites_only(self):
+        alone = self.compare("congeners", [])
+        self.assertNotIn("alleles:", alone["pe"])
+
+    def test_with_the_full_reference(self):
+        alone = self.compare("alleles", ["--full-reference", self.full, "--max-alleles", "2"])
+        # The folder's own taxon-genes only: 11_5 (its first two of three), 11_6 (2), 13_6 (1) and 14_5 (none), not
+        # 12_5 (the other folder's, a congener's copy here).
+        self.assertIn("alleles: 5 copies of 4 taxon-genes", alone["pe"])
+        self.assertIn("own source genome's allele was left out: FN own 1", alone["pe"])
+        # 11_5 (2 of 3), 11_6 (2), 12_5 (2 of 3), 21_5 (2); 15_6 none.
+        self.assertIn("alleles: 8 copies of 5 taxon-genes", alone["se"])
+        self.assertIn("own source genome's allele was left out: FN own 2", alone["se"])
+
+    def test_with_a_share_of_the_genomes(self):
+        self.compare("share", ["--full-reference", self.full, "--allele-genome-share", "0.5"])
+
+    def test_sams_and_out_differ_in_count(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as raised:
+            an.main(["--sams", self.sams["pe"], self.sams["se"], "--out", os.path.join(self.tmp.name, "one")] + self.common)
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--sams and --out take a value each per SAM folder, paired in order: 2 SAM folders, 1 output prefix",
+                      err.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "one.summary.txt")))
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            an.main(["--sams", self.sams["pe"], self.sams["se"], "--out", "x", "./x"] + self.common)
+        self.assertIn("--out names a prefix twice: ./x, x", err.getvalue())
 
 
 if __name__ == "__main__":

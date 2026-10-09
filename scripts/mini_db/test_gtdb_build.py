@@ -360,6 +360,111 @@ class BuildFunctionsTest(unittest.TestCase):
             self.assertEqual(fh.read(), f"GA\td__B;s__A\t{plain}\t17\nGB\td__B;s__B\t{zipped}\t34\n")
         self.assertEqual(build.with_lengths(copy, os.path.join(root, "other.tsv"), 2), copy)
 
+    def test_genome_facts_in_one_pass_and_the_cache(self):
+        # One read of a genome gives its length and its contigs' names, as genome_length and trace_relatives.contig_names
+        # count them; the cache keeps both by path, size and modification time, and the reports' contig cache gets the
+        # names, so that neither a rebuild nor the reports read the genome again.
+        import trace_relatives
+        root = os.path.join(self.tmp.name, "facts")
+        os.makedirs(root)
+        plain, zipped = os.path.join(root, "a.fna"), os.path.join(root, "b.fna.gz")
+        text = ">a one 123 ACGT\r\nACGTNNacgt\r\n\r\nRYK-*\n>second\nAC GT\n>\nACGT\n"  # 10 + 3 + 4 + 4 letters
+        with open(plain, "w", newline="") as fh:
+            fh.write(text)
+        with gzip.open(zipped, "wt", newline="") as fh:
+            fh.write("ACGT\n" + text)  # bases before the first header count too
+        self.assertEqual(build.genome_facts(plain), (21, ["a", "second"]))
+        self.assertEqual(build.genome_facts(zipped), (25, ["a", "second"]))
+        self.assertEqual(build.genome_facts(plain)[1], [n for n in trace_relatives.contig_names(plain) if n])
+        cache_path, contigs = os.path.join(root, "cache.tsv.gz"), os.path.join(root, "contigs.tsv.gz")
+        rows = [["GA", "d__B;s__A", plain], ["GB", "d__B;s__B", zipped]]
+        build.write_genome_table(rows, os.path.join(root, "genomes.tsv"), 2, build.GenomeCache(cache_path), contigs)
+        with open(os.path.join(root, "genomes.tsv")) as fh:
+            self.assertEqual(fh.read(), f"GA\td__B;s__A\t{plain}\t21\nGB\td__B;s__B\t{zipped}\t25\n")
+        self.assertEqual(trace_relatives.genome_contigs([plain, zipped], 1, contigs),
+                         {plain: ["a", "second"], zipped: ["a", "second"]})
+        # The same file (size and mtime): its facts from the cache, whatever it holds now; a changed one is read again.
+        stat = os.stat(plain)
+        with open(plain, "w", newline="") as fh:
+            fh.write(">x\n" + "G" * (stat.st_size - 4) + "\n")
+        os.utime(plain, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        cache = build.GenomeCache(cache_path)
+        build.write_genome_table(rows[:1], os.path.join(root, "again.tsv"), 1, cache)
+        with open(os.path.join(root, "again.tsv")) as fh:
+            self.assertEqual(fh.read(), f"GA\td__B;s__A\t{plain}\t21\n")
+        os.utime(plain, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        build.write_genome_table(rows[:1], os.path.join(root, "changed.tsv"), 1, cache)
+        with open(os.path.join(root, "changed.tsv")) as fh:
+            self.assertEqual(fh.read(), f"GA\td__B;s__A\t{plain}\t{stat.st_size - 4}\n")
+        # Saved merged: both genomes, the changed one with its new facts.
+        self.assertEqual(build.GenomeCache(cache_path).get(plain, build.file_stamps([plain])[plain]),
+                         (stat.st_size - 4, ["x"]))
+        self.assertEqual(build.GenomeCache(cache_path).get(zipped, build.file_stamps([zipped])[zipped]), (25, ["a", "second"]))
+
+    def test_genome_rows_walk_each_folder_once(self):
+        # The genome FASTAs of the release's species, by accession: each folder walked once; an accession with several
+        # files takes the first folder's, there the first suffix's (.fna before .fna.gz ...); hidden files left out.
+        gtdb = os.path.join(self.tmp.name, "walk")
+        reps = os.path.join(gtdb, "genomic_files_reps", "gtdb_genomes_reps_r1", "GCF", "000")
+        extra = os.path.join(self.tmp.name, "walk_extra")
+        for folder in (reps, extra, os.path.join(extra, ".hidden")):
+            os.makedirs(folder)
+        with open(os.path.join(gtdb, "bac120_taxonomy_r1.tsv"), "w") as fh:
+            for i in range(1, 5):
+                fh.write(f"RS_GCF_00000000{i}.1\td__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G s{i}\n")
+        for name in ("GCF_000000001.1_genomic.fna.gz", "GCF_000000001.1_genomic.fna", "GCF_000000002.1.fa.gz",
+                     "GCF_000000009.1.fna", ".GCF_000000003.1.fna"):
+            open(os.path.join(reps, name), "w").close()
+        for name in ("GCF_000000002.1.fna", "GCF_000000003.1.fasta", "GCF_000000004.1.txt"):
+            open(os.path.join(extra, name), "w").close()
+        open(os.path.join(extra, ".hidden", "GCF_000000004.1.fna"), "w").close()
+        rows = build.genome_rows(gtdb, "1", [extra])
+        self.assertEqual([(r[0], os.path.relpath(r[2], self.tmp.name)) for r in rows], [
+            ("GCF_000000001.1", os.path.join("walk", "genomic_files_reps", "gtdb_genomes_reps_r1", "GCF", "000",
+                                             "GCF_000000001.1_genomic.fna")),
+            ("GCF_000000002.1", os.path.join("walk", "genomic_files_reps", "gtdb_genomes_reps_r1", "GCF", "000",
+                                             "GCF_000000002.1.fa.gz")),
+            ("GCF_000000003.1", os.path.join("walk_extra", "GCF_000000003.1.fasta"))])
+        self.assertEqual(rows[0][1], "d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G s1")
+
+    def test_the_bases_planned_before_the_in_silico_strains(self):
+        # The genome store's room is estimated before the in-silico strains are made (in the background): the table's
+        # genomes, and the share given of the one-genome species' genomes again.
+        table = os.path.join(self.tmp.name, "planned.tsv")
+        with open(table, "w") as fh:
+            fh.write("A1\td__B;s__A\t/a1.fna\t100\nA2\td__B;s__A\t/a2.fna\t120\nB1\td__B;s__B\t/b1.fna\t1000\n"
+                     "C1\td__B;s__C\t/c1.fna\t50\n")
+        self.assertEqual(build.planned_bases(table, 1.0), 100 + 120 + 1000 + 50 + 1000 + 50)
+        self.assertEqual(build.planned_bases(table, 0.5), 100 + 120 + 1000 + 50 + 525)
+        self.assertEqual(build.planned_bases(table, 0), build.genome_bases(table))
+
+    def test_cpu_logs(self):
+        # The run's CPU use goes to logs only: a row per command that ended (Job.cpu_row: its wall and CPU seconds and the
+        # cores it kept busy), and the cores the run kept busy over time (CpuTimeline), with the commands running.
+        logs = os.path.join(self.tmp.name, "cpu")
+        os.makedirs(logs)
+        saved = build.Job.cpu_log
+        build.Job.cpu_log = os.path.join(logs, "cpu_jobs.tsv")
+        self.addCleanup(setattr, build.Job, "cpu_log", saved)
+        timeline = build.CpuTimeline(os.path.join(logs, "cpu_timeline.tsv"), every=0.2)
+        timeline.start()
+        # Busy until it has used 0.6 s of CPU, however loaded the machine is.
+        busy = [sys.executable, "-c", "import time\nwhile time.process_time() < 0.6: pass"]
+        job = build.run(busy, os.path.join(logs, "busy.log"), label="keeping a core busy")
+        timeline.stop()
+        self.assertGreaterEqual(job.cpu, 0.6)
+        rows = list(csv.DictReader(open(build.Job.cpu_log), delimiter="\t"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["label"], rows[0]["log"], rows[0]["exit"], rows[0]["priority"]),
+                         ("keeping a core busy", "busy.log", "0", "nice 0"))
+        self.assertGreater(float(rows[0]["cores_busy"]), 0)
+        self.assertLessEqual(float(rows[0]["cores_busy"]), 1.2)  # one thread
+        timeline_rows = list(csv.DictReader(open(os.path.join(logs, "cpu_timeline.tsv")), delimiter="\t"))
+        self.assertGreaterEqual(len(timeline_rows), 3)
+        self.assertTrue(all(r["source"] in ("cgroup", "node") for r in timeline_rows))
+        self.assertTrue(any("keeping a core busy" in r["running"] for r in timeline_rows))
+        self.assertTrue(any(float(r["cores_busy"]) > 0 for r in timeline_rows))
+
 
 class CladeHoldoutTest(unittest.TestCase):
     """The species build_gtdb_database.py leaves out of the training database (whole clades, then single species),

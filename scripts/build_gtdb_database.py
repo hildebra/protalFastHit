@@ -125,6 +125,7 @@ import collections
 import concurrent.futures
 import contextlib
 import csv
+import fcntl
 import glob
 import gzip
 import hashlib
@@ -138,6 +139,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -160,12 +162,16 @@ DATABASE, REPORTS, LOGS, WORK = "protal_db", "model_logs", "logs", "work"
 # What protal and the simulator are built from (protal_commit.cmake marks a build of uncommitted changes to them).
 BUILD_SOURCES = ("src", "lib", "CMakeLists.txt", "protal_config.h.in", "protal_commit.cmake")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
+GENOME_CACHE = "genome_cache.tsv.gz"  # --genome-cache auto: in the --inputs folder (else OUTDIR/work), across builds
+CONTIG_CACHE = "genome_contigs.tsv.gz"  # the reports' contig names (trace_relatives.genome_contigs), on the samples' disk
+ANCESTRY_REFERENCE = "ancestry_reference.fna"  # the training database's reference.fna, a hard link kept for the report
+PROTAL_CPU = "protal_cpu.tsv"  # collect_training_data.py's CPU table of its protal runs, in its -o folder
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
 import lineages  # noqa: E402
 from gtdb_to_protal_db import (allele_genome, clear_build_outputs, full_reference_path, marker_files, normalize_accession,  # noqa: E402
                                read_gene_ids, read_gene_list, read_representatives,
-                               remove_full_reference as remove_full_reference_files)
+                               REFERENCE_WRITTEN, remove_full_reference as remove_full_reference_files)
 import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
@@ -192,14 +198,16 @@ def stream_spec(text):
 
 STARTED = time.time()
 CONSOLE = {"file": None, "early": []}  # OUTDIR/console.log, and the lines said before it was opened
+SAYING = threading.RLock()  # say(): one line at a time from the main thread and the reports' thread
 
 
 def say(message):
     """Prints a message, its first line headed by the time and how long the run has taken (and adds it to
     console.log)."""
     line = f"[{time.strftime('%H:%M:%S')} +{clock(time.time() - STARTED)}] {message}"
-    print(line, flush=True)
-    console_log(line)
+    with SAYING:  # the reports' thread says its lines beside the main thread's (main(): reports beside the packaging)
+        print(line, flush=True)
+        console_log(line)
 
 
 def console_log(text):
@@ -225,11 +233,12 @@ def open_console_log(path):
 class Steps:
     """The steps of the run on the console: "3/8 what it does (its log)" when one starts, and indented lines
     of how it went (done())."""
-    total, current = 0, 0
+    total, current, title = 0, 0, "starting"
 
     @classmethod
     def start(cls, text):
         cls.current += 1
+        cls.title = text.split(" (")[0].split(":")[0]  # for CpuTimeline's rows
         say(f"{cls.current}/{cls.total} {text}")
 
     @staticmethod
@@ -276,6 +285,105 @@ def tree_size(path):
             except OSError:
                 pass
     return total
+
+
+class CpuTimeline(threading.Thread):
+    """logs/cpu_timeline.tsv: every `every` seconds, how many cores the run kept busy since the last row (its own and its
+    commands' CPU time: the CPU usage of the cgroup the script runs in, which a SLURM job's commands share with it; on a
+    machine without one, the whole node's busy time from /proc/stat, said in the source column), the node's cores
+    waiting for I/O (/proc/stat: the network file system's waits show there), the cores the run may use, the step on the
+    console and the commands running. Written as it goes, not said on the console; what shows where the run leaves cores
+    idle (docs/claude/2026-10-09-build-parallelism)."""
+
+    def __init__(self, path, every=15.0):
+        super().__init__(name="cpu timeline", daemon=True)
+        self.path, self.every, self.stopping = path, every, threading.Event()
+        self.usage_file, self.scale = self.cgroup_usage()
+
+    @staticmethod
+    def cgroup_usage():
+        """(the file of this process's cgroup CPU usage, seconds per its unit), or (None, None) without one: cgroup v2's
+        cpu.stat (usage_usec), else v1's cpuacct.usage (ns)."""
+        try:
+            with open("/proc/self/cgroup") as fh:
+                lines = [line.rstrip("\n").split(":", 2) for line in fh]
+        except OSError:
+            return None, None
+        for _, controllers, path in lines:
+            if controllers == "":
+                candidate = os.path.join("/sys/fs/cgroup", path.lstrip("/"), "cpu.stat")
+                if os.path.isfile(candidate):
+                    return candidate, 1e-6
+            elif "cpuacct" in controllers.split(","):
+                for mount in ("cpu,cpuacct", "cpuacct,cpu", "cpuacct"):
+                    candidate = os.path.join("/sys/fs/cgroup", mount, path.lstrip("/"), "cpuacct.usage")
+                    if os.path.isfile(candidate):
+                        return candidate, 1e-9
+        return None, None
+
+    def cgroup_seconds(self):
+        try:
+            with open(self.usage_file) as fh:
+                text = fh.read()
+            if self.usage_file.endswith("cpu.stat"):
+                value = next(int(line.split()[1]) for line in text.splitlines() if line.startswith("usage_usec"))
+            else:
+                value = int(text.split()[0])
+            return value * self.scale
+        except (OSError, ValueError, StopIteration):
+            return None
+
+    @staticmethod
+    def node_seconds():
+        """(busy, I/O wait) seconds of the whole node since boot, from /proc/stat's cpu line."""
+        try:
+            with open("/proc/stat") as fh:
+                fields = [int(v) for v in fh.readline().split()[1:]]
+            tick = os.sysconf("SC_CLK_TCK")
+            busy = fields[0] + fields[1] + fields[2] + sum(fields[5:8])  # user, nice, system, irq, softirq, steal
+            return busy / tick, fields[4] / tick
+        except (OSError, ValueError, IndexError):
+            return None, None
+
+    def sample(self):
+        own = self.cgroup_seconds() if self.usage_file else None
+        busy, iowait = self.node_seconds()
+        return time.time(), own, busy, iowait
+
+    def run(self):
+        try:
+            allowed = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            allowed = os.cpu_count() or 0
+        before = self.sample()
+        try:
+            new = not os.path.isfile(self.path)
+            with open(self.path, "a") as fh:
+                if new:
+                    fh.write("time\telapsed_s\tcores_busy\tsource\tiowait_cores\tallowed_cores\tstep\trunning\n")
+                while True:
+                    stopped = self.stopping.wait(self.every)
+                    now = self.sample()
+                    span = now[0] - before[0]
+                    if span > 0:
+                        cgroup = now[1] is not None and before[1] is not None
+                        busy = (now[1] - before[1]) if cgroup else \
+                            (now[2] - before[2]) if now[2] is not None and before[2] is not None else float("nan")
+                        iowait = (now[3] - before[3]) if now[3] is not None and before[3] is not None else float("nan")
+                        running = "; ".join(f"{job.label}{' (paused)' if job.paused else ''}" for job in list(Job.running))
+                        fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now[0]))}\t{now[0] - STARTED:.0f}\t"
+                                 f"{busy / span:.2f}\t{'cgroup' if cgroup else 'node'}\t{iowait / span:.2f}\t{allowed}\t"
+                                 f"{Steps.current}/{Steps.total} {Steps.title}\t{running}\n")
+                        fh.flush()
+                    before = now
+                    if stopped:
+                        break
+        except OSError:
+            pass
+
+    def stop(self):
+        self.stopping.set()
+        self.join(timeout=30)
 
 
 class Scratch:
@@ -329,6 +437,20 @@ def genome_bases(table):
     return sum(bases.values())
 
 
+def planned_bases(table, share):
+    """The bases of the genomes to simulate from before the in-silico strains are made (insilico_strains.py, in the
+    background): the table's genomes, and `share` of the one-genome species' genomes again (a strain is about as long as
+    its representative)."""
+    bases, by_species = {}, collections.defaultdict(list)
+    with open(table) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 4 and fields[3].isdigit():
+                bases[fields[2]] = int(fields[3])
+                by_species[fields[1].split(";")[-1]].append(int(fields[3]))
+    return sum(bases.values()) + max(0.0, min(1.0, share)) * sum(g[0] for g in by_species.values() if len(g) == 1)
+
+
 def simulation_sizes(collections_):
     """[(largest sample, reads)] in bytes of every simulation of the collections' commands, as the collector estimates
     them (collect_training_data.simulation_bytes): what --stream-above compares, and what each writes unless streamed."""
@@ -363,7 +485,8 @@ def disk_needs(samples_root, genome_store, sim_table, databases, hosts, sizes, k
     needs = {}
     if genome_store and on_disk(genome_store, samples_root):
         held = tree_size(genome_store) if os.path.isdir(genome_store) else 0
-        needs["genome store"] = max(0.0, STORE_BYTES_PER_BASE * genome_bases(sim_table) - held)
+        bases = genome_bases(sim_table) if isinstance(sim_table, str) else sim_table  # or the bases planned
+        needs["genome store"] = max(0.0, STORE_BYTES_PER_BASE * bases - held)
     for name, folder in databases:
         reference = os.path.join(folder, "reference.fna")
         if on_disk(folder, samples_root) and os.path.isfile(reference):
@@ -392,6 +515,7 @@ class Job:
     running = []
     progress_every = 0
     scratch = None  # a Scratch with --scratch
+    cpu_log = None  # logs/cpu_jobs.tsv: a row per command that ended (cpu_row), not said on the console
 
     def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False):
         """nice: the command's niceness, more than the script's (the simulations, beside the profiling); idle: the idle
@@ -402,6 +526,8 @@ class Job:
         self.label = label or os.path.basename(log).removesuffix(".log")
         self.seconds = None  # set when it has ended
         self.peak = None  # the most memory it, or a command it ran, took, in bytes; set when it has ended
+        self.cpu = None  # its CPU seconds (user and system), and those of the commands it ran and waited for; when ended
+        self.nice, self.idle = nice, idle
         self.paused = False
         self.fh = open(log, "a" if append else "w")
         if append:
@@ -422,12 +548,14 @@ class Job:
             if pid:
                 self.process.returncode = os.waitstatus_to_exitcode(status)
                 self.peak = usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+                self.cpu = usage.ru_utime + usage.ru_stime
         return self.process.returncode
 
     def ended(self, rc):
         self.fh.close()
         Job.running.remove(self)
         self.seconds = time.time() - self.started
+        self.cpu_row(rc)
         if rc:
             stop(f"Command failed ({rc}); see {self.log}: {' '.join(self.command)}")
         if self.on_success:
@@ -455,6 +583,23 @@ class Job:
                     say("scratch " + Job.scratch.text())
                 told = now
         return self
+
+    def cpu_row(self, rc):
+        """Adds the ended command's row to Job.cpu_log (with its header if new): when it started and how long it ran (s),
+        its CPU seconds and the cores it kept busy on average (CPU / wall), its priority, peak memory, exit code, label and
+        log. What tells a step that leaves cores idle from one that fills them (docs/claude/2026-10-09-build-parallelism)."""
+        if not Job.cpu_log or self.cpu is None:
+            return
+        try:
+            new = not os.path.isfile(Job.cpu_log)
+            with open(Job.cpu_log, "a") as fh:
+                if new:
+                    fh.write("started_s\twall_s\tcpu_s\tcores_busy\tpriority\tpeak_gb\texit\tlabel\tlog\n")
+                fh.write(f"{self.started - STARTED:.0f}\t{self.seconds:.1f}\t{self.cpu:.1f}\t"
+                         f"{self.cpu / max(self.seconds, 1e-9):.2f}\t{'idle' if self.idle else f'nice {self.nice}'}\t"
+                         f"{(self.peak or 0) / 1e9:.2f}\t{rc}\t{self.label}\t{os.path.basename(self.log)}\n")
+        except OSError:
+            pass
 
     def status(self):
         """How the command is doing: how long it has run, the memory it and the commands it started take, and
@@ -535,12 +680,31 @@ def run(command, log, on_success=None, label=None, append=False):
     return Job(command, log, on_success, label, append=append).finish()
 
 
+def log_says(path, text):
+    """Whether the log at `path` holds `text` (the line of a step that the run waits for)."""
+    try:
+        with open(path, errors="replace") as fh:
+            return text in fh.read()
+    except OSError:
+        return False
+
+
 def make_genome_table(gtdb, release, output, extra_dirs=(), species=None, threads=1):
-    """The simulator's genome table: every genome FASTA of a GTDB species found in the release (and in
-    extra_dirs), or only those of the species in the set `species`. A fourth column holds each genome's length
-    (genome_length): without it simulate_metagenomes reads every genome of the table for its length, once per
-    run, that is once per design point (~20 ms per genome; 20,000 genomes at r226). Lengths of an earlier table
-    at `output` are kept for the FASTAs not changed since it was written."""
+    """The simulator's genome table (genome_rows, with the lengths: write_genome_table) at `output`. -> its genomes."""
+    rows = genome_rows(gtdb, release, extra_dirs, species)
+    write_genome_table(rows, output, threads)
+    return len(rows)
+
+
+GENOME_SUFFIXES = (".fna", ".fna.gz", ".fa", ".fa.gz", ".fasta", ".fasta.gz")  # by precedence for one accession
+
+
+def genome_rows(gtdb, release, extra_dirs=(), species=None):
+    """The rows [accession, lineage, FASTA path] of every genome FASTA of a GTDB species found in the release (and in
+    extra_dirs), or only those of the species in the set `species`, by accession. Each folder is walked once (six
+    recursive globs walked a network file system's 50,000 genomes six times); an accession with several files takes the
+    first folder's, there the first suffix's of GENOME_SUFFIXES, then the first path in sorted order. Hidden files and
+    folders are left out, as glob leaves them out."""
     taxonomy = {}
     for domain in ("bac120", "ar53"):
         for suffix in (".tsv", ".tsv.gz"):
@@ -557,54 +721,159 @@ def make_genome_table(gtdb, release, output, extra_dirs=(), species=None, thread
                 break
     genome_dirs = [os.path.join(gtdb, "genomic_files_all", f"gtdb_genomes_all_r{release}"),
                    os.path.join(gtdb, "genomic_files_reps", f"gtdb_genomes_reps_r{release}"), *extra_dirs]
-    paths = {}
-    for root in genome_dirs:
+    paths = {}  # accession -> (folder's rank, suffix's rank, path)
+    for rank, root in enumerate(genome_dirs):
         if not os.path.isdir(root):
             continue
-        for pattern in ("**/*.fna", "**/*.fna.gz", "**/*.fa", "**/*.fa.gz", "**/*.fasta", "**/*.fasta.gz"):
-            for path in glob.iglob(os.path.join(root, pattern), recursive=True):
-                m = ACCESSION.search(os.path.basename(path))
+        found = {}
+        for folder, subfolders, files in os.walk(root, followlinks=True):
+            subfolders[:] = sorted(d for d in subfolders if not d.startswith("."))
+            for name in files:
+                suffix = next((i for i, s in enumerate(GENOME_SUFFIXES) if name.endswith(s)), None)
+                m = ACCESSION.search(name) if suffix is not None and not name.startswith(".") else None
                 if m and m.group(1) in taxonomy:
-                    paths.setdefault(m.group(1), path)
+                    candidate = (suffix, os.path.join(folder, name))
+                    if m.group(1) not in found or candidate < found[m.group(1)]:
+                        found[m.group(1)] = candidate
+        for accession, (suffix, path) in found.items():
+            paths.setdefault(accession, (rank, suffix, path))
     if not paths:
         sys.exit("No extracted whole genome FASTAs found under genomic_files_all/gtdb_genomes_all_r" + release +
                  " or genomic_files_reps/gtdb_genomes_reps_r" + release + "; extract GTDB genome files or pass --genome-table")
-    rows = [[a, taxonomy[a], os.path.abspath(paths[a])] for a in sorted(paths)]
-    write_genome_table(rows, output, threads)
-    return len(paths)
+    return [[a, taxonomy[a], os.path.abspath(paths[a][2])] for a in sorted(paths)]
 
 
-def write_genome_table(rows, output, threads):
-    """Writes a genome table, rows [accession, taxonomy, FASTA path, ...], with each genome's length
-    (genome_length) as the fourth column; lengths of an earlier table at `output` are kept for the FASTAs not
-    changed since it was written."""
-    known = {}  # path -> length, from an earlier table, for FASTAs older than it
-    if os.path.isfile(output):
-        written = os.path.getmtime(output)
-        with open(output) as fh:
-            for fields in (line.rstrip("\n").split("\t") for line in fh):
-                if len(fields) >= 4 and fields[3].isdigit() and os.path.isfile(fields[2]) and \
-                        os.path.getmtime(fields[2]) < written:
-                    known[fields[2]] = int(fields[3])
-    todo = sorted({r[2] for r in rows if r[2] not in known})
-    if todo:  # in processes: counting the letters holds the GIL
+class GenomeCache:
+    """What a build reads every genome FASTA for, kept per input folder across builds (--genome-cache): its length
+    (genome_length) and its contigs' names (the reports trace the reads' sources through them), by the FASTA's path, size
+    and modification time. At r226 the pass over the ~50,000 genomes on the network file system took 8-22 min per build
+    (docs/claude/2026-10-09-build-parallelism); a rebuild from the same --inputs reads none of them again. A gzipped
+    TSV: path, size, mtime_ns, length, contig names (space-separated). Builds side by side merge what they add (save,
+    under a lock)."""
+
+    def __init__(self, path):
+        self.path, self.facts, self.added = path, {}, {}
+        if path and os.path.isfile(path):
+            try:
+                with self.lock(fcntl.LOCK_SH), gzip.open(path, "rt") as fh:
+                    for line in fh:
+                        f = line.rstrip("\n").split("\t")
+                        if len(f) == 5 and f[3].isdigit():
+                            self.facts[f[0]] = (f"{f[1]}:{f[2]}", int(f[3]), f[4].split(" ") if f[4] else [])
+            except (OSError, EOFError, ValueError):  # a damaged cache is read again from the genomes
+                self.facts = {}
+
+    @contextlib.contextmanager
+    def lock(self, how):
+        with open(self.path + ".lock", "a") as fh:
+            fcntl.flock(fh, how)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+    def get(self, path, stamp):
+        """(length, contig names) of the FASTA at `path` if its stamp ("size:mtime_ns") is the one cached, else None."""
+        fact = self.facts.get(path)
+        return fact[1:] if fact and stamp and fact[0] == stamp else None
+
+    def add(self, path, stamp, length, names):
+        if stamp:
+            self.facts[path] = self.added[path] = (stamp, length, names)
+
+    def save(self):
+        """Writes the cache with what this run added, merged with what the file holds now (another build may have added
+        to it meanwhile)."""
+        if not self.path or not self.added:
+            return
+        os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
+        with self.lock(fcntl.LOCK_EX):
+            merged = GenomeCache.__new__(GenomeCache)
+            merged.path, merged.facts, merged.added = self.path, {}, {}
+            if os.path.isfile(self.path):
+                try:
+                    with gzip.open(self.path, "rt") as fh:
+                        for line in fh:
+                            f = line.rstrip("\n").split("\t")
+                            if len(f) == 5 and f[3].isdigit():
+                                merged.facts[f[0]] = (f"{f[1]}:{f[2]}", int(f[3]), f[4].split(" ") if f[4] else [])
+                except (OSError, EOFError, ValueError):
+                    merged.facts = {}
+            merged.facts.update(self.added)
+            with gzip.open(self.path + ".partial", "wt", compresslevel=1) as fh:
+                for path in sorted(merged.facts):
+                    stamp, length, names = merged.facts[path]
+                    size, mtime = stamp.split(":")
+                    fh.write(f"{path}\t{size}\t{mtime}\t{length}\t{' '.join(names)}\n")
+            os.replace(self.path + ".partial", self.path)
+        self.added = {}
+
+
+def file_stamps(paths, threads=1):
+    """{path: "size:mtime_ns"} ("" for a file that cannot be read): the stamp genome_contigs' cache and GenomeCache key a
+    FASTA by, taken on threads (one stat is a round trip to a network file system)."""
+    def stamp(path):
+        try:
+            st = os.stat(path)
+            return f"{st.st_size}:{st.st_mtime_ns}"
+        except OSError:
+            return ""
+    paths = sorted(set(paths))
+    with concurrent.futures.ThreadPoolExecutor(max(1, min(32, threads, len(paths) or 1))) as pool:
+        return dict(zip(paths, pool.map(stamp, paths)))
+
+
+def write_genome_table(rows, output, threads, cache=None, contigs=None):
+    """Writes a genome table, rows [accession, taxonomy, FASTA path, ...], with each genome's length (genome_length) as
+    the fourth column. A genome's length (and its contigs' names) comes from the GenomeCache `cache` when its FASTA is
+    the one cached, else from one read of the FASTA (in processes: counting the letters holds the GIL), which also gives
+    the names for the cache; a row that has its length (a given table's fourth column) keeps it. With `contigs` (the
+    reports' contig cache, trace_relatives.genome_contigs), the names known are added to it, so that the reports read no
+    genome again."""
+    stamps = file_stamps((r[2] for r in rows), threads)
+    facts = {}  # path -> (length, names or None)
+    for r in rows:
+        if r[2] in facts:
+            continue
+        cached = cache.get(r[2], stamps[r[2]]) if cache else None
+        if cached:
+            facts[r[2]] = cached
+        elif len(r) >= 4 and r[3].isdigit():
+            facts[r[2]] = (int(r[3]), None)
+    todo = sorted({r[2] for r in rows if r[2] not in facts})
+    if todo:
         with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(todo)))) as pool:
-            known.update(zip(todo, pool.map(genome_length, todo, chunksize=8)))
+            for path, fact in zip(todo, pool.map(genome_facts, todo, chunksize=8)):
+                facts[path] = fact
+                if cache:
+                    cache.add(path, stamps[path], *fact)
+    if cache:
+        cache.save()
     with open(output + ".partial", "w") as fh:
-        fh.writelines("\t".join(r[:3] + [str(known[r[2]])]) + "\n" for r in rows)
+        fh.writelines("\t".join(r[:3] + [str(facts[r[2]][0])]) + "\n" for r in rows)
     os.replace(output + ".partial", output)
+    if contigs:
+        import trace_relatives
+        trace_relatives.add_to_contig_cache(contigs, [(path, stamps[path], names) for path, (_, names) in sorted(facts.items())
+                                                      if names is not None and stamps[path]])
 
 
-def with_lengths(table, output, threads):
+def table_rows(table):
+    """The rows of a genome table that name a genome (its header and comments left out): [accession, lineage, FASTA
+    path, ...]."""
+    with open(table) as fh:
+        return [line.rstrip("\n").split("\t") for line in fh if line.strip() and not line.startswith("#")]
+
+
+def with_lengths(table, output, threads, cache=None, contigs=None):
     """The genome table to simulate from: `table` itself if every row has a genome length, else a copy with them
     (write_genome_table) at `output`. Rows that are no genome (a header, comments) are left out of the copy;
     the simulator reads a table of four columns without a header."""
-    with open(table) as fh:
-        rows = [line.rstrip("\n").split("\t") for line in fh if line.strip() and not line.startswith("#")]
+    rows = table_rows(table)
     genomes = [r for r in rows if len(r) >= 3 and os.path.isfile(r[2])]
     if len(genomes) == len(rows) and all(len(r) >= 4 and r[3].isdigit() for r in rows):
         return table
-    write_genome_table(genomes, output, threads)
+    write_genome_table(genomes, output, threads, cache, contigs)
     return output
 
 
@@ -614,12 +883,34 @@ NON_LETTERS = bytes(b for b in range(256) if not (65 <= b <= 90 or 97 <= b <= 12
 def genome_length(path):
     """A genome's length as simulate_metagenomes counts it (read_genome_length): the letters of the lines that
     do not start with '>', of the gzip-decompressed file if its name ends in .gz."""
+    return genome_facts(path)[0]
+
+
+def genome_facts(path):
+    """(length, contig names) of a genome FASTA, in one read: its length as genome_length counts it, and the first word
+    of each header line (its contigs, which name the simulated reads; trace_relatives.contig_names)."""
     with open(path, "rb") as fh:
         data = fh.read()
     if path.endswith(".gz"):
         data = gzip.decompress(data)
-    letters = len(data.translate(None, NON_LETTERS))
-    return letters - sum(len(h.translate(None, NON_LETTERS)) for h in re.findall(rb"^>[^\n]*", data, re.M))
+    letters, names = len(data.translate(None, NON_LETTERS)), []
+
+    def next_header(after):  # the start of the first header line at or after `after` (a line's start), -1 for none
+        if data.startswith(b">", after):
+            return after
+        i = data.find(b"\n>", after)
+        return i + 1 if i >= 0 else -1
+
+    at = next_header(0)
+    while at >= 0:
+        end = data.find(b"\n", at)
+        header = data[at:end] if end >= 0 else data[at:]
+        letters -= len(header.translate(None, NON_LETTERS))
+        words = header[1:].split(None, 1)
+        if words:
+            names.append(words[0].decode(errors="replace"))
+        at = next_header(end + 1) if end >= 0 else -1
+    return letters, names
 
 
 def summarize_genome_table(path, reps, insilico_to_come=False):
@@ -1050,12 +1341,17 @@ def reports(trace, units, prefixes, training, test, training_db, logs, steps, th
         if told:
             say(f"    the reads of the models' errors: {'; '.join(told.values())}")
         return
-    share = max(1, threads // len(tasks))
+    # Each report on all the threads: they differ in work (r226 v19, 16 threads each: pe 186 s, se 150 s, pb and ont
+    # ~80 s), and a report that ends leaves its cores to the others, as a split by an estimate would not. Their memory
+    # is split (error_reads.py keeps its workers within its share).
+    share = max(1, threads)
     error_runs = sum(1 for task in tasks if task[3])
     budget = error_reads_script.memory_budget()
     memory = ["--memory", f"{budget / error_runs / 1e9:.3f}"] if error_runs and budget != float("inf") else []
+    # The ancestry report's genes (training_db's reference.fna, packed by its build) unpacked meanwhile, if not kept.
+    unpacking = start_unpack(training_db, protal, work, threads, steps) if sams and protal and work else None
     say(f"Reports of what the models' errors rest on ({', '.join(os.path.basename(t[2]) for t in tasks)}), side by side, "
-        f"{share} thread{'s' if share > 1 else ''} each")
+        f"on the {share} thread{'s' if share > 1 else ''}")
     if contig_cache and (trace or any(kind in ("pe", "se") for kind in scopes)):
         fastas = []
         for collection in (training, test):
@@ -1105,29 +1401,54 @@ def reports(trace, units, prefixes, training, test, training_db, logs, steps, th
     say(f"    reported in {clock(time.time() - began)}")
     done = [what for what, p, _, out, _ in running if out and not p.returncode]
     if sams and done and protal and taxonomy and work:
-        ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, steps)
+        ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, steps, unpacking)
+    elif unpacking:
+        unpacking.kill()
+        unpacking.wait()
+        shutil.rmtree(os.path.join(work, "ancestry_files"), ignore_errors=True)
 
 
-def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, threads, steps):
-    """ancestry_sites.py on each read type's error-read SAMs (model_logs/error_reads/<kind>), side by side:
-    model_logs/ancestry_sites/<kind>.{summary.txt,auc.tsv,taxa.tsv.gz,fragments.tsv.gz} and logs/ancestry_sites_<kind>.log.
-    The training database's genes come from its reference.fna if that is still beside database.protal, else from
-    protal --unpack_db into work/ancestry_files (removed afterwards); the species' other genomes from its full
-    reference if it was kept (keep_full). A failure is reported, and does not stop the build."""
+def kept_reference(training_db):
+    """The training database's reference.fna where it is still there: the hard link the run keeps for the ancestry
+    report (ANCESTRY_REFERENCE), or the file beside database.protal (a database built with --no_bundle); None if packed."""
+    return next((p for p in (os.path.join(training_db, ANCESTRY_REFERENCE), os.path.join(training_db, "reference.fna"),
+                             os.path.join(training_db, "reference.fna.zst")) if os.path.isfile(p)), None)
+
+
+def start_unpack(training_db, protal, work, threads, steps):
+    """protal --unpack_db of the training database into work/ancestry_files, for the ancestry report's genes, in the
+    background (its Popen; logs/ancestry_unpack.log), or None when its reference.fna is kept (kept_reference)."""
+    if kept_reference(training_db):
+        return None
+    unpacked = os.path.join(work, "ancestry_files")
+    shutil.rmtree(unpacked, ignore_errors=True)
+    fh = open(os.path.join(steps, "ancestry_unpack.log"), "w")
+    command = [protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir", unpacked,
+               "-t", str(threads)]
+    fh.write(" ".join(command) + "\n")
+    fh.flush()
+    process = subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT)
+    fh.close()  # the child holds its own descriptor
+    return process
+
+
+def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, threads, steps, unpacking=None):
+    """ancestry_sites.py on every read type's error-read SAMs (model_logs/error_reads/<kind>) in one run, which reads the
+    references once for all of them and analyses the read types side by side on `threads` (each read type's outputs as
+    a run of its own would write them): model_logs/ancestry_sites/<kind>.{summary.txt,auc.tsv,taxa.tsv.gz,fragments.tsv.gz}
+    and logs/ancestry_sites.log. The training database's genes come from its reference.fna if that is still there
+    (kept_reference), else from protal --unpack_db into work/ancestry_files (removed afterwards; `unpacking`, started by
+    start_unpack, or now); the species' other genomes from its full reference if it was kept (keep_full). A failure is
+    reported, and does not stop the build."""
     began = time.time()
-    reference = next((p for p in (os.path.join(training_db, "reference.fna"), os.path.join(training_db, "reference.fna.zst"))
-                      if os.path.isfile(p)), None)
+    reference = kept_reference(training_db)
     unpacked = None
     if not reference:
         unpacked = os.path.join(work, "ancestry_files")
-        shutil.rmtree(unpacked, ignore_errors=True)
         log = os.path.join(steps, "ancestry_unpack.log")
-        with open(log, "w") as fh:
-            command = [protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir", unpacked,
-                       "-t", str(threads)]
-            fh.write(" ".join(command) + "\n")
-            fh.flush()
-            code = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+        if unpacking is None:
+            unpacking = start_unpack(training_db, protal, work, threads, steps)
+        code = unpacking.wait()
         if code or not os.path.isfile(os.path.join(unpacked, "reference.fna")):
             say(f"    the ancestry sites of the errors' reads: unpacking {os.path.basename(training_db)} failed ({code}; "
                 f"see {log}); the build went on")
@@ -1137,29 +1458,32 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
     full = full_reference_path(training_db)
     out_dir = os.path.join(logs, "ancestry_sites")
     os.makedirs(out_dir, exist_ok=True)
-    running, told = [], []
+    told = {}
+    with_sams = []
     for kind in kinds:
-        if not glob.glob(os.path.join(logs, "error_reads", kind, "*", "*", "*.sam*")):
-            told.append(f"{kind}: no SAMs")  # no errors, or none with a read
-            continue
-        command = [sys.executable, ANCESTRY, "--sams", os.path.join(logs, "error_reads", kind), "--reference", reference,
-                   "--taxonomy", taxonomy, "--out", os.path.join(out_dir, kind)]
+        if glob.glob(os.path.join(logs, "error_reads", kind, "*", "*", "*.sam*")):
+            with_sams.append(kind)
+        else:
+            told[kind] = f"{kind}: no SAMs"  # no errors, or none with a read
+    if with_sams:
+        command = [sys.executable, ANCESTRY, "--sams", *(os.path.join(logs, "error_reads", kind) for kind in with_sams),
+                   "--out", *(os.path.join(out_dir, kind) for kind in with_sams), "--threads", str(max(1, threads)),
+                   "--reference", reference, "--taxonomy", taxonomy]
         command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
         command += ["--full-reference", full] if full else []
         command += ["--allele-genome-share", f"{ALLELE_SHARE:g}"] if full and ALLELE_SHARE < 1 else []
-        log = os.path.join(steps, f"ancestry_sites_{kind}.log")
-        fh = open(log, "w")
-        fh.write(" ".join(command) + "\n")
-        fh.flush()
-        running.append((kind, subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT), log, fh))
-    for kind, p, log, fh in running:
-        p.wait()
-        fh.close()
-        told.append(f"{kind}: failed ({p.returncode}; see {log})" if p.returncode
-                    else f"{kind}: {ancestry_summary(os.path.join(out_dir, kind + '.auc.tsv'))}")
+        log = os.path.join(steps, "ancestry_sites.log")
+        with open(log, "w") as fh:
+            fh.write(" ".join(command) + "\n")
+            fh.flush()
+            code = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+        for kind in with_sams:
+            told[kind] = (f"{kind}: failed ({code}; see {log})" if code
+                          else f"{kind}: {ancestry_summary(os.path.join(out_dir, kind + '.auc.tsv'))}")
     if unpacked:
         shutil.rmtree(unpacked, ignore_errors=True)
-    say(f"    the ancestry sites of the errors' reads (model_logs/ancestry_sites, logs/ancestry_sites_<read type>.log; "
+    told = [told[kind] for kind in kinds]
+    say(f"    the ancestry sites of the errors' reads (model_logs/ancestry_sites, logs/ancestry_sites.log; "
         + (f"the species' alleles from {os.path.basename(full)}" if full else "the congener sites only, no full reference")
         + f"): {'; '.join(told)}; in {clock(time.time() - began)}")
 
@@ -1281,6 +1605,9 @@ def share_archive(outdir, folders, threads=1, insilico_table=None):
                 concatenate_logs(logs, path, lambda p: os.path.relpath(p, points))
                 gathered.append((path, f"{LOGS}/simulations_{which}.log"))
                 simulator_logs += len(logs)
+            cpu = os.path.join(folder, PROTAL_CPU)  # where the build did not copy it to logs/ (a stopped collection)
+            if os.path.isfile(cpu) and not os.path.isfile(os.path.join(outdir, LOGS, f"protal_cpu_{which}.tsv")):
+                gathered.append((cpu, f"{LOGS}/protal_cpu_{which}.tsv"))
             if not os.path.isfile(os.path.join(outdir, LOGS, f"protal_runs_{which}.log")):
                 profile_all = os.path.join(folder, "profile_all")
                 runs = sorted(glob.glob(os.path.join(profile_all, "**", "protal.log"), recursive=True),
@@ -1654,21 +1981,21 @@ def split_allele_genomes(table, reps, share, output):
     alleles from them), so that no simulated strain is its species' own allele. Without the representatives known
     (reps None) every genome is judged. Writes the kept rows to `output` in their order; -> (the table, rows removed).
     `table` itself, unchanged, if none is removed."""
-    kept, removed = [], 0
     with open(table) as fh:
-        for line in fh:
-            fields = line.rstrip("\n").split("\t")
-            accession = normalize_accession(fields[0]) if len(fields) >= 3 and fields[0] else ""
-            if accession and (reps is None or accession not in reps) and allele_genome(accession, share):
-                removed += 1
-                continue
-            kept.append(line)
-    if not removed:
+        lines = fh.readlines()
+    kept = [line for line in lines if not is_allele_genome(line.rstrip("\n").split("\t"), reps, share)]
+    if len(kept) == len(lines):
         return table, 0
     with open(output + ".partial", "w") as fh:
         fh.writelines(kept)
     os.replace(output + ".partial", output)
-    return output, removed
+    return output, len(lines) - len(kept)
+
+
+def is_allele_genome(fields, reps, share):
+    """Whether a genome table's row (its fields) is a genome that gives strain alleles (split_allele_genomes)."""
+    accession = normalize_accession(fields[0]) if len(fields) >= 3 and fields[0] else ""
+    return bool(accession) and (reps is None or accession not in reps) and allele_genome(accession, share)
 
 
 def stop_jobs():
@@ -1701,11 +2028,15 @@ class Stages:
         os.makedirs(folder, exist_ok=True)
 
     def done(self, name, key):
+        return self.stored(name) == json.loads(json.dumps(key))
+
+    def stored(self, name):
+        """The key a stage was marked with, None if it was not."""
         try:
             with open(os.path.join(self.folder, name + ".json")) as fh:
-                return json.load(fh) == json.loads(json.dumps(key))
+                return json.load(fh)
         except (OSError, ValueError):
-            return False
+            return None
 
     def mark(self, name, key):
         path = os.path.join(self.folder, name + ".json")
@@ -1832,8 +2163,11 @@ def build_check(command, name, source=SOURCE):
 
 def check_tools(args, read_types):
     """What the run needs later, checked before it starts: a missing tool, or protal or the simulator of an older
-    source, would otherwise stop it after the conversion, the builds or the collection."""
+    source, would otherwise stop it after the conversion, the builds or the collection. The trainer's imports (a few
+    seconds from an environment on a network file system) are checked beside the binaries."""
     problems, notes = [], []
+    importing = subprocess.Popen([sys.executable, "-c", "import joblib, numpy, pandas, sklearn"], stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True)
 
     def executable(command, what, hint):
         if shutil.which(command) or (os.path.isfile(command) and os.access(command, os.X_OK)):
@@ -1863,9 +2197,9 @@ def check_tools(args, read_types):
                             f"--pbsim-models nor pbsim3's data folder (next to {args.pbsim}): install pbsim3 (e.g. "
                             "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim-models, or leave "
                             f"{kind} out of --read-types")
-    imports = subprocess.run([sys.executable, "-c", "import joblib, numpy, pandas, sklearn"], capture_output=True, text=True)
-    if imports.returncode:
-        problems.append(f"{sys.executable} cannot import what the trainer needs ({imports.stderr.strip().splitlines()[-1]}): "
+    _, imports_said = importing.communicate()
+    if importing.returncode:
+        problems.append(f"{sys.executable} cannot import what the trainer needs ({(imports_said.strip().splitlines() or ['?'])[-1]}): "
                         "install scikit-learn, joblib, numpy and pandas (envs/protal-db-build.yaml), or run this "
                         "script with a Python that has them")
     if problems:
@@ -1889,6 +2223,12 @@ def main():
     p.add_argument("--genome-table", help="optional simulator table: accession, taxonomy, whole genome FASTA path "
                                           "(and genome length; without, the run writes a copy with the lengths, "
                                           "OUTDIR/work/genomes.tsv)")
+    p.add_argument("--genome-cache", default="auto", metavar="FILE",
+                   help="each genome FASTA's length and contig names, by its path, size and modification time, kept "
+                        "across builds, so that a rebuild reads none of the genomes for them again (at r226 one pass over "
+                        "~50,000 genomes on a network file system took 8-22 min). auto (the default): "
+                        f"INPUTS/{GENOME_CACHE} with --inputs (where the folder is writable), else OUTDIR/work/{GENOME_CACHE}; "
+                        "none: read every genome")
     p.add_argument("--extra-genomes", action="append", default=[],
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
                         "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
@@ -2250,14 +2590,15 @@ def main():
                         "simulations, until the others' fit; the run stops before its builds if even streaming all "
                         "would not fit. A number: that many GB (0: none)")
     p.add_argument("--profile-block-max", type=float, default=200.0,
-                   help="with --profile-blocks: the most GB of reads one protal run takes (the files' size, a streamed "
-                        "simulation's estimate), at least one design point's: the streamed simulations whose communities "
-                        "are there share runs up to it, and a failed run costs at most that much profiling (default "
-                        "200; 0: no limit)")
-    p.add_argument("--profile-ahead", action="store_true",
-                   help="protal --profile_ahead in the collections' protal runs: each sample profiled while the next is "
-                        "aligned, on a quarter of the threads, where the profiling stage leaves cores idle (runs of a few "
-                        "deep samples); off by default until measured on a cluster node")
+                   help="with --profile-blocks: the most GB of written reads one protal run takes (the files' size), at "
+                        "least one design point's, so that a failed run costs at most that much profiling (default 200; "
+                        "0: no limit). The streamed simulations whose communities are there share one run whatever their "
+                        "size (until 2026-10-09 up to this cap): their reads are on no disk")
+    p.add_argument("--profile-ahead", action=argparse.BooleanOptionalAction, default=True,
+                   help="protal --profile_ahead in the collections' protal runs (the default; --no-profile-ahead: not): "
+                        "each sample profiled while the next is aligned, on a quarter of the threads, so that a run's "
+                        "profiling stage after its last alignment shrinks to what the worker had not started (at r226 v19 "
+                        "the six runs' profiling stages took 15.5 min after their alignment; the profiles are the same)")
     p.add_argument("--genome-store", default="auto",
                    help="simulate_metagenomes's genome store for both collections (collect_training_data.py "
                         "--genome_store): each genome simulated is read and parsed from its FASTA once, written there "
@@ -2328,8 +2669,10 @@ def main():
     if selected and not any(r["type"] in read_types for name in selected for r in scenario_defs[name]["reads"]):
         p.error(f"--scenarios {args.scenarios}: none of their read types is among --read-types {args.read_types}")
     hosted = [name for name in selected if scenario_defs[name]["host_share"] > 0]
-    check_tools(args, read_types)
-    args.versions_at_start = tool_versions(args)  # build_metadata.tsv: what the run starts with (versions_at_end)
+    with concurrent.futures.ThreadPoolExecutor(1) as beside:  # the versions read while the tools are checked
+        versions = beside.submit(tool_versions, args)
+        check_tools(args, read_types)
+        args.versions_at_start = versions.result()  # build_metadata.tsv: what the run starts with (versions_at_end)
     state = {}
     if args.inputs:
         if args.gtdb:
@@ -2379,6 +2722,15 @@ def main():
     db, logs, steps, work = (os.path.join(args.outdir, f) for f in (DATABASE, REPORTS, LOGS, WORK))
     for folder in (db, logs, steps, work):
         os.makedirs(folder, exist_ok=True)
+    # The run's CPU use, in logs only (not on the console): each command's CPU time and the cores it kept busy
+    # (cpu_jobs.tsv, Job.cpu_row), and how many cores the run kept busy over time (cpu_timeline.tsv, CpuTimeline); the
+    # collections add their protal runs' (protal_cpu_<collection>.tsv). A rerun starts them anew.
+    for name in ("cpu_jobs.tsv", "cpu_timeline.tsv"):
+        with contextlib.suppress(OSError):
+            os.remove(os.path.join(steps, name))
+    Job.cpu_log = os.path.join(steps, "cpu_jobs.tsv")
+    timeline = CpuTimeline(os.path.join(steps, "cpu_timeline.tsv"))
+    timeline.start()
 
     def step_log(name):
         return os.path.join(steps, name)
@@ -2417,72 +2769,67 @@ def main():
         markers = sorted({m for m, _ in marker_files(args.gtdb, "genomic_files_reps", "reps", release)})
         if markers:
             read_gene_list(args.genes, {m: i + 1 for i, m in enumerate(markers)})
-    genome_table = args.genome_table or os.path.join(work, "genomes.tsv")
-    if not args.genome_table:
-        pool = None
-        if args.simulate_species:
-            with open(args.simulate_species) as fh:
-                pool = {n if n.startswith("s__") else "s__" + n
-                        for n in (line.rstrip("\n").split("\t")[0].strip() for line in fh) if n and not n.startswith("#")}
-        make_genome_table(args.gtdb, release, genome_table, args.extra_genomes, pool, args.threads)
-    elif args.extra_genomes or args.simulate_species:
-        sys.exit("--extra-genomes and --simulate-species shape the genome table this script makes; "
-                 "apply them to --genome-table instead")
-    else:  # with the genomes' lengths, if it has none: the simulator would read every genome for them
-        genome_table = with_lengths(args.genome_table, os.path.join(work, "genomes.tsv"), args.threads)
-    reps = read_representatives(args.gtdb, release)
-    # The genomes that give strain alleles are no strains to simulate (split_allele_genomes); the representatives stay.
-    allele_split = ""
-    if args.strain_alleles > 0 and args.allele_genome_share > 0:
-        genome_table, removed = split_allele_genomes(genome_table, reps, args.allele_genome_share, os.path.join(work, "genomes.tsv"))
-        allele_split = (f"; {removed} genomes left to the strain alleles, not simulated (--allele-genome-share "
-                        f"{args.allele_genome_share:g})")
-    # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
-    summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
-    if allele_split:
-        summary.append(allele_split[2:])
-    with open(os.path.join(logs, "genome_table.txt"), "w") as fh:
-        fh.write("\n".join(summary) + "\n")
-    Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}{allele_split}")
-    if warning:
-        say(warning)
-
-    # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages).
+    # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages). The gene neighbours have
+    # a stage of their own (they depend on the genome table, the conversion does not), so that the release can be
+    # converted before the genome table is made.
     stages = Stages(os.path.join(work, "stages"))
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
-                   "placeholders": not args.no_placeholder_models,
-                   "gene_neighbours": None if args.no_gene_neighbours else [content_hash(GENE_NEIGHBOURS), content_hash(genome_table)]}
-    final_key = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level, "alleles": ALLELE_ARGS}
-    final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
+                   "placeholders": not args.no_placeholder_models}
+    final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level, "alleles": ALLELE_ARGS}
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(work, "internal_taxonomy.dmp")
     gene_table = os.path.join(work, "gene2geneid.tsv")  # the markers' gene ids, for --genes and the ranking
+    neighbours_key = None  # set once the genome table is there
 
-    def convert(into):
-        """The converted files of the release in `into`, with the models of the read types but pe as
-        placeholders (protal warns when it loads one), packed by --build like model_pe.xml. Says how long it
-        took."""
+    def start_convert(into):
+        """The converter into `into`, in the background (its Job)."""
         # With --scratch, the converter spools the marker genes on the node's disk (~5 GB compressed at r226).
-        job = run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
-                   str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
-                  step_log("convert.log"), label="converting the release")
+        return Job([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
+                    str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
+                   step_log("convert.log"), label="converting the release")
+
+    def find_neighbours(into):
+        """gene_neighbours.py on the converted files in `into`, in the background (its Job). Which marker genes lie next to
+        which in every genome to simulate from (their genes placed by their sequence or k-mer trace): gene_neighbours.tsv,
+        the frequencies per clade, and gene_positions.tsv, which --build both pack; the training database's copy derives
+        the frequencies anew from the positions, without the species it leaves out."""
+        return Job([sys.executable, GENE_NEIGHBOURS, "--db", into, "--genome_table", genome_table, "-t", str(args.threads)],
+                   step_log("gene_neighbours.log"), label="finding the genes' neighbours")
+
+    def neighbours_done(job, into):
+        """What the gene neighbours' job said; their stage marked for `into`."""
+        stages.mark("gene_neighbours", {**neighbours_key, "into": os.path.basename(into)})
+        return (f"the genes placed{genes_placed(step_log('gene_neighbours.log'))} and their neighbours counted in "
+                f"{job.took()} (gene_neighbours.log)")
+
+    def finish_convert(job, into):
+        """The converted files of the release in `into` (the converter's job, started by start_convert), with the
+        models of the read types but pe as placeholders (protal warns when it loads one), packed by --build like
+        model_pe.xml, and the gene neighbours: gene_neighbours.py starts once the converter has written reference.fna and
+        reference.map (REFERENCE_WRITTEN in convert.log), while it writes the full reference, which the neighbours do not
+        read (1-1.5 min at r226). Says how long it took."""
+        neighbours = None
+        if not args.no_gene_neighbours:
+            log = step_log("convert.log")
+            while job.poll() is None and not log_says(log, REFERENCE_WRITTEN):
+                check_jobs()
+                time.sleep(0.5)
+            if job.poll() in (None, 0):
+                neighbours = find_neighbours(into)
+        job.finish()
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
         shutil.copyfile(os.path.join(into, "gene2geneid.tsv"), gene_table)
         took = f"converted in {job.took()}"
-        if not args.no_gene_neighbours:
-            # Which marker genes lie next to which in every genome to simulate from (their genes placed by
-            # their sequence or k-mer trace): gene_neighbours.tsv, the frequencies per clade, and
-            # gene_positions.tsv, which --build both pack; the training database's copy derives the frequencies
-            # anew from the positions, without the species it leaves out.
-            log = step_log("gene_neighbours.log")
-            job = run([sys.executable, GENE_NEIGHBOURS, "--db", into, "--genome_table", genome_table, "-t", str(args.threads)],
-                      log, label="finding the genes' neighbours")
-            took += f"; the genes placed{genes_placed(log)} and their neighbours counted in {job.took()} (gene_neighbours.log)"
+        if neighbours:
+            took += "; " + neighbours_done(neighbours.finish(), into)
         if not args.no_placeholder_models:
             for read_type in ("se", "pb", "ont"):
                 write_placeholder(os.path.join(into, MODEL_FILES[read_type]), read_type)
         return took
+
+    def convert(into):
+        return finish_convert(start_convert(into), into)
 
     converted = None  # the folder with the converted files, once there
     # With a gene subset the whole release is converted here, and the database folders (the subset's genes,
@@ -2494,6 +2841,85 @@ def main():
         """The stage key of the whole release converted into `folder`: protal_db holds a gene subset's files after a
         reduced run, which a later run without the subset must not take for the whole release."""
         return {**convert_key, "into": os.path.basename(folder)}
+
+    def converted_before(folder):
+        """Whether `folder` holds the release converted by an earlier run (its stage marked, its files there)."""
+        return stages.done("convert", convert_stage(folder)) and os.path.isfile(taxonomy) and \
+            all(os.path.isfile(os.path.join(folder, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"))
+
+    # The release is converted into protal_db in the background while the genome table is made (they need nothing of
+    # each other; 4 and 8-22 min at r226), when it will be converted whatever the table holds: no gene subset, nothing
+    # converted there before, and no finished database built from this release and protal (a conversion into protal_db
+    # removes such a database's files; whether its gene neighbours still match is known only with the table).
+    stored = stages.stored("protal_db")
+    could_be_done = isinstance(stored, dict) and {k: v for k, v in stored.items() if k != "gene_neighbours"} == \
+        json.loads(json.dumps(final_base)) and os.path.isfile(os.path.join(db, "database.protal"))
+    early_convert = None
+    if not subset and not could_be_done and not converted_before(db):
+        Steps.start(f"converting GTDB r{release} (convert.log), in the background while the genome table is made")
+        stages.forget("protal_db")
+        early_convert = start_convert(db)
+
+    # The genome table: the genomes that give strain alleles (split_allele_genomes) are no strains to simulate, and left
+    # out first, so that only the genomes simulated are read for their lengths; the representatives stay. Their lengths
+    # and contigs come from the genome cache (--genome-cache) where it has them, and their contigs go to the reports'
+    # cache (genome_contigs.tsv.gz on the samples' disk), so that the reports read no genome again.
+    genome_table = args.genome_table or os.path.join(work, "genomes.tsv")
+    share = args.allele_genome_share if args.strain_alleles > 0 and args.allele_genome_share > 0 else 0
+    if args.genome_cache == "none":
+        cache = None
+    elif args.genome_cache != "auto":
+        cache = GenomeCache(os.path.abspath(args.genome_cache))
+    elif args.inputs and os.access(args.inputs, os.W_OK):
+        cache = GenomeCache(os.path.join(os.path.abspath(args.inputs), GENOME_CACHE))
+    else:
+        cache = GenomeCache(os.path.join(work, GENOME_CACHE))
+    contig_cache = os.path.join(samples_root, CONTIG_CACHE)
+    with concurrent.futures.ThreadPoolExecutor(1) as beside:  # the release's metadata read while the folders are walked
+        reading_reps = beside.submit(read_representatives, args.gtdb, release)
+        removed = 0
+        if not args.genome_table:
+            pool = None
+            if args.simulate_species:
+                with open(args.simulate_species) as fh:
+                    pool = {n if n.startswith("s__") else "s__" + n
+                            for n in (line.rstrip("\n").split("\t")[0].strip() for line in fh) if n and not n.startswith("#")}
+            rows = genome_rows(args.gtdb, release, args.extra_genomes, pool)
+            reps = reading_reps.result()
+            kept = [r for r in rows if not (share and is_allele_genome(r, reps, share))]
+            removed = len(rows) - len(kept)
+            write_genome_table(kept, genome_table, args.threads, cache, contig_cache)
+        elif args.extra_genomes or args.simulate_species:
+            sys.exit("--extra-genomes and --simulate-species shape the genome table this script makes; "
+                     "apply them to --genome-table instead")
+        else:  # with the genomes' lengths, if it has none: the simulator would read every genome for them
+            reps = reading_reps.result()
+            rows = table_rows(args.genome_table)
+            kept = [r for r in rows if not (share and is_allele_genome(r, reps, share))]
+            removed = len(rows) - len(kept)
+            if removed:
+                genome_table = os.path.join(work, "genomes.tsv")
+                write_genome_table([r for r in kept if len(r) >= 3 and os.path.isfile(r[2])], genome_table, args.threads,
+                                   cache, contig_cache)
+            else:
+                genome_table = with_lengths(args.genome_table, os.path.join(work, "genomes.tsv"), args.threads, cache,
+                                            contig_cache)
+    allele_split = (f"; {removed} genomes left to the strain alleles, not simulated (--allele-genome-share "
+                    f"{args.allele_genome_share:g})") if share else ""
+    # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
+    summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
+    if allele_split:
+        summary.append(allele_split[2:])
+    with open(os.path.join(logs, "genome_table.txt"), "w") as fh:
+        fh.write("\n".join(summary) + "\n")
+    Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}{allele_split}")
+    if warning:
+        say(warning)
+
+    neighbours_key = None if args.no_gene_neighbours else \
+        {"convert": convert_key, "script": content_hash(GENE_NEIGHBOURS), "genome_table": content_hash(genome_table)}
+    final_key = {**final_base, "gene_neighbours": neighbours_key}
+    final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
 
     def ensure_converted():
         """With a gene subset: the whole release in `full`, kept from an earlier run that stopped before the
@@ -2521,17 +2947,21 @@ def main():
     elif final_done:
         Steps.start(f"the release: {db} was built by an earlier run from the same release and protal; kept" +
                     remove_full_reference(db))  # left by an earlier version of this script
-    elif stages.done("convert", convert_stage(db)) and os.path.isfile(taxonomy) and \
-            all(os.path.isfile(os.path.join(db, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
+    elif early_convert is None and converted_before(db):
         # Converted by an earlier run that stopped before the build packed the files (not a gene subset's folder,
-        # derived into it by a reduced run: that one marks the conversion of `full` only).
+        # derived into it by a reduced run: that one marks the conversion of `full` only). Its gene neighbours are found
+        # again if the genome table changed since.
         clear_build_outputs(db)
         converted = db
         Steps.start(f"the release: {db} holds the release converted by an earlier run; not converted again")
+        if neighbours_key and not stages.done("gene_neighbours", {**neighbours_key, "into": os.path.basename(db)}):
+            Steps.done("its gene neighbours again, for this genome table: " + neighbours_done(find_neighbours(db).finish(), db))
     else:
-        Steps.start(f"converting GTDB r{release} (convert.log)")
-        stages.forget("protal_db")
-        Steps.done(convert(db))
+        if early_convert is None:
+            Steps.start(f"converting GTDB r{release} (convert.log)")
+            stages.forget("protal_db")
+            early_convert = start_convert(db)
+        Steps.done(f"r{release} " + finish_convert(early_convert, db))
         stages.mark("convert", convert_stage(db))
         converted = db
     if not subset and not os.path.isfile(taxonomy):
@@ -2591,20 +3021,53 @@ def main():
     # relative the database lacks (docs/claude/2026-10-04-r226-v10-evaluation). The simulations draw from
     # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself. The strains'
     # FASTAs (one per species: 9,030 at r226 v17) go to the samples' disk, beside the genome store, not to OUTDIR.
+    # Nothing but the simulations reads them (the hold-out and the scenarios take genomes.tsv, which has the same
+    # species), so they are made in the background, at a lower priority, beside the hold-out, the training database's
+    # files and build (2:24 at r226 v19); join_insilico() waits for them before the simulations start.
     sim_table, insilico_note = genome_table, "none (--insilico-strains 0)"
+    insilico_job = None
+
+    def insilico_summary(log):
+        """The in-silico strains' lines, once made: what insilico_strains.py said, and the genome table simulated from."""
+        nonlocal insilico_note
+        insilico_note = last_line(log)
+        Steps.done(insilico_note)
+        summary, brief, warning = summarize_genome_table(sim_table, reps)
+        with open(os.path.join(logs, "genome_table.txt"), "a") as fh:
+            fh.write("with the in-silico strains (genomes_simulated.tsv, the genomes simulated from):\n" +
+                     "\n".join(summary[1:]) + "\n" + insilico_note + "\n")
+        Steps.done(f"simulated from: {brief}")
+        if warning:
+            say(warning)
+
+    def join_insilico():
+        """Waits for the in-silico strains made in the background, if they are, and says how it went."""
+        nonlocal insilico_job
+        if insilico_job is None:
+            return
+        job, insilico_job = insilico_job, None
+        if job.seconds is None:
+            Steps.done("waiting for the in-silico strains (insilico_strains.log), which the simulations draw from")
+        job.finish()
+        stages.mark("insilico", insilico_key)
+        Steps.done(f"in-silico strains made in the background in {job.took()}" +
+                   ("" if insilico_positions else f" (no gene_positions.tsv: ANI {args.insilico_ani or INSILICO_FALLBACK_ANI})"))
+        insilico_summary(job.log)
+
     if args.insilico_strains > 0:
         sim_table = os.path.join(work, "genomes_simulated.tsv")
         strains = os.path.join(samples_root, "insilico_strains")
         log = step_log("insilico_strains.log")
         Steps.start("in-silico strains of the species with one genome (insilico_strains.log, genomes_simulated.tsv)")
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
-                        "convert": convert_key, "share": args.insilico_strains, "ani": args.insilico_ani,
-                        "seed": args.seed, "strains": strains,
+                        "convert": convert_key, "gene_neighbours": neighbours_key, "share": args.insilico_strains,
+                        "ani": args.insilico_ani, "seed": args.seed, "strains": strains,
                         "clouds": content_hash(clouds_file) if make_clouds and os.path.isfile(clouds_file) else None}
         # A new --scratch (the next job's node) has none of them: made again (the same strains, at the same seed).
         if stages.done("insilico", insilico_key) and os.path.isfile(sim_table) and \
                 os.path.isfile(os.path.join(strains, "insilico_strains.tsv")):
             Steps.done("made by an earlier run from the same table; kept")
+            insilico_summary(log)
         else:
             stages.forget("insilico")
 
@@ -2631,19 +3094,10 @@ def main():
                     command += ["--clouds", clouds_file]
             if args.insilico_ani or not positions:
                 command += ["--ani", args.insilico_ani or INSILICO_FALLBACK_ANI]
-            job = run(command, log, label="making in-silico strains")
-            stages.mark("insilico", insilico_key)
-            Steps.done(f"made in {job.took()}" + ("" if positions else
-                                                    f" (no gene_positions.tsv: ANI {args.insilico_ani or INSILICO_FALLBACK_ANI})"))
-        insilico_note = last_line(log)
-        Steps.done(insilico_note)
-        summary, brief, warning = summarize_genome_table(sim_table, reps)
-        with open(os.path.join(logs, "genome_table.txt"), "a") as fh:
-            fh.write("with the in-silico strains (genomes_simulated.tsv, the genomes simulated from):\n" +
-                     "\n".join(summary[1:]) + "\n" + insilico_note + "\n")
-        Steps.done(f"simulated from: {brief}")
-        if warning:
-            say(warning)
+            insilico_positions = positions
+            insilico_job = Job(command, log, label="making in-silico strains", nice=10)
+            Steps.done("made in the background, beside the hold-out and the training database; the simulations wait for "
+                       "them")
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
@@ -2665,7 +3119,7 @@ def main():
         # the others, for its largest sample (scenarios.table_split), or the scenario is scaled down to what they hold
         # (scenarios.fit_species), as its collections do it.
         novel = read_holdout(heldout) if os.path.exists(heldout) else {}
-        pool = pool_species(sim_table)
+        pool = pool_species(genome_table)  # the species of genomes_simulated.tsv, whose in-silico strains may still be made
         known, lacking = sum(s not in novel for s in pool), sum(s in novel for s in pool)
         notes = []
         for name in selected:
@@ -2787,8 +3241,8 @@ def main():
         keep_full = args.share_logs or not args.no_foreign_rates
         Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
-        training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
-                        "level": args.training_db_level, "alleles": ALLELE_ARGS}
+        training_key = {"convert": convert_key, "gene_neighbours": neighbours_key, "heldout": content_hash(heldout),
+                        "protal": final_key["protal"], "level": args.training_db_level, "alleles": ALLELE_ARGS}
         if subset:
             training_key["genes"] = final_key["genes"]
         # The key is kept in the training database's folder too: on a --scratch that several OUTDIRs share, another
@@ -2812,7 +3266,16 @@ def main():
                       step_log("training_db.log"),
                       label="leaving the species out")
             files_took = f"; its files written in {job.took()} (training_db.log)"
+            if args.share_logs:
+                # The ancestry report (--share-logs) reads the training database's reference.fna, which its build packs
+                # and removes: a hard link keeps it, so that the report needs no protal --unpack_db (1:59 at r226 v19).
+                kept = os.path.join(training_db, ANCESTRY_REFERENCE)
+                with contextlib.suppress(OSError):
+                    os.remove(kept)
+                with contextlib.suppress(OSError):
+                    os.link(os.path.join(training_db, "reference.fna"), kept)
     if converted and converted != db:
+        join_insilico()  # they may read the gene positions of the release converted again, which goes now
         shutil.rmtree(converted, ignore_errors=True)
 
     # The finished database is needed only for --add_model at the end: it is built in the background from the
@@ -2898,7 +3361,9 @@ def main():
     keep_free = args.keep_free * 1e9 if args.profile_blocks > 0 else 0
     to_build = ([] if final_done else [("database" if training_db == db else "finished database", db)]) + \
         ([("training database", training_db)] if training_db != db and not training_done else [])
-    needs = disk_needs(samples_root, genome_store, sim_table, to_build, hosts, sizes, keep_free)
+    # The in-silico strains may still be made: their genomes counted at their representatives' lengths.
+    store_bases = planned_bases(genome_table, args.insilico_strains) if insilico_job is not None else sim_table
+    needs = disk_needs(samples_root, genome_store, store_bases, to_build, hosts, sizes, keep_free)
     free = shutil.disk_usage(samples_root).free
     say(f"    room on {samples_root}: {gigabytes(free)} free; besides the reads the run needs ~"
         f"{gigabytes(sum(needs.values()))} there ({needs_text(needs)}), and the reads of its {len(sizes)} simulations take "
@@ -3002,11 +3467,16 @@ def main():
                        "the cores the profiling leaves (index_and_package.log)")
 
     # What to stream into protal (--stream-above): with auto, the fewest simulations whose streaming leaves the others'
-    # reads room on the disk at once, besides what disk_needs counts now that the training database is built.
+    # reads room on the disk at once, besides what disk_needs counts now that the training database is built. The
+    # simulations draw from the in-silico strains: they are made by now (or waited for).
+    join_insilico()
     free = shutil.disk_usage(samples_root).free
     needs = disk_needs(samples_root, genome_store, sim_table,
                        [("finished database", db)] if not final_done and training_db != db else [], hosts, sizes,
                        keep_free)
+    ancestry_reference = os.path.join(training_db, ANCESTRY_REFERENCE)  # kept for the ancestry report until the end
+    if os.path.isfile(ancestry_reference) and on_disk(training_db, samples_root):
+        needs["the ancestry report's reference.fna"] = os.path.getsize(ancestry_reference)
     room = free - sum(needs.values())
     auto = args.stream_above == "auto"
     if args.profile_blocks <= 0:
@@ -3123,6 +3593,11 @@ def main():
                         out.write(f"==> {run_name(path)} <==\n")
                         with open(path, errors="replace") as fh:
                             shutil.copyfileobj(fh, out)
+        # The collector's CPU table of its protal runs (each run, and protal's own stages and samples: misc/cpu.tsv) as
+        # logs/protal_cpu_<collection>.tsv, beside the run's other CPU logs.
+        cpu = os.path.join(opts.out, PROTAL_CPU)
+        if os.path.isfile(cpu):
+            shutil.copyfile(cpu, step_log(f"protal_cpu_{os.path.basename(opts.out)}.tsv"))
 
     def collect(what, command, log):
         """Runs the collector once the collection's simulations are done (in the background), so that it profiles
@@ -3218,15 +3693,33 @@ def main():
         Steps.done(f"{t} model's features: {name}: {why}")
     if selected:
         Steps.done(scenario_scores(read_types, prefixes, selected))
-    # protal must score as the trainer does, and compute the features as it did during collection.
+    # The reports of what the models' errors rest on need only the trainers' calls, the samples' SAMs and the training
+    # database (neither feeds the database): they start now, in a thread beside the parity check, the composition, the
+    # wait for the finished database's build and --add_model (r226 v18 waited 21 min for that build before them).
+    trace = heldout if "pe" in read_types and training_db != db and os.path.isfile(heldout) else None
+
+    def report_all():
+        try:
+            reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, steps,
+                    args.threads, os.path.join(samples_root, CONTIG_CACHE), args.share_logs,
+                    heldout if training_db != db else None, args.protal, taxonomy, samples_root)
+        except Exception as e:  # noqa: BLE001: the database is ready either way
+            say(f"    the reports failed ({e}); the database is ready either way")
+    reporting = threading.Thread(target=report_all, name="reports", daemon=True)
+    reporting.start()
+    # protal must score as the trainer does, and compute the features as it did during collection: the read types'
+    # checks side by side (protal --profile_only: no index loaded), their logs then joined in parity.log.
     Steps.start("checking that protal scores the models as the trainer does (parity.log)")
     began = time.time()
     parity_log = step_log("parity.log")
-    open(parity_log, "w").close()  # the read types' checks one after the other
-    for t in read_types:
-        run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
-             "--read_type", t, "--protal", args.protal, "-t", str(args.threads)], parity_log,
-            label=f"checking the {t} model's parity with protal", append=True)
+    checks = [Job([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
+                   "--read_type", t, "--protal", args.protal, "-t", str(max(1, args.threads // len(read_types)))],
+                  step_log(f"parity_{t}.log"), label=f"checking the {t} model's parity with protal") for t in read_types]
+    for job in checks:
+        job.finish()
+    concatenate_logs([job.log for job in checks], parity_log, lambda p: os.path.basename(p).removesuffix(".log"))
+    for job in checks:
+        os.remove(job.log)
     Steps.done(f"{', '.join(read_types)}: the same probabilities and features, checked in {clock(time.time() - began)}")
     # model_logs/parity.txt: each read type's result (check_model_parity.py's parity.txt), which names its model.
     results = []
@@ -3246,7 +3739,7 @@ def main():
     for t, line in composition_briefs.items():
         Steps.done(f"{t}: {line}")
     Steps.done(f"checked in {clock(time.time() - began)}; details: model_logs/composition_accuracy.txt")
-    # The models go into the database first; the reports of what their errors rest on follow (reports()).
+    # The models go into the database, while the reports of what their errors rest on run (report_all, reports()).
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:
@@ -3284,15 +3777,15 @@ def main():
     summary = summary_lines(read_types, prefixes, db) + ["", *composition_text]
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
-    print("\n" + "\n".join(summary) + "\n", flush=True)
-    console_log("\n" + "\n".join(summary) + "\n")
+    with SAYING:  # in one piece, whatever the reports' thread says meanwhile
+        print("\n" + "\n".join(summary) + "\n", flush=True)
+        console_log("\n" + "\n".join(summary) + "\n")
     say(f"Ready protal database: {db}{db_size(db)}" +
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
         f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
-    trace = heldout if "pe" in read_types and training_db != db and os.path.isfile(heldout) else None
-    reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, steps,
-            args.threads, os.path.join(samples_root, "genome_contigs.tsv.gz"), args.share_logs,
-            heldout if training_db != db else None, args.protal, taxonomy, samples_root)
+    reporting.join()  # started after the training (report_all)
+    with contextlib.suppress(OSError):
+        os.remove(os.path.join(training_db, ANCESTRY_REFERENCE))  # read by the ancestry report; 15 GB at r226
     if keep_full:
         if removed := remove_full_reference(training_db):
             say(f"    the training database's full reference, kept for the ancestry report{removed}")
@@ -3308,6 +3801,7 @@ def main():
     if genome_store and os.path.isdir(genome_store):
         say(f"The genome store {genome_store} holds {gigabytes(tree_size(genome_store))}, kept for the next build "
             "(remove it to free the space; --genome-store none builds without one)")
+    timeline.stop()  # its last row, before the archive packs logs/
     if args.share_logs:
         share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads,
                       os.path.join(samples_root, "insilico_strains", "insilico_strains.tsv"))

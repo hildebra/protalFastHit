@@ -63,14 +63,17 @@ import contextlib
 import csv
 import glob
 import hashlib
+import io
 import json
 import math
+import multiprocessing
 import os
 import random
 import shutil
 import subprocess
 import sys
 import time
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compressed  # noqa: E402
@@ -162,10 +165,11 @@ def parse_args(argv=None):
     p.add_argument("--profile_block", type=float, default=20.0,
                    help="--follow: the GB of reads that start a protal run while the simulations go on (default 20)")
     p.add_argument("--profile_block_max", type=float, default=0.0,
-                   help="--follow: the most GB of reads one protal run takes (the files' size; a streamed simulation's "
-                        "estimated), at least one design point's: the rest go into the next run, so that a run that fails "
-                        "costs at most that much profiling and its reads leave the disk sooner. Streamed simulations whose "
-                        "communities are there share a run up to it (default 0: no limit)")
+                   help="--follow: the most GB of reads (the files' size) one protal run of written reads takes, at least "
+                        "one design point's: the rest go into the next run, so that a run that fails costs at most that "
+                        "much profiling and its reads leave the disk sooner (default 0: no limit). Not for streamed "
+                        "simulations, whose reads are on no disk: every one whose communities are there goes into one run "
+                        "(until 2026-10-09 up to this many GB, estimated)")
     p.add_argument("--profile_ahead", action="store_true",
                    help="protal --profile_ahead in this collection's protal runs: each sample profiled while the next one "
                         "is aligned, on a quarter of the threads, where the profiling stage would leave cores idle (a run "
@@ -177,8 +181,8 @@ def parse_args(argv=None):
                    help="--follow and its --simulate_only run (give both the same): a design point whose largest sample's "
                         "reads would take more than this many GB (compressed, estimated) is not written to the disk: a "
                         "protal run reads them from named pipes as simulate_metagenomes makes them, a sample at a time, "
-                        "with the other streamed points whose communities are there (up to --profile_block_max); the "
-                        "others are written and profiled in blocks as before (default 0: none)")
+                        "with every other streamed point whose communities are there; the others are written and "
+                        "profiled in blocks as before (default 0: none)")
     p.add_argument("--min_free", type=float, default=0.0,
                    help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
                         "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
@@ -528,7 +532,9 @@ def run_protal(command, log, samples, companions=()):
     """Runs protal on `samples` samples, saying from its log every minute how far it is (when that changed):
     the sample it aligns, then how many it has profiled. Only what the log gained is read. companions: (what, command,
     log) of processes that run beside it (simulators writing the named pipes protal reads, stream_run): started first,
-    watched while protal runs (one failing stops protal), and waited for once it has ended."""
+    watched while protal runs (one failing stops protal), and waited for once it has ended. -> {"wall": protal's wall
+    seconds, "cpu": its user and system seconds, from the rusage of wait4, or None if it was reaped elsewhere} for
+    protal_cpu.tsv (record_cpu)."""
     started = time.time()
     procs = []
     for what, cmd, clog in companions:
@@ -538,6 +544,27 @@ def run_protal(command, log, samples, companions=()):
         procs.append((what, subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT), clog, out))
     with open(log, "w") as fh:
         process = subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT)
+    began, usage = time.time(), []
+
+    def reap(timeout):
+        """protal's exit code once it has ended, looked for during at most `timeout` seconds, else None. protal is
+        reaped with wait4 rather than Popen.wait (as build_gtdb_database.py's Job.poll does), which also tells the CPU
+        time it took (usage); its returncode is set here, so that Popen sees it ended."""
+        until, delay = time.time() + timeout, 0.001
+        while True:
+            if process.returncode is None:
+                try:
+                    pid, status, rusage = os.wait4(process.pid, os.WNOHANG)
+                except ChildProcessError:  # reaped elsewhere: Popen knows how it ended, its CPU time is lost
+                    process.poll()
+                else:
+                    if pid:
+                        process.returncode = os.waitstatus_to_exitcode(status)
+                        usage.append(rusage)
+            if process.returncode is not None or time.time() >= until:
+                return process.returncode
+            time.sleep(min(delay, max(0.0, until - time.time())))
+            delay = min(2 * delay, 0.1)  # an ended protal is seen within a tenth of a second
 
     def stop():
         for p in [process] + [c[1] for c in procs]:
@@ -550,11 +577,9 @@ def run_protal(command, log, samples, companions=()):
     offset, rest, aligning, profiled, told, looked = 0, b"", 0, 0, (0, 0), time.time()
     try:
         while True:
-            try:
-                rc = process.wait(timeout=5 if procs else 60)
+            rc = reap(5 if procs else 60)
+            if rc is not None:
                 break
-            except subprocess.TimeoutExpired:
-                pass
             for what, p, clog, _ in procs:
                 if p.poll() not in (None, 0):
                     stop()
@@ -577,6 +602,7 @@ def run_protal(command, log, samples, companions=()):
     except BaseException:  # stopped (Ctrl-C, an error): not without protal and its companions
         stop()
         raise
+    measured = {"wall": time.time() - began, "cpu": usage[0].ru_utime + usage[0].ru_stime if usage else None}
     if rc != 0:
         stop()
         sys.exit(f"{command[0]} failed with exit code {rc}; see {log}")
@@ -590,6 +616,56 @@ def run_protal(command, log, samples, companions=()):
         if crc != 0:
             sys.exit(f"{what} failed with exit code {crc}: {last_line(clog)}; see {clog}")
     print(f"protal profiled {samples} samples in {clock(time.time() - started)}", flush=True)
+    return measured
+
+
+# ---- CPU time of the protal runs (OUT/protal_cpu.tsv) -------------------------------------------------------
+# How busy each protal run kept its cores, for the build's analysis (not its log: nothing of it is printed): a row of
+# the whole process, then protal's own rows by stage (misc/cpu.tsv of the run's folder: start-up, aligning <sample>,
+# profiling, after profiling), which an older protal does not write.
+
+CPU_TABLE = "protal_cpu.tsv"
+CPU_COLUMNS = ("run", "stage", "wall_seconds", "cpu_seconds", "threads", "cores_busy")
+WHOLE_RUN = "protal run (whole process)"
+
+
+def run_label(folder, opts):
+    """The name of a protal run in protal_cpu.tsv: its folder's (run3 of --follow), or all for the one run of
+    OUT/profile_all (as build_gtdb_database.py names the runs' logs)."""
+    folder = os.path.normpath(folder)
+    return "all" if folder == os.path.normpath(os.path.join(opts.out, "profile_all")) else os.path.basename(folder)
+
+
+def cores_busy(wall, cpu):
+    """CPU seconds per wall second, to two decimals; empty when either is unknown or the wall time is 0."""
+    try:
+        wall, cpu = float(wall), float(cpu)
+    except (TypeError, ValueError):
+        return ""
+    return f"{cpu / wall:.2f}" if wall > 0 else ""
+
+
+def record_cpu(opts, run, measured, threads, stages):
+    """Appends a protal run's rows to OUT/protal_cpu.tsv (CPU_COLUMNS; the file made with its header when missing):
+    the whole process's (measured: run_protal's wall and CPU seconds; threads: its -t), then those of protal's own
+    table by stage (`stages`, the run's misc/cpu.tsv: stage, wall_seconds, cpu_seconds, threads), as they are; none
+    when protal wrote no such table (an older protal)."""
+    rows = [(run, WHOLE_RUN, f"{measured['wall']:.3f}", "" if measured["cpu"] is None else f"{measured['cpu']:.3f}",
+             str(threads), cores_busy(measured["wall"], measured["cpu"]))]
+    try:
+        with open(stages, newline="") as fh:
+            for row in csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE):
+                if row.get("stage"):
+                    wall, cpu = row.get("wall_seconds") or "", row.get("cpu_seconds") or ""
+                    rows.append((run, row["stage"], wall, cpu, row.get("threads") or "", cores_busy(wall, cpu)))
+    except FileNotFoundError:
+        pass
+    path = os.path.join(opts.out, CPU_TABLE)
+    header = not os.path.isfile(path) or os.path.getsize(path) == 0
+    with open(path, "a") as fh:
+        if header:
+            fh.write("\t".join(CPU_COLUMNS) + "\n")
+        fh.writelines("\t".join(row) + "\n" for row in rows)
 
 
 # ---- design points ----------------------------------------------------------------------------------------
@@ -1484,9 +1560,15 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run",
           flush=True)
-    run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"] +
-               (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []),
-               os.path.join(folder, "protal.log"), len(rows), companions)
+    # protal's table of its stages' CPU time (in the map's output folder's misc/): an earlier run's in this folder (a
+    # --follow rerun numbers its runs from 1 again) is not this run's.
+    stages = os.path.join(folder, "misc", "cpu.tsv")
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(stages)
+    measured = run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains",
+                           "--no_qcmsa"] + (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []),
+                          os.path.join(folder, "protal.log"), len(rows), companions)
+    record_cpu(opts, run_label(folder, opts), measured, opts.threads, stages)
 
 
 # ---- the tables -------------------------------------------------------------------------------------------
@@ -1586,6 +1668,58 @@ def write_table(read_type, units, opts, context):
     os.replace(table + ".partial", table)
     print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
           f"sample{'s' if totals['samples'] != 1 else ''}", flush=True)
+
+
+_TABLES_WORK = None  # (units, opts, context) of write_tables, set before its worker processes fork
+
+
+def _table_in_worker(read_type):
+    """write_table of one read type in a worker process forked by write_tables (which set _TABLES_WORK). -> (what it
+    printed, None or why it stopped: sys.exit's message, or an exception's traceback)."""
+    units, opts, context = _TABLES_WORK
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
+    except SystemExit as stopped:
+        return printed.getvalue(), 1 if stopped.code is None else stopped.code
+    except Exception:  # the collector stops with its traceback, as it would have without the worker
+        return printed.getvalue(), traceback.format_exc()
+    return printed.getvalue(), None
+
+
+def write_tables(read_types, units, opts, context, processes):
+    """The tables of the read types (write_table) side by side, in worker processes forked from this one, at most
+    `processes` at once: one after the other, the others waited for the pe table (~400,000 rows at r226, estimated at
+    a few minutes; 2026-10-09). Forked, the workers share the context as it is (the lineages of every taxon of the
+    database), which pickling would copy into each. Each table is a file of its own written by one worker, so the files
+    are those of the tables written one after the other; what each worker printed is printed once it has ended, in the
+    read types' order, so that the log has the lines of the serial run in their order (build_gtdb_database.py reads its
+    "N taxa in TABLE" lines). A table that fails stops the collector once the lines of those before it, and its own,
+    are printed (the tables after it may have been written). One read type, one process, or no fork(): one table after
+    the other, here."""
+    global _TABLES_WORK
+    if processes <= 1 or len(read_types) <= 1 or "fork" not in multiprocessing.get_all_start_methods():
+        for read_type in read_types:
+            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
+        return
+    sys.stdout.flush()  # nothing buffered that a worker would write again when it ends
+    sys.stderr.flush()
+    _TABLES_WORK = (units, opts, context)
+    try:
+        with concurrent.futures.ProcessPoolExecutor(min(processes, len(read_types)),
+                                                    mp_context=multiprocessing.get_context("fork")) as pool:
+            futures = [pool.submit(_table_in_worker, read_type) for read_type in read_types]
+            for future in futures:
+                printed, stopped = future.result()
+                sys.stdout.write(printed)
+                sys.stdout.flush()
+                if stopped is not None:
+                    for other in futures:
+                        other.cancel()
+                    sys.exit(stopped)
+    finally:
+        _TABLES_WORK = None
 
 
 def prepare_scenarios(points, units, opts, novel):
@@ -2037,7 +2171,8 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
     se ones, each pipe once; the same read 1s, as the simulator's reads do not depend on whether read 2 is written). A
     long-read unit: long_plan(unit, threads), its simulate_metagenomes --long_samples run (long_unit_plan) into its
     sim/reads. Every simulator starts with the run and writes a sample's pipes only once protal opens them, a sample at a
-    time (the later ones wait at their first pipe, holding little); one failing stops the run."""
+    time (the later ones wait at their first pipe, holding little: next_batch); one failing stops the run. The caller
+    has the protal run's turn (follow: --protal_lock)."""
     began = time.time()
     paths_of, companions, folders, drawn_runs = {}, [], [], []
     suffix = ".fq" + reads_suffix(opts)
@@ -2081,9 +2216,8 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
     what = names[0] if len(names) == 1 else f"{len(names)} simulations"
     print(f"protal run {number}: {what} streamed ({'' if len(names) == 1 else ', '.join(names) + '; '}{len(units)} "
           f"design points, {samples} samples, read from named pipes as simulate_metagenomes makes them)", flush=True)
-    with protal_turn(opts.protal_lock):
-        profile(units, opts, folder=os.path.join(opts.out, "profile_all", f"run{number}"), paths_of=paths_of,
-                companions=companions)
+    profile(units, opts, folder=os.path.join(opts.out, "profile_all", f"run{number}"), paths_of=paths_of,
+            companions=companions)
     end_profiling(units, opts)
     for out in folders:
         shutil.rmtree(out, ignore_errors=True)
@@ -2095,15 +2229,83 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
     print(f"protal run {number} done ({what}, streamed) in {clock(time.time() - began)}", flush=True)
 
 
+def follow_state(units, opts, keys, key_of, streams):
+    """What --follow could profile now: {todo: the units not yet profiled; running: whether the simulations go on;
+    ready: the units of written reads whose simulation has ended and whose reads are all there; size: those reads'
+    bytes; streamable: [the waiting units of a streamed simulation (`streams`)] for each whose communities are there
+    (their points' simulated.json: simulated, or a streamed point's design made), in the simulations' names' order}.
+    Whether the simulations go on is looked at first: once they have ended, all they made is seen as ready."""
+    todo = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
+    running = simulations_running(opts)
+    ready, files = [], {}
+    for unit in todo:
+        if simulation_of(unit) in streams:
+            continue
+        reads = unit_reads(unit, opts)
+        if simulation_done(unit, opts, keys) and reads and all(os.path.isfile(f) for f in reads):
+            ready.append(unit)
+            files.update(dict.fromkeys(reads))
+    streamable = []
+    for name in sorted(streams):
+        pending = [u for u in todo if simulation_of(u) == name]
+        if pending and all(same_key(os.path.join(point_dirs(p, opts)[0], "simulated.json"), keys[p["name"]])
+                           for u in pending if drawn(u) for p in u["communities"]):
+            streamable.append(pending)
+    return {"todo": todo, "running": running, "ready": ready, "size": sum(os.path.getsize(f) for f in files),
+            "streamable": streamable}
+
+
+def next_batch(state, opts, block, cap):
+    """The next protal run of --follow, from what is ready (follow_state), or None while none can start:
+    ("written", units, their reads' bytes) once the written reads ready reach `block` bytes (--profile_block) or the
+    simulations have ended; else ("streamed", [the units of each simulation], None) once a streamed simulation's
+    communities are there.
+
+    A run of written reads takes at most `cap` bytes of them (--profile_block_max; 0: no limit): whole simulations (a
+    point's pe and se units read one set of files), in the order they wait in; the rest go into the next run at once.
+    The cap keeps a run's reads on the disk no longer than one run's profiling, and bounds what a failed run costs.
+
+    A streamed run takes every streamed simulation whose communities are there, however large: until 2026-10-09 these
+    were capped as well, and at r226 (v19) the training collection's streamed simulations made three protal runs (6, 7
+    and 1 simulations), each with its start-up (~80 s: index, tables, preload) and its profiling stage (2-4 min). The
+    cap's reasons do not hold for them: their reads are on no disk, and their SAMs are written whatever the runs. Nor do
+    the run's CPU and memory grow much with its size. stream_run starts all the run's simulators at once
+    (one for a long-read unit, one for each of a paired-end point's pe and se units), but simulate_metagenomes opens a
+    sample's outputs before it plans that sample's reads or loads a genome (ReadPipeline.cpp, Engine::Open), and opening
+    a named pipe waits for its reader: the simulators of the samples protal has not reached wait there, holding their
+    communities and an idle thread pool, no genome. protal reads one sample at a time, so the run's simulators work one
+    at a time, on one sample, at the pace of protal's alignment. protal profiles the samples from their SAMs, as in the
+    one run of every sample of both collections (--profile_blocks 0). What a larger streamed run does cost more is a
+    failure: all its simulations are made again (protal aligns a piped sample again however far it got), and the
+    collector stops at a failed run in any case.
+
+    A streamed simulation needs its communities first (a long-read unit replays those of paired-end points; a streamed
+    paired-end point's design gives its own at the start of --follow): one whose communities are not there yet waits
+    for a later run."""
+    ready = state["ready"]
+    if ready and (state["size"] >= block or not state["running"]):
+        groups = list(dict.fromkeys(simulation_of(u) for u in ready))
+        group_files = {name: dict.fromkeys(f for u in ready if simulation_of(u) == name for f in unit_reads(u, opts))
+                       for name in groups}
+        group_size = [sum(os.path.getsize(f) for f in group_files[name]) for name in groups]
+        taken = {groups[i] for i in first_batch(group_size, cap)}
+        return ("written", [u for u in ready if simulation_of(u) in taken],
+                sum(s for name, s in zip(groups, group_size) if name in taken))
+    if state["streamable"]:
+        return ("streamed", state["streamable"], None)
+    return None
+
+
 def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
     """--follow: profiles the units as this collection's --simulate_only run simulates them, in protal runs of at
     least --profile_block GB of reads (at most --profile_block_max), or of all that are ready once the simulations have
-    ended; after each run, the reads of points profiled for every read type that reads them are removed. Units it cannot
-    profile once the simulations have ended (never simulated, or their reads removed) are simulated here:
-    simulate_again(names). The simulations to stream (--stream_above, streamed_simulations) are this run's: those whose
-    communities are there together in protal runs reading named pipes, up to --profile_block_max GB each (stream_run,
-    pe_command(point, threads) a paired-end point's simulation command, long_plan(unit, threads) a long-read unit's);
-    their paired-end points' designs first, which long reads of other points may need (stream_design)."""
+    ended; after each run, the reads of points profiled for every read type that reads them are removed. A run waits
+    for its turn (--protal_lock) once it can start, and takes what is ready when its turn comes (next_batch). Units it
+    cannot profile once the simulations have ended (never simulated, or their reads removed) are simulated here:
+    simulate_again(names). The simulations to stream (--stream_above, streamed_simulations) are this run's: every one
+    whose communities are there in one protal run reading named pipes (stream_run, pe_command(point, threads) a
+    paired-end point's simulation command, long_plan(unit, threads) a long-read unit's); their paired-end points'
+    designs first, which long reads of other points may need (stream_design)."""
     key_of = profile_keys(units, opts, keys)
     block, runs, again, began = opts.profile_block * 1e9, 0, set(), time.time()
     cap = (getattr(opts, "profile_block_max", 0) or 0) * 1e9
@@ -2119,55 +2321,39 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
               + ", ".join(sorted(streams)), flush=True)
     told = time.time()
     while True:
-        todo = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
+        state = follow_state(units, opts, keys, key_of, streams)
+        todo = state["todo"]
         if not todo:
             break
-        running = simulations_running(opts)
-        ready, files = [], {}
-        for unit in todo:
-            if simulation_of(unit) in streams:
-                continue
-            reads = unit_reads(unit, opts)
-            if simulation_done(unit, opts, keys) and reads and all(os.path.isfile(f) for f in reads):
-                ready.append(unit)
-                files.update(dict.fromkeys(reads))
-        size = sum(os.path.getsize(f) for f in files)
-        if ready and (size >= block or not running):
-            # At most --profile_block_max GB in one run: whole simulations (a point's pe and se units read one set of
-            # files), in the order they wait in; the rest go into the next run at once.
-            groups = list(dict.fromkeys(simulation_of(u) for u in ready))
-            group_files = {name: dict.fromkeys(f for u in ready if simulation_of(u) == name for f in unit_reads(u, opts))
-                           for name in groups}
-            group_size = [sum(os.path.getsize(f) for f in group_files[name]) for name in groups]
-            taken = {groups[i] for i in first_batch(group_size, cap)}
-            ready = [u for u in ready if simulation_of(u) in taken]
-            size = sum(s for name, s in zip(groups, group_size) if name in taken)
-            runs += 1
-            start_profiling(ready, opts, key_of)
-            print(f"protal run {runs}: {len(ready)} design points, {size / 1e9:.1f} GB of reads; the simulations "
-                  f"{'go on' if running else 'have ended'}; {len(todo) - len(ready)} design points after these", flush=True)
+        if next_batch(state, opts, block, cap):
+            # A run can start: wait for its turn (--protal_lock; the other collection's run may take half an hour), then
+            # choose its batch from what is ready at that moment, not from what was ready before the wait, so that what
+            # the simulations made meanwhile goes into this run rather than waits for the next turn (until 2026-10-09 a
+            # follower ran the batch it had chosen before the wait). The lock is taken only once a run can start, never
+            # while waiting for the simulations, and given back as soon as protal has ended.
             with protal_turn(opts.protal_lock):
-                profile(ready, opts, folder=os.path.join(opts.out, "profile_all", f"run{runs}"))
-            end_profiling(ready, opts)
-            freed = remove_profiled_reads(units, opts, key_of)
-            print(f"protal run {runs} done, {clock(time.time() - began)} in all: {freed / 1e9:.1f} GB of reads removed, "
-                  f"{shutil.disk_usage(opts.out).free / 1e9:.1f} GB free on {opts.out}", flush=True)
+                state = follow_state(units, opts, keys, key_of, streams)
+                batch = next_batch(state, opts, block, cap)
+                if batch and batch[0] == "written":
+                    runs += 1
+                    _, ready, size = batch
+                    start_profiling(ready, opts, key_of)
+                    print(f"protal run {runs}: {len(ready)} design points, {size / 1e9:.1f} GB of reads; the simulations "
+                          f"{'go on' if state['running'] else 'have ended'}; {len(state['todo']) - len(ready)} design "
+                          "points after these", flush=True)
+                    profile(ready, opts, folder=os.path.join(opts.out, "profile_all", f"run{runs}"))
+                elif batch:
+                    runs += 1
+                    stream_run(batch[1], opts, key_of, runs, pe_command, long_plan)
+            if batch is None:  # what could run before the wait no longer can (not expected): looked at again
+                time.sleep(opts.poll)
+            elif batch[0] == "written":
+                end_profiling(batch[1], opts)
+                freed = remove_profiled_reads(units, opts, key_of)
+                print(f"protal run {runs} done, {clock(time.time() - began)} in all: {freed / 1e9:.1f} GB of reads "
+                      f"removed, {shutil.disk_usage(opts.out).free / 1e9:.1f} GB free on {opts.out}", flush=True)
             continue
-        streamable = []  # a streamed simulation whose units wait and whose communities are there
-        for name in sorted(streams):
-            pending = [u for u in todo if simulation_of(u) == name]
-            if pending and all(same_key(os.path.join(point_dirs(p, opts)[0], "simulated.json"), keys[p["name"]])
-                               for u in pending if drawn(u) for p in u["communities"]):
-                streamable.append(pending)
-        if streamable:
-            # Every streamed simulation whose communities are there, in one run up to --profile_block_max GB (estimated):
-            # one profiling stage at the end of the run rather than one per simulation.
-            runs += 1
-            estimate = simulation_bytes(units)
-            batch = first_batch([estimate[simulation_of(group[0])][1] for group in streamable], cap)
-            stream_run([streamable[i] for i in batch], opts, key_of, runs, pe_command, long_plan)
-            continue
-        if not running:
+        if not state["running"]:
             stuck = {simulation_of(u) for u in todo} - streams
             if not stuck:
                 sys.exit(f"{', '.join(sorted({simulation_of(u) for u in todo}))}: streamed, but their communities were "
@@ -2180,8 +2366,9 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
             again |= stuck
             continue
         if time.time() - told >= 600:
-            print(f"{len(todo)} design points to profile, {len(ready)} of them simulated ({size / 1e9:.1f} GB of reads); "
-                  f"waiting for the simulations, {clock(time.time() - began)} in all", flush=True)
+            print(f"{len(todo)} design points to profile, {len(state['ready'])} of them simulated "
+                  f"({state['size'] / 1e9:.1f} GB of reads); waiting for the simulations, {clock(time.time() - began)} in "
+                  "all", flush=True)
             told = time.time()
         time.sleep(opts.poll)
     print(f"every design point is profiled, in {runs} protal run{'s' if runs != 1 else ''}", flush=True)
@@ -2286,8 +2473,7 @@ def collect(opts):
                      f"found {len(dumps_of(unit, opts))}")
 
     context = (domains, novel, reps, db_lineages, sim_lineages, clouds)
-    for read_type in opts.read_types:
-        write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
+    write_tables(opts.read_types, units, opts, context, slots)
 
 
 if __name__ == "__main__":

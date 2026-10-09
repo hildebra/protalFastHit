@@ -28,22 +28,34 @@ stdout).
 The gene copies are compared along their shared 12-mers (insilico_strains.substitutions), without an alignment, so a
 stretch past an indel is not compared.
 
+One run serves several read types: --sams and --out then take a value each per SAM folder, paired in order. The run
+reads every folder's records first, makes one pass over --reference and one over --full-reference for the copies and
+alleles any folder wants, and then writes each folder's four outputs at its prefix, byte for byte those of a run on
+that folder alone (each folder's congeners drawn by a generator seeded afresh, its copies and alleles filtered back to
+those it wants); with --threads the folders' analyses run side by side in forked processes. Each folder's lines on
+stdout follow a line naming its prefix, in the order given.
+
     python3 ancestry_sites.py --sams model_logs/error_reads/pe --reference training_db/reference.fna \\
         --full-reference training_db/full_reference.fna.zst --taxonomy work/internal_taxonomy.dmp \\
         --heldout model_logs/heldout_species.txt --out model_logs/ancestry_sites/pe
     (a bundled database: protal --db training_db/database.protal --unpack_db --unpack_dir DIR gives its reference.fna;
     the full reference is one pass of 86 GB at r226, about 10 minutes, and a few GB of memory for pe)
+    python3 ancestry_sites.py --sams model_logs/error_reads/{pe,se,pb,ont} --out model_logs/ancestry_sites/{pe,se,pb,ont} \\
+        --threads 4 ...  (the four read types over one pass of each reference)
 """
 import argparse
 import collections
 import csv
 import glob
 import gzip
+import io
+import multiprocessing
 import os
 import random
 import re
 import subprocess
 import sys
+import time
 
 import numpy as np
 
@@ -68,13 +80,15 @@ COUNTS = ["aligned", "mismatches", "sites1", "agree1", "alt1", "sites3", "agree3
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--sams", required=True, help="folder of <set>/<point>/<sample>[.FP|.FN].sam[.zst] (error_reads.py's)")
+    p.add_argument("--sams", required=True, nargs="+",
+                   help="folder of <set>/<point>/<sample>[.FP|.FN].sam[.zst] (error_reads.py's); several (a read type's "
+                        "each) share one pass over each reference, each reported at the --out prefix in its place")
     p.add_argument("--reference", required=True, help="reference.fna (or .zst) of the training database: >taxid_geneid")
     p.add_argument("--full-reference", help="full_reference.fna[.zst]: every genome's marker genes, >taxid_geneid of its "
                                             "species; gives the species' polymorphic sites")
     p.add_argument("--taxonomy", required=True, help="internal_taxonomy.dmp")
     p.add_argument("--heldout", required=True, help="heldout_species.txt (species the training database lacks)")
-    p.add_argument("--out", required=True, help="output prefix")
+    p.add_argument("--out", required=True, nargs="+", help="output prefix, one per --sams folder in the same order")
     p.add_argument("--max-congeners", type=int, default=8)
     p.add_argument("--max-alleles", type=int, default=6, help="other genomes' copies kept per species and gene")
     p.add_argument("--allele-genome-share", type=float, default=1.0,
@@ -83,7 +97,18 @@ def parse_args(argv=None):
                         "report's polymorphic sites are those of the alleles protal knows and never a simulated strain's own "
                         "(default 1: every genome)")
     p.add_argument("--seed", type=int, default=1)
-    return p.parse_args(argv)
+    p.add_argument("-t", "--threads", type=int, default=1,
+                   help="with several --sams folders, analyse up to this many side by side (forked processes, after the "
+                        "shared passes over the references; the outputs are the same)")
+    opts = p.parse_args(argv)
+    if len(opts.sams) != len(opts.out):
+        p.error(f"--sams and --out take a value each per SAM folder, paired in order: {len(opts.sams)} SAM folder"
+                f"{'s' * (len(opts.sams) != 1)}, {len(opts.out)} output prefix{'es' * (len(opts.out) != 1)}")
+    prefixes = [os.path.abspath(out) for out in opts.out]
+    if len(set(prefixes)) < len(prefixes):
+        p.error("--out names a prefix twice: " + ", ".join(sorted({out for out, a in zip(opts.out, prefixes)
+                                                                   if prefixes.count(a) > 1})))
+    return opts
 
 
 class Taxonomy:
@@ -151,6 +176,16 @@ def open_text(path):
     else:
         with open(path, "rb") as fh:
             yield from fh
+
+
+def gzip_text(path):
+    """A gzip file to write text to, without a time stamp in its header: the same lines give the same bytes, in a run
+    on one SAM folder as in a run on several."""
+    return io.TextIOWrapper(gzip.GzipFile(path, "wb", mtime=0), encoding="utf-8")
+
+
+def echo(line):
+    print(line, flush=True)
 
 
 def records_of(path, tax, seen):
@@ -469,71 +504,90 @@ def summarize(taxa, with_alleles):
     return lines, aucs
 
 
-def main(argv=None):
-    opts = parse_args(argv)
-    for path, what in ((opts.reference, "reference"), (opts.taxonomy, "taxonomy")):
-        if not os.path.isfile(path):
-            sys.exit(f"ancestry_sites.py: no {what} {path}")
-    if opts.full_reference and not os.path.isfile(opts.full_reference):
-        print(f"no full reference {opts.full_reference}: the congener sites only", flush=True)
-        opts.full_reference = None
-    rng = random.Random(opts.seed)
-    tax = Taxonomy(opts.taxonomy, opts.heldout)
-    sams = sorted(glob.glob(os.path.join(opts.sams, "*", "*", "*.sam*")) + glob.glob(os.path.join(opts.sams, "*.sam*")))
-    if not sams:
-        sys.exit(f"ancestry_sites.py: no SAM under {opts.sams}")
-    records, seen = {}, {}
-    for path in sams:
-        parts = path.replace("\\", "/").split("/")
-        sample = (parts[-3] + ":" if len(parts) >= 3 else "") + os.path.basename(path).split(".")[0]
-        records.setdefault(sample, []).extend(records_of(path, tax, seen.setdefault(sample, set())))
-    n_records = sum(len(r) for r in records.values())
-    head = [f"{len(sams)} SAMs of {len(records)} samples, {n_records} counted records on FP taxa or of FN taxa's own reads"]
-    print(head[0], flush=True)
+def sams_of(folder):
+    """The SAMs of one --sams folder: <set>/<point>/<sample>[.FP|.FN].sam[.zst], or at its top."""
+    return sorted(glob.glob(os.path.join(folder, "*", "*", "*.sam*")) + glob.glob(os.path.join(folder, "*.sam*")))
 
-    hits = collections.defaultdict(set)
-    for recs in records.values():
-        for _, t, g, *_ in recs:
-            hits[t].add(g)
-    congeners = {t: tax.congeners(t, opts.max_congeners, rng) for t in hits}
-    own_keys = {f"{t}_{g}" for t, genes in hits.items() for g in genes}
-    wanted = set(own_keys)
-    for t, genes in hits.items():
-        for g in genes:
-            for c in congeners[t]:
-                wanted.add(f"{c}_{g}")
-    head.append(f"{len(hits)} taxa, {len(own_keys)} taxon-genes, {len(wanted)} copies wanted; taxa without a congener in "
-                f"the training database: {sum(1 for t in hits if not congeners[t])}")
-    print(head[-1], flush=True)
-    copies = load_copies(opts.reference, wanted)
-    head.append(f"{len(copies)} copies read from {opts.reference}")
-    print(head[-1], flush=True)
-    alleles = {}
-    if opts.full_reference:
-        alleles = load_alleles(opts.full_reference, own_keys, {k: copies[k] for k in own_keys if k in copies},
-                               opts.max_alleles, opts.allele_genome_share)
-        named = sum(1 for v in alleles.values() for genome, _ in v if genome)
-        head.append(f"alleles: {sum(len(v) for v in alleles.values())} copies of {len(alleles)} taxon-genes from "
-                    f"{opts.full_reference}; taxa with any: {len({k.split('_')[0] for k, v in alleles.items() if v})} of {len(hits)}"
-                    f"; {named} with their genome named (a read's own source genome is left out of its alleles)" +
-                    (f"; only from the genomes that give strain alleles (--allele-genome-share {opts.allele_genome_share:g})"
-                     if opts.allele_genome_share < 1 else "") +
-                    ("" if named else "; NONE named: an older full reference, so no read's own genome is left out and the "
-                                      "fixed sites of real strains are circular"))
-        print(head[-1], flush=True)
 
+class Folder:
+    """One SAM folder's report before its analysis: every sample's counted records (records_of), the taxa they hit and
+    the congeners drawn for them, the reference copies it wants (own_keys: its taxa's copies of the genes they hit;
+    wanted: those and the congeners' copies of the same genes) and its output prefix. The congeners are drawn by a
+    generator seeded afresh (--seed) for each folder, so that they are those of a run on the folder alone. head: the
+    summary's first lines, printed as they are known (echo) or, in a run on several folders, kept for the folder's
+    block (said)."""
+
+    def __init__(self, sams_dir, out, sams, tax, opts, echoed):
+        self.sams_dir, self.out, self.echoed = sams_dir, out, echoed
+        self.head, self.said = [], []
+        self.records, seen = {}, {}
+        for path in sams:
+            parts = path.replace("\\", "/").split("/")
+            sample = (parts[-3] + ":" if len(parts) >= 3 else "") + os.path.basename(path).split(".")[0]
+            self.records.setdefault(sample, []).extend(records_of(path, tax, seen.setdefault(sample, set())))
+        n_records = sum(len(r) for r in self.records.values())
+        self.tell(f"{len(sams)} SAMs of {len(self.records)} samples, {n_records} counted records on FP taxa or of FN taxa's "
+                  f"own reads")
+        rng = random.Random(opts.seed)
+        self.hits = collections.defaultdict(set)
+        for recs in self.records.values():
+            for _, t, g, *_ in recs:
+                self.hits[t].add(g)
+        self.congeners = {t: tax.congeners(t, opts.max_congeners, rng) for t in self.hits}
+        self.own_keys = {f"{t}_{g}" for t, genes in self.hits.items() for g in genes}
+        self.wanted = set(self.own_keys)
+        for t, genes in self.hits.items():
+            for g in genes:
+                for c in self.congeners[t]:
+                    self.wanted.add(f"{c}_{g}")
+        self.tell(f"{len(self.hits)} taxa, {len(self.own_keys)} taxon-genes, {len(self.wanted)} copies wanted; taxa without "
+                  f"a congener in the training database: {sum(1 for t in self.hits if not self.congeners[t])}")
+        self.copies, self.alleles = {}, {}
+
+    def tell(self, line):
+        self.head.append(line)
+        if self.echoed:
+            echo(line)
+        else:
+            self.said.append(line)
+
+    def take(self, copies, alleles, opts):
+        """Keeps of the shared passes' copies and alleles those this folder wants, in the passes' order: a header's copy
+        and its alleles (load_alleles caps them per header) depend on that header's records alone, so these are what a
+        run on the folder alone reads."""
+        self.copies = {k: v for k, v in copies.items() if k in self.wanted}
+        self.tell(f"{len(self.copies)} copies read from {opts.reference}")
+        if not opts.full_reference:
+            return
+        self.alleles = {k: v for k, v in alleles.items() if k in self.own_keys}
+        named = sum(1 for v in self.alleles.values() for genome, _ in v if genome)
+        self.tell(f"alleles: {sum(len(v) for v in self.alleles.values())} copies of {len(self.alleles)} taxon-genes from "
+                  f"{opts.full_reference}; taxa with any: {len({k.split('_')[0] for k, v in self.alleles.items() if v})} of "
+                  f"{len(self.hits)}; {named} with their genome named (a read's own source genome is left out of its "
+                  f"alleles)" +
+                  (f"; only from the genomes that give strain alleles (--allele-genome-share {opts.allele_genome_share:g})"
+                   if opts.allele_genome_share < 1 else "") +
+                  ("" if named else "; NONE named: an older full reference, so no read's own genome is left out and the "
+                                    "fixed sites of real strains are circular"))
+
+
+def report(folder, tax, opts, say):
+    """The sites of one folder's taxa and its records' counts at them: writes OUT.fragments.tsv.gz, OUT.taxa.tsv.gz,
+    OUT.auc.tsv and OUT.summary.txt at the folder's prefix, and says (say, a line at a time) the line on the records
+    whose own genome's allele was left out and the summary."""
+    copies, alleles, congeners, records = folder.copies, folder.alleles, folder.congeners, folder.records
     sites = {}
-    for t, genes in hits.items():
+    for t, genes in folder.hits.items():
         for g in genes:
             key = f"{t}_{g}"
             if key in copies:
                 sites[(t, g)] = Sites(copies[key], [copies[f"{c}_{g}"] for c in congeners[t] if f"{c}_{g}" in copies],
                                       alleles.get(key, []))
 
-    os.makedirs(os.path.dirname(os.path.abspath(opts.out)) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(folder.out)) or ".", exist_ok=True)
     per = collections.defaultdict(lambda: [0, np.zeros(len(COUNTS), dtype=np.int64)])
     left_out = collections.Counter()  # records whose own source genome's allele was left out, by role
-    with gzip.open(opts.out + ".fragments.tsv.gz", "wt") as fh:
+    with gzip_text(folder.out + ".fragments.tsv.gz") as fh:
         fh.write("sample\tqname\ttaxid\trole\trelation\tgene\tnearest_identity\tallele_divergence\t" + "\t".join(COUNTS) + "\n")
         for sample, recs in records.items():
             for qname, t, g, pos, cigar, seq, role, source, genome in recs:
@@ -556,23 +610,109 @@ def main(argv=None):
                 v[1] += np.array(counts)
 
     taxa = [(sample, t, group, n, counts) for (sample, t, group), (n, counts) in per.items()]
-    with gzip.open(opts.out + ".taxa.tsv.gz", "wt") as fh:
+    with gzip_text(folder.out + ".taxa.tsv.gz") as fh:
         fh.write("sample\ttaxid\tgroup\trecords\tidentity\t" + "\t".join(COUNTS) + "\n")
         for sample, t, group, n, counts in taxa:
             idn = 1 - counts[1] / counts[0] if counts[0] else float("nan")
             fh.write("\t".join(map(str, [sample, t, group, n, f"{idn:.4f}"] + counts.tolist())) + "\n")
+    head = list(folder.head)
     if opts.full_reference:
         head.append("records whose own source genome's allele was left out: " +
                     (", ".join(f"{role} {n}" for role, n in sorted(left_out.items())) or "none"))
-        print(head[-1], flush=True)
+        say(head[-1])
     lines, aucs = summarize(taxa, bool(opts.full_reference))
-    with open(opts.out + ".auc.tsv", "w") as fh:
+    with open(folder.out + ".auc.tsv", "w") as fh:
         fh.write("min_sites\tidentity_band\tsignal\ttaxa\tfn\tauc\n")
         for n_min, band, name, n, fn, a in aucs:
             fh.write(f"{n_min}\t{band}\t{name}\t{n}\t{fn}\t{a:.4f}\n")
-    with open(opts.out + ".summary.txt", "w") as fh:
+    with open(folder.out + ".summary.txt", "w") as fh:
         fh.write("\n".join(head + [""] + lines) + "\n")
-    print("\n" + "\n".join(lines), flush=True)
+    say("\n" + "\n".join(lines))
+
+
+_SHARED = None  # (folders, taxonomy, options) of the analyses in forked processes (report_shared)
+
+
+def report_shared(i):
+    """report() on the i-th folder, in a forked process: the lines it says."""
+    folders, tax, opts = _SHARED
+    said = []
+    report(folders[i], tax, opts, said.append)
+    return said
+
+
+def reports(folders, tax, opts):
+    """The lines report() says of each folder, in the folders' order: up to --threads folders side by side in forked
+    processes, which share the parent's copies and alleles (where the system forks), else one after the other."""
+    global _SHARED
+    workers = min(opts.threads, len(folders))
+    if workers > 1 and "fork" in multiprocessing.get_all_start_methods():
+        sys.stdout.flush()  # nothing buffered for the forked processes to print again
+        sys.stderr.flush()
+        _SHARED = (folders, tax, opts)
+        try:
+            with multiprocessing.get_context("fork").Pool(workers) as pool:
+                yield from pool.imap(report_shared, range(len(folders)))
+        finally:
+            _SHARED = None
+        return
+    for folder in folders:
+        said = []
+        report(folder, tax, opts, said.append)
+        yield said
+
+
+def main(argv=None):
+    opts = parse_args(argv)
+    for path, what in ((opts.reference, "reference"), (opts.taxonomy, "taxonomy")):
+        if not os.path.isfile(path):
+            sys.exit(f"ancestry_sites.py: no {what} {path}")
+    if opts.full_reference and not os.path.isfile(opts.full_reference):
+        print(f"no full reference {opts.full_reference}: the congener sites only", flush=True)
+        opts.full_reference = None
+    tax = Taxonomy(opts.taxonomy, opts.heldout)
+    found = []
+    for sams_dir in opts.sams:
+        found.append(sams_of(sams_dir))
+        if not found[-1]:
+            sys.exit(f"ancestry_sites.py: no SAM under {sams_dir}")
+    several = len(opts.sams) > 1
+    folders = []
+    for sams_dir, out, sams in zip(opts.sams, opts.out, found):
+        folders.append(Folder(sams_dir, out, sams, tax, opts, not several))
+        if several:
+            echo(f"{sams_dir}: {folders[-1].head[0]}")
+
+    # One pass over each reference for the copies and alleles any folder wants; each folder keeps its own of them.
+    wanted = set().union(*(folder.wanted for folder in folders))
+    own_keys = set().union(*(folder.own_keys for folder in folders))
+    if several:
+        echo(f"{len(folders)} SAM folders: {len(own_keys)} taxon-genes, {len(wanted)} copies wanted in all, read in one "
+             f"pass over each reference")
+    began = time.time()
+    copies = load_copies(opts.reference, wanted)
+    if several:
+        echo(f"{len(copies)} copies read from {opts.reference} in {time.time() - began:.0f} s")
+    alleles = {}
+    if opts.full_reference:
+        began = time.time()
+        alleles = load_alleles(opts.full_reference, own_keys, {k: copies[k] for k in own_keys if k in copies},
+                               opts.max_alleles, opts.allele_genome_share)
+        if several:
+            echo(f"alleles: {sum(len(v) for v in alleles.values())} copies of {len(alleles)} taxon-genes read from "
+                 f"{opts.full_reference} in {time.time() - began:.0f} s")
+    for folder in folders:
+        folder.take(copies, alleles, opts)
+    del copies, alleles
+
+    if not several:
+        report(folders[0], tax, opts, echo)
+        return 0
+    for folder, said in zip(folders, reports(folders, tax, opts)):
+        echo("")
+        echo(f"== {folder.out} (the SAMs of {folder.sams_dir}) ==")
+        for line in folder.said + said:
+            echo(line)
     return 0
 
 

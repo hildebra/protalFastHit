@@ -250,17 +250,28 @@ HTTP 503.
 numbered line when it starts and indented lines when it ends.
 
 1. **Genome table** (`work/genomes.tsv`, `model_logs/genome_table.txt`): the genomes to simulate from
-   and their lengths.
-2. **Conversion** (`convert.log`): the release into a database folder. The genes are then placed in
-   every genome to record which genes are neighbours (`gene_neighbours.log`,
-   [details](#gene-neighbours)).
+   and their lengths. The genomes that give strain alleles are left out first, so that only the genomes
+   simulated are read. Each genome's length and contig names are kept in a cache across builds
+   (`--genome-cache`, by default `genome_cache.tsv.gz` in the `--inputs` folder), so that a rebuild from
+   the same inputs reads none of them; reading ~50,000 genomes from a network file system took 8-22 min
+   at r226. The contig names also go to the reports' cache, so that the reports read no genome either.
+2. **Conversion** (`convert.log`): the release into a database folder, in the background while the
+   genome table is made (since 2026-10-09; when nothing converted is there to reuse). Once it has
+   written `reference.fna` and `reference.map`, the genes are placed in every genome to record which
+   genes are neighbours (`gene_neighbours.log`, [details](#gene-neighbours)), while the converter
+   writes the full reference. The gene neighbours have a stage of their own: a changed genome table
+   finds them again without converting again.
 3. **In-silico strains** (`insilico_strains.log`): a mutated copy of the representative of every
    species with one genome, so that these species are simulated from a strain too
    ([details](#training-data-like-real-samples)). Since 2026-10-09 the species clouds come first (`species_clouds.log`:
    every species' nearest congeners by their references), which give each strain its congener sites and steer the
-   hold-out of step 4.
+   hold-out of step 4. Only the simulations read the strains, so they are made in the background, at a lower
+   priority, beside step 4; the simulations wait for them.
 4. **Training database** (`training_db_index.log`): the database without the species and clades held
-   out (30% of the species, plus whole clades of every rank), built alone. Once it is built, the
+   out (30% of the species, plus whole clades of every rank), built alone. Its files are derived from the
+   converted release on `-t` processes (`training_db.log`; one process took 5:17 at r226 v19):
+   `reference.fna` in pieces of whole records, the full reference frame by frame through its seek table,
+   and the gene neighbours beside them. Once it is built, the
    finished database's build starts in the background at idle priority, and the samples' simulations
    (what to stream into protal chosen from the room on the samples' disk).
 5. **Training data** (`training_data.log`): 309 paired-end samples of 20-200 species each (3 read setups x 103), profiled
@@ -273,9 +284,18 @@ numbered line when it starts and indented lines when it ends.
    a random forest before 2026-10-06), trained in parallel on the default feature set and evaluated with
    rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
-8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does.
-9. **Packaging** (`final_package.log`): the models go into the finished database. Then the reports
-   of what the models' errors rest on (`trace_relatives.log`, `error_reads_<read type>.log`).
+8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does; the read
+   types' checks side by side (`protal --profile_only`, no index loaded).
+9. **Packaging** (`final_package.log`): the models go into the finished database. The reports
+   of what the models' errors rest on (`trace_relatives.log`, `error_reads_<read type>.log`) start
+   right after the models are trained, beside steps 8 and 9 and the wait for the finished database's
+   build (since 2026-10-09).
+
+Where the run spends its cores is in `logs/` only: `cpu_jobs.tsv` has a row per command that ended (its
+wall-clock and CPU seconds, and the cores it kept busy on average), `cpu_timeline.tsv` the cores the run
+kept busy every 15 s (from its cgroup, the SLURM job's on a cluster) with the step and the commands
+running, and `protal_cpu_<collection>.tsv` each protal run of a collection, as a whole and by protal's own
+stages and samples (`misc/cpu.tsv`, [running.md](running.md)). The share archive carries them.
 
 A rerun into the same `--outdir` resumes. Completed steps are skipped when their inputs are
 unchanged, and simulated samples are reused when their design is the same
@@ -357,7 +377,7 @@ with `--scratch`, and about 1,400 with `--share-logs`, whose error-read SAMs are
 |---|---|
 | `protal_db/` | the database: `database.protal` with its models; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes |
 | `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
-| `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables` or the read types' parity checks, in one log, each command after a `---` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`) |
+| `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the read types' parity checks, run side by side, each after a `==> parity_<read type> <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
 | `console.log` | the console's lines, of every run into the folder |
 | `work/` | what a rerun reuses, not needed to use the database: `stages/` (what a rerun may skip), `genomes.tsv` (the genomes simulated from: accession, taxonomy, FASTA, length) and `genomes_simulated.tsv` (with the in-silico strains), `internal_taxonomy.dmp`, `gene2geneid.tsv`, `foreign_rates/` (the finished database's scan, stored in it), and `training/`, `test/`: one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`), to retrain a model. Without `--scratch` also the samples, their profiles, the training database, the genome store and the in-silico strains (with `--scratch` these are on the scratch disk) |
 | `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
@@ -657,8 +677,9 @@ or unseen species, wherever they went (`source:`). It writes to `model_logs/erro
 | `<training\|test>/<design point>/<sample>.FP.sam.zst`, `.FN.sam.zst` | with `--share-logs`: the records of the reads taken for the false positives, and for the false negatives (`FN:`, and `seeded:` and `source:` of a false negative), of at most 20 fragments per taxon and reason (the same ones at any cap: the lowest CRC-32 of the read name); each record with QUAL left out (`*`), its source genome and species (`xg:Z:`, `xs:Z:`, "(not in the database)" for a species the training database lacks) and why it was taken (`xe:Z:`, its reasons); the `@SQ` lines cut to the genes they name |
 
 With `--share-logs` the build
-then runs `scripts/ancestry_sites.py` on each read type's SAMs (`model_logs/ancestry_sites/<read type>.*`,
-`logs/ancestry_sites_<read type>.log`): for every false positive and false negative, the sites where the
+then runs `scripts/ancestry_sites.py` on every read type's SAMs, in one run that reads the references once and
+analyses the read types side by side (`model_logs/ancestry_sites/<read type>.*`, `logs/ancestry_sites.log`; a log per
+read type before 2026-10-09): for every false positive and false negative, the sites where the
 species' gene copies differ from its nearest congener's in the training database and, from the species'
 other genomes in the build's full reference (kept until then), the sites where its own strains vary, a read's
 own source genome left out of them (a missed real strain was simulated from a GTDB genome that is usually among
@@ -682,9 +703,12 @@ simulations are seeded, so the collector replays a sample's reads byte for byte 
 The unmapped records make the SAMs on the samples' disk larger (at r226 a deep paired-end sample had 45M
 of them; an estimate of 10-20 GB more for the whole build, mostly the deep scenario samples).
 
-The build runs these reports once the models are in the database, which does not wait for them:
-`error_reads.py` for each read type and `trace_relatives.py` side by side, each on its share of `-t`
-(`logs/error_reads_<read type>.log`, `logs/trace_relatives.log`), the genomes' contig names read once before them.
+The build runs these reports once the models are trained, beside the parity check and the packaging; the
+database does not wait for them. `error_reads.py` for each read type and `trace_relatives.py` run side by
+side, each on all of `-t` (`logs/error_reads_<read type>.log`, `logs/trace_relatives.log`): they differ in
+work (r226 v19 on 16 threads each: pe 186 s, se 150 s, PacBio and ONT ~80 s), and one that ends leaves its
+cores to the others. The genomes' contig names come from the genome table's cache (step 1); only the
+in-silico strains' are read, from the samples' disk.
 `error_reads.py` extracts `--threads` samples at once, the largest SAMs first, while their estimated
 memory (300 MB and twice the SAM's size on disk) fits in `--memory` GB (default 60% of the least of the
 machine's memory, `SLURM_MEM_PER_NODE` and the process's cgroup limit; the build gives each read type's
@@ -736,7 +760,8 @@ the others fit at once. At the defaults (116 points) with 1 TB free that streams
 ([report](claude/2026-10-07-build-ordering/README.md)). Streaming saves the space but not time: a
 streamed point's samples are aligned as they are made, and the profiling stage at the end of a protal
 run is shared only by the points in that run. The streamed points whose communities are there share
-protal runs (up to `--profile-block-max` GB). The console line `--stream-above auto: ...` says what it
+one protal run (up to `--profile-block-max` GB until 2026-10-09; their reads are on no disk, and protal reads one
+sample at a time, so the simulators it has not reached yet wait at their pipes). The console line `--stream-above auto: ...` says what it
 chose, `build_metadata.tsv` (`samples_streamed`) keeps it, and the run's end gives the most it took on
 the disk beside the estimate. Each protal run's log is copied to `OUTDIR/logs/protal_runs_<collection>.log`.
 With `--profile-blocks 0` nothing is streamed and every sample is on the disk at once. A rerun reuses the
@@ -772,7 +797,9 @@ background build that fails stops the run within seconds.
 
 A rerun into the same `--outdir` resumes:
 - The conversion and both index builds are skipped when their inputs are unchanged (the release,
-  the converter, protal, the held-out species; recorded in `work/stages/`). The training database on
+  the converter, protal, the held-out species; recorded in `work/stages/`). The gene neighbours have a
+  stage of their own since 2026-10-09 (they depend on the genome table), so an `--outdir` of an earlier
+  version converts and builds once again. The training database on
   `--scratch` keeps that record in its own folder too (`built_for.json`): one that another
   `--outdir`'s build left there is built again. The folder of a reduced database (`--n-genes`,
   `--genes`) is never taken for the whole release by a later run without them.
@@ -797,9 +824,10 @@ keeps the finished database.
 | `-t, --threads` | 8 | |
 | `--scratch` | | a node-local folder for the samples ([above](#local-scratch)) |
 | `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads (`--long_samples`), the host's reads) or `gzip` (`.fq.gz`); smaller (about 15% against the simulator's gzip, which ISA-L writes about twice as fast) and several times faster to write than Python's gzip ([report](claude/2026-10-05-zstd-reads/README.md)) |
-| `--profile-blocks`, `--profile-block-max`, `--keep-free` | 20, 200, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads and at most that many (0: no limit), removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
+| `--profile-blocks`, `--profile-block-max`, `--keep-free` | 20, 200, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads and at most that many of written reads (0: no limit; the streamed ones share a run, uncapped since 2026-10-09), removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
 | `--stream-above` | auto | with `--profile-blocks`: a design point whose largest sample would take more than this many GB of compressed reads is streamed into protal through named pipes, never written (0: none); `auto` (2 before 2026-10-07) streams only what the room on the samples' disk requires ([above](#local-scratch)) |
-| `--profile-ahead` | off | protal `--profile_ahead` in the collections' runs: a sample profiled while the next is aligned, for runs of a few deep samples; to be measured on a cluster node before it becomes the default |
+| `--profile-ahead`, `--no-profile-ahead` | on (since 2026-10-09) | protal `--profile_ahead` in the collections' runs: a sample profiled while the next is aligned, on a quarter of the threads, so that a run's profiling stage after its last alignment shrinks to what was left (r226 v19, without: 15.5 min over six runs); the profiles are the same |
+| `--genome-cache` | `auto` | each genome FASTA's length and contig names by path, size and modification time, kept across builds: `auto` puts it in the `--inputs` folder (`genome_cache.tsv.gz`, where writable), else `OUTDIR/work/`; a path; or `none` |
 | `--compressed-pipes` | off | with `--stream-above`: what goes through the pipes compressed as the files' names say, not as plain FASTQ |
 | `--genome-store` | auto | `simulate_metagenomes --genome_store` for both collections: each genome simulated read and parsed from its FASTA once, written at 2 bits a base and memory-mapped by every later sample and simulation (at r226 ~1.5M genome reads of ~54k genomes otherwise); `auto`: `SCRATCH/genome_store` (`OUTDIR/work/genome_store` without `--scratch`), kept for the next build; a folder; or `none`. ~0.25 bytes a base of the genomes simulated, ~50 GB at r226 besides the samples ([report](claude/2026-10-07-simulate-metagenomes-audit/README.md)) |
 | `--seed` | 1 | |
@@ -1192,8 +1220,8 @@ features.
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
 | `--read_compression` | zstd | `zstd` (`.fq.zst`) or `gzip` (`.fq.gz`): how the simulated reads are written |
 | `--follow`, `--profile_block`, `--protal_lock`, `--min_free` | , 20, , 0 | profile as a `--simulate_only` run of the same `-o` simulates, in protal runs of at least this many GB of reads, removing each point's reads once profiled, then write the tables (points it cannot profile once the simulations have ended it simulates itself); a lock file for the protal runs of two followers to take turns; GB a simulation leaves free on the disk, or it waits (for a follower to remove reads) |
-| `--stream_above` | 0 | `--follow` (and its `--simulate_only` run, the same value): points whose largest sample would take more than this many GB are streamed into protal through named pipes, not written; those whose communities are there share protal runs |
-| `--profile_block_max`, `--profile_ahead` | 0, off | `--follow`: the most GB of reads one protal run takes (a streamed point's estimated), at least one point's (0: no limit); protal `--profile_ahead` in the collection's runs |
+| `--stream_above` | 0 | `--follow` (and its `--simulate_only` run, the same value): points whose largest sample would take more than this many GB are streamed into protal through named pipes, not written; those whose communities are there share one protal run |
+| `--profile_block_max`, `--profile_ahead` | 0, off | `--follow`: the most GB of written reads one protal run takes, at least one point's (0: no limit; streamed points are not capped since 2026-10-09); protal `--profile_ahead` in the collection's runs |
 
 ### Training
 

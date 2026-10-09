@@ -28,8 +28,9 @@ Writes to <outdir>:
   full_reference.fna.zst marker genes of all genomes, header >taxid_geneid of the
                          genome's species (only if genomic_files_all is present);
                          zstd-compressed by the zstd command (86 GB raw at r226), a frame
-                         per marker file (or gene, in a --from_db copy) and a seek table,
-                         so that protal --build reads it on several threads;
+                         per marker file (a --from_db copy keeps its source's frames, less
+                         the records it leaves out) and a seek table, so that protal
+                         --build reads it on several threads;
                          full_reference.fna without the zstd command
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
@@ -50,6 +51,9 @@ Each marker's genes are spooled to <outdir>/.convert_tmp (or <--tmp>/.convert_tm
 at a time, so memory stays at about one gene's sequences per worker; -t reads the marker files in
 parallel (the output is the same for any -t). The workers compress their chunks of the full reference
 themselves (zstd frames, joined as they are, then the seek table), and the log gives each step's time.
+A --from_db copy works on -t processes too: reference.fna in pieces of whole records, the full reference
+frame by frame (through its seek table), and the gene neighbours beside them; its files are the same
+for any -t.
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
@@ -83,6 +87,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,6 +96,9 @@ FULL_REFERENCE = "full_reference.fna"
 # packed a GTDB-like world's 12.8x at ~60 MB/s per thread, and decompresses at ~800 MB/s
 # (docs/claude/2026-10-01-scratch-space). protal --build reads it.
 ZSTD_OPTIONS = ("-6", "--long=27")
+# The log's line once reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv are complete (the taxonomy is
+# written before them): build_gtdb_database.py starts gene_neighbours.py on them while the full reference is written.
+REFERENCE_WRITTEN = "wrote reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv"
 MARKER_SETS = ("bac120", "ar53")
 RANKS = [("d", "domain"), ("p", "phylum"), ("c", "class"), ("o", "order"),
          ("f", "family"), ("g", "genus"), ("s", "species")]
@@ -669,59 +677,81 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
                 f = line.rstrip("\n").split("\t")
                 if len(f) < 2 or not f[1].isdigit() or int(f[1]) in keep:
                     fout.write(line)
+    # Three parts side by side (one process took 5:17 at r226: docs/claude/2026-10-09-build-parallelism): the gene
+    # neighbours in a process of their own; reference.fna in pieces of whole records and the full reference frame by
+    # frame, on `threads` workers. The files are the same for any number of them.
+    fork = multiprocessing.get_context("fork")
+    neighbours = None
     if os.path.isfile(os.path.join(src, GENE_POSITIONS)):
-        # The gene neighbours of the genomes of the species kept, among the genes kept: the left-out species'
-        # gene order is not known to the copy, as an organism the database lacks is not; and a read meets the
-        # nearest gene of the subset next, not a gene the copy lacks.
-        import gene_neighbours  # here: it imports this module
-        lines, genomes, kept_species = gene_neighbours.derive(
-            os.path.join(src, GENE_POSITIONS), os.path.join(dst, "internal_taxonomy.dmp"),
-            os.path.join(dst, gene_neighbours.FILE_NAME), {int(t) for t in drop}, os.path.join(dst, GENE_POSITIONS), keep)
-        sys.stderr.write(f"{gene_neighbours.FILE_NAME} derived from the {genomes} genomes of {kept_species} species "
-                         f"kept: {lines} lines" + (f" (over the {len(keep)} genes kept)" if keep is not None else "") + "\n")
+        neighbours = fork.Process(target=_derive_neighbours, args=(src, dst, {int(t) for t in drop}, keep))
+        neighbours.start()
     elif os.path.isfile(os.path.join(dst, GENE_POSITIONS)):
         os.remove(os.path.join(dst, GENE_POSITIONS))
-
-    def records(path):
-        with open(path) as fh:
-            for header in fh:
-                seq = fh.readline()
-                if not header.startswith(">") or not seq:
-                    sys.exit(f"{path}: expected a header and one sequence line per record")
-                tid, gid = header[1:].split()[0].split("_", 1)
-                yield header, seq, tid, gid
-
-    def wanted(tid, gid):
-        return tid not in drop and (keep is None or int(gid) in keep)
-
-    kept = dropped = offset = 0
-    genes_kept = set()
-    with open(os.path.join(dst, "reference.fna"), "w", newline="\n") as out, \
-            open(os.path.join(dst, "reference.map"), "w", newline="\n") as fmap:
-        for header, seq, tid, gid in records(fna):
-            if not wanted(tid, gid):
-                dropped += 1
-                continue
-            out.write(header + seq)
-            start = offset + len(header)
-            fmap.write(f"{tid}\t{gid}\t{start}\t{start + len(seq) - 1}\n")
-            offset = start + len(seq)
-            kept += 1
-            genes_kept.add(int(gid))
-    if keep is not None and genes_kept != keep:
-        missing = sorted(keep - genes_kept)
-        sys.exit(f"--genes: {fna} has no sequence of gene{'s' if len(missing) > 1 else ''} {', '.join(map(str, missing))}")
+    _WORK["derive_drop"] = {str(t).encode() for t in drop}
+    _WORK["derive_keep"] = keep
     full = full_reference_path(src)
+    frames = read_seek_table(full) if full and full.endswith(".zst") and shutil.which("zstd") else None
+    parts = os.path.join(dst, ".derive_parts")
+    shutil.rmtree(parts, ignore_errors=True)
+    os.makedirs(parts)
+    pieces = record_ranges(fna, max(1, threads) * 2)
+    try:
+        with fork.Pool(max(1, threads)) as pool:
+            # The full reference's frames first, the largest first (the longest tasks), then reference.fna's pieces.
+            full_tasks = sorted(((i, full, offset, size, os.path.join(parts, f"frame_{i}.zst"))
+                                 for i, (offset, size, _) in enumerate(frames or ())), key=lambda t: -t[3])
+            full_async = pool.map_async(_derive_full_frame, full_tasks, chunksize=1) if frames else None
+            piece_tasks = [(fna, start, end, os.path.join(parts, f"piece_{i}")) for i, (start, end) in enumerate(pieces)]
+            done = pool.map(_derive_reference_piece, piece_tasks, chunksize=1)
+            kept, dropped = sum(r[0] for r in done), sum(r[1] for r in done)
+            genes_kept = set().union(*(r[2] for r in done))
+            if keep is not None and genes_kept != keep:
+                missing = sorted(keep - genes_kept)
+                sys.exit(f"--genes: {fna} has no sequence of gene{'s' if len(missing) > 1 else ''} "
+                         f"{', '.join(map(str, missing))}")
+            # Each piece at its offset in reference.fna, its map rows shifted by it, written on the workers; then the
+            # map's pieces joined.
+            target, bases = os.path.join(dst, "reference.fna"), [0]
+            for r in done:
+                bases.append(bases[-1] + r[3])
+            with open(target, "wb") as fh:
+                fh.truncate(bases[-1])
+            pool.map(_place_reference_piece, [(t[3], base, target) for t, base in zip(piece_tasks, bases)], chunksize=1)
+            with open(os.path.join(dst, "reference.map"), "wb") as fmap:
+                for t in piece_tasks:
+                    with open(t[3] + ".map", "rb") as fh:
+                        shutil.copyfileobj(fh, fmap, 1 << 22)
+            full_done = sorted(zip((t[0] for t in full_tasks), full_async.get())) if frames else []
+    except ValueError as e:  # a record that is not a header and one sequence line, in a worker
+        sys.exit(str(e))
     full_kept = 0
-    if full:
+    if frames is not None:
+        remove_full_reference(dst)
+        target = os.path.join(dst, FULL_REFERENCE + ".zst")
+        table = []  # (compressed size, content size) of the frames kept
+        with open(target + ".partial", "wb") as out:
+            for i, (records, content) in full_done:
+                path = os.path.join(parts, f"frame_{i}.zst")
+                if records:
+                    with open(path, "rb") as fh:
+                        shutil.copyfileobj(fh, out, 1 << 22)
+                    table.append((os.path.getsize(path), content))
+                    full_kept += records
+            seek = seek_table(table)
+            if seek:
+                out.write(seek)
+        os.replace(target + ".partial", target)
+    elif full:
+        # A plain full reference (written without the zstd command) or one without a seek table: one pass, a frame per
+        # gene.
         with read_full_reference(full) as fin, full_reference_writer(dst, threads) as out:
-            frame_gene = None  # a frame per gene (the full reference is gene by gene), whose copies stay together
+            drop_names, frame_gene = _WORK["derive_drop"], None
             for header in fin:
                 seq = fin.readline()
                 if not header.startswith(b">") or not seq:
                     sys.exit(f"{full}: expected a header and one sequence line per record")
                 tid, gid = header[1:].split()[0].split(b"_", 1)  # the name; the genome's accession follows it
-                if wanted(tid.decode(), gid.decode()):
+                if tid not in drop_names and (keep is None or int(gid) in keep):
                     if gid != frame_gene:
                         out.new_frame()
                         frame_gene = gid
@@ -730,9 +760,173 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
                     full_kept += 1
     else:
         remove_full_reference(dst)  # of an earlier copy; protal --build would take it
+    shutil.rmtree(parts, ignore_errors=True)
+    if neighbours is not None:
+        neighbours.join()
+        if neighbours.exitcode:
+            sys.exit(f"Deriving {GENE_POSITIONS} and the gene neighbours of {dst} failed ({neighbours.exitcode})")
     sys.stderr.write(f"{src} -> {dst} without {len(drop)} species" +
                      (f", {len(keep)} genes kept" if keep is not None else "") +
                      f": {kept} representative sequences kept, {dropped} left out; full reference {full_kept} sequences\n")
+
+
+def _derive_neighbours(src, dst, drop, keep):
+    """derive_db's gene neighbours, in a process of its own: those of the genomes of the species kept, among the genes
+    kept. The left-out species' gene order is not known to the copy, as an organism the database lacks is not; and a
+    read meets the nearest gene of the subset next, not a gene the copy lacks."""
+    import gene_neighbours  # here: it imports this module
+    lines, genomes, kept_species = gene_neighbours.derive(
+        os.path.join(src, GENE_POSITIONS), os.path.join(dst, "internal_taxonomy.dmp"),
+        os.path.join(dst, gene_neighbours.FILE_NAME), drop, os.path.join(dst, GENE_POSITIONS), keep)
+    sys.stderr.write(f"{gene_neighbours.FILE_NAME} derived from the {genomes} genomes of {kept_species} species "
+                     f"kept: {lines} lines" + (f" (over the {len(keep)} genes kept)" if keep is not None else "") + "\n")
+    sys.stderr.flush()
+
+
+def record_ranges(path, pieces):
+    """[(start, end)] byte ranges that cut a FASTA of two-line records (header, sequence) into up to `pieces` pieces
+    of about equal size, each of whole records."""
+    size = os.path.getsize(path)
+    cuts = [0]
+    with open(path, "rb") as fh:
+        for i in range(1, max(1, pieces)):
+            fh.seek(max(size * i // pieces, cuts[-1] + 1) - 1)
+            fh.readline()  # the rest of the line the cut fell in (a cut at a line's start leaves that line whole)
+            while True:
+                at = fh.tell()
+                line = fh.readline()
+                if not line or line.startswith(b">"):
+                    break
+            if cuts[-1] < at < size:
+                cuts.append(at)
+    cuts.append(size)
+    return [(a, b) for a, b in zip(cuts, cuts[1:]) if b > a]
+
+
+def _derive_reference_piece(task):
+    """derive_db's records of reference.fna from byte start to end (whole records), of the species and genes kept
+    (_WORK's derive_drop and derive_keep), into the file piece, and their reference.map rows (offsets from the piece's
+    start) into piece.map; -> (records kept, records left out, the gene ids kept, the piece's bytes)."""
+    path, start, end, piece = task
+    drop, keep = _WORK["derive_drop"], _WORK["derive_keep"]
+    kept = dropped = offset = 0
+    genes_kept = set()
+    with open(path, "rb") as fin, open(piece, "wb") as out, open(piece + ".map", "w", newline="\n") as fmap:
+        fin.seek(start)
+        at = start
+        while at < end:
+            header, seq = fin.readline(), fin.readline()
+            if not header.startswith(b">") or not seq:
+                raise ValueError(f"{path}: expected a header and one sequence line per record (byte {at})")
+            at += len(header) + len(seq)
+            tid, gid = header[1:].split()[0].split(b"_", 1)
+            if tid in drop or (keep is not None and int(gid) not in keep):
+                dropped += 1
+                continue
+            out.write(header)
+            out.write(seq)
+            begin = offset + len(header)
+            fmap.write(f"{tid.decode()}\t{gid.decode()}\t{begin}\t{begin + len(seq) - 1}\n")
+            offset = begin + len(seq)
+            kept += 1
+            genes_kept.add(int(gid))
+    return kept, dropped, genes_kept, offset
+
+
+def _place_reference_piece(task):
+    """A piece of derive_db's reference.fna written into it at its offset `base`, and its map rows shifted by base
+    (piece.map, rewritten)."""
+    piece, base, target = task
+    with open(piece, "rb") as fin, open(target, "r+b") as out:
+        out.seek(base)
+        shutil.copyfileobj(fin, out, 1 << 22)
+    os.remove(piece)
+    if base:
+        with open(piece + ".map") as fin, open(piece + ".shifted", "w", newline="\n") as fout:
+            for line in fin:
+                tid, gid, begin, end = line.split("\t")
+                fout.write(f"{tid}\t{gid}\t{int(begin) + base}\t{int(end) + base}\n")
+        os.replace(piece + ".shifted", piece + ".map")
+
+
+def _derive_full_frame(task):
+    """One frame of a seekable full_reference.fna.zst (offset and size in it): its records of the species and genes
+    kept (as _derive_reference_piece), compressed into a frame of their own at out (ZSTD_OPTIONS, one thread);
+    -> (records kept, their bytes)."""
+    _, path, offset, size, out = task
+    drop, keep = _WORK["derive_drop"], _WORK["derive_keep"]
+    zstd = shutil.which("zstd") or "zstd"
+    decoder = subprocess.Popen([zstd, "-q", "-dc", "--long=31"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    def feed():
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(offset)
+                left = size
+                while left > 0:
+                    data = fh.read(min(left, 1 << 22))
+                    if not data:
+                        break
+                    decoder.stdin.write(data)
+                    left -= len(data)
+        except BrokenPipeError:
+            pass
+        finally:
+            decoder.stdin.close()
+
+    feeder = threading.Thread(target=feed, daemon=True)
+    feeder.start()
+    records = content = 0
+    with open(out + ".partial", "wb") as fout:
+        encoder = subprocess.Popen([zstd, "-q", "-c", "-T1", *ZSTD_OPTIONS], stdin=subprocess.PIPE, stdout=fout)
+        for header in decoder.stdout:
+            seq = decoder.stdout.readline()
+            if not header.startswith(b">") or not seq:
+                raise ValueError(f"{path}: expected a header and one sequence line per record (frame at byte {offset})")
+            tid, gid = header[1:].split()[0].split(b"_", 1)  # the name; the genome's accession follows it
+            if tid in drop or (keep is not None and int(gid) not in keep):
+                continue
+            encoder.stdin.write(header)
+            encoder.stdin.write(seq)
+            records += 1
+            content += len(header) + len(seq)
+        encoder.stdin.close()
+        failed = encoder.wait()
+    feeder.join()
+    if decoder.wait() or failed:
+        raise ValueError(f"zstd failed on the frame at byte {offset} of {path}")
+    if records:
+        os.replace(out + ".partial", out)
+    else:
+        os.remove(out + ".partial")
+    return records, content
+
+
+def read_seek_table(path):
+    """The frames of a seekable zstd file (its seek table, as seek_table writes it): [(offset, compressed size, content
+    size)], or None without a seek table."""
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        if size < 17:
+            return None
+        fh.seek(size - 9)
+        count, descriptor, magic = struct.unpack("<IBI", fh.read(9))
+        if magic != 0x8F92EAB1:
+            return None
+        entry = 12 if descriptor & 0x80 else 8
+        if size < 17 + count * entry:
+            return None
+        fh.seek(size - 17 - count * entry)
+        skippable, length = struct.unpack("<II", fh.read(8))
+        if skippable != 0x184D2A5E or length != count * entry + 9:
+            return None
+        table = fh.read(count * entry)
+    frames, offset = [], 0
+    for i in range(count):
+        compressed, content = struct.unpack_from("<II", table, i * entry)
+        frames.append((offset, compressed, content))
+        offset += compressed
+    return frames if offset == size - 17 - count * entry else None
 
 
 def build_taxonomy(species_lineages):
@@ -967,7 +1161,7 @@ def main():
             sp = lineage[acc].split(";")[-1]
             if sp in taxid:
                 fh.write(f"{acc}\t{taxid[sp]}\t{species_rep[sp]}\t{lineage[acc]}\n")
-    phase("wrote reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv")
+    phase(REFERENCE_WRITTEN)
 
     # --- all genomes, for the unique k-mer check -----------------------------------------
     n_full = 0

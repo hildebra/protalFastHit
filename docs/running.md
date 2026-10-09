@@ -66,6 +66,11 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   times the number of calls. Since 0.7.6 it also has the profiling steps' wall-clock times (reading the
   SAM, record evidence and sample context, read EM, congener distances, SNPs, scoring, writing), which
   protal prints in one line per sample too; a rerun that profiles the sample again replaces them.
+- `misc/cpu.tsv` (since 2026-10-09) has a row per stage of the run, one after the other: the start-up
+  (loading the database), each sample's alignment (`aligning <sample>`, up to its SAM written), the
+  profiling stage and the rest of the run, with its wall-clock seconds, the CPU seconds the whole
+  process used meanwhile (all threads, user and system time) and `-t`. CPU over wall is how many cores
+  the stage kept busy. With `--profile_ahead` the profiling worker's time falls into the samples' rows.
 - Every run prints per sample how its reads went: the reads, those with an anchor, the candidate
   alignments tried, those the k-mer screen refused, those aligned, and the records written. A second
   line ("seeding:") counts the k-mer lookups, the index blocks they scanned and their sizes, the

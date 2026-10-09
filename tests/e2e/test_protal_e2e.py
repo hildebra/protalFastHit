@@ -571,6 +571,40 @@ class CompleteRunTest(DbTest):
         for msa in msas:
             self.assertTrue(os.path.isfile(base.path("strains", msa.replace(".raw.msa.fna", ".raw.partition.txt"))), msa)
 
+    def test_the_run_cpu_table(self):
+        # misc/cpu.tsv: each stage's wall-clock and CPU seconds, one after the other (the start-up, each sample's
+        # alignment, the profiling stage, the rest of the run), which build_gtdb_database.py's collector gathers to tell
+        # the stages that leave cores idle (docs/claude/2026-10-09-build-parallelism).
+        header, rows = read_table(self.base.path("misc", "cpu.tsv"))
+        self.assertEqual(header, ["stage", "wall_seconds", "cpu_seconds", "threads"])
+        self.assertEqual([r[0] for r in rows],
+                         ["start-up", *(f"aligning {s}" for s in self.base.SAMPLES), "profiling", "rest of the run"])
+        for stage, wall, cpu, threads in rows:
+            self.assertGreaterEqual(float(wall), 0, stage)
+            self.assertGreaterEqual(float(cpu), 0, stage)
+            self.assertEqual(threads, "4", stage)
+        self.assertGreater(sum(float(r[2]) for r in rows), 0)
+
+    def test_profiles_ahead_are_the_same(self):
+        # --profile_ahead (build_gtdb_database.py's default since 2026-10-09): each sample profiled while the next is
+        # aligned, on a quarter of the threads; the profiles, SAMs and the strain MSAs are those of the baseline, which
+        # profiled every sample after the alignment of all.
+        work = tempfile.mkdtemp(prefix="protal_e2e_ahead_")
+        if not KEEP:
+            self.addCleanup(shutil.rmtree, work, ignore_errors=True)
+        rc, log = run(work, "--db", DB, *reads(*self.base.SAMPLES), "-o", "out", "-t", "4", "--no_qcmsa", "--profile_ahead",
+                      "--profile_truth", ",".join(os.path.join(self.base.work, f"{s}.truth.tsv") for s in self.base.SAMPLES))
+        self.assertEqual(rc, 0, log[-3000:])
+        # How many the worker took depends on how fast the small samples align; the profiles may not.
+        self.assertRegex(log, r"Profiled while the reads were aligned \(on 1 thread\(s\)\): \d of 5 sample\(s\)")
+        for sample in self.base.SAMPLES:
+            for name, text in self.base.profiles(sample).items():
+                self.assertEqual(read_text(os.path.join(work, "out", name)), text, name)
+            self.assertEqual(sorted(sam_records(sam_path(os.path.join(work, "out", f"{sample}.sam")))),
+                             sorted(sam_records(self.base.sam(sample))), sample)
+        for msa in glob.glob(self.base.path("strains", "*.raw.msa.fna")):
+            self.assertEqual(read_text(os.path.join(work, "out", "strains", os.path.basename(msa))), read_text(msa), msa)
+
     def test_read_names_and_pairs(self):
         records = sam_records(self.base.sam("sa"))
         self.assertTrue(records)

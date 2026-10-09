@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """test_collector.py - checks for collect_training_data.py (the training data's designs, the long reads' replay of the
-paired-end communities, the simulations' scheduler, --follow, the worker processes), scenarios.py and hifi_reads.py.
+paired-end communities, the simulations' scheduler, --follow: its turns and streamed runs, the tables' worker processes,
+protal_cpu.tsv), scenarios.py and hifi_reads.py.
 
 A stand-in replaces protal; the long reads and the host's paired-end reads are made by simulate_metagenomes ($SIMULATE:
 those tests are skipped without it, or fail under PROTAL_TESTS_REQUIRED=1). Needs numpy.
@@ -478,6 +479,270 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(collect.reads_removed(units, opts, keys, key_of), set())
         with open(runs) as fh:
             self.assertEqual(len(fh.read().splitlines()), 3)  # the two points in one run: nothing simulates
+
+    def follow_fixture(self, name, protal_body):
+        """A --follow setting of two paired-end points (pe and se units, two samples each) in a folder of its own, with
+        a stand-in protal: its script's start (the map's output folder `out`, its rows `rows`, the runs' log `runs`)
+        and then protal_body. -> (root, opts, points, units, keys, the runs' log)."""
+        root = os.path.join(self.tmp.name, name)
+        os.makedirs(root)
+        runs = os.path.join(root, "runs.txt")
+        protal = os.path.join(root, "protal")
+        with open(protal, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport os, sys, time\na = sys.argv[1:]\n"
+                     "lines = open(a[a.index('--map') + 1]).read().splitlines()\n"
+                     "out = lines[0].split('\\t')[1]\n"
+                     "rows = [l.split('\\t') for l in lines if not l.startswith('#')]\n"
+                     f"runs = {runs!r}\n" + protal_body)
+        os.chmod(protal, 0o755)
+        db = os.path.join(root, "db.protal")
+        open(db, "w").close()
+        opts = argparse.Namespace(out=root, db=db, protal=protal, threads=1, profile_block=1e-9, poll=0.05,
+                                  protal_lock=os.path.join(root, "protal.lock"))
+        points = [{"name": f"rl100_p{n}", "read_length": "100", "read_pairs": str(n), "samples": 2} for n in (10, 20)]
+        units = [u for p in points for u in ({"type": "pe", "point": p, "name": p["name"], "samples": 2},
+                                              {"type": "se", "point": p, "name": p["name"] + "_se", "samples": 2})]
+        keys = {p["name"]: {"point": p["name"]} for p in points}
+        return root, opts, points, units, keys, runs
+
+    def write_reads(self, point, opts, keys):
+        """A paired-end point's simulation as the simulator leaves it: its map, two samples' reads, its key last."""
+        base, sim, _ = collect.point_dirs(point, opts)
+        os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
+        with open(os.path.join(sim, "protal.meta"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{base}/protal\n#INPUT_DIR\t{sim}/reads\n"
+                     "#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n")
+            for s in (1, 2):
+                name = f"{point['name']}_s_{s}"
+                fh.write(f"{name}\t{name}_R1.fq.gz\t{name}_R2.fq.gz\t{name}.sam.gz\t{name}\t{name}.profile\t/t\n")
+                for r in (1, 2):
+                    with gzip.open(os.path.join(sim, "reads", f"{name}_R{r}.fq.gz"), "wt") as out:
+                        out.write("@r\nACGT\n+\nIIII\n")
+        collect.write_key(os.path.join(base, "simulated.json"), keys[point["name"]])
+
+    def test_follow_chooses_after_the_lock(self):
+        # A run that waits for its turn (--protal_lock, the other collection's run) takes what is ready once its turn
+        # comes: the second point, simulated while the first waited, goes into the same run. The stand-in protal says
+        # its stages' CPU time (misc/cpu.tsv of the run's folder) and takes 0.2 s of CPU: OUT/protal_cpu.tsv has a row
+        # of the whole process (wait4's rusage: protal's own CPU time) and protal's rows, none of it printed.
+        root, opts, points, units, keys, runs = self.follow_fixture("lock", (
+            "open(runs, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+            "for r in rows:\n"
+            "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"
+            "    print('Write truth to: ' + r[5])\n"
+            "began = time.process_time()\n"
+            "while time.process_time() - began < 0.2:\n"
+            "    pass\n"
+            "if not os.path.exists(os.path.join(os.path.dirname(runs), 'older_protal')):\n"
+            "    os.makedirs(os.path.join(out, 'misc'), exist_ok=True)\n"
+            "    with open(os.path.join(out, 'misc', 'cpu.tsv'), 'w') as fh:\n"
+            "        fh.write('stage\\twall_seconds\\tcpu_seconds\\tthreads\\nstart-up\\t2.0\\t3.0\\t1\\n')\n"
+            "        fh.writelines(f'aligning {r[0]}\\t4.0\\t2.0\\t1\\n' for r in rows)\n"
+            "        fh.write('profiling\\t1.0\\t0\\t1\\nafter profiling\\t0\\t0\\t1\\n')\n"))
+        import fcntl
+        waiting = threading.Event()
+        original = collect.protal_turn
+
+        @contextlib.contextmanager
+        def turn(path):  # the follower has chosen to run and waits for its turn
+            waiting.set()
+            with original(path):
+                yield
+        collect.protal_turn = turn
+        self.addCleanup(setattr, collect, "protal_turn", original)
+        simulator = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        collect.write_key(collect.simulating_file(opts), {"pid": simulator.pid, "host": socket.gethostname()})
+        console = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(console):
+                with open(opts.protal_lock, "a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)  # the other collection's run
+                    self.write_reads(points[0], opts, keys)
+                    follower = threading.Thread(target=collect.follow, args=(units, opts, keys, None))
+                    follower.start()
+                    self.assertTrue(waiting.wait(60), "the follower never waited for its turn")
+                    time.sleep(0.3)  # (several polls: it waits for the lock, not for the simulations)
+                    self.assertFalse(os.path.exists(runs))
+                    self.write_reads(points[1], opts, keys)  # simulated while the follower waits
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                follower.join(60)  # every unit profiled: it ends although the simulations go on
+                self.assertFalse(follower.is_alive())
+        finally:
+            simulator.kill()
+            simulator.wait()
+            os.remove(collect.simulating_file(opts))
+        with open(runs) as fh:
+            self.assertEqual(fh.read().splitlines(), [" ".join(f"rl100_p{n}_s_{s}{t}" for n in (10, 20) for t in ("", "_se")
+                                                                for s in (1, 2))])
+        self.assertIn("protal run 1: 4 design points, 0.0 GB of reads; the simulations go on; 0 design points after "
+                      "these", console.getvalue())
+        self.assertIn("every design point is profiled, in 1 protal run\n", console.getvalue())
+        self.assertNotIn("protal_cpu", console.getvalue())  # the CPU times go to their table alone
+        self.assertNotIn("cores_busy", console.getvalue())
+        self.assertEqual(glob.glob(os.path.join(root, "points", "*", "sim", "reads", "*")), [])
+
+        def cpu_rows():
+            with open(os.path.join(root, "protal_cpu.tsv")) as fh:
+                lines = [line.rstrip("\n").split("\t") for line in fh]
+            self.assertEqual(tuple(lines[0]), collect.CPU_COLUMNS)
+            return [dict(zip(collect.CPU_COLUMNS, line)) for line in lines[1:]]
+        rows = cpu_rows()
+        samples = [f"rl100_p{n}_s_{s}{t}" for n in (10, 20) for t in ("", "_se") for s in (1, 2)]
+        self.assertEqual([(r["run"], r["stage"]) for r in rows],
+                         [("run1", collect.WHOLE_RUN), ("run1", "start-up")] +
+                         [("run1", f"aligning {s}") for s in samples] + [("run1", "profiling"), ("run1", "after profiling")])
+        whole = rows[0]
+        wall, cpu = float(whole["wall_seconds"]), float(whole["cpu_seconds"])
+        self.assertGreaterEqual(cpu, 0.2)  # protal's own CPU time, from wait4
+        self.assertGreater(wall, 0)
+        self.assertEqual(whole["threads"], "1")
+        self.assertAlmostEqual(float(whole["cores_busy"]), cpu / wall, delta=0.011)
+        self.assertEqual([(r["wall_seconds"], r["cpu_seconds"], r["threads"], r["cores_busy"]) for r in rows[1:3]],
+                         [("2.0", "3.0", "1", "1.50"), ("4.0", "2.0", "1", "0.50")])
+        self.assertEqual([r["cores_busy"] for r in rows[-2:]], ["0.00", ""])  # no wall time: no ratio
+        # The one run of --profile_blocks 0 (OUT/profile_all) is "all"; a protal that writes no stage table (an older
+        # one) gives the whole process's row alone, not a stage table an earlier run left in the folder.
+        os.makedirs(os.path.join(root, "profile_all", "misc"))
+        with open(os.path.join(root, "profile_all", "misc", "cpu.tsv"), "w") as fh:
+            fh.write("stage\twall_seconds\tcpu_seconds\tthreads\nstale\t1\t1\t1\n")
+        open(os.path.join(root, "older_protal"), "w").close()
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.profile(units[:1], argparse.Namespace(**{**vars(opts), "threads": 3}))
+        rows = cpu_rows()
+        self.assertEqual([(r["run"], r["stage"], r["threads"]) for r in rows[len(samples) + 4:]],
+                         [("all", collect.WHOLE_RUN, "3")])
+
+    def test_streamed_runs_merged(self):
+        # Streamed simulations whose communities are there go into one protal run whatever --profile_block_max says (a
+        # cap smaller than either): their reads are on no disk. A stand-in simulator writes each sample's reads into
+        # the named pipes protal opens (its --test run: the point's map), a stand-in protal reads them all.
+        root, opts, points, units, keys, runs = self.follow_fixture("streamed", (
+            "open(runs, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+            "for r in rows:\n"
+            "    reads = open(r[1]).read() + (open(r[2]).read() if r[2] != '-' else '')\n"
+            "    open(runs, 'a').write(reads.replace('\\n', ' ') + '\\n')\n"
+            "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"
+            "    print('Write truth to: ' + r[5])\n"))
+        simulator = os.path.join(root, "simulate")
+        with open(simulator, "w") as fh:  # names its samples as simulate_metagenomes does: <prefix>_<n>
+            fh.write("#!" + sys.executable + "\nimport os, sys\na = sys.argv[1:]\n"
+                     "out, n, prefix = a[a.index('-o') + 1], int(a[a.index('-n') + 1]), a[a.index('--sample_prefix') + 1]\n"
+                     "names = [f'{prefix}_{i}' for i in range(1, n + 1)]\n"
+                     "if '--test' in a:\n"
+                     "    with open(os.path.join(out, 'protal.meta'), 'w') as fh:\n"
+                     "        fh.write(f'#OUTPUT_DIR\\t{a[a.index(\"--protal_metafile\") + 1]}\\n#INPUT_DIR\\t{out}/reads\\n'\n"
+                     "                 '#SAMPLEID\\tFIRST\\tSECOND\\tSAM\\tPREFIX\\tPROFILE\\tPROFILE_TRUTH\\n')\n"
+                     "        fh.writelines(f'{s}\\t{s}_R1.fq.zst\\t{s}_R2.fq.zst\\t{s}.sam.gz\\t{s}\\t{s}.profile\\t/t\\n'\n"
+                     "                      for s in names)\n"
+                     "    sys.exit(0)\n"
+                     "for s in names:\n"
+                     "    for r in (1,) if '--first_reads_only' in a else (1, 2):\n"
+                     "        with open(os.path.join(out, 'reads', f'{s}_R{r}.fq.zst'), 'w') as fh:\n"
+                     "            fh.write(f'@{s}/{r}\\nACGT\\n+\\nIIII\\n')\n")
+        os.chmod(simulator, 0o755)
+        opts = argparse.Namespace(**{**vars(opts), "simulator": simulator, "stream_above": 1e-12,
+                                     "profile_block_max": 1e-12})
+        self.assertEqual(collect.streamed_simulations(units, opts), {"rl100_p10", "rl100_p20"})
+
+        def pe_command(point, threads):
+            base, sim, profiles = collect.point_dirs(point, opts)
+            return [simulator, "-o", sim, "-n", str(point["samples"]), "--sample_prefix", point["name"] + "_s",
+                    "--protal_metafile", profiles, "-t", str(threads)]
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console):
+            collect.follow(units, opts, keys, None, pe_command)
+        self.assertIn("protal run 1: 2 simulations streamed (rl100_p10, rl100_p20; 4 design points, 8 samples, read "
+                      "from named pipes", console.getvalue())
+        self.assertIn("every design point is profiled, in 1 protal run\n", console.getvalue())
+        with open(runs) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(lines[0], " ".join(f"rl100_p{n}_s_{s}{t}" for n in (10, 20) for t in ("", "_se") for s in (1, 2)))
+        self.assertEqual(lines[1:3], ["@rl100_p10_s_1/1 ACGT + IIII @rl100_p10_s_1/2 ACGT + IIII ",
+                                      "@rl100_p10_s_2/1 ACGT + IIII @rl100_p10_s_2/2 ACGT + IIII "])
+        self.assertEqual(lines[3], "@rl100_p10_s_1/1 ACGT + IIII ")  # se: the first reads alone
+        key_of = collect.profile_keys(units, opts, keys)
+        self.assertTrue(all(collect.profiled(u, opts, key_of[u["name"]]) for u in units))
+        self.assertEqual(glob.glob(os.path.join(root, "points", "*", "stream_*", "")), [])
+        self.assertTrue(all(collect.streamed_here(u, opts) for u in units))
+        with open(os.path.join(root, "protal_cpu.tsv")) as fh:  # this protal writes no stage table
+            self.assertEqual([line.split("\t")[:2] for line in fh.read().splitlines()[1:]], [["run1", collect.WHOLE_RUN]])
+
+    def test_tables_in_parallel(self):
+        # The read types' tables written in forked worker processes: the same files and the same lines, in the same
+        # order, as one after the other; a table that fails stops the collector as it did, after the same lines.
+        root = os.path.join(self.tmp.name, "tables")
+        opts = argparse.Namespace(out=root)
+        rng = random.Random(9)
+        species = [f"s__G{g} sp{s}" for g in range(3) for s in range(4)]
+        lineage_of = {s: lineages.from_string(f"d__Bacteria;p__P;c__C;o__O;f__F;g__{s[3:].split(' ')[0]};{s}")
+                      for s in species}
+        points = [{"name": f"rl100_p{n}", "read_length": "100", "read_pairs": str(n), "samples": 2} for n in (10, 20)]
+        units = [u for p in points for u in ({"type": "pe", "point": p, "name": p["name"], "samples": 2},
+                                              {"type": "se", "point": p, "name": p["name"] + "_se", "samples": 2})]
+        for point in points:
+            base, sim, _ = collect.point_dirs(point, opts)
+            os.makedirs(sim)
+            with open(os.path.join(sim, "manifest.tsv"), "w") as fh:
+                fh.write("sample\tgenome\ttaxonomy\n")
+                for s in (1, 2):
+                    for name in rng.sample(species, 5):
+                        fh.write(f"{point['name']}_s_{s}\tGCF_{rng.randrange(10**6)}\td__Bacteria;{name}\n")
+            for folder, suffix in (("protal", ""), ("protal_se", "_se")):
+                os.makedirs(os.path.join(base, folder, "profiles"))
+                for s in (1, 2):
+                    with open(os.path.join(base, folder, "profiles", f"{point['name']}_s_{s}{suffix}.profile"
+                                                                      ".truth_annotated"), "w") as fh:
+                        fh.write("taxon_name\ttruth\tscore\n" + "".join(
+                            f"{name}\t{rng.choice(['0', '1'])}\t{rng.random():.4f}\n" for name in rng.sample(species, 8)))
+        context = ({s: "Bacteria" for s in species}, {species[0]: ("species", species[0]), species[5]: ("genus", "g__G1")},
+                   {}, lineage_of, lineage_of, {})
+
+        def tables(processes):
+            console = io.StringIO()
+            for table in collect.TABLES.values():
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(os.path.join(root, table))
+            stopped = None
+            with contextlib.redirect_stdout(console):
+                try:
+                    collect.write_tables(["pe", "se"], units, opts, context, processes)
+                except SystemExit as e:
+                    stopped = e.code
+            files = {}
+            for table in sorted(os.listdir(root)):
+                if os.path.isfile(os.path.join(root, table)):
+                    with open(os.path.join(root, table), "rb") as fh:
+                        files[table] = fh.read()
+            return console.getvalue(), files, stopped
+        serial = tables(1)
+        self.assertEqual(sorted(serial[1]), ["training_data.tsv", "training_data_se.tsv"])
+        self.assertEqual(len(serial[1]["training_data.tsv"].splitlines()), 1 + 4 * 8)
+        self.assertRegex(serial[0], r"(?s)rl100_p10: .*rl100_p20: .*32 taxa in \S+training_data\.tsv: .*rl100_p10_se: .*"
+                                    r"32 taxa in \S+training_data_se\.tsv")
+        pids = os.path.join(self.tmp.name, "table_pids")  # which processes wrote the tables
+        original = collect.write_table
+
+        def recorded(*args):
+            with open(pids, "a") as fh:
+                fh.write(f"{os.getpid()}\n")
+            return original(*args)
+        collect.write_table = recorded
+        self.addCleanup(setattr, collect, "write_table", original)
+        self.assertEqual(tables(2), serial)
+        with open(pids) as fh:
+            writers = fh.read().split()
+        self.assertEqual(len(writers), 2)
+        self.assertNotIn(str(os.getpid()), writers)  # forked workers, not this process
+        self.assertEqual(tables(4), serial)
+        # A dump of other columns in the second se point: the pe table and the first se point's line, then the stop.
+        bad = os.path.join(root, "points", "rl100_p20", "protal_se", "profiles", "rl100_p20_s_2_se.profile.truth_annotated")
+        with open(bad, "w") as fh:
+            fh.write("taxon_name\ttruth\tother\nx\t1\t0\n")
+        serial = tables(1)
+        self.assertIn("has other columns than the dumps before it", serial[2])
+        self.assertIn("rl100_p10_se: ", serial[0])
+        self.assertNotIn("training_data_se.tsv:", serial[0])
+        self.assertEqual(tables(2), serial)
 
     def test_long_read_templates(self):
         # simulate_metagenomes draws a long-read sample's templates from the contigs of 100 bases or more (plain or
