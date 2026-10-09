@@ -120,6 +120,9 @@ namespace protal {
         // Before either method, a candidate whose read and window share too few k-mers for an alignment within
         // the budget to exist is refused (AlignmentScreen; off with SetAlignmentScreen(false)).
         bool m_screen_on = true;
+        // A candidate whose read and window are too far apart by their indel distance (IndelBound; SetIndelBound: ONT reads,
+        // in place of the screen).
+        bool m_indel_bound_on = false;
         // Adaptive candidates (SetAdaptiveCandidates, TryCongeners): anchors beyond align_top a divergent read may try on
         // congeners of its best alignment, and every taxon's genus.
         size_t m_adaptive_candidates = 0;
@@ -130,6 +133,7 @@ namespace protal {
         strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
         std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
         AlignmentScreen m_screen;
+        IndelBound m_indel_bound;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
         std::string m_reverse; // the reverse complement of the read, when the caller has none
@@ -214,12 +218,15 @@ namespace protal {
         // The k-mer screen of every candidate (part of the alignment handler's time): at GTDB scale it refuses 90-96% of
         // the candidates and is most of the handler (docs/claude/2026-10-06-performance-profiling).
         Benchmark m_bm_screen{ "K-mer screen", 0, Benchmark::kPerRead };
+        // The indel bound (ONT reads, in place of the k-mer screen; docs/claude/2026-10-09-ont-wfa2-skipping.md).
+        Benchmark m_bm_indel_bound{ "Indel bound", 0, Benchmark::kPerRead };
         size_t dummy = 0;
-        // Anchors tried (AlignAnchor calls), of them those the k-mer screen refused before WFA2, those aligned
-        // from their exact matches, and those aligned as a whole (anchored alignment off, or a chain it does not
-        // handle); joined over threads like the benchmarks (JoinCounts).
+        // Anchors tried (AlignAnchor calls), of them those the k-mer screen refused before WFA2, those the indel bound
+        // refused after it, those aligned from their exact matches, and those aligned as a whole (anchored alignment off,
+        // or a chain it does not handle); joined over threads like the benchmarks (JoinCounts).
         size_t m_attempted_alignments = 0;
         size_t m_screened_alignments = 0;
+        size_t m_indel_refused = 0;
         size_t m_anchored_alignments = 0;
         size_t m_whole_window_alignments = 0;
         size_t m_validity_checks = 0;  // alignments so far: one in 64 is walked base by base (AlignAnchor)
@@ -233,9 +240,11 @@ namespace protal {
             m_unsure_reads += other.m_unsure_reads;
             m_settled_reads += other.m_settled_reads;
             m_screened_alignments += other.m_screened_alignments;
+            m_indel_refused += other.m_indel_refused;
             m_anchored_alignments += other.m_anchored_alignments;
             m_whole_window_alignments += other.m_whole_window_alignments;
             m_bm_screen.Join(other.m_bm_screen);
+            m_bm_indel_bound.Join(other.m_bm_indel_bound);
         }
 
 //        AlignmentInfo m_info;
@@ -266,6 +275,7 @@ namespace protal {
                 m_fastalign(other.m_fastalign),
                 m_anchored(other.m_anchored),
                 m_screen_on(other.m_screen_on),
+                m_indel_bound_on(other.m_indel_bound_on),
                 m_adaptive_candidates(other.m_adaptive_candidates),
                 m_genera(other.m_genera),
                 m_allele_scores(other.m_allele_scores) {
@@ -296,6 +306,12 @@ namespace protal {
         // The k-mer screen before WFA2 (AlignmentScreen): on by default; off, every candidate is aligned.
         void SetAlignmentScreen(bool on) {
             m_screen_on = on;
+        }
+
+        // The indel bound (IndelBound): exact as the k-mer screen, off by default; RunProtal turns it on for ONT reads, and
+        // the screen off, which refuses next to nothing at their identity floor (both on: the screen first).
+        void SetIndelBound(bool on) {
+            m_indel_bound_on = on;
         }
 
         // Anchored alignment through chains whose links lie on different diagonals (long reads, AnchoredAligner).
@@ -645,11 +661,11 @@ namespace protal {
             // The window's k-mers are taken from the gene's packed bytes, so a refused candidate (most of them at GTDB
             // scale) is never decoded; a gene without them (not loaded) goes through its decoded window, which is empty.
             // The read's come from its strands packed once for all its candidates (stretch), where the caller has them.
+            size_t const begin_free = static_cast<size_t>(std::max(window.read_begin_free, 0));
+            size_t const end_free = static_cast<size_t>(std::max(window.read_end_free, 0));
+            uint8_t const* const packed = gene.Packed();
             if (m_screen_on) {
                 m_bm_screen.Start();
-                size_t const begin_free = static_cast<size_t>(std::max(window.read_begin_free, 0));
-                size_t const end_free = static_cast<size_t>(std::max(window.read_end_free, 0));
-                uint8_t const* const packed = gene.Packed();
                 bool const may_align = packed == nullptr ?
                         m_screen.MayAlign(read, begin_free, end_free,
                                           gene.Window(window.ref_start, window.ref_end).substr(window.ref_start, window.ref_end - window.ref_start),
@@ -665,6 +681,26 @@ namespace protal {
                 m_bm_screen.Stop();
                 if (!may_align) {
                     m_screened_alignments++;
+                    return false;
+                }
+            }
+            // Too far from the window by their indel distance for any alignment within the budget (IndelBound; ONT reads,
+            // in place of the k-mer screen, which refuses next to nothing at their identity floor): exact as the screen.
+            if (m_indel_bound_on) {
+                m_bm_indel_bound.Start();
+                size_t const ref_begin_free = static_cast<size_t>(std::max(window.ref_begin_free, 0));
+                size_t const ref_end_free = static_cast<size_t>(std::max(window.ref_end_free, 0));
+                bool const may_align = packed == nullptr ?
+                        m_indel_bound.MayAlign(read, begin_free, end_free,
+                                               gene.Window(window.ref_start, window.ref_end).substr(window.ref_start, window.ref_end - window.ref_start),
+                                               ref_begin_free, ref_end_free, window.max_score, m_aligner.Mismatch(),
+                                               m_aligner.GapOpening(), m_aligner.GapExtension()) :
+                        m_indel_bound.MayAlignPacked(read, begin_free, end_free, packed, window.ref_start, window.ref_end, ref_begin_free,
+                                                     ref_end_free, window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
+                                                     m_aligner.GapExtension());
+                m_bm_indel_bound.Stop();
+                if (!may_align) {
+                    m_indel_refused++;
                     return false;
                 }
             }

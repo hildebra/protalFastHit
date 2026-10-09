@@ -377,6 +377,8 @@ namespace protal::classify {
             bm_alignment_global.PrintResults();
             std::cout << "\t";
             aligner_global.GetAlignmentHandler().m_bm_screen.PrintResults();
+            std::cout << "\t";
+            aligner_global.GetAlignmentHandler().m_bm_indel_bound.PrintResults();
             bm_output_global.PrintResults();
             std::cout << "----------------------------------------------------\n" << std::endl;
         }
@@ -384,6 +386,7 @@ namespace protal::classify {
         WriteAlignmentDiagnostics(options, aligner_global.GetAnchorFinder(),
                                   { &bm_reader_global, &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
                                     &aligner_global.GetAlignmentHandler().m_bm_screen,
+                                    &aligner_global.GetAlignmentHandler().m_bm_indel_bound,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;

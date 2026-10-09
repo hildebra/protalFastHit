@@ -3381,6 +3381,27 @@ class OntTest(ReadTypeTest):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertEqual(sorted(sam_records(self.path("out_xdrop", "oa.sam"))), sorted(sam_records(self.runs.sam("oa"))))
 
+    def test_the_indel_bound_changes_no_alignment(self):
+        # ONT reads are screened by the indel bound in place of the k-mer screen (AlignmentScreen.h IndelBound), which
+        # refuses only candidates WFA2 fails: with the k-mer screen instead (--no_indel_bound) every record is the same,
+        # failed candidates (ZF) and MAPQ included, and the counts line moves its refusals to the candidates WFA2 ran on.
+        counts = re.compile(r"^Sample oa: .* (\d+) candidate alignments tried: (\d+) refused by the k-mer screen, (\d+) by the indel "
+                            r"bound, (\d+) aligned from the anchor's exact matches and (\d+) as whole windows;", re.M)
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["oa"], "--prefix", "oa", "--read_type", "ont",
+                      "-o", "out_no_bound", "-t", "4", "--no_qcmsa", "--no_profile", "--no_indel_bound")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("indel bound:         off (--no_indel_bound: ONT reads screened by their k-mers)\n", log)
+        self.assertIn("indel bound:         ONT reads screened by their indel distance to the window instead\n", self.runs.log)
+        self.assertEqual(sorted(sam_records(self.path("out_no_bound", "oa.sam"))), sorted(sam_records(self.runs.sam("oa"))))
+        with_bound = [int(n) for n in counts.search(self.runs.log).groups()]
+        without = [int(n) for n in counts.search(log).groups()]
+        for tried, screened, bound, anchored, whole in (with_bound, without):
+            self.assertEqual(tried, screened + bound + anchored + whole)
+        self.assertEqual(without[2], 0)
+        self.assertEqual(with_bound[1], 0, "no k-mer screen")
+        self.assertEqual(with_bound[0], without[0])
+        self.assertGreater(with_bound[2], 0, "the 150 kb reads' random stretches between genes give unrelated candidates")
+
     def test_every_gene_is_found_once(self):
         for prefix in ("oa", "ob"):
             by_read = representative_records(sam_records(self.runs.sam(prefix)))

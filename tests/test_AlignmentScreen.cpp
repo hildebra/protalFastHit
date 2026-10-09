@@ -3,6 +3,7 @@
 // alignments with the screen on and off.
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -356,4 +357,285 @@ TEST(AlignmentScreen, TheHandlerAlignsTheSameWithAndWithoutIt) {
     EXPECT_GT(reverse_aligned, aligned / 4);
     EXPECT_GT(with.m_screened_alignments, 0u);
     EXPECT_EQ(without.m_screened_alignments, 0u);
+}
+
+namespace {
+    // The LCS by dynamic programming, with the indel bound's matches: equal bases, and a base other than A, C, G or T
+    // (either case; KmerUtils::BaseToInt) against any.
+    size_t LcsByDp(std::string_view a, std::string_view b) {
+        std::vector<size_t> row(b.size() + 1, 0), next(b.size() + 1, 0);
+        std::vector<uint64_t> codes(b.size());
+        for (size_t j = 0; j < b.size(); j++) codes[j] = KmerUtils::BaseToInt(b[j]);
+        for (char const x : a) {
+            uint64_t const cx = KmerUtils::BaseToInt(x);
+            for (size_t j = 0; j < b.size(); j++) {
+                uint64_t const cy = codes[j];
+                bool const match = cx > 3 || cy > 3 || cx == cy;
+                next[j + 1] = match ? row[j] + 1 : std::max(row[j + 1], next[j]);
+            }
+            std::swap(row, next);
+        }
+        return row[b.size()];
+    }
+
+    // The indel bound's answer from its definition: n_req + m_req bases required, the LCS by dynamic programming.
+    bool IndelDefinitionAnswer(std::string_view read, size_t begin_free, size_t end_free, std::string_view window, size_t ref_begin_free,
+                               size_t ref_end_free, int max_score) {
+        size_t const n_req = begin_free + end_free < read.size() ? read.size() - begin_free - end_free : 0;
+        size_t const m_req = ref_begin_free + ref_end_free < window.size() ? window.size() - ref_begin_free - ref_end_free : 0;
+        // q (n_req + m_req - 2 LCS) > 2 (max_score - 1) refuses, q = min(4, 2 * 2) = 4
+        int64_t const lower = 4 * (static_cast<int64_t>(n_req + m_req) - 2 * static_cast<int64_t>(LcsByDp(read, window)));
+        return lower <= 2 * (static_cast<int64_t>(max_score) - 1);
+    }
+
+    // An ONT-like copy of `source`: substitutions, and insertions and deletions three times as likely in a homopolymer, at
+    // the rate `divergence` in all (about half substitutions); Ns at n_rate. With `gene_of`, the source position of each
+    // base of the copy (-1 for an inserted one).
+    std::string OntCopy(std::mt19937& rng, std::string const& source, double divergence, double n_rate = 0,
+                        std::vector<long>* gene_of = nullptr) {
+        std::uniform_real_distribution<double> u(0, 1);
+        std::string read;
+        for (size_t i = 0; i < source.size(); i++) {
+            char c = source[i];
+            bool const homopolymer = (i > 0 && source[i - 1] == c) || (i + 1 < source.size() && source[i + 1] == c);
+            double const indel = divergence * 0.25 * (homopolymer ? 3 : 1);
+            double const r = u(rng);
+            if (r < indel) continue;  // deletion
+            if (r < 2 * indel) {      // insertion
+                read += homopolymer ? c : "ACGT"[rng() % 4];
+                if (gene_of) gene_of->push_back(-1);
+            }
+            if (u(rng) < divergence * 0.5) c = "ACGT"[(std::string("ACGT").find(c) + 1 + rng() % 3) % 4];
+            if (u(rng) < n_rate) c = 'N';
+            read += c;
+            if (gene_of) gene_of->push_back(static_cast<long>(i));
+        }
+        return read;
+    }
+
+    // `source` with substitutions at a rate between `low` and `high`: a relative of a gene.
+    std::string Relative(std::mt19937& rng, std::string source, double low, double high) {
+        std::uniform_real_distribution<double> u(0, 1);
+        double const rate = low + u(rng) * (high - low);
+        for (auto& c : source) if (u(rng) < rate) c = "ACGT"[(std::string("ACGT").find(c) + 1 + rng() % 3) % 4];
+        return source;
+    }
+}
+
+// The bit-parallel LCS is the dynamic programming one, for lengths around the 64-bit words and with Ns, ambiguity codes
+// and lower case on either side; and the bound's answer is its definition's, from the gene's packed bytes (whose Ns and
+// codes are packed as bases, as the decoded window has them) and from the decoded window, with free ends at either end of
+// either sequence and any budget, the exits included. The candidates come one after another into the same buffers.
+TEST(IndelBound, TheLcsAndTheAnswerAreTheDefinitions) {
+    std::mt19937 rng(53);
+    std::uniform_real_distribution<double> u(0, 1);
+    IndelBound bound;
+    auto noisy = [&rng](std::string s) {
+        for (auto& c : s) if (rng() % 40 == 0) c = "NRYKnacgt"[rng() % 9];
+        return s;
+    };
+    for (size_t const n : { 0, 1, 2, 63, 64, 65, 127, 128, 129, 300 }) {
+        for (size_t const m : { 0, 1, 63, 64, 65, 128, 129, 191, 257 }) {
+            for (int repeat = 0; repeat < 3; repeat++) {
+                std::string const window = noisy(RandomBases(rng, m));
+                std::string const read = repeat == 0 ? noisy(RandomBases(rng, n)) :
+                                         noisy(OntCopy(rng, window + RandomBases(rng, n), 0.1)).substr(0, n);
+                ASSERT_EQ(bound.Lcs(read, window), LcsByDp(read, window)) << "read " << n << ", window " << m << ", repeat " << repeat;
+            }
+        }
+    }
+    size_t cases = 0, refused = 0, passed = 0;
+    for (int n = 0; n < 1500; n++) {
+        size_t const gene_length = n % 50 == 0 ? 1 + rng() % 12 : 50 + rng() % 700;
+        std::string const gene = noisy(RandomBases(rng, gene_length));
+        std::vector<uint8_t> packed(packed::Bytes(gene_length), 0);  // exactly the gene's bytes
+        packed::Pack(gene.data(), gene_length, packed.data());
+        std::string decoded(gene_length, '\0');
+        packed::Unpack(packed.data(), gene_length, decoded.data());
+        size_t const begin = rng() % (gene_length + 1);
+        size_t const end = n % 4 == 0 ? gene_length : std::min(gene_length, begin + rng() % 900);
+        std::string const window(std::string_view(decoded).substr(begin, end - begin));
+        // From the window with errors, with flanks that run past it, or unrelated.
+        double const divergence = u(rng) < 0.5 ? u(rng) * 0.1 : u(rng) * 0.4;
+        std::string const read = noisy(n % 3 == 0 ? RandomBases(rng, 20 + rng() % 800) :
+                                       RandomBases(rng, rng() % 100) + OntCopy(rng, window, divergence) + RandomBases(rng, rng() % 100));
+        size_t const begin_free = rng() % 3 == 0 ? rng() % (read.size() / 2 + 1) : rng() % 3 == 0 ? read.size() : 0;
+        size_t const end_free = rng() % 3 == 0 ? rng() % (read.size() / 2 + 1) : 0;
+        size_t const ref_begin_free = rng() % 3 == 0 ? rng() % 20 : 0;
+        size_t const ref_end_free = rng() % 5 == 0 ? rng() % (window.size() + 2) : 0;
+        int const max_score = rng() % 10 == 0 ? static_cast<int>(rng() % 3) :
+                              1 + static_cast<int>(rng() % static_cast<uint32_t>(2 * (read.size() + window.size()) + 10));
+        bool const expected = IndelDefinitionAnswer(read, begin_free, end_free, window, ref_begin_free, ref_end_free, max_score);
+        bool const from_packed = bound.MayAlignPacked(read, begin_free, end_free, packed.data(), begin, end, ref_begin_free, ref_end_free,
+                                                      max_score, kMismatch, kGapOpen, kGapExtend);
+        bool const from_text = bound.MayAlign(read, begin_free, end_free, window, ref_begin_free, ref_end_free, max_score, kMismatch,
+                                              kGapOpen, kGapExtend);
+        ASSERT_EQ(from_packed, expected) << "case " << n << ": read " << read.size() << " (free " << begin_free << "/" << end_free
+                                         << "), window " << begin << "-" << end << " (free " << ref_begin_free << "/" << ref_end_free
+                                         << "), budget " << max_score;
+        ASSERT_EQ(from_text, expected) << "case " << n;
+        cases++;
+        refused += !expected;
+        passed += expected;
+    }
+    std::cout << cases << " candidates: " << refused << " refused, " << passed << " passed, as the definition" << std::endl;
+    EXPECT_GT(refused, cases / 10);
+    EXPECT_GT(passed, cases / 10);
+    // Without a budget nothing aligns; a penalty that gives no bound (a mismatch of 0) refuses nothing.
+    EXPECT_FALSE(IndelBound().MayAlign("ACGT", 0, 0, "ACGT", 0, 0, 0, kMismatch, kGapOpen, kGapExtend));
+    EXPECT_TRUE(IndelBound().MayAlign("AAAA", 0, 0, "CCCC", 0, 0, 1, 0, kGapOpen, kGapExtend));
+    EXPECT_EQ(IndelBound::MaxRefusedLcs(1000, 601, kMismatch, kGapOpen, kGapExtend), 349);  // 4 (1000 - 2 L) >= 1201
+    EXPECT_EQ(IndelBound::MaxRefusedLcs(100, 601, kMismatch, kGapOpen, kGapExtend), -1);
+}
+
+// What the indel bound refuses, WFA2 fails: ONT-like long-read windows (LongReadAligner: the gene with a margin of
+// 100 + L / 20 bases either side, the read's bases past the gene free) of the gene itself at 2-15% divergence, of a
+// relative 10-25% away, or of unrelated sequence, aligned ends-free by WFA2 without X-drop at ONT's floor of 0.85, as
+// RunProtal aligns long reads. Its power (refused among the failures, by kind) is printed: the unrelated windows, most
+// of the failing ONT candidates at r226, are refused, which the k-mer screen cannot at 0.85.
+TEST(IndelBound, RefusesOnlyWhatWFA2Fails) {
+    std::mt19937 rng(61);
+    std::uniform_real_distribution<double> u(0, 1);
+    IndelBound bound;
+    AlignmentScreen screen;
+    WFA2Wrapper2 wfa(kMismatch, kGapOpen, kGapExtend, 0);
+    char const* const kinds[] = { "own gene", "relative", "unrelated" };
+    std::array<size_t, 3> cases{}, failed{}, refused{}, screened{};
+    size_t refused_but_aligned = 0;
+    for (int n = 0; n < 900; n++) {
+        int const kind = n % 3;
+        size_t const gene_length = n % 5 == 0 ? 250 + rng() % 250 : 500 + rng() % 1500;
+        std::string const gene = RandomBases(rng, gene_length);
+        size_t const margin = 100 + gene_length / 20;
+        std::string const source = kind == 0 ? gene : kind == 1 ? Relative(rng, gene, 0.1, 0.25) : RandomBases(rng, gene_length);
+        double const divergence = kind == 0 ? 0.02 + u(rng) * 0.13 : 0.05 + u(rng) * 0.05;
+        // The read's window from `start` (gene coordinates): before the gene by up to the margin, or inside its first third.
+        long const start = static_cast<long>(rng() % (margin + gene_length / 3)) - static_cast<long>(margin);
+        std::string const before = start < 0 ? RandomBases(rng, static_cast<size_t>(-start)) : "";
+        std::string const read = OntCopy(rng, before + source.substr(static_cast<size_t>(std::max(0L, start))) + RandomBases(rng, margin),
+                                         divergence, n % 7 == 0 ? 0.01 : 0);
+        // As AlignAnchor sets the window up from the chain's diagonals: the read's bases before and after the gene free,
+        // plus 9; the gene from 9 before the read's start, with a dovetail of 18 free gene bases where the read starts in it.
+        size_t const begin_free = start < 0 ? static_cast<size_t>(-start) + 9 : 0;
+        size_t const end_free = margin + 9;
+        if (begin_free + end_free >= read.size()) continue;
+        size_t const ref_start = static_cast<size_t>(std::max(0L, start - 9));
+        size_t const ref_begin_free = start > 0 ? 18 : 0;
+        std::string const window = gene.substr(ref_start);
+        int const overlap = static_cast<int>(gene_length - static_cast<size_t>(std::max(0L, start)));
+        int const max_score = SimpleAlignmentHandler::MaxScore(0.85, static_cast<uint32_t>(overlap));
+
+        bool const may = bound.MayAlign(read, begin_free, end_free, window, ref_begin_free, 0, max_score, kMismatch, kGapOpen, kGapExtend);
+        bool const may_screen = screen.MayAlign(read, begin_free, end_free, window, max_score, kMismatch, kGapOpen, kGapExtend);
+        wfa.Reset();
+        wfa.Alignment(read, window, static_cast<int>(begin_free), static_cast<int>(end_free), static_cast<int>(ref_begin_free), 0, max_score);
+        bool const aligned = wfa.Success();
+        if (!may) EXPECT_FALSE(aligned) << kinds[kind] << " case " << n << ": divergence " << divergence << ", gene " << gene_length;
+        refused_but_aligned += !may && aligned;
+        cases[kind]++;
+        failed[kind] += !aligned;
+        refused[kind] += !may;
+        screened[kind] += !may_screen;
+    }
+    for (int kind = 0; kind < 3; kind++) {
+        std::cout << kinds[kind] << ": " << cases[kind] << " candidates, WFA2 failed " << failed[kind] << ", the indel bound refused "
+                  << refused[kind] << ", the k-mer screen " << screened[kind] << std::endl;
+    }
+    EXPECT_EQ(refused_but_aligned, 0u);
+    // Nearly every unrelated window is refused, and few of the own gene's.
+    EXPECT_GT(cases[2], 250u);
+    EXPECT_GE(refused[2], failed[2] * 95 / 100);
+    EXPECT_LT(refused[0], cases[0] / 4);
+}
+
+namespace {
+    // A long read's window over a gene as LongReadAligner aligns it: `margin` random bases either side of `source` (the
+    // gene, a relative or unrelated sequence) copied with ONT-like errors; and its chain: the exact runs of at least 20
+    // bases on the gene along the true path within 6 diagonals of the first (ChainAnchorFinder), or, for unrelated
+    // sequence, a planted exact 24-mer of the gene, as a spurious seed pair.
+    std::pair<std::string, ChainList> LongReadWindow(std::mt19937& rng, std::string const& gene, std::string const& source, size_t margin,
+                                                     double divergence, bool related) {
+        std::vector<long> gene_of(margin, -1);
+        std::string read = RandomBases(rng, margin) + OntCopy(rng, source, divergence, 0, &gene_of) + RandomBases(rng, margin);
+        gene_of.resize(read.size(), -1);
+        ChainList runs;
+        if (related) {
+            size_t i = 0;
+            while (i < read.size()) {
+                if (gene_of[i] < 0 || read[i] != gene[static_cast<size_t>(gene_of[i])]) { i++; continue; }
+                size_t j = i + 1;
+                while (j < read.size() && gene_of[j] == gene_of[j - 1] + 1 && read[j] == gene[static_cast<size_t>(gene_of[j])]) j++;
+                if (j - i >= 20) runs.emplace_back(static_cast<uint32_t>(gene_of[i]), static_cast<uint16_t>(i), static_cast<uint16_t>(j - i));
+                i = j;
+            }
+        } else {
+            size_t const g = rng() % (gene.size() - 24), at = margin + g * (read.size() - 2 * margin) / gene.size();
+            read.replace(at, 24, gene, g, 24);
+            runs.emplace_back(static_cast<uint32_t>(g), static_cast<uint16_t>(at), static_cast<uint16_t>(24));
+        }
+        ChainList chain;
+        if (runs.empty()) return { read, chain };
+        long const d0 = static_cast<long>(runs.front().genepos) - static_cast<long>(runs.front().readpos);
+        for (auto const& run : runs) {
+            if (std::abs(static_cast<long>(run.genepos) - static_cast<long>(run.readpos) - d0) <= 6) chain.push_back(run);
+        }
+        return { read, chain };
+    }
+}
+
+// Through the handler as RunProtal sets it up for ONT reads (-a 0.85, no X-drop, anchored through the chain with
+// indels, the indel bound in place of the k-mer screen), and with the k-mer screen instead (--no_indel_bound): the same
+// outcome, score, start and CIGAR for every candidate, of the gene itself, a relative or unrelated sequence, of either
+// strand, from the chain or as a whole window.
+TEST(IndelBound, TheHandlerAlignsLongReadsTheSameWithAndWithoutIt) {
+    RandomReference ref;
+    WFA2Wrapper2 aligner{kMismatch, kGapOpen, kGapExtend, 0};
+    SimpleAlignmentHandler with(*ref.loader, aligner, 31, 3, 0.85, false), without(*ref.loader, aligner, 31, 3, 0.85, false);
+    for (auto* handler : { &with, &without }) handler->SetAnchoredIndels(true);
+    with.SetAlignmentScreen(false);
+    with.SetIndelBound(true);
+    std::mt19937 rng(71);
+    std::uniform_real_distribution<double> u(0, 1);
+    size_t cases = 0, aligned = 0;
+    for (bool anchored : { true, false }) {
+        with.SetAnchoredAlignment(anchored);
+        without.SetAnchoredAlignment(anchored);
+        for (int n = 0; n < 240; n++) {
+            int const kind = n % 3;  // the gene, a relative, unrelated
+            uint32_t const gene_id = 1 + rng() % kGenes;
+            std::string const& gene = ref.genes[gene_id - 1];
+            std::string const source = kind == 0 ? gene : kind == 1 ? Relative(rng, gene, 0.1, 0.2) : RandomBases(rng, kGeneLength);
+            double const divergence = kind == 0 ? 0.02 + u(rng) * 0.06 : 0.05 + u(rng) * 0.05;  // the own gene mostly aligns
+            auto [segment, chain] = LongReadWindow(rng, gene, source, 100 + kGeneLength / 20, divergence, kind != 2);
+            if (chain.empty()) continue;
+            // A read of the other strand is the segment's reverse complement; its anchor's chain is on the segment.
+            bool const forward = rng() % 2;
+            std::string const read = forward ? segment : KmerUtils::ReverseComplement(segment);
+            std::string const rev = KmerUtils::ReverseComplement(read);
+            std::string id = "r";
+            ChainAlignmentAnchor a(1, gene_id, forward), b(1, gene_id, forward);
+            a.chain = chain;
+            b.chain = chain;
+            AlignmentResult ra, rb;
+            bool const oa = with.AlignAnchor(a, ra, read, rev, false, id);
+            bool const ob = without.AlignAnchor(b, rb, read, rev, false, id);
+            cases++;
+            ASSERT_EQ(oa, ob) << "case " << n << ", kind " << kind << ", divergence " << divergence;
+            if (!oa) continue;
+            aligned++;
+            EXPECT_EQ(ra.AlignmentScore(), rb.AlignmentScore()) << "case " << n;
+            EXPECT_EQ(ra.GetAlignmentInfo().cigar, rb.GetAlignmentInfo().cigar) << "case " << n;
+            EXPECT_EQ(ra.GetAlignmentInfo().gene_alignment_start, rb.GetAlignmentInfo().gene_alignment_start) << "case " << n;
+        }
+    }
+    std::cout << cases << " long-read candidates, " << aligned << " aligned; the indel bound refused " << with.m_indel_refused
+              << ", the k-mer screen in its place " << without.m_screened_alignments << " (WFA2 ran " << with.m_anchored_alignments + with.m_whole_window_alignments
+              << " times with it, " << without.m_anchored_alignments + without.m_whole_window_alignments << " without)" << std::endl;
+    ASSERT_GT(cases, 400u);
+    EXPECT_GT(aligned, cases / 5);
+    EXPECT_GT(with.m_indel_refused, cases / 4);
+    EXPECT_EQ(without.m_indel_refused, 0u);
+    EXPECT_EQ(with.m_screened_alignments, 0u);
+    EXPECT_EQ(with.m_attempted_alignments, with.m_screened_alignments + with.m_indel_refused + with.m_anchored_alignments +
+                                           with.m_whole_window_alignments);
 }

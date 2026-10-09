@@ -12,7 +12,8 @@
 # Writes OUT_DIR/environment.txt (machine, protal, database), runs.tsv (one line per sample run:
 # times, memory, perf counters, protal's counts of reads, anchors and candidate alignments, the SAM
 # header's genes and finishing time, the seeding's k-mers, blocks and flex cells, the seeds that share
-# their taxon and gene with another, the lookups dropped as too ubiquitous, the anchors), cohort.tsv (one
+# their taxon and gene with another, the lookups dropped as too ubiquitous, the anchors) and, last, the
+# candidates the indel bound refused (ONT reads; NA for a protal from before 2026-10-09)), cohort.tsv (one
 # line per cohort run: profiling, strain MSAs, building the MSAs, qcMSA, species), stages.tsv (each
 # run's misc/<prefix>_runtime.tsv: the alignment stage's timers per thread and the profiling steps'
 # wall times), logs/, and prints medians.
@@ -117,7 +118,7 @@ timed() {
     return $status
 }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 sams=$out/sams; mkdir -p "$sams"
 cohort_map_rows=()
@@ -136,10 +137,16 @@ for spec in "$@"; do
             ins=$(counter instructions "$out/perf.tmp"); cyc=$(counter cycles "$out/perf.tmp"); miss=$(counter cache-misses "$out/perf.tmp")
             [ "$ins" != NA ] && [ "$cyc" != NA ] && ipc=$(awk -v i="$ins" -v c="$cyc" 'BEGIN { printf "%.2f", i / c }')
         fi
-        # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused ..., F aligned
-        # from the anchor's exact matches and W as whole windows; M alignments made, O records written".
-        counts=$(grep -m1 "^Sample $name: .* candidate alignments tried" "$log" | sed 's/^Sample [^:]*: //' | grep -oE '[0-9]+' | paste -sd '\t' -)
-        [ "$(printf '%s' "$counts" | tr -cd '\t' | wc -c)" = 7 ] || counts=$(printf 'NA\tNA\tNA\tNA\tNA\tNA\tNA\tNA')
+        # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused by the k-mer
+        # screen, I by the indel bound, F aligned from the anchor's exact matches and W as whole windows; M alignments made,
+        # O records written" (a protal from before 2026-10-09 has no "I by the indel bound": its indel_refused is NA).
+        numbers=$(grep -m1 "^Sample $name: .* candidate alignments tried" "$log" | sed 's/^Sample [^:]*: //' | grep -oE '[0-9]+' | paste -sd '\t' -)
+        indel=NA
+        case "$(printf '%s' "$numbers" | tr -cd '\t' | wc -c)" in
+            8) indel=$(printf '%s' "$numbers" | cut -f5); counts=$(printf '%s' "$numbers" | cut -f1-4,6-9) ;;
+            7) counts=$numbers ;;
+            *) counts=$(printf 'NA\tNA\tNA\tNA\tNA\tNA\tNA\tNA') ;;
+        esac
         # The SAM header line ("SAM header: G genes, ...; the records (B bytes) were copied behind it in X s, ...").
         header_genes=$(number_after '^SAM header: ' 'SAM header:' "$log")
         copy_s=$(grep -m1 '^SAM header: ' "$log" | grep -oE 'copied behind it in [0-9.]+' | grep -oE '[0-9.]+$'); copy_s=${copy_s:-0}
@@ -153,12 +160,12 @@ for spec in "$@"; do
                   "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ seeds(,|$)' | grep -oE '^[0-9]+' || echo NA)")
         seed_fates=$(printf '%s\t%s\t%s' "$(number_after "$seedline" 'seeds,' "$log")" "$(number_after "$seedline" 'with another seed;' "$log")" \
                      "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ anchors$' | grep -oE '^[0-9]+' || echo NA)")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
             "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" \
             "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" \
             "$(peak_after 'the genome preload' "$log")" "$(peak_after 'loading the index' "$log")" "$(peak_after aligning "$log")" \
-            "$(peak_after profiling "$log")" "$seed_fates" >> "$out/runs.tsv"
+            "$(peak_after profiling "$log")" "$seed_fates" "$indel" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
         echo "$name run $rep: ${wall} s"
@@ -223,10 +230,11 @@ awk -F'\t' "$median"'
             print "" } }' "$out/runs.tsv"
 echo
 # protal's counts (the same in every run of a sample): from the first run.
-awk -F'\t' 'NR == 1 { for (i = 18; i <= NF; i++) h[i] = $i; next }
+awk -F'\t' 'NR == 1 { for (i = 18; i <= NF; i++) { h[i] = $i; if ($i == "indel_refused") ir = i } next }
     !($1 in seen) { seen[$1] = 1; printf "%s counts:", $1; for (i = 18; i <= 25; i++) printf " %s %s", h[i], $i
+                    if (ir) printf " %s %s", h[ir], $ir
                     printf "\n%s SAM header: genes %s, records copied in %s s; seeding:", $1, $27, $28
-                    for (i = 29; i <= NF; i++) printf " %s %s", h[i], $i
+                    for (i = 29; i <= NF; i++) if (i != ir) printf " %s %s", h[i], $i
                     if ($31 > 0) printf " (%.1f flex cells per block)", $32 / $31
                     print "" }' "$out/runs.tsv"
 if [ "$(wc -l < "$out/cohort.tsv")" -gt 1 ]; then

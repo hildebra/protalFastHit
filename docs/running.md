@@ -59,7 +59,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   was `<sam>.err`, next to the SAM, which `--profile_only` may read from another run's folder.
 - `misc/` also receives `P_seedsizes_histogram.tsv`, `P_anchorsizes_histogram.tsv` and
   `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
-  per stage (reading, k-mers, seeding and its steps, alignment and its k-mer screen, output): the seconds spent in it
+  per stage (reading, k-mers, seeding and its steps, alignment and its k-mer screen, for long reads the indel bound (which ONT reads run), output): the seconds spent in it
   summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
   The stages that run for every read are timed on every 61st call only (reading the clock costs
   10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
@@ -72,7 +72,8 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   process used meanwhile (all threads, user and system time) and `-t`. CPU over wall is how many cores
   the stage kept busy. With `--profile_ahead` the profiling worker's time falls into the samples' rows.
 - Every run prints per sample how its reads went: the reads, those with an anchor, the candidate
-  alignments tried, those the k-mer screen refused, those aligned, and the records written. A second
+  alignments tried, those the k-mer screen refused, those the indel bound refused (ONT reads, in place of the k-mer
+  screen, since 2026-10-09; 0 for other reads), those aligned, and the records written. A second
   line ("seeding:") counts the k-mer lookups, the index blocks they scanned and their sizes, the
   seeds, the seeds that share their taxon and gene with another seed of their read (the only ones
   anchors are made of), the lookups dropped as too ubiquitous (more tied entries than
@@ -314,7 +315,8 @@ calibrated with; change them for experiments, not for production profiles.
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 | `--no_mate_guidance` | off | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below) |
-| `--no_alignment_screen` | off | align every candidate with WFA2. By default a candidate whose read and gene window share too few k-mers for any alignment within the score budget is refused before WFA2 (exact: it changes no alignment; at r226 it took the paired-end alignment from 62 to 39 s). For measuring |
+| `--no_alignment_screen` | off | align every candidate with WFA2. By default a candidate whose read and gene window share too few k-mers for any alignment within the score budget is refused before WFA2 (exact: it changes no alignment; at r226 it took the paired-end alignment from 62 to 39 s); also turns off the indel bound below. For measuring |
+| `--no_indel_bound` | off | ONT reads: screen the candidates by their k-mers, as other reads (and ONT reads before 2026-10-09). By default ONT reads are screened by their indel distance instead: a candidate whose read and gene window are too far apart by it for any alignment within the score budget is refused before WFA2. At ONT's identity floor of 0.85 the k-mer screen refuses next to nothing, while most failing candidates are unrelated sequence; PacBio reads keep the k-mer screen, as the candidates it passes mostly align and the bound cost more than it saved there. Exact: neither changes an alignment. The `P_runtime.tsv` row "Indel bound" times it. For measuring |
 | `--long_read_budget E` | 0 | long reads: once a candidate of a gene has aligned, its other candidates get the best's budget plus E edits. Saves 10-25% of PacBio aligning but changes MAPQs and the alternatives of such genes, so the models would need retraining; off until benchmarked |
 | `--no_gene_neighbours` | off | do not use the database's gene neighbours (below): no mates looked for past their gene's end, no pairs over two neighbouring genes, no genes looked for next to a long read's genes, and the profile's `adjacent_*` features 0. A database without `gene_neighbours.tsv` works as with it |
 

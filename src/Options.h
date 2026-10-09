@@ -163,6 +163,7 @@ namespace protal {
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
+                ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
@@ -242,6 +243,7 @@ namespace protal {
         bool mapq_debug_out = false;
         bool whole_read_alignment = false;
         bool no_alignment_screen = false;
+        bool no_indel_bound = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
         bool taxon_statistics = false;
@@ -371,6 +373,7 @@ namespace protal {
         bool m_mapq_debug_out = false;
         bool m_whole_read_alignment = false;
         bool m_no_alignment_screen = false;
+        bool m_no_indel_bound = false;
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_taxon_statistics = false;
@@ -548,6 +551,7 @@ namespace protal {
                 m_mapq_debug_out(d.mapq_debug_out),
                 m_whole_read_alignment(d.whole_read_alignment),
                 m_no_alignment_screen(d.no_alignment_screen),
+                m_no_indel_bound(d.no_indel_bound),
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_taxon_statistics(d.taxon_statistics),
@@ -713,6 +717,11 @@ namespace protal {
             result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
+            if (long_reads) {
+                result_str << "indel bound:         " << (m_no_alignment_screen ? "off (--no_alignment_screen)" :
+                                                          m_no_indel_bound ? "off (--no_indel_bound: ONT reads screened by their k-mers)" :
+                                                          "ONT reads screened by their indel distance to the window instead") << '\n';
+            }
             if (long_reads) result_str << "long read budget:    " << (m_long_read_budget ? std::to_string(m_long_read_budget) + " edits past the best candidate (--long_read_budget)" : "the ANI floor's for every candidate") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
             result_str << "unaligned reads:     " << (WriteUnmappedReads() ? "an unmapped record each" : "counted per taxon in the SAM header")
@@ -1434,6 +1443,11 @@ namespace protal {
         // --no_alignment_screen: every candidate aligned with WFA2, without the k-mer screen (AlignmentScreen.h).
         bool NoAlignmentScreen() const {
             return m_no_alignment_screen;
+        }
+
+        // --no_indel_bound: ONT reads screened by their k-mers, not by the indel bound (AlignmentScreen.h IndelBound).
+        bool NoIndelBound() const {
+            return m_no_indel_bound;
         }
 
         // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the ANI floor's budget).
@@ -2984,6 +2998,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool mapq_debug_output = result.count("mapq_debug_output");
             bool whole_read_alignment = result.count("whole_read_alignment");
             bool no_alignment_screen = result.count("no_alignment_screen");
+            bool no_indel_bound = result.count("no_indel_bound");
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
             bool taxon_statistics = result.count("taxon_statistics");
@@ -3162,6 +3177,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.mapq_debug_out           = mapq_debug_output;
             d.whole_read_alignment     = whole_read_alignment;
             d.no_alignment_screen      = no_alignment_screen;
+            d.no_indel_bound           = no_indel_bound;
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
             d.taxon_statistics         = taxon_statistics;

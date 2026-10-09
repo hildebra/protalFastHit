@@ -17,6 +17,9 @@
 // a failing WFA2 alignment explores its whole budget, where the screen costs a pass over the read
 // and the window. The window's k-mers come from the gene's packed bytes, and the read's from its
 // strands packed once for all its candidates (ReadKmers; docs/claude/2026-10-06-performance-profiling).
+//
+// IndelBound, at the end: an exact bound for ONT reads in place of the k-mer screen, from the indel distance, which
+// refuses the failing candidates of ONT reads that the k-mer screen cannot (docs/claude/2026-10-09-ont-wfa2-skipping.md).
 #pragma once
 
 #include <algorithm>
@@ -25,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,6 +36,11 @@
 
 #include "SequenceUtils/KmerUtils.h"
 #include "SequenceUtils/PackedSequence.h"
+#include "TargetClones.h"
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#include <immintrin.h>  // _addcarry_u64 (IndelBound)
+#endif
 
 namespace protal {
     class AlignmentScreen {
@@ -358,5 +367,192 @@ namespace protal {
         uint16_t m_generation = 0;
         size_t m_refused = 0;
         ReadKmers m_own;  // the k-mers of a candidate's read screened without a ReadStretch
+    };
+
+    // An exact bound before WFA2 for ONT reads, in place of the k-mer screen: the indel distance
+    // (docs/claude/2026-10-09-ont-wfa2-skipping.md). At ONT's identity floor of 0.85 an alignment within the budget may
+    // touch every k-mer of its window, so the k-mer screen refuses next to nothing (none of 145,184 candidates on the
+    // bench sample, 1,191 of 17.9M on r226's host sample), while a failing candidate (a gene window against unrelated read
+    // sequence: 99.8% of them on host reads at r226) is still far from aligning. PacBio reads keep the k-mer screen: the
+    // candidates it passes mostly align, and the bound on them cost 20% more instructions than it saved.
+    //
+    // The bound: a mismatch is a deletion and an insertion, and a gap of g bases costs gap_opening + g gap_extension, so
+    // an alignment's score is at least q / 2 per base of the indel distance of what it aligns (the fewest insertions and
+    // deletions that turn one into the other), q = min(mismatch, 2 gap_extension). With free ends it aligns the read
+    // bases [a, n - b), a <= begin_free and b <= end_free, to the window bases [c, m - d), c <= ref_begin_free and
+    // d <= ref_end_free: at least n_req = n - begin_free - end_free and m_req = m - ref_begin_free - ref_end_free bases.
+    // Their indel distance is their lengths less twice their longest common subsequence (LCS), which is at most the whole
+    // read's and window's. An alignment that succeeds scores at most max_score - 1 (WFA2Wrapper2::Alignment), so
+    //     q (n_req + m_req - 2 LCS(read, window)) > 2 (max_score - 1)
+    // means that none exists, and the candidate fails as WFA2 would have failed it. The anchored aligner's path through
+    // the links is one such alignment (its pieces share the budget, and its free bases are the window's), so it fails
+    // too.
+    //
+    // The LCS is computed bit-parallel over the window's bases, one read base at a time (Allison and Dix 1986; Crochemore
+    // et al. 2001), from the gene's packed bytes, so a refused window is never decoded. A read base other than A, C, G or
+    // T matches every window base, as does a window base other than those: the LCS can only grow, and the bound stays
+    // exact. It costs up to m n / 64 word steps: ~345k instructions per candidate on the bench ONT sample, where a refused
+    // candidate saved ~6.4M of WFA2 (docs/claude/2026-10-09-ont-wfa2-skipping.md, section 7), so it pays from ~5% refused.
+    // WFA2's cost grows with the budget only (wf-adaptive keeps its band narrow), so windows of more than kMaxCells read x
+    // window bases are left to WFA2.
+    class IndelBound {
+    public:
+        static constexpr uint64_t kMaxCells = uint64_t{ 1 } << 27;
+
+        // The largest LCS of a candidate with `required` read and window bases (n_req + m_req) that the bound refuses;
+        // -1: it refuses none (or the penalties give no bound).
+        static int64_t MaxRefusedLcs(size_t required, int max_score, int mismatch, int gap_opening, int gap_extension) {
+            int64_t const q = std::min<int64_t>(mismatch, 2 * static_cast<int64_t>(gap_extension));
+            if (q <= 0 || gap_opening < 0) return -1;
+            // q (required - 2 L) >= 2 max_score - 1
+            int64_t const numerator = q * static_cast<int64_t>(required) - 2 * static_cast<int64_t>(max_score) + 1;
+            return numerator < 0 ? -1 : numerator / (2 * q);
+        }
+
+        // Whether an alignment of `read` into the bases [begin, end) of a gene's 2-bit packed bytes (PackedSequence.h) of
+        // score below max_score may exist, with up to begin_free and end_free read bases and ref_begin_free and
+        // ref_end_free window bases free at the ends: false only if the bound above refuses it.
+        bool MayAlignPacked(std::string_view read, size_t begin_free, size_t end_free, uint8_t const* packed, size_t begin, size_t end,
+                            size_t ref_begin_free, size_t ref_end_free, int max_score, int mismatch, int gap_opening, int gap_extension) {
+            size_t const m = end > begin ? end - begin : 0;
+            int64_t max_lcs = 0;
+            if (auto const answer = Bound(read.size(), begin_free, end_free, m, ref_begin_free, ref_end_free, max_score, mismatch,
+                                          gap_opening, gap_extension, max_lcs)) {
+                return *answer;
+            }
+            MasksPacked(packed, begin, m);
+            return LcsAbove(read, m, max_lcs);
+        }
+
+        // As MayAlignPacked, with the window as text.
+        bool MayAlign(std::string_view read, size_t begin_free, size_t end_free, std::string_view window, size_t ref_begin_free,
+                      size_t ref_end_free, int max_score, int mismatch, int gap_opening, int gap_extension) {
+            int64_t max_lcs = 0;
+            if (auto const answer = Bound(read.size(), begin_free, end_free, window.size(), ref_begin_free, ref_end_free, max_score,
+                                          mismatch, gap_opening, gap_extension, max_lcs)) {
+                return *answer;
+            }
+            Masks(window);
+            return LcsAbove(read, window.size(), max_lcs);
+        }
+
+        // The LCS of `read` and `window` as the bound takes it (bases other than A, C, G or T match every base), without
+        // its exits: for tests.
+        size_t Lcs(std::string_view read, std::string_view window) {
+            Masks(window);
+            LcsAbove(read, window.size(), std::numeric_limits<int64_t>::max(), false);
+            return static_cast<size_t>(m_lcs);
+        }
+
+    private:
+        static constexpr size_t kExitEvery = 64;  // read bases between the exits' tests
+
+        // The answer when the lengths alone give it (the bound refuses nothing, the window is too large to be worth it,
+        // or not even an LCS of every base of the shorter one would be enough); else nullopt, with the largest LCS
+        // refused.
+        static std::optional<bool> Bound(size_t n, size_t begin_free, size_t end_free, size_t m, size_t ref_begin_free,
+                                         size_t ref_end_free, int max_score, int mismatch, int gap_opening, int gap_extension,
+                                         int64_t& max_lcs) {
+            size_t const n_req = begin_free + end_free < n ? n - begin_free - end_free : 0;
+            size_t const m_req = ref_begin_free + ref_end_free < m ? m - ref_begin_free - ref_end_free : 0;
+            max_lcs = MaxRefusedLcs(n_req + m_req, max_score, mismatch, gap_opening, gap_extension);
+            if (max_lcs < 0) return true;
+            if (static_cast<int64_t>(std::min(n, m)) <= max_lcs) return false;
+            if (static_cast<uint64_t>(n) * m > kMaxCells) return true;
+            return std::nullopt;
+        }
+
+        // The match masks of a window of m bases: m_masks[c] has bit i for each window base i that read base code c
+        // (KmerUtils::BaseToInt: A, C, G, T 0-3, anything else 4) matches; code 4 matches every base.
+        void Clear(size_t m) {
+            size_t const words = (m + 63) / 64;
+            for (size_t c = 0; c < 4; c++) m_masks[c].assign(words, 0);
+            m_masks[4].assign(words, ~uint64_t{ 0 });
+            if (m % 64 != 0) m_masks[4][words - 1] = (uint64_t{ 1 } << (m % 64)) - 1;
+        }
+
+        void MasksPacked(uint8_t const* packed, size_t begin, size_t m) {
+            Clear(m);
+            for (size_t i = 0; i < m; i++) {
+                size_t const p = begin + i;
+                m_masks[(packed[p >> 2] >> (2 * (p & 3))) & 3u][i >> 6] |= uint64_t{ 1 } << (i & 63);
+            }
+        }
+
+        void Masks(std::string_view window) {
+            Clear(window.size());
+            for (size_t i = 0; i < window.size(); i++) {
+                uint64_t const code = KmerUtils::BaseToInt(window[i]);
+                uint64_t const bit = uint64_t{ 1 } << (i & 63);
+                if (code <= 3) {
+                    m_masks[code][i >> 6] |= bit;
+                } else {  // matches every read base
+                    for (size_t c = 0; c < 4; c++) m_masks[c][i >> 6] |= bit;
+                }
+            }
+        }
+
+        // The zeros of V's lowest p bits: the LCS of the read bases so far and the window's first p bases (each bit of V is
+        // a column of the dynamic programming table, a zero where its value grows).
+        int64_t ZerosBelow(size_t p) const {
+            size_t const full = p / 64;
+            int64_t ones = 0;
+            for (size_t w = 0; w < full; w++) ones += __builtin_popcountll(m_v[w]);
+            if (p % 64 != 0) ones += __builtin_popcountll(m_v[full] & ((uint64_t{ 1 } << (p % 64)) - 1));
+            return static_cast<int64_t>(p) - ones;
+        }
+
+        // Whether the LCS of `read` and the window of m bases in m_masks is above max_lcs. Per read base with match mask
+        // M: V = (V + (V & M)) | (V & ~M), from V all ones; the LCS is the number of zeros. Every kExitEvery read bases, two
+        // exits, which give the final answer: the LCS so far only grows; and a common subsequence of the whole read is one
+        // of the read so far with the window's first p bases followed by one of the r read bases left with the rest, so the
+        // LCS is at most max over p of ZerosBelow(p) + min(r, m - p), which is ZerosBelow(m - r) + r (r < m; each bit adds
+        // at most one zero): an unrelated window's matches so far are spread over all of it, which this counts.
+        // The step's addition carries from word to word, which bounds its speed: on x86-64 one add-with-carry per word
+        // (the carry stays in the flag), elsewhere the carry from two comparisons. Cloned for x86-64-v3 (TargetClones.h),
+        // where x & ~match is one instruction.
+        PROTAL_CLONE_V3 bool LcsAbove(std::string_view read, size_t m, int64_t max_lcs, bool exits = true) {
+            size_t const words = (m + 63) / 64;
+            m_v.assign(words, ~uint64_t{ 0 });
+            uint64_t* const v = m_v.data();
+            size_t const n = read.size();
+            m_lcs = 0;
+            size_t i = 0;
+            while (i < n) {
+                size_t const block_end = std::min(n, i + kExitEvery);
+                for (; i < block_end; i++) {
+                    uint64_t const* const mask = m_masks[KmerUtils::BaseToInt(read[i])].data();
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+                    unsigned char carry = 0;
+                    for (size_t w = 0; w < words; w++) {
+                        uint64_t const x = v[w], match = mask[w];
+                        unsigned long long sum;
+                        carry = _addcarry_u64(carry, x, x & match, &sum);
+                        v[w] = static_cast<uint64_t>(sum) | (x & ~match);
+                    }
+#else
+                    uint64_t carry = 0;
+                    for (size_t w = 0; w < words; w++) {
+                        uint64_t const x = v[w], match = mask[w];
+                        uint64_t const sum = x + (x & match);
+                        uint64_t const with_carry = sum + carry;
+                        carry = static_cast<uint64_t>(sum < x) | static_cast<uint64_t>(with_carry < sum);
+                        v[w] = with_carry | (x & ~match);
+                    }
+#endif
+                }
+                m_lcs = ZerosBelow(m);
+                if (!exits) continue;
+                if (m_lcs > max_lcs) return true;
+                size_t const rest = n - i;
+                int64_t const most = rest >= m ? static_cast<int64_t>(m) : ZerosBelow(m - rest) + static_cast<int64_t>(rest);
+                if (most <= max_lcs) return false;
+            }
+            return m_lcs > max_lcs;
+        }
+
+        std::array<std::vector<uint64_t>, 5> m_masks;
+        std::vector<uint64_t> m_v;
+        int64_t m_lcs = 0;
     };
 }

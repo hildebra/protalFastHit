@@ -486,14 +486,16 @@ namespace protal {
     // One line per sample on the alignment stage's counts, for comparing runs (scripts/measure_performance.sh reads
     // it): the reads (or read pairs), those with an anchor (of paired reads, the mates), the candidate alignments tried (AlignAnchor calls, up to
     // --align_top per read or mate and the ties, plus the long-read rescues), those the k-mer screen refused before
-    // WFA2 (AlignmentScreen.h), those WFA2 ran on from the anchor's exact matches or as a whole window, the
-    // alignments made (within the ANI floor) and the records written.
+    // WFA2 (AlignmentScreen.h) and those the indel bound refused in its place (ONT reads, IndelBound; 0 for others),
+    // those WFA2 ran on from the anchor's exact matches or as a whole window, the alignments made (within the ANI
+    // floor) and the records written.
     static void PrintAlignmentCounts(Options const& options, size_t index, ReadType read_type, Statistics const& stats,
                                      SimpleAlignmentHandler const& handler, SeedingCounts const& seeding) {
         std::cout << "Sample " << options.GetSampleId(index) << ": " << stats.reads << (read_type == ReadType::Paired ? " read pairs, " : " reads, ")
                   << stats.at_least_one_anchor << (read_type == ReadType::Paired ? " mates" : "") << " with an anchor; "
                   << handler.m_attempted_alignments << " candidate alignments tried: "
-                  << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_anchored_alignments
+                  << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_indel_refused << " by the indel bound, "
+                  << handler.m_anchored_alignments
                   << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
         // And what the seeding did (SeedingCounts): the k-mer lookups, the value blocks scanned and their sizes.
@@ -720,7 +722,13 @@ namespace protal {
                 // diagonals that their indels shift, through every link of the chain.
                 alignment_handler.SetAnchoredAlignment(!options.WholeReadAlignment());
                 alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
-                alignment_handler.SetAlignmentScreen(!options.NoAlignmentScreen());
+                // Before WFA2, a candidate that cannot align within the budget is refused: by the k-mer screen, or for ONT
+                // reads by their indel distance (IndelBound), as the screen refuses next to nothing at their identity floor
+                // of 0.85 (--no_indel_bound: the screen, as before 2026-10-09). PacBio reads keep the screen: the candidates
+                // it passes mostly align, and the bound on them cost more than it saved.
+                bool const indel_bound = read_type == ReadType::ONT && !options.NoAlignmentScreen() && !options.NoIndelBound();
+                alignment_handler.SetAlignmentScreen(!options.NoAlignmentScreen() && !indel_bound);
+                alignment_handler.SetIndelBound(indel_bound);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAlleleScores(!options.NoAlleleScores());
 
