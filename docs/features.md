@@ -31,16 +31,16 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `shape` | 2026-10-06 | how the reads lie on the genes: divergence dispersion, breadth against depth, genes where reads fail, fixed and polymorphic sites | yes, untested at r226 |
 | `neighbourhood` | 2026-10-06 | the database's congeners near the reference (`species_neighbours.tsv`) | yes, untested at r226 |
 | `ancestry` | 0.7.9 | which side the reads take where the reference differs from its nearest congener's | yes, untested at r226 |
-| `gaps` | 2026-10-07 | where the reads lie in the gaps to the congeners' copies of their genes (`congener_gaps.tsv`) | yes, untested at r226 |
-| `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | no: its scan reads the simulation's genomes, which it tells the models ([below](#the-foreign-features-leak)); in the default set from the merge to 2026-10-08 |
-| `untried` | 2026-10-07 | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
-| `alleles` | 2026-10-08 | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
-| `polymorphic` | 2026-10-09 | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
+| `gaps` | 0.8.0 (2026-10-07) | where the reads lie in the gaps to the congeners' copies of their genes (`congener_gaps.tsv`) | yes, untested at r226 |
+| `foreign` | 0.8.0 (2026-10-07) | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | no: its scan reads the simulation's genomes, which it tells the models ([below](#the-foreign-features-leak)); in the default set from the merge to 2026-10-08 |
+| `untried` | 0.8.0 (2026-10-07) | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
+| `alleles` | 0.8.0 (2026-10-08) | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
+| `polymorphic` | 0.8.0 (2026-10-09) | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
 `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic`
-(85 features since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+(85 features in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -379,8 +379,8 @@ nearest congener shares most of the species' history, gets as many as a small on
 | `ancestry_sites_per_record` | 0.7.9 | the sites the best records cover, per record | untested | how much the next two can say |
 | `ancestry_agreement` | 0.7.9 | of the covered sites, the share where the read has the reference's base; -1 without a site | untested | a strain near 1, a novel congener at the fraction of the branch it shares |
 | `ancestry_congener_share` | 0.7.9 | the share where the read has the congeners' base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
-| `ancestry_indel_sites_per_record` | 2026-10-08 | the indel sites the best records are aligned through (5 bases beyond on both sides), per record | untested | how much the next one can say |
-| `ancestry_indel_congener_share` | 2026-10-08 | of those, the share where the read deletes the species' extra bases or inserts the congeners' (a gap of the site's length within 4 bases of it; a record with another gap there counts neither way); -1 without such a site | untested | a novel congener's reads: an indel shared by the congeners and absent from the species is hard to get by chance |
+| `ancestry_indel_sites_per_record` | 0.8.0 (2026-10-08) | the indel sites the best records are aligned through (5 bases beyond on both sides), per record | untested | how much the next one can say |
+| `ancestry_indel_congener_share` | 0.8.0 (2026-10-08) | of those, the share where the read deletes the species' extra bases or inserts the congeners' (a gap of the site's length within 4 bases of it; a record with another gap there counts neither way); -1 without such a site | untested | a novel congener's reads: an indel shared by the congeners and absent from the species is hard to get by chance |
 
 **Indels** (2026-10-08). The copies are paired by their shared 12-mers, and until 2026-10-08 the comparison
 ended at the first indel between them, so a copy with an early indel against a congener lost most of its

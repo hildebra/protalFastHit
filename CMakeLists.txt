@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(protal VERSION 0.7.9)
+project(protal VERSION 0.8.0)
 
 # An optimised build unless another build type is asked for. -DCMAKE_BUILD_TYPE=Debug gives an
 # unoptimised build with debug info and assert() checks enabled.

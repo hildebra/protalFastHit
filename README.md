@@ -43,7 +43,7 @@ four-sample example and describes every output file.
 | [Databases](docs/databases.md) | database files; building and training a database from GTDB; the presence model |
 | [The model's features](docs/features.md) | every feature, its importance per read type, and when it matters |
 | [Development](docs/development.md) | tests, mini databases, `simulate_metagenomes`, CI |
-| [What changed](docs/version_changes.md) | 0.6.0a to 0.7.9: changes and benchmarks of every version |
+| [What changed](docs/version_changes.md) | 0.6.0a to 0.8.0: changes and benchmarks of every version |
 | [Audits and benchmarks](docs/claude/README.md) | reports written with Claude Code |
 
 ## Citation

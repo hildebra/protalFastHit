@@ -1,8 +1,9 @@
-# What changed from protal 0.6.0a to 0.7.9
+# What changed from protal 0.6.0a to 0.8.0
 
-The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026) and the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.9 on 2026-10-07, branch `audit-fixes`) are compared here: what changed, and how
-every version scores on the same simulated data in detection, abundance, strains, speed and memory.
+The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026), the 0.7 series (0.7.0 on
+2026-09-30 to 0.7.9 on 2026-10-07) and 0.8.0 (2026-10-09, branch `audit-fixes`) are compared here:
+what changed, and how every version scores on the same simulated data in detection, abundance,
+strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
 hold the commands, scripts and raw tables; this page only collects them. Nothing here was run again
 for this page.
@@ -20,6 +21,138 @@ for this page.
 | 0.7.7 | `f2bafd9` | 2026-10-05 | 33 | GTDB-scale speed and memory (paired-end run 58 → 42 s, HiFi 25 → 15.6 s, peak 38.1 → 34.2 GB on r226): AVX2 flex scan, unaligned reads counted in the SAM header (`--write_unmapped_reads`), the index packed key by key as it loads; read EM capped at 100 sweeps; `.fq.zst` input |
 | 0.7.8 | `5de3224` | 2026-10-06 | 16 | GTDB-scale speed (paired-end run 42 → 33 s, HiFi 15.6 → 12.3 s on r226, the same outputs): AVX2 tie masks in the seed lookup, flat gene tables, the k-mer screen from packed genes and reads, only shared seeds sorted; gzip with ISA-L (paired-end runs no longer wait for their input); `--add_model` in place; gradient-boosted models by default |
 | 0.7.9 | `ffbedb3` | 2026-10-07 | 37 | against false positives in complex communities: the reads' consistency, the genes' shape, the database's neighbourhood, the sample's complexity and the ancestry sites (which side a read takes where the species differs from its congeners) as default features, untested at r226 until the next build; strain MSAs packed (159 → 37 MB per dense sample), spilled to disk and merged over runs; builds keep the reads behind every model error (`--error-reads`, `--share-logs` with the ancestry report), calibrate the in-silico strains' dN/dS on real strains, vary the scenarios and choose the knob by bootstrap; `simulate_metagenomes` makes Illumina, Ultima and long reads itself and streams large samples; `--build` resumes, packs the index straight into `database.protal`; every test suite in CI |
+| 0.8.0 | | 2026-10-09 | 39 | strains told from congeners: the species' other genomes as alleles of its marker genes (in the scores of the reads protal is unsure about, and as features), where the species varies, the congeners' gene copies (`congener_gaps.tsv`), a divergent read's untried candidates, ancestry sites by the congeners' consensus and across indels (85 default features, untested at r226); profiles end with the share of the genomes the called species do not explain (`?`); Nanopore candidates refused by an exact indel bound (−45% of the alignment's instructions), AVX-512 seeding, BGZF input on several threads; builds without the foreign leak, species complexes held out whole, ~118 output files instead of ~11,900, the build on many cores |
+
+## What 0.8.0 adds, and why it matters
+
+Since the r226 v15 build, the GTDB models' remaining errors are mostly of two kinds, both at the
+same marker identity. A missed species is usually a strain of a species the database knows from
+other genomes (60-80% of v18's false negatives). A false call is usually the nearest congener of a
+species the database lacks (86-91% of v17's false positives). Nothing in a read's alignment to the
+reference tells the two apart ([error-read signatures](claude/2026-10-07-error-read-signatures/README.md),
+[r226 v17](claude/2026-10-08-r226-v17/README.md), [r226 v18](claude/2026-10-08-r226-v18/README.md)).
+0.8.0 therefore gives protal what the species' other genomes and its congeners' gene copies say.
+These features are in the default set, but no r226 build with them has been evaluated yet. Their
+gain is still to be measured, and a group that does not pay will leave the set, as `foreign` did.
+0.8.0 also adds a new profile line (the unknown share) and more speed.
+
+### For everyone running protal
+
+- **Profiles end with the unknown share.** A profile's last line, with `?` for name and taxonomy,
+  gives the share of the sample's genomes that the called species do not explain. The species'
+  abundances are now shares of all genomes, not of the called species alone. The share comes from
+  each species' genome size (its GTDB genomes' mean, corrected by CheckM, in `species_priors.tsv`),
+  its depth, and the bases read, which the aligner now writes into the SAM header. `<profile>.composition` adds the
+  share of the reads explained, the average genome size, and how many species the rest would be.
+  *Why it matters:* abundances among the called species alone overstate every species when much of
+  a sample is not in the database (novel species, host, species too shallow to call). The `?` says
+  how much that is, and makes abundances comparable between samples. *How accurate:* on a synthetic
+  world with every species in the database, 0.965-0.976 of the reads were explained (truth 1). In
+  the r226 v19 test samples, `?` was within ±0.02 for short reads from 50,000 fragments up. It was
+  too low in shallower samples, where the called species take the reads of uncalled ones, and too
+  low by 0.11-0.15 for PacBio at every depth (PacBio depths 5-35% high, cause open). Host reads count
+  as unknown genomes. `--no_unknown_share` gives the old profile. A database converted before
+  2026-10-08 has no genome sizes, so its profiles have no `?` line until `gtdb_to_protal_db.py
+  --priors_only` and `protal --add_tables` give it them. Scripts that read profiles should expect the
+  `?` line; `protal_profile_utils merge` keeps it last
+  ([running.md](running.md#what-the-called-species-explain-the-unknown-share),
+  [report](claude/2026-10-08-sample-composition/README.md),
+  [r226 v19](claude/2026-10-09-r226-v19/README.md)).
+- **Strains of known species.** With `--full_reference`, `--build` keeps up to four alleles of each
+  species' marker genes from its other genomes (`strain_alleles.tsv`: edits of the representative's
+  copy, each nearer it than the nearest congener's copy). protal uses them for the short reads it is
+  unsure about, those with a candidate of another species within 3 mismatches of the best. There,
+  each candidate is scored against its species' alleles: a difference a known strain carries counts
+  as a match, and one where the species varies counts as half a difference (`--no_allele_scores`
+  turns this off). A read of a known strain then stays on its species instead of going to a congener
+  that happens to fit the reference better. A read that one species fits clearly better keeps its
+  scores. Five features, in the groups `alleles` and `polymorphic`, say how a taxon's reads stand
+  against the known strains and at the sites where the species varies. *Why it matters:* these are
+  the misses that remain. On the r226 v19 error reads, the sites where a species is fixed separate
+  missed real strains from false calls (AUC 0.59-0.67), which the alignment alone does not. The GTDB
+  build takes the alleles from half of each species' genomes, chosen by a hash of the accession, and
+  simulates strains from the other half only. Otherwise every simulated real strain would be one of
+  its species' alleles, a gain no real sample gives
+  ([features.md](features.md#the-strain-alleles-alleles-2026-10-08),
+  [polymorphic sites](features.md#the-polymorphic-sites-polymorphic-2026-10-09)).
+- **The congeners' gene copies.** `--build` aligns each marker gene's copies within their genus and
+  stores, per copy, its nearest and median distance to the congeners' copies and its nearest
+  congener (`congener_gaps.tsv`). A divergent short read (identity below 0.99) whose seeds fit more
+  taxa equally well than `--align_top` took now tries up to 7 more of them in its best alignment's
+  genus (`--adaptive_candidates`; the `ZC` tag lists those left untried). This finds a strain's own
+  species when its seeds ranked below its congeners'. Four `gaps` features and one `untried` feature
+  come from these ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)).
+- **Ancestry sites** (new in 0.7.9) are now the consensus of the congeners: where three or more were
+  compared (the 16 nearest and the gene's nearest by alignment), a site needs nine in ten of them on
+  one base other than the species'; with fewer, the nearest congener decides, as in 0.7.9. The comparison continues across indels,
+  and the indels the congeners share are sites too (two more features). At r226 the group added
+  0.003-0.012 of AUC in the identity band where strains and novel congeners overlap (v18), and
+  +0.0005 of F1 in v17's ablation. The refined sites did no better there than 0.7.9's
+  ([features.md](features.md#which-side-the-reads-take-ancestry-079)).
+- **85 features in the default set** (73 in 0.7.9): `gaps`, `untried`, `alleles` and `polymorphic`
+  joined it, and `foreign` left it (below).
+- **Speed, with the same outputs:**
+  - Nanopore reads: an exact bound on the indel distance between read and gene window (a
+    bit-parallel LCS) refuses a candidate before WFA2 when no alignment within the score budget can
+    exist. The k-mer screen refused almost no Nanopore candidate at the 0.85 identity floor, and
+    Nanopore reads were 70% of the r226 v19 build's aligning. On 2,000 benchmark Nanopore reads the
+    bound refuses 18.5% of the candidates and cuts the alignment's instructions by 45%.
+    `--no_indel_bound` brings back the k-mer screen; PacBio and short reads keep the screen
+    ([report](claude/2026-10-09-ont-wfa2-skipping.md)).
+  - AVX-512 (Ice Lake, Zen 4) for the seed lookup's flex scan and the syncmer scan, chosen at run
+    time (`PROTAL_SIMD=auto|avx512|avx2|scalar`). On a Zen 4 node at r226, seeding took 9.5% less
+    time for paired-end reads and 10.2% less for HiFi, the whole run 3.7% and 3.9% less
+    ([report](claude/2026-10-08-avx512-kernels/README.md)).
+  - BGZF read files (from `bgzip`, for example) are inflated on 1-4 threads per file: 1.1 GB/s on
+    one thread, 2.7-3.4 GB/s on three. After the faster seeding, a paired-end run at r226 waits for
+    its gzip input again. Plain gzip is still read on one thread
+    ([report](claude/2026-10-08-parallel-bgzf/README.md)).
+- **Also:** BGZF output (`.sam.gz`, the simulator's `.fq.gz`) has the same bytes whichever thread
+  writes it (ISA-L hashed a byte from the address of its state;
+  [report](claude/2026-10-08-bgzf-thread-bytes/README.md)). `misc/cpu.tsv` has a row per stage of a
+  run, with its wall and CPU time. Fixed: a `--map` run with a relative output folder (`-o out`, or
+  `#OUTPUT_DIR out` in the map) wrote into `out/out/`.
+
+### For anyone building a database
+
+- **The foreign leak.** The r226 v17 models' jump in F1 (paired-end test 0.983) came from the
+  `foreign` features. Their scan read the genomes the training samples are drawn from, so it told
+  the models which species the simulation can draw. Refit without them, v17 scores 0.962, the honest
+  level of v14, v15 and v18. The scan now tiles each database's full reference,
+  every species alike, and runs only with `--foreign-rates`. The group is in no feature set
+  ([features.md](features.md#the-foreign-features-leak)).
+- **Species complexes held out whole.** Congeners within 0.01 of each other on their marker genes
+  (`species_clouds.tsv`) are held out or kept together. The test of novel species no longer has
+  near-identical twins on both sides of the split (2% of v17's novel-congener rows). The training
+  table's `meta_novel_distance` and the trainer's errors by distance show how far each held-out
+  species is from the nearest kept one.
+- **In-silico strains like real ones.** They now carry as many marker substitutions at their nearest
+  congener's sites, with its base, as real strains do (`insilico_strains.py --clouds
+  --congener-share auto`). Before, they were too easy to tell from congeners: the species' base was
+  missing at 3.5% of the congener sites, against 10% for real strains (r226 v19).
+- **Outputs and logs.** `--outdir` holds `protal_db/`, `model_logs/`, `logs/`, `work/` and
+  `console.log`, each file once: about 118 files at r226 instead of about 11,900
+  ([outputs](databases.md#outputs)). The build checks each simulated sample's composition against
+  the truth (`composition_accuracy.py`, per species too) and logs CPU use per command, every 15 s,
+  and per protal stage. `--share-logs` also packs the simulators' logs and the in-silico strains'
+  table.
+- **Many cores.** The training database's files are derived on all cores, the setup steps run as a
+  graph, the genomes are read once into a cache, the reports start right after training, and
+  `--profile-ahead` is on by default. The r226 v19 build took 3:49 h at 84 threads; with these
+  changes the [build-parallelism report](claude/2026-10-09-build-parallelism/README.md) estimates
+  2:20-2:40 h at 120 cores. That has not been measured yet.
+
+### Compatibility
+
+- 0.8.0 reads 0.7 databases. A database without `strain_alleles.tsv` or `congener_gaps.tsv` works,
+  but the features that need them are fixed values. A model trained with 0.8.0's default set should
+  run with a database built by 0.8.0 (`--build` writes `congener_gaps.tsv`, and with
+  `--full_reference` also `strain_alleles.tsv`; `--add_tables` stores either in an existing
+  database).
+- A training table of an older protal lacks the new columns: train it with the groups it has
+  ([features.md](features.md)).
+- `build_gtdb_database.py` refuses a protal or `simulate_metagenomes` binary of another version.
+  Rebuild both after updating a checkout.
 
 ## Changes since 0.6.0a
 
@@ -45,8 +178,10 @@ for this page.
   (`gene_conservation.tsv`, 0.7.1), how the genes differ between congeners (`gene_congeners.tsv`,
   0.7.2), gene neighbours from every genome with lines for a species' own gene order
   (`gene_neighbours.tsv`, 0.7.1, in the database file since 0.7.3), gene copies near-identical to
-  another genus's (`suspect_copies.tsv`, 0.7.5) and species priors from GTDB's clusters
-  (`species_priors.tsv`, 0.7.5).
+  another genus's (`suspect_copies.tsv`, 0.7.5), species priors from GTDB's clusters
+  (`species_priors.tsv`, 0.7.5; genome sizes since 0.8.0), each copy's distance to its congeners'
+  copies (`congener_gaps.tsv`, 0.8.0) and alleles of the species' other genomes (`strain_alleles.tsv`,
+  0.8.0).
 - In memory the reference genes are held at two bits per base (0.7.1; 19.5 GB → 5.1 GB at GTDB
   r226 size) and the index's values packed at 42 bits (0.7.5; 35 → 27 GB at r226). The files are
   unchanged by either.
@@ -82,7 +217,7 @@ for this page.
 - The per-taxon files `misc/<taxon>.statistics.tsv` are written only with `--taxon_statistics`
   (0.7.6). They took 15 s of a 107 s r226 run on a network file system; the per-sample profile files
   hold the same numbers.
-- After 0.7.9 (2026-10-08): the sample's composition. `species_priors.tsv` gives each species' genome
+- In 0.8.0 (2026-10-08): the sample's composition. `species_priors.tsv` gives each species' genome
   size (GTDB's genomes, corrected by CheckM) and its marker genes' share of it; the aligner writes the
   reads it read into the SAM header; a profile ends with the share of the genomes its species do not
   explain (`?`), and its abundances are shares of all genomes (`--no_unknown_share`: of the called
@@ -113,6 +248,11 @@ for this page.
   map per chunk; at r226 the paired-end SAM holds 45M unmapped records naming 140,000 taxa.
 - Every run prints per sample the reads, the candidates tried, refused and aligned, and the records
   written. Every stage, the start-up and the teardown are timed (0.7.6).
+- In 0.8.0: Nanopore candidates refused by an exact indel-distance bound before WFA2 instead of the
+  k-mer screen (−45% of the alignment's instructions on benchmark reads; `--no_indel_bound`), the seed
+  lookup's flex scan and the syncmer scan in AVX-512 where the CPU has it (`PROTAL_SIMD`; seeding about
+  10% faster on Zen 4), BGZF input inflated on 1-4 threads per file, and `misc/cpu.tsv` with each
+  stage's wall and CPU time ([above](#what-080-adds-and-why-it-matters)).
 
 ### Training a database
 
@@ -120,7 +260,7 @@ for this page.
   species, other strains, an independent test set, one model per read type, resumable reruns
   ([databases.md](databases.md#building-a-database), [databases.md](databases.md#the-presence-model)).
   0.6.0a shipped one model trained on older databases.
-- After 0.7.9 (2026-10-08): the hold-out keeps species complexes whole (congeners within 0.01 on
+- In 0.8.0 (2026-10-08): the hold-out keeps species complexes whole (congeners within 0.01 on
   the references, `species_clouds.tsv` from `protal --write_species_neighbours` before anything is
   built; the training table's `meta_novel_distance` and the report's errors by that distance), and
   the foreign scan tiles each database's full reference (every species alike, every copy listed)
@@ -142,7 +282,7 @@ for this page.
   build takes the alleles from half of the genomes by a hash of the accession and simulates strains
   from the other half only, so that no simulated strain is its own allele
   ([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
-- After 0.7.9 (2026-10-09): the species' polymorphic sites (where one of its alleles differs). In the alignment, a
+- In 0.8.0 (2026-10-09): the species' polymorphic sites (where one of its alleles differs). In the alignment, a
   read's difference that any of the species' alleles has counts as a match, and one at a polymorphic site with another
   base counts as half a difference. These shifts decide only the reads protal is unsure about (a candidate of another
   species within 3 mismatches). Three `polymorphic` features join the default set (85): of the polymorphic sites a
@@ -471,7 +611,10 @@ reflect the change from quality-0 to HiFi training reads and the knob curves.
 Accuracy on real samples (real samples were only timed, at r226); a 0.6.0a run at GTDB scale (its
 memory and index build there are estimates); 0.7.6 on the benchmark world (by its checks the same
 calls as 0.7.5 for short reads) and its memory at r226; strain mixtures and long-read strains of
-HiFi reads; 0.7.4 on its own.
+HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.0 were not run on the benchmark world either: their
+accuracy shows only in the r226 builds' test sets ([r226 v18](claude/2026-10-08-r226-v18/README.md),
+[r226 v19](claude/2026-10-09-r226-v19/README.md)), and no r226 build with 0.8.0's new features has
+been evaluated yet.
 Every number above is from one laptop (6 threads) or one HPC node, on simulated worlds whose strains
 are 0.4-4% from their references at the markers.
 

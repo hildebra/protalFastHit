@@ -1,4 +1,4 @@
-// protal 0.7.9. In 0.7 (since 0.6.0a):
+// protal 0.8.0. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -77,6 +77,20 @@
 //   knob chosen by bootstrap; simulate_metagenomes makes Illumina, Ultima and long reads itself (no ART or pbsim3)
 //   and streams large samples into protal; resume, suspect copies and the index straight into database.protal in
 //   --build; every test suite in CI.
+// In 0.8.0: strains told from congeners: --build keeps the species' other genomes as alleles of each marker gene
+//   (strain_alleles.tsv), which score a short read's candidates and settle the reads protal is unsure about by the
+//   species' polymorphic sites (--no_allele_scores), and the gaps to the congeners' copies (congener_gaps.tsv); a
+//   divergent read tries its genus's untried candidates (--adaptive_candidates, ZC); the ancestry sites are the
+//   congeners' consensus, chained across indels, with indel sites; 85 default features (gaps, untried, alleles,
+//   polymorphic), untested at r226. The profile ends with the share of the genomes its species do not explain ("?",
+//   from the genome sizes in species_priors.tsv; <profile>.composition; --no_unknown_share). Speed: ONT candidates
+//   refused by an exact indel-distance bound before WFA2 (-45% of the bench's ONT alignment instructions;
+//   --no_indel_bound), the seed lookup and syncmer scan in AVX-512 (PROTAL_SIMD; seeding -10% on Zen 4), BGZF input
+//   inflated on 1-4 threads, BGZF output the same bytes on any thread; misc/cpu.tsv per stage. Builds: the foreign
+//   scan's leak removed (the scan opt-in, --foreign-rates), species complexes held out whole (species_clouds.tsv),
+//   --outdir sorted into protal_db/, model_logs/, logs/, work/ (~118 files, not ~11,900), the build on many cores
+//   (setup as a graph, the derive on all cores, --profile-ahead, CPU logs), the composition checked against the
+//   truth, in-silico strains at congener sites. Fixed: a map run's relative output folder was used twice.
 #include <iostream>
 #include "RunProtal.h"
 
