@@ -2344,7 +2344,9 @@ def main():
     has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
     clades = parse_clades(args.holdout_clades)
     steer_holdout = (args.holdout > 0 or bool(clades)) and not args.holdout_species and args.holdout_complex_distance > 0
-    Steps.total = 8 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + steer_holdout
+    # The species clouds steer the hold-out and give the in-silico strains their congener sites.
+    make_clouds = steer_holdout or (args.insilico_strains > 0 and not args.no_gene_neighbours)
+    Steps.total = 8 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + make_clouds
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -2472,9 +2474,55 @@ def main():
         Steps.done("its taxonomy: " + convert(full))
         converted = full
 
+    # The species' nearest congeners by their references (species_clouds.tsv): protal --write_species_neighbours on the
+    # converted release (what --build stores as species_neighbours.tsv, before any database exists), or --species-clouds
+    # copied. The in-silico strains below take each marker gene's congener sites from the nearest congener, and the
+    # hold-out keeps or leaves out whole the complexes they show.
+    clouds_file = os.path.join(logs, "species_clouds.tsv")
+    args.holdout_clouds_note = "none"  # build_metadata.tsv
+    clouds = None
+    if make_clouds:
+        Steps.start("species clouds (species_clouds.tsv, species_clouds.log): every species' nearest congeners by their "
+                    "references' marker genes" +
+                    (f"; congeners within {args.holdout_complex_distance:g} form a complex the training database leaves "
+                     "out or keeps whole" if steer_holdout else "") +
+                    ("; the in-silico strains' congener sites" if args.insilico_strains > 0 else ""))
+        clouds_key = {"convert": convert_key, "protal": final_key["protal"],
+                      "given": content_hash(args.species_clouds) if args.species_clouds else None}
+        if args.species_clouds:
+            copy_file(args.species_clouds, clouds_file)
+            stages.mark("species_clouds", clouds_key)
+            Steps.done(f"copied from {args.species_clouds}")
+        elif stages.done("species_clouds", clouds_key) and os.path.isfile(clouds_file):
+            Steps.done("made by an earlier run from the same release; kept")
+        else:
+            stages.forget("species_clouds")
+            if converted is None:
+                if subset:
+                    ensure_converted()
+                else:
+                    converted = full
+                    Steps.done("the release again, for its species clouds (the finished database packed its references): " +
+                               convert(converted))
+            job = run([args.protal, "--write_species_neighbours", clouds_file, "--db", converted, "-t", str(args.threads)],
+                      step_log("species_clouds.log"), label="comparing the species' references")
+            stages.mark("species_clouds", clouds_key)
+            Steps.done(f"made in {job.took()}: {species_neighbours_summary(step_log('species_clouds.log'))}")
+        if steer_holdout:
+            clouds = read_clouds(clouds_file, taxonomy)
+            complexes = species_complexes(clouds, args.holdout_complex_distance)
+            args.holdout_clouds_note = (f"{len(clouds)} species' congeners within {CLOUD_MAX_DISTANCE:g} "
+                                        f"({'--species-clouds' if args.species_clouds else 'the converted release'}); "
+                                        f"{len(set(complexes.values()))} complexes of {len(complexes)} species within "
+                                        f"{args.holdout_complex_distance:g} of a congener, held out or kept whole")
+            Steps.done(f"{len(clouds)} species compared; {len(set(complexes.values()))} complexes of {len(complexes)} "
+                       f"species within {args.holdout_complex_distance:g} of a congener")
+
     # In-silico strains (insilico_strains.py): every species of the table with one genome gets a mutated copy of
     # its representative (codon-aware substitutions, the divergence of the table's real strains, the genes'
-    # conservation factors), so that it is simulated from a strain as often as a species with two genomes. Without
+    # conservation factors, as many of its marker substitutions at the sites where its nearest congener differs, with
+    # the congener's base, as the real strains have there: species_clouds.tsv), so that it is simulated from a strain
+    # as often as a species with two genomes. Without
     # them a model given GTDB's cluster sizes learns that a divergent read cloud on a one-genome species is a
     # relative the database lacks (docs/claude/2026-10-04-r226-v10-evaluation). The simulations draw from
     # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself. The strains'
@@ -2487,7 +2535,8 @@ def main():
         Steps.start("in-silico strains of the species with one genome (insilico_strains.log, genomes_simulated.tsv)")
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
                         "convert": convert_key, "share": args.insilico_strains, "ani": args.insilico_ani,
-                        "seed": args.seed, "strains": strains}
+                        "seed": args.seed, "strains": strains,
+                        "clouds": content_hash(clouds_file) if make_clouds and os.path.isfile(clouds_file) else None}
         # A new --scratch (the next job's node) has none of them: made again (the same strains, at the same seed).
         if stages.done("insilico", insilico_key) and os.path.isfile(sim_table) and \
                 os.path.isfile(os.path.join(strains, "insilico_strains.tsv")):
@@ -2514,6 +2563,8 @@ def main():
                        "--seed", str(args.seed), "-t", str(args.threads)]
             if positions:
                 command += ["--positions", positions, "--taxonomy", taxonomy]
+                if make_clouds and os.path.isfile(clouds_file):
+                    command += ["--clouds", clouds_file]
             if args.insilico_ani or not positions:
                 command += ["--ani", args.insilico_ani or INSILICO_FALLBACK_ANI]
             job = run(command, log, label="making in-silico strains")
@@ -2535,45 +2586,6 @@ def main():
     # distant ones. It is made from the converted files before --build packs them. heldout_species.txt: the
     # species, the rank they were held out at and the clade.
     heldout = os.path.join(logs, "heldout_species.txt")
-    clouds_file = os.path.join(logs, "species_clouds.tsv")
-    args.holdout_clouds_note = "none"  # build_metadata.tsv
-    clouds = None
-    if steer_holdout:
-        # The species' nearest congeners by their references (species_clouds.tsv): protal --write_species_neighbours on
-        # the converted release (what --build stores as species_neighbours.tsv, before any database exists), or
-        # --species-clouds copied. The hold-out below keeps or leaves out whole the complexes they show.
-        Steps.start("species clouds (species_clouds.tsv, species_clouds.log): every species' nearest congeners by their "
-                    f"references' marker genes; congeners within {args.holdout_complex_distance:g} form a complex the "
-                    "training database leaves out or keeps whole")
-        clouds_key = {"convert": convert_key, "protal": final_key["protal"],
-                      "given": content_hash(args.species_clouds) if args.species_clouds else None}
-        if args.species_clouds:
-            copy_file(args.species_clouds, clouds_file)
-            stages.mark("species_clouds", clouds_key)
-            Steps.done(f"copied from {args.species_clouds}")
-        elif stages.done("species_clouds", clouds_key) and os.path.isfile(clouds_file):
-            Steps.done("made by an earlier run from the same release; kept")
-        else:
-            stages.forget("species_clouds")
-            if converted is None:
-                if subset:
-                    ensure_converted()
-                else:
-                    converted = full
-                    Steps.done("the release again, for its species clouds (the finished database packed its references): " +
-                               convert(converted))
-            job = run([args.protal, "--write_species_neighbours", clouds_file, "--db", converted, "-t", str(args.threads)],
-                      step_log("species_clouds.log"), label="comparing the species' references")
-            stages.mark("species_clouds", clouds_key)
-            Steps.done(f"made in {job.took()}: {species_neighbours_summary(step_log('species_clouds.log'))}")
-        clouds = read_clouds(clouds_file, taxonomy)
-        complexes = species_complexes(clouds, args.holdout_complex_distance)
-        args.holdout_clouds_note = (f"{len(clouds)} species' congeners within {CLOUD_MAX_DISTANCE:g} "
-                                    f"({'--species-clouds' if args.species_clouds else 'the converted release'}); "
-                                    f"{len(set(complexes.values()))} complexes of {len(complexes)} species within "
-                                    f"{args.holdout_complex_distance:g} of a congener, held out or kept whole")
-        Steps.done(f"{len(clouds)} species compared; {len(set(complexes.values()))} complexes of {len(complexes)} species "
-                   f"within {args.holdout_complex_distance:g} of a congener")
     if args.holdout_species:
         copy_file(args.holdout_species, heldout)
     elif args.holdout > 0 or clades:

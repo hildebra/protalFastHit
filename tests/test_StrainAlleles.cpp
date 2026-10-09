@@ -1,7 +1,9 @@
 // Unit tests for the strain alleles (2026-10-08, docs/claude/2026-10-08-strain-alleles): the genomes that may give them
 // (the accession hash, the same in Python), the table and its file, an allele's edits from its alignment against the
 // representative, the build's sample and choice, what an allele explains of a read, the alignment score's shift, the
-// handler's scores, and the profiler's alleles features.
+// handler's scores, and the profiler's alleles features. And the polymorphic sites (2026-10-09,
+// docs/claude/2026-10-09-polymorphic-sites): a copy's sites, a read at them, the site shift, the unsure reads the
+// handler settles with it, and the profiler's polymorphic features.
 #include <gtest/gtest.h>
 #include <map>
 #include <memory>
@@ -246,20 +248,102 @@ TEST(StrainAlleles, AnAlleleExplainsAReadsDifferences) {
     EXPECT_EQ(sa::BestAllele(table, 4, 2, diffs).allele, -1);
 }
 
+// The site shift counts half differences: two explained differences (-4) are two matches, one at a polymorphic site (-1)
+// half of one.
 TEST(StrainAlleles, TheScoreCountsTheShiftAsMatches) {
     AlignmentInfo info;
     info.matches = 97;
     info.mismatches = 3;
     EXPECT_EQ(info.Score(), -12);
-    info.allele_shift = -2;
+    info.site_shift = -4;
     EXPECT_EQ(info.Score(), -4);
     EXPECT_EQ(info.Score(2, 3, 1, 2), 97 * 2 - 3 * 3 + 2 * 5);
+    info.site_shift = -1;
+    EXPECT_EQ(info.Score(), -10);
+    info.site_shift_pending = -3;
     info.Reset();
-    EXPECT_EQ(info.allele_shift, 0);
+    EXPECT_EQ(info.site_shift, 0);
+    EXPECT_EQ(info.site_shift_pending, 0);
+}
+
+// A copy's polymorphic sites, how a read stands at them, and a candidate's site shift. Two alleles of copy (4, 1): A1 over
+// the whole copy with G at 110 and T at 200; A2 over [100, 400) with C at 110, a deletion of 2 at 300 and A at 350.
+TEST(StrainAlleles, ThePolymorphicSitesOfACopy) {
+    using E = sa::Edit;
+    auto const table = sa::Table::FromRows({ { 4, 1, { sa::Allele{ 0, 600, { E::Substitution(110, sa::BaseCode('G')),
+                                                                              E::Substitution(200, sa::BaseCode('T')) } },
+                                                         sa::Allele{ 100, 400, { E::Substitution(110, sa::BaseCode('C')),
+                                                                                 E::Indel(sa::kDeletion, 300, 2),
+                                                                                 E::Substitution(350, sa::BaseCode('A')) } } } } });
+    auto const alleles = table.Of(4, 1);
+    sa::Polymorphism poly;
+    poly.Set(table, alleles, 100, 250);
+    ASSERT_EQ(poly.Sites().size(), 2u);
+    EXPECT_EQ(poly.Sites()[0].pos, 110u);
+    EXPECT_EQ(poly.Sites()[0].bases, (1u << sa::BaseCode('G')) | (1u << sa::BaseCode('C')));
+    EXPECT_EQ(poly.Sites()[1].pos, 200u);
+    EXPECT_EQ(poly.Find(150), nullptr);
+    EXPECT_EQ(poly.Cover(150), 2u);
+    EXPECT_EQ(poly.Cover(50), 1u);
+    EXPECT_EQ(poly.Cover(650), 0u);
+    poly.Set(table, alleles, 280, 330);
+    ASSERT_EQ(poly.Sites().size(), 2u);  // the deletion's two bases
+    EXPECT_TRUE(poly.Sites()[0].indel && poly.Sites()[1].indel);
+    EXPECT_TRUE(poly.IndelNear(304));
+    EXPECT_FALSE(poly.IndelNear(310));
+
+    // A read on [100, 250): C at 110 (A2's), A at 200 (no allele's: the species varies there), G at 150 (fixed).
+    std::string seq(150, 'A');
+    seq[10] = 'C';
+    seq[50] = 'G';
+    seq[100] = 'A';
+    sa::ReadDiffs diffs;
+    ASSERT_TRUE(sa::FromSamRecord("10=1X39=1X49=1X49=", 101, seq, diffs));
+    poly.Set(table, alleles, diffs.begin, diffs.end);
+    auto c = sa::CountSites(poly, diffs);
+    EXPECT_EQ(c.sites, 2u);
+    EXPECT_EQ(c.known, 1u);
+    EXPECT_EQ(c.novel, 1u);
+    // Its shift: A2 explains 110 (-1; A1 would contradict both), 200 is variable (half), 150 fixed: -3 half differences.
+    std::vector<uint8_t> used;
+    auto s = sa::ShiftOf(table, 4, 1, diffs, poly, used);
+    EXPECT_EQ(s.best, -1);
+    EXPECT_EQ(s.known, 0u);
+    EXPECT_EQ(s.variable, 1u);
+    EXPECT_EQ(s.Half(), -3);
+    // C at 110 and T at 200: A2 explains 110, A1 has the T (a known variant though A1 contradicts 110): two matches.
+    seq[100] = 'T';
+    ASSERT_TRUE(sa::FromSamRecord("10=1X89=1X49=", 101, seq.substr(0, 50) + std::string(1, 'A') + seq.substr(51), diffs));
+    s = sa::ShiftOf(table, 4, 1, diffs, poly, used);
+    EXPECT_EQ(s.best, -1);
+    EXPECT_EQ(s.known, 1u);
+    EXPECT_EQ(s.Half(), -4);
+    poly.Set(table, alleles, diffs.begin, diffs.end);
+    c = sa::CountSites(poly, diffs);
+    EXPECT_EQ(c.sites, 2u);
+    EXPECT_EQ(c.known, 2u);
+    // The representative's bases: both sites covered, neither way; no shift.
+    ASSERT_TRUE(sa::FromSamRecord("150=", 101, std::string(150, 'A'), diffs));
+    c = sa::CountSites(poly, diffs);
+    EXPECT_EQ(c.sites, 2u);
+    EXPECT_EQ(c.known + c.novel, 0u);
+    EXPECT_EQ(sa::ShiftOf(table, 4, 1, diffs, poly, used).Half(), 0);
+    // A read on [280, 330) with A2's deletion (placed at 301): known at both deleted bases; a deletion of 1 at 300: the
+    // site at 300 is under it (an indel where an allele has one: known), and 301 within reach of it too.
+    ASSERT_TRUE(sa::FromSamRecord("21=2D27=", 281, std::string(48, 'A'), diffs));
+    poly.Set(table, alleles, diffs.begin, diffs.end);
+    c = sa::CountSites(poly, diffs);
+    EXPECT_EQ(c.sites, 2u);
+    EXPECT_EQ(c.known, 2u);
+    s = sa::ShiftOf(table, 4, 1, diffs, poly, used);
+    EXPECT_EQ(s.Half(), -2);  // A2's deletion, within its tolerance: explained
+    // A substitution where the species is fixed and no allele covers: nothing (copy 4, 2 has no alleles).
+    EXPECT_EQ(sa::ShiftOf(table, 4, 2, diffs, poly, used).Half(), 0);
 }
 
 // A read of a known strain of taxon 1 (its allele: the gene before taxon 1's own six differences) fits taxon 2 better by
-// the references alone (four differences against six); with the alleles it scores on taxon 1 as on the strain's gene.
+// the references alone (four differences against six), within kUnsureMismatches: unsure, so the candidates take their
+// site shifts, and it scores on taxon 1 as on the strain's gene.
 TEST(StrainAlleles, AReadOfAKnownStrainScoresOnItsSpecies) {
     std::mt19937 rng(31);
     std::string const base = test::RandomSequence(600, rng);
@@ -294,10 +378,34 @@ TEST(StrainAlleles, AReadOfAKnownStrainScoresOnItsSpecies) {
         EXPECT_EQ(results.front().Taxid(), alleles ? 1u : 2u);
         auto const& on1 = results.front().Taxid() == 1 ? results.front() : results.back();
         EXPECT_EQ(on1.GetAlignmentInfo().mismatches, 6);  // its CIGAR stays the reference's
-        EXPECT_EQ(on1.GetAlignmentInfo().allele_shift, alleles ? -6 : 0);
+        EXPECT_EQ(on1.GetAlignmentInfo().site_shift, alleles ? -12 : 0);
         EXPECT_EQ(handler.m_allele_scored, alleles ? 1u : 0u);
         EXPECT_EQ(handler.m_allele_shifted, alleles ? 1u : 0u);
+        EXPECT_EQ(handler.m_unsure_reads, alleles ? 1u : 0u);
+        EXPECT_EQ(handler.m_settled_reads, alleles ? 1u : 0u);
     }
+    // A read of taxon 2's own gene: ten differences on taxon 1, none on taxon 2. Taxon 1's allele would explain six of
+    // them, but the read is clear (beyond kUnsureMismatches): no candidate takes its shift.
+    std::string const own = rep2.substr(100, 150);
+    SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.5, false);
+    handler.SetAnchoredAlignment(false);
+    handler.SetAlleleScores(true);
+    AlignmentAnchorList anchors;
+    for (uint32_t t : { 2u, 1u }) {
+        ChainAlignmentAnchor anchor(t, 1, true);
+        anchor.chain.emplace_back(100u, static_cast<uint16_t>(0), static_cast<uint16_t>(20));
+        anchor.total_length = 100;
+        anchors.push_back(anchor);
+    }
+    AlignmentResultList results;
+    handler(anchors, results, own, KmerUtils::ReverseComplement(own), 3, id);
+    ASSERT_EQ(results.size(), 2u);
+    EXPECT_EQ(results.front().Taxid(), 2u);
+    auto const& on1 = results.back();
+    EXPECT_EQ(on1.GetAlignmentInfo().mismatches, 10);
+    EXPECT_EQ(on1.GetAlignmentInfo().site_shift_pending, -12);
+    EXPECT_EQ(on1.GetAlignmentInfo().site_shift, 0);
+    EXPECT_EQ(handler.m_unsure_reads, 0u);
 }
 
 // The profiler's alleles features: the share of a taxon's kept records on copies with alleles (no feature group), the share
@@ -334,5 +442,62 @@ TEST(StrainAlleles, TheAllelesFeaturesOfATaxon) {
         EXPECT_EQ(f2.at("allele_copy_share"), 0.0);
         EXPECT_EQ(f2.at("allele_explained_share"), 0.0);
         EXPECT_EQ(f2.at("allele_identity_gain"), 0.0);
+    }
+}
+
+// The polymorphic features. Taxon 1's gene differs from its congener taxon 2's at six ancestry sites (20, 40, ..., 120);
+// taxon 1's one allele has the congener's base at 40 (a shared polymorphism) and a third base at 80. Read a has the
+// congener's base at 40 (a polymorphic site: a known variant), b at 20 (fixed within the species), c a fourth base at 80
+// (polymorphic: no allele's). -1 without the table; a species without alleles (taxon 2) 0, as for the alleles group.
+TEST(StrainAlleles, ThePolymorphicFeaturesOfATaxon) {
+    std::mt19937 rng(43);
+    std::string const gene = test::RandomSequence(600, rng);
+    std::string congener = gene;
+    for (size_t p : { 20, 40, 60, 80, 100, 120 }) congener[p] = Other(gene[p]);
+    auto pick = [](std::string const& taken) {
+        for (char const b : std::string("ACGT")) {
+            if (taken.find(b) == std::string::npos) return b;
+        }
+        return 'N';
+    };
+    char const allele80 = pick({ gene[80], congener[80] });
+    char const fourth80 = pick({ gene[80], congener[80], allele80 });
+    test::LoadedReference ref({ { 1, { gene } }, { 2, { congener } } }, "polymorphic features");
+    ASSERT_EQ(ref.Gene(1, 1), gene);
+    species_neighbours::Table neighbours;
+    neighbours.Set(1, { { 2, 0.01f } });
+    neighbours.Set(2, { { 1, 0.01f } });
+    ref.loader->SetSpeciesNeighbours(neighbours);
+    auto const table = sa::Table::FromRows({ { 1, 1, { sa::Allele{ 0, 600, { sa::Edit::Substitution(40, sa::BaseCode(congener[40])),
+                                                                              sa::Edit::Substitution(80, sa::BaseCode(allele80)) } } } } });
+    std::string a = gene.substr(0, 150), b = a, c = a;
+    a[40] = congener[40];
+    b[20] = congener[20];
+    c[80] = fourth80;
+    std::string sam = ref.Header();
+    sam += SamRecord("a", 1, 1, 0, "40=1X109=", a);
+    sam += SamRecord("b", 1, 1, 0, "20=1X129=", b);
+    sam += SamRecord("c", 1, 1, 0, "80=1X69=", c);
+    sam += SamRecord("d", 2, 1, 0, "150=", congener.substr(0, 150));
+    std::vector<char const*> const names{ "polymorphic_known_share", "polymorphic_novel_share", "ancestry_fixed_gain",
+                                          "allele_sites_per_kb", "ancestry_fixed_share" };
+    auto const without = Features(Profile(ref, sam).GetTaxa().at(1));
+    for (auto const* name : names) EXPECT_EQ(without.at(name), -1.0) << name;
+    // The ancestry sites: 18 visits, 15 with the species' base (a's at 40 and b's at 20 the congener's, c's at 80 neither).
+    EXPECT_NEAR(without.at("ancestry_agreement"), 15.0 / 18, 1e-12);
+    ref.loader->SetStrainAlleles(table);
+    for (size_t threads : { 1, 3 }) {
+        SCOPED_TRACE(threads);
+        auto const profile = Profile(ref, sam, threads);
+        auto const f1 = Features(profile.GetTaxa().at(1));
+        // Six polymorphic site visits (40 and 80 by each read): a's at 40 known, c's at 80 novel.
+        EXPECT_NEAR(f1.at("polymorphic_known_share"), 1.0 / 6, 1e-12);
+        EXPECT_NEAR(f1.at("polymorphic_novel_share"), 1.0 / 6, 1e-12);
+        // The fixed sites (20, 60, 100, 120): 11 of 12 the species' base (b's at 20 not), against 15 of 18 at all.
+        EXPECT_NEAR(f1.at("ancestry_fixed_gain"), 11.0 / 12 - 15.0 / 18, 1e-12);
+        EXPECT_NEAR(f1.at("allele_sites_per_kb"), 1000.0 * 6 / 450, 1e-9);
+        EXPECT_NEAR(f1.at("ancestry_fixed_share"), 12.0 / 18, 1e-12);
+        auto const f2 = Features(profile.GetTaxa().at(2));
+        for (auto const* name : names) EXPECT_EQ(f2.at(name), 0.0) << name;
     }
 }

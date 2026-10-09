@@ -30,6 +30,16 @@ The mutations:
   gives the same share when the representatives' genes are mutated here: at r226 v15 the in-silico strains made
   with 0.15 had 0.06-0.10 less of their differences on third positions than the real strains, a spectrum the
   presence models could learn (docs/claude/2026-10-07-error-read-signatures).
+- Congener sites. A real strain shares its species' nearest congener's base at some of the sites where the congener
+  differs (ancestral polymorphism, recombination, sites that change fast); mutations drawn by gene and codon seldom
+  land there. At r226 v19 the missed real strains lacked their species' base at 10% of those sites, the in-silico
+  strains at 3.5%, so the models learnt from the latter that a strain never sides with a congener
+  (docs/claude/2026-10-09-r226-v19, section 7). With --clouds (species_clouds.tsv), each marker gene's congener sites
+  are where the nearest congener's copy (of a congener with a representative in the table) differs from the
+  representative's, and --congener-share of the gene's substitutions (drawn per gene) are moved there with the
+  congener's base, each in place of another of its substitutions, so that the gene keeps its divergence. auto (the
+  default) measures that share on the same sample of real strains as the omega: their marker substitutions at a
+  congener site with the congener's base.
 Substitutions only: the strain has the representative's length and its genes' positions.
 
 Writes OUT_DIR/<name>.fna.gz per strain (name: insilico_ and the representative's accession with '_' for '.', so
@@ -37,11 +47,12 @@ that no accession pattern takes it for the representative; its contigs <name>_<t
 that its reads, named by their contig, are told from the representative's), the genome table --output
 (the input's rows and one per strain: name, taxonomy, FASTA, length) and OUT_DIR/insilico_strains.tsv (per strain:
 representative, species, genome and marker divergence drawn, substitutions made, the coding share of the genome,
-the marker divergence reached on the placed genes).
+the marker divergence reached on the placed genes, the congener and the substitutions placed at its sites).
 
 Usage:
   insilico_strains.py --genome-table genomes.tsv --output genomes_simulated.tsv --out-dir insilico_strains
-      [--positions gene_positions.tsv --taxonomy internal_taxonomy.dmp] [--share 1] [--ani MIN-MAX] [-t 8]
+      [--positions gene_positions.tsv --taxonomy internal_taxonomy.dmp [--clouds species_clouds.tsv]] [--share 1]
+      [--ani MIN-MAX] [-t 8]
 """
 
 import argparse
@@ -73,6 +84,7 @@ OMEGA_GRID = (0.01, 0.02, 0.035, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0)
 SPECTRUM_STRAINS = 200  # real strains compared with their representatives for the spectrum
 SPECTRUM_KMER = 12  # the copies are compared along their shared 12-mers (no alignment)
 MIN_SPECTRUM_SUBSTITUTIONS = 2000  # fewer, and the measured share is not trusted
+NOT_COMPARED = 255  # aligned_bases: no base compared there
 
 CODE = np.full(256, 4, dtype=np.uint8)
 for _i, _b in enumerate(b"ACGT"):
@@ -114,6 +126,31 @@ def representatives(taxonomy):
         rank, rep = header.index("rank"), header.index("rep_genome")
         return {normalize_accession(f[rep]) for f in (line.rstrip("\n").split("\t") for line in fh)
                 if f[rank] == "species" and f[rep]}
+
+
+def read_congeners(clouds, taxonomy):
+    """({species: its congener species, nearest first}, {species: its representative's accession}) from
+    species_clouds.tsv (protal --write_species_neighbours: taxid<TAB>congener:distance,...) and internal_taxonomy.dmp,
+    which names the taxids and gives each species' representative."""
+    names, rep = {}, {}
+    with open(taxonomy) as fh:
+        header = next(fh).rstrip("\n").split("\t")
+        i_id, i_name, i_rank, i_rep = (header.index(c) for c in ("id", "name", "rank", "rep_genome"))
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) > max(i_id, i_name, i_rank, i_rep) and f[i_rank] == "species":
+                names[f[i_id]] = f[i_name]
+                if f[i_rep]:
+                    rep[f[i_name]] = normalize_accession(f[i_rep])
+    congeners = {}
+    with open(clouds) as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#") or line.startswith("taxid"):
+                continue
+            taxid, _, rest = line.rstrip("\n").partition("\t")
+            if taxid in names:
+                congeners[names[taxid]] = [names[c] for c in (e.partition(":")[0] for e in rest.split(",") if e) if c in names]
+    return congeners, rep
 
 
 def read_positions(path, wanted, reps):
@@ -185,23 +222,22 @@ def kmer_codes(codes, k):
     return np.where((windows == 4).any(axis=1), -1, values)
 
 
-def substitutions(rep, other, k=SPECTRUM_KMER, with_mask=False):
-    """The substitutions between a representative's gene copy and another genome's (codes in reading orientation),
-    without an alignment: the k-mers unique to each copy pair them on their main diagonal, and the bases are compared
-    on the stretches between two paired k-mers that lie on that diagonal (an indel moves the diagonal and ends the
-    stretch). Returns (positions on the representative's copy that differ, bases compared); with_mask adds which
-    positions of the representative's copy were compared (a bool array)."""
+def aligned_bases(rep, other, k=SPECTRUM_KMER):
+    """The other copy's base at each position of a representative's gene copy (codes in reading orientation), without
+    an alignment: the k-mers unique to each copy pair them on their main diagonal, and the bases are compared on the
+    stretches between two paired k-mers that lie on that diagonal (an indel moves the diagonal and ends the stretch).
+    NOT_COMPARED where the copies were not compared, or where either has another letter than A, C, G, T."""
+    out = np.full(len(rep), NOT_COMPARED, dtype=np.uint8)
     a, b = kmer_codes(rep, k), kmer_codes(other, k)
-    none = (np.zeros(0, dtype=np.int64), 0, np.zeros(len(rep), dtype=bool)) if with_mask else (np.zeros(0, dtype=np.int64), 0)
     if not len(a) or not len(b):
-        return none
+        return out
     ua, ia, ca = np.unique(a, return_index=True, return_counts=True)
     ub, ib, cb = np.unique(b, return_index=True, return_counts=True)
     keep_a = (ca == 1) & (ua >= 0)
     keep_b = (cb == 1) & (ub >= 0)
     shared, pa, pb = np.intersect1d(ua[keep_a], ub[keep_b], assume_unique=True, return_indices=True)
     if len(shared) < 2:
-        return none
+        return out
     pos_a, pos_b = ia[keep_a][pa], ib[keep_b][pb]
     diagonals, counts = np.unique(pos_a - pos_b, return_counts=True)
     d = int(diagonals[np.argmax(counts)])
@@ -212,27 +248,45 @@ def substitutions(rep, other, k=SPECTRUM_KMER, with_mask=False):
         compared[p:q + k] = True
     lo, hi = max(0, d), min(len(rep), len(other) + d)
     if hi <= lo:
-        return none
-    differ = np.zeros(len(rep), dtype=bool)
-    differ[lo:hi] = rep[lo:hi] != other[lo - d:hi - d]
+        return out
     compared[:lo] = False
     compared[hi:] = False
     compared &= (rep < 4)
-    compared[lo:hi] &= other[lo - d:hi - d] < 4  # another letter (N) on either copy: not compared
-    differ &= compared
+    index = np.flatnonzero(compared)
+    theirs = other[index - d]
+    keep = theirs < 4  # another letter (N) on the other copy: not compared
+    out[index[keep]] = theirs[keep]
+    return out
+
+
+def substitutions(rep, other, k=SPECTRUM_KMER, with_mask=False):
+    """The substitutions between a representative's gene copy and another genome's (codes in reading orientation),
+    compared as aligned_bases does. Returns (positions on the representative's copy that differ, bases compared);
+    with_mask adds which positions of the representative's copy were compared (a bool array)."""
+    bases = aligned_bases(rep, other, k)
+    compared = bases != NOT_COMPARED
+    differ = compared & (bases != rep)
     if with_mask:
         return np.flatnonzero(differ), int(compared.sum()), compared
     return np.flatnonzero(differ), int(compared.sum())
 
 
-def spectrum_pair(job):
-    """One real strain against its representative: (substitutions on third codon positions, substitutions, bases
-    compared, the representative's gene copies compared (for the calibration))."""
-    strain_path, rep_path, strain_genes, rep_genes = job
-    strain = {h.split()[0] if h.split() else h: CODE[np.frombuffer(s, dtype=np.uint8)] for h, s in read_fasta(strain_path)}
-    rep = {h.split()[0] if h.split() else h: CODE[np.frombuffer(s, dtype=np.uint8)] for h, s in read_fasta(rep_path)}
+def genome_codes(path):
+    """{contig name: codes} of a FASTA."""
+    return {h.split()[0] if h.split() else h: CODE[np.frombuffer(s, dtype=np.uint8)] for h, s in read_fasta(path)}
+
+
+def compare_pair(strain_path, rep_path, strain_genes, rep_genes, congener_path=None, congener_genes=()):
+    """One real strain against its representative, and against its species' nearest congener's representative (if
+    given): (substitutions on third codon positions, substitutions, bases compared, the representative's gene copies
+    compared (for the omega calibration), and of the substitutions in the genes whose congener copy pairs too, those at
+    a congener site (where the congener's copy differs from the representative's) with the congener's base, and all
+    of them)."""
+    strain, rep = genome_codes(strain_path), genome_codes(rep_path)
+    congener = genome_codes(congener_path) if congener_path else {}
     by_gene = {g[1]: g for g in strain_genes}
-    third = subs = compared = 0
+    congener_by_gene = {g[1]: g for g in congener_genes}
+    third = subs = compared = at_congener = congener_subs = 0
     copies = []
     for contig, gene, s, e, strand in rep_genes:
         other = by_gene.get(gene)
@@ -242,22 +296,52 @@ def spectrum_pair(job):
         b = gene_copy(strain, other[0], other[2], other[3], other[4])
         if a is None or b is None or len(a) < 3 * SPECTRUM_KMER:
             continue
-        positions, n = substitutions(a, b)
+        bases = aligned_bases(a, b)
+        n = int((bases != NOT_COMPARED).sum())
         if n < len(a) // 2:  # the copies do not pair: another gene, or a poor placement
             continue
+        positions = np.flatnonzero((bases != NOT_COMPARED) & (bases != a))
         third += int((positions % 3 == 2).sum())
         subs += len(positions)
         compared += n
         if len(copies) < 8:
             copies.append(a[:len(a) - len(a) % 3])
-    return third, subs, compared, copies
+        placed = congener_by_gene.get(gene)
+        c = gene_copy(congener, placed[0], placed[2], placed[3], placed[4]) if placed else None
+        if c is None:
+            continue
+        theirs = aligned_bases(a, c)
+        if int((theirs != NOT_COMPARED).sum()) < len(a) // 2:
+            continue
+        congener_subs += len(positions)
+        t = theirs[positions]
+        at_congener += int(((t != NOT_COMPARED) & (t != a[positions]) & (t == bases[positions])).sum())
+    return third, subs, compared, copies, at_congener, congener_subs
 
 
-def real_spectrum(rows, strains, positions_path, reps, rng, threads):
+def spectrum_pair(job):
+    """One real strain against its representative (compare_pair without a congener): (substitutions on third codon
+    positions, substitutions, bases compared, the representative's gene copies compared (for the calibration))."""
+    return compare_pair(*job)[:4]
+
+
+def nearest_congener(species, congeners, rep_of_species, available):
+    """The accession of the representative of `species`' nearest congener (species_clouds.tsv's order) that is in
+    `available`, or None."""
+    for other in congeners.get(species, ()):
+        acc = rep_of_species.get(other)
+        if acc and acc in available:
+            return acc
+    return None
+
+
+def real_spectrum(rows, strains, positions_path, reps, rng, threads, congeners=None, rep_of_species=None):
     """The share of the real strains' substitutions in their marker genes that fall on third codon positions, from a
     sample of SPECTRUM_STRAINS strains (gene_positions.tsv's non-representative genomes with MIN_STRAIN_GENES genes
-    placed) against their species' representatives. Returns (share or None, substitutions, strains compared, some
-    representatives' gene copies)."""
+    placed) against their species' representatives; with `congeners` ({species: congener species nearest first},
+    read_congeners) also the share of them at a congener site with the congener's base. Returns (share or None,
+    substitutions, strains compared, some representatives' gene copies, congener share or None, the substitutions it
+    is of)."""
     by_acc = {normalize_accession(r[0]): r for r in rows if len(r) >= 3 and ";s__" in r[1]}
     rep_of = {}
     for acc, r in by_acc.items():
@@ -266,22 +350,31 @@ def real_spectrum(rows, strains, positions_path, reps, rng, threads):
     candidates = sorted(acc for acc, d in strains.items() if len(d) >= MIN_STRAIN_GENES and acc in by_acc
                         and rep_of.get(by_acc[acc][1].split(";")[-1]) not in (None, acc))
     if not candidates:
-        return None, 0, 0, []
+        return None, 0, 0, [], None, 0
     sample = [candidates[i] for i in rng.permutation(len(candidates))[:SPECTRUM_STRAINS]]
     pairs = {acc: rep_of[by_acc[acc][1].split(";")[-1]] for acc in sample}
-    genes, _ = read_positions(positions_path, set(pairs) | set(pairs.values()), None)
-    jobs = [(by_acc[acc][2], by_acc[rep][2], genes.get(acc, []), genes.get(rep, []))
+    nearest = {acc: nearest_congener(by_acc[acc][1].split(";")[-1], congeners or {}, rep_of_species or {}, by_acc)
+               for acc in sample}
+    genes, _ = read_positions(positions_path, set(pairs) | set(pairs.values()) | {c for c in nearest.values() if c}, None)
+    jobs = [(by_acc[acc][2], by_acc[rep][2], genes.get(acc, []), genes.get(rep, []),
+             by_acc[nearest[acc]][2] if nearest[acc] and genes.get(nearest[acc]) else None, genes.get(nearest[acc], []))
             for acc, rep in pairs.items() if genes.get(acc) and genes.get(rep)]
-    third = subs = 0
+    third = subs = at_congener = congener_subs = 0
     copies, used = [], 0
     with concurrent.futures.ProcessPoolExecutor(max(1, threads)) as pool:
-        for t, s, c, cp in pool.map(spectrum_pair, jobs, chunksize=4):
+        for t, s, c, cp, at, cs in pool.map(compare_pair_job, jobs, chunksize=4):
             if c:
                 used += 1
             third, subs = third + t, subs + s
+            at_congener, congener_subs = at_congener + at, congener_subs + cs
             if len(copies) < 24:
                 copies.extend(cp)
-    return (third / subs if subs >= MIN_SPECTRUM_SUBSTITUTIONS else None), subs, used, copies
+    return ((third / subs if subs >= MIN_SPECTRUM_SUBSTITUTIONS else None), subs, used, copies,
+            (at_congener / congener_subs if congener_subs >= MIN_SPECTRUM_SUBSTITUTIONS else None), congener_subs)
+
+
+def compare_pair_job(job):
+    return compare_pair(*job)
 
 
 def simulated_third_share(copies, omega, kappa, rng, rate=0.03):
@@ -465,14 +558,95 @@ def alternative(base, rng, kappa):
     return np.where(u < p_ts, base ^ 2, np.where(u < (1 + p_ts) / 2, base ^ 1, base ^ 3)).astype(base.dtype)
 
 
+def makes_stop(seq, site, cpos, minus):
+    """Whether the codon of `site` (annotate's codon position and strand) is a stop codon in `seq`."""
+    cp = int(cpos[site])
+    if cp < 0:
+        return False
+    step = -1 if minus[site] else 1
+    start = site + cp if minus[site] else site - cp
+    index = [start, start + step, start + 2 * step]
+    if min(index) < 0 or max(index) >= len(seq):
+        return False
+    trio = seq[index].astype(np.int64)
+    if (trio >= 4).any():
+        return False
+    if minus[site]:
+        trio = 3 - trio
+    return bool(STOP[16 * trio[0] + 4 * trio[1] + trio[2]])
+
+
+def congener_sites(codes, first, last, strand, congener_copy):
+    """A marker gene's congener sites on its contig (the representative's codes; the gene [first, last], 0-based,
+    inclusive, on `strand`): the contig positions where the congener's copy (codes in reading orientation) differs from
+    the gene, and the congener's base there on the contig's strand. Empty if the copies do not pair."""
+    copy = codes[first:last + 1]
+    if strand == "-":
+        copy = np.where(copy < 4, 3 - copy.astype(np.int16), 4).astype(np.uint8)[::-1]
+    theirs = aligned_bases(copy, congener_copy)
+    compared = theirs != NOT_COMPARED
+    if compared.sum() < len(copy) // 2:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.uint8)
+    index = np.flatnonzero(compared & (theirs != copy))
+    if strand == "-":
+        return last - index, (3 - theirs[index]).astype(np.uint8)
+    return first + index, theirs[index].astype(np.uint8)
+
+
+def place_at_congener_sites(codes, new, sites, cpos, minus, share, rng):
+    """Moves substitutions of each marker gene to its congener sites, with the congener's base, so that `share` of them
+    (drawn per gene) lie there: a real strain shares its congeners' base at some sites (ancestral polymorphism,
+    recombination, sites that change fast), mutations drawn by gene and codon seldom land there. Each base placed takes
+    the place of one of the gene's other substitutions (set back), so the gene keeps its divergence; one that would make
+    a stop codon is not placed. sites: [(first, last, contig positions, congener bases)] per marker gene. Returns the
+    substitutions placed."""
+    placed = 0
+    for first, last, positions, bases in sites:
+        if not len(positions):
+            continue
+        changed = first + np.flatnonzero(new[first:last + 1] != codes[first:last + 1])
+        if not len(changed):
+            continue
+        there = (new[positions] == bases) & (new[positions] != codes[positions])
+        extra = int(rng.binomial(len(changed), share)) - int(there.sum())
+        if extra <= 0:
+            continue
+        free = np.flatnonzero(new[positions] == codes[positions])
+        free = free[rng.permutation(len(free))]
+        others = changed[~np.isin(changed, positions[there])]
+        others = others[rng.permutation(len(others))]
+        moved = 0
+        for j in free:
+            if moved >= extra or moved >= len(others):
+                break
+            p, q = int(positions[j]), int(others[moved])
+            before_p, before_q = new[p], new[q]
+            new[p] = bases[j]
+            new[q] = codes[q]
+            if makes_stop(new, p, cpos, minus) or makes_stop(new, q, cpos, minus):
+                new[p], new[q] = before_p, before_q
+                continue
+            moved += 1
+        placed += moved
+    return placed
+
+
 def make_strain(job):
     """Writes one strain; returns its summary row."""
-    (acc, species, path, out, genes, factors, genome_div, marker_div, seed, kappa, omega) = job
+    (acc, species, path, out, genes, factors, genome_div, marker_div, seed, kappa, omega, congener, congener_share) = job
     rng = np.random.default_rng(seed)
     records = read_fasta(path)
     by_contig = {}
     for g in genes:
         by_contig.setdefault(g[0], []).append(g)
+    # The nearest congener's copies of the marker genes (congener: (accession, FASTA, placements) or None).
+    congener_copies = {}
+    if congener is not None and congener_share > 0:
+        congener_contigs = genome_codes(congener[1])
+        for contig, gene, s, e, strand in congener[2]:
+            copy = gene_copy(congener_contigs, contig, s, e, strand)
+            if copy is not None:
+                congener_copies[gene] = copy
     total_sites = sum(len(seq) for _, seq in records)
     contigs = []
     for header, seq in records:
@@ -481,19 +655,23 @@ def make_strain(job):
         markers = [(s - 1, e - 1, strand, marker_div * factors.get(gene, 1.0), gene)
                    for _, gene, s, e, strand in by_contig.get(name, []) if 1 <= s <= e <= len(codes)]
         frames = [(m[0], m[1], m[2], m[3]) for m in markers] + [(a, b, s, None) for a, b, s in orfs(codes)]
-        contigs.append((header, codes, markers, len(frames), annotate(codes, frames, rng)))
+        sites = [(m[0], m[1]) + congener_sites(codes, m[0], m[1], m[2], congener_copies[m[4]])
+                 for m in markers if m[4] in congener_copies]
+        contigs.append((header, codes, markers, len(frames), annotate(codes, frames, rng), sites))
     # The coding rate, so that the genome differs by genome_div: the marker sites at their rates, the other frames
     # at the coding rate times their gamma draw, the non-coding sites at NONCODING_RATE times it.
     fixed = sum(c[4][3].sum() for c in contigs)
     relative = sum(c[4][4].sum() for c in contigs)
     coding_rate = max(0.0, genome_div * total_sites - fixed) / max(relative, 1e-9)
     tmp = out + ".partial"
-    subs = coding = 0
+    subs = coding = at_congener = 0
     reached = []
     with gzip.open(tmp, "wb", compresslevel=1) as fh:
-        for header, codes, markers, n_frames, (owner, cpos, minus, fixed, relative) in contigs:
+        for header, codes, markers, n_frames, (owner, cpos, minus, fixed, relative), sites in contigs:
             new, n_subs, n_coding, per_frame, counts = mutate(codes, owner, cpos, minus, fixed + coding_rate * relative,
                                                               n_frames, rng, kappa, omega)
+            if sites:
+                at_congener += place_at_congener_sites(codes, new, sites, cpos, minus, congener_share, rng)
             subs += n_subs
             coding += n_coding
             for k, m in enumerate(markers):
@@ -506,7 +684,7 @@ def make_strain(job):
     os.replace(tmp, out)
     return [strain_name(acc), acc, species, f"{genome_div:.5f}", f"{marker_div:.5f}", str(subs),
             f"{coding / max(total_sites, 1):.3f}", f"{statistics.median(reached):.5f}" if reached else "",
-            str(total_sites)]
+            congener[0] if congener_copies else "", str(at_congener), str(total_sites)]
 
 
 def parse_ani(text):
@@ -545,6 +723,12 @@ def main(argv=None):
                          f"the strains' third-codon-position share of substitutions equals the real strains' ({OMEGA_DEFAULT} "
                          "without real strains)")
     ap.add_argument("--kappa", type=float, default=3.0, help="transition / transversion rate ratio (default 3)")
+    ap.add_argument("--clouds", help="species_clouds.tsv (protal --write_species_neighbours; with --taxonomy): each species' "
+                                     "nearest congeners, for --congener-share")
+    ap.add_argument("--congener-share", default="auto",
+                    help="share of a strain's marker gene substitutions placed at its congener sites (where its species' "
+                         "nearest congener differs) with the congener's base: a number, or auto (the default), the share "
+                         "the real strains have there (0 without --clouds, --positions and --taxonomy)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("-t", "--threads", type=int, default=4)
     args = ap.parse_args(argv)
@@ -555,10 +739,16 @@ def main(argv=None):
     rng = np.random.default_rng(args.seed)
     chosen = [r for r in single if rng.random() < args.share]
     wanted = {normalize_accession(r[0]) for r in chosen}
+    # Each chosen species' nearest congener with a representative in the table, whose marker genes give the congener
+    # sites (--congener-share).
+    congeners, rep_of_species = read_congeners(args.clouds, args.taxonomy) if args.clouds and args.taxonomy else ({}, {})
+    in_table = {normalize_accession(r[0]) for r in rows}
+    congener_of = {normalize_accession(r[0]): nearest_congener(r[1].split(";")[-1], congeners, rep_of_species, in_table)
+                   for r in chosen}
     genes, strains = {}, {}
     if args.positions:
         reps = representatives(args.taxonomy) if args.taxonomy else None
-        genes, strains = read_positions(args.positions, wanted, reps)
+        genes, strains = read_positions(args.positions, wanted | {c for c in congener_of.values() if c}, reps)
     divergences = sorted(strain_divergences(strains))
     factors = conservation_factors(strains)
     if args.ani is None and not divergences:
@@ -567,9 +757,11 @@ def main(argv=None):
     max_genome = 1.0 - args.min_ani
     os.makedirs(args.out_dir, exist_ok=True)
     omega_note = ""
+    measured = args.positions and args.taxonomy and (args.omega == "auto" or (args.congener_share == "auto" and congeners))
+    share, subs, used, copies, real_congener, congener_subs = \
+        real_spectrum(rows, strains, args.positions, reps or set(), rng, args.threads, congeners, rep_of_species) \
+        if measured else (None, 0, 0, [], None, 0)
     if args.omega == "auto":
-        share, subs, used, copies = real_spectrum(rows, strains, args.positions, reps or set(), rng, args.threads) \
-            if args.positions and args.taxonomy else (None, 0, 0, [])
         if share is None:
             omega = OMEGA_DEFAULT
             omega_note = (f"omega {omega} (no real strains to calibrate on: {subs} substitutions of {used} strains)")
@@ -580,6 +772,20 @@ def main(argv=None):
     else:
         omega = float(args.omega)
         omega_note = f"omega {omega} (given)"
+    if not congeners:
+        congener_share = 0.0
+        congener_note = "no congener sites (no --clouds)"
+    elif args.congener_share != "auto":
+        congener_share = float(args.congener_share)
+        congener_note = f"congener share {congener_share} (given)"
+    elif real_congener is None:
+        congener_share = 0.0
+        congener_note = f"no congener sites (no real strains to measure on: {congener_subs} substitutions)"
+    else:
+        congener_share = real_congener
+        congener_note = (f"congener share {congener_share:.3f}: of the real strains' marker substitutions, at a congener "
+                         f"site with the congener's base ({congener_subs} substitutions)")
+    by_acc = {normalize_accession(r[0]): r for r in rows}
     jobs = []
     for r in chosen:
         acc = normalize_accession(r[0])
@@ -591,15 +797,21 @@ def main(argv=None):
             genome = 1.0 - rng.uniform(*args.ani)
             marker = genome * args.marker_scale
         out = os.path.join(args.out_dir, strain_name(acc) + ".fna.gz")
+        other = congener_of.get(acc)
+        congener = (other, by_acc[other][2], genes[other]) if other and genes.get(other) and genes.get(acc) else None
         jobs.append((acc, r[1].split(";")[-1], r[2], out, genes.get(acc, []), factors, genome, marker,
-                     seed_of(args.seed, acc), args.kappa, omega))
+                     seed_of(args.seed, acc), args.kappa, omega, congener, congener_share))
     with concurrent.futures.ProcessPoolExecutor(max(1, args.threads)) as pool:
         summary = list(pool.map(make_strain, jobs, chunksize=4))
     by_name = {s[0]: s for s in summary}
     with open(os.path.join(args.out_dir, SUMMARY), "w") as fh:
         fh.write("strain\trepresentative\tspecies\tgenome_divergence\tmarker_divergence\tsubstitutions\tcoding_share\t"
-                 "marker_divergence_reached\tlength\n")
+                 "marker_divergence_reached\tcongener\tcongener_substitutions\tlength\n")
         fh.writelines("\t".join(s) + "\n" for s in summary)
+    if congener_share > 0:
+        with_congener = [s for s in summary if s[8]]
+        congener_note += (f"; {sum(int(s[9]) for s in with_congener)} substitutions placed in {len(with_congener)} strains "
+                          "with a congener")
     with open(args.output + ".partial", "w") as fh:
         fh.writelines("\t".join(r) + "\n" for r in rows)
         for (acc, _sp, _p, out, *_), r in zip(jobs, chosen):
@@ -614,7 +826,7 @@ def main(argv=None):
           + (f"drawn from {len(divergences)} real strains' marker divergence (median {statistics.median(divergences):.4f}), "
              if args.ani is None else f"ANI drawn from {args.ani[0]:.3f}-{args.ani[1]:.3f}, ")
           + f"{len(factors)} gene factors ({min(factors.values(), default=1):.2f}-{max(factors.values(), default=1):.2f}); "
-          f"{omega_note}: {args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
+          f"{omega_note}; {congener_note}: {args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
 
 
 if __name__ == "__main__":

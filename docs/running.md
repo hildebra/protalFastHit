@@ -394,11 +394,18 @@ between its own species' reference and a congener's ranks its own species below 
 `--align_top` alone never aligned it there ([report](claude/2026-10-07-error-read-signatures/README.md), section 5).
 `--adaptive_candidates 0` aligns as before; the log's `adaptive candidates:` line counts the extra alignments.
 Since 2026-10-08, with a database that has strain alleles (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)),
-each candidate alignment of a short read is scored with its species' best known allele: the read's differences from the
-reference that allele explains count as matches, so a read of a known strain scores on its species as on the strain's
-gene. The records keep their alignment to the reference (CIGAR, identity), while `AS` and MAPQ count the alleles. The log's
-`strain alleles:` line counts the candidates on copies with alleles and those an allele scored higher. A database's models
-are trained with these scores; `--no_allele_scores` turns them off, to measure them
+each candidate alignment of a short read gets a site shift against its species' known alleles:
+- the read's differences from the reference that an allele has count as matches;
+- a difference at a site where the species' alleles vary, but none has the read's base, counts as half a difference.
+
+Since 2026-10-09 the shifts decide only the reads protal is unsure about: a candidate of another species within 3
+mismatches of the best by the references alone. Then a read of a known strain scores on its species as on the strain's
+gene. A read one species fits clearly better keeps the references' scores. The records keep their alignment to the
+reference (CIGAR, identity), while `AS` and MAPQ count the shifts. The log's `strain alleles:` line counts:
+- the candidates on copies with alleles, and those with a shift;
+- the unsure reads that took the shifts, and those whose best species they changed.
+
+A database's models are trained with these scores; `--no_allele_scores` turns them off, to measure them
 ([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
 
 ### Developer options

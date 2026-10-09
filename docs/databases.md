@@ -256,7 +256,9 @@ numbered line when it starts and indented lines when it ends.
    [details](#gene-neighbours)).
 3. **In-silico strains** (`insilico_strains.log`): a mutated copy of the representative of every
    species with one genome, so that these species are simulated from a strain too
-   ([details](#training-data-like-real-samples)).
+   ([details](#training-data-like-real-samples)). Since 2026-10-09 the species clouds come first (`species_clouds.log`:
+   every species' nearest congeners by their references), which give each strain its congener sites and steer the
+   hold-out of step 4.
 4. **Training database** (`training_db_index.log`): the database without the species and clades held
    out (30% of the species, plus whole clades of every rank), built alone. Once it is built, the
    finished database's build starts in the background at idle priority, and the samples' simulations
@@ -429,6 +431,12 @@ sample or missed a fifth of the strains.
     `--omega` in the script). The r226 v15 in-silico strains, made with 0.15, had 0.06-0.10 less of
     their differences on third positions than real strains at the same identity, a spectrum the
     presence models could learn ([report](claude/2026-10-07-error-read-signatures/README.md)).
+  - congener sites (since 2026-10-09): as many of its marker substitutions at the sites where its species' nearest
+    congener differs (`species_clouds.tsv`), with the congener's base, as the table's real strains have there, each
+    in place of another of the gene's substitutions (`--congener-share` in the script). Drawn by gene and codon alone,
+    the r226 v19 in-silico strains lacked their species' base at 3.5% of those sites against 10% for the real strains,
+    so the models learnt from them that a strain never sides with a congener
+    ([report](claude/2026-10-09-r226-v19/README.md), section 7).
 
   The training table marks taxa simulated from one (`meta_insilico_strain`), and the report lists
   them apart.

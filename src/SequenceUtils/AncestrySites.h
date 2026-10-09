@@ -477,6 +477,42 @@ namespace protal::ancestry {
         return c;
     }
 
+    // Each base site a record covers, as Count walks it: fn(position, outcome), the outcome kSpeciesBase where the read
+    // has the species' base, kCongenerBase the congeners', kOtherBase another. Nothing without a sequence.
+    inline constexpr int kSpeciesBase = 0, kCongenerBase = 1, kOtherBase = 2;
+
+    template<typename Fn>
+    void ForEachSite(Sites const& sites, std::string const& cigar, size_t pos, std::string const& seq, Fn&& fn) {
+        if (sites.positions.empty() || seq.empty() || seq == "*") return;
+        size_t ref = pos == 0 ? 0 : pos - 1, query = 0, run = 0;
+        for (char const op : cigar) {
+            if (op >= '0' && op <= '9') {
+                run = run * 10 + static_cast<size_t>(op - '0');
+                continue;
+            }
+            if (op == 'M' || op == '=' || op == 'X') {
+                auto it = std::lower_bound(sites.positions.begin(), sites.positions.end(), ref);
+                for (; it != sites.positions.end() && *it < ref + run; ++it) {
+                    if (op != 'X') {
+                        fn(static_cast<size_t>(*it), kSpeciesBase);
+                        continue;
+                    }
+                    size_t const q = query + (*it - ref);
+                    if (q >= seq.size()) break;
+                    bool const congener = Code(seq[q]) == sites.bases[static_cast<size_t>(it - sites.positions.begin())];
+                    fn(static_cast<size_t>(*it), congener ? kCongenerBase : kOtherBase);
+                }
+                ref += run;
+                query += run;
+            } else if (op == 'D' || op == 'N') {
+                ref += run;
+            } else if (op == 'I' || op == 'S') {
+                query += run;
+            }
+            run = 0;
+        }
+    }
+
     // The sites of every (species, gene) a run touches, computed once: the consensus (Consensus) over the congeners
     // that have the gene and whose copy pairs with the species' (CompareCopies): the gene's nearest congener by
     // alignment (congener_gaps.tsv) and the species' nearest congeners (species_neighbours.tsv, nearest first), up to

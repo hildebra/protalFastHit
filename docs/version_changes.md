@@ -142,6 +142,15 @@ for this page.
   build takes the alleles from half of the genomes by a hash of the accession and simulates strains
   from the other half only, so that no simulated strain is its own allele
   ([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
+- After 0.7.9 (2026-10-09): the species' polymorphic sites (where one of its alleles differs). In the alignment, a
+  read's difference that any of the species' alleles has counts as a match, and one at a polymorphic site with another
+  base counts as half a difference. These shifts decide only the reads protal is unsure about (a candidate of another
+  species within 3 mismatches). Three `polymorphic` features join the default set (85): of the polymorphic sites a
+  taxon's reads cover, the shares with a known allele's base and with another, and the species' base at the ancestry
+  sites fixed within the species against all of them
+  ([features.md](features.md#the-polymorphic-sites-polymorphic-2026-10-09)). The in-silico strains put as many of their
+  marker substitutions at their nearest congener's sites, with its base, as the real strains have there
+  (`species_clouds.tsv` is now made before them; [report](claude/2026-10-09-r226-v19/README.md), section 7).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;
   30% of the species held out; deeper design points) and the build faster (one simulation queue,

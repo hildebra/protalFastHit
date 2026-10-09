@@ -505,7 +505,10 @@ namespace protal {
         if (handler.m_allele_scored > 0) {
             std::cout << "Sample " << options.GetSampleId(index) << " strain alleles: " << handler.m_allele_scored
                       << " candidate alignments on gene copies with known alleles, " << handler.m_allele_shifted
-                      << " of them scored higher on an allele than on the reference (strain_alleles.tsv; --no_allele_scores: not)" << std::endl;
+                      << " of them with differences the species' alleles have or where they vary; " << handler.m_unsure_reads
+                      << " reads with candidates of two species within " << handler.kUnsureMismatches
+                      << " mismatches took those shifts, " << handler.m_settled_reads << " of them to another species "
+                      << "(strain_alleles.tsv; --no_allele_scores: not)" << std::endl;
         }
     }
 

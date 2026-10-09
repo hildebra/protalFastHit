@@ -30,9 +30,12 @@ namespace protal {
 
         int alignment_score = 0;
         int gene_alignment_start = 0;
-        // The read's differences from its candidate's best strain allele less those from the reference (StrainAlleles.h): 0, or
-        // below 0 where a known allele of the species explains some; Score counts them as matches.
-        int allele_shift = 0;
+        // The candidate's site shift (StrainAlleles.h ShiftOf), in half differences, 0 or below: its read's differences that
+        // the species' known alleles have count as matches, those at the species' polymorphic sites as half a difference.
+        // The alignment handler computes it for every candidate on a copy with alleles (site_shift_pending) and applies it
+        // (site_shift, which Score counts) only on a read it is unsure about (SimpleAlignmentHandler::SettleBySites).
+        int site_shift = 0;
+        int site_shift_pending = 0;
         uint32_t alignment_length = 0;
         float alignment_ani = 0.0f;
 
@@ -63,7 +66,8 @@ namespace protal {
             softclips = 0;
             hardclips = 0;
             alignment_score = 0;
-            allele_shift = 0;
+            site_shift = 0;
+            site_shift_pending = 0;
 
             cigar_start = 0;
             cigar_end = 0;
@@ -157,11 +161,11 @@ namespace protal {
             return cigar.length() - softclips;
         }
 
-        // allele_shift moves differences the candidate's best strain allele explains to matches (each counted as a
-        // mismatch would be, an indel too: allele_shift is a count of edits).
+        // site_shift moves differences the species' alleles have to matches (each counted as a mismatch would be, an indel
+        // too) and takes half of one off for a difference at a polymorphic site: it counts half differences.
         int Score(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) const {
             return (matches * match_score) - (mismatch_penalty * mismatches + gap_open_penalty * (insertion_blocks + deletion_blocks) + gap_extend_penalty * (insertions + deletions)) -
-                   (match_score + mismatch_penalty) * allele_shift;
+                   (match_score + mismatch_penalty) * site_shift / 2;
         }
 
         void UpdateScore(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) {

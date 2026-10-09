@@ -124,9 +124,11 @@ namespace protal {
         // congeners of its best alignment, and every taxon's genus.
         size_t m_adaptive_candidates = 0;
         std::shared_ptr<std::vector<uint32_t> const> m_genera;
-        // Strain alleles (SetAlleleScores): each candidate scored with its species' best known allele (AlignmentInfo::allele_shift).
+        // Strain alleles (SetAlleleScores): each candidate's site shift against its species' alleles (AlignmentInfo::site_shift).
         bool m_allele_scores = false;
         strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
+        strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
+        std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
         AlignmentScreen m_screen;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
@@ -171,10 +173,15 @@ namespace protal {
         std::vector<uint32_t> const& Untried() const { return m_untried; }
         // Anchors aligned beyond align_top by the adaptive candidates (TryCongeners), over all calls.
         size_t m_adaptive_alignments = 0;
-        // Alignments on a copy with strain alleles (SetAlleleScores), and of them those a known allele scored better, over all
-        // calls.
+        // Alignments on a copy with strain alleles (SetAlleleScores), and of them those with a site shift; the reads protal was
+        // unsure about (SettleBySites), and of them those whose best species the shifts changed; over all calls.
         size_t m_allele_scored = 0;
         size_t m_allele_shifted = 0;
+        size_t m_unsure_reads = 0;
+        size_t m_settled_reads = 0;
+        // A read is unsure when a candidate of another species than its best comes within this many mismatches of the best
+        // by the references alone (SettleBySites).
+        static constexpr int kUnsureMismatches = 3;
         // A read whose best alignment's identity (GetProxyANI) is below this is divergent: its crowd's congeners of that
         // alignment's taxon are tried too (TryCongeners).
         static constexpr double kAdaptiveIdentity = 0.99;
@@ -223,6 +230,8 @@ namespace protal {
             m_adaptive_alignments += other.m_adaptive_alignments;
             m_allele_scored += other.m_allele_scored;
             m_allele_shifted += other.m_allele_shifted;
+            m_unsure_reads += other.m_unsure_reads;
+            m_settled_reads += other.m_settled_reads;
             m_screened_alignments += other.m_screened_alignments;
             m_anchored_alignments += other.m_anchored_alignments;
             m_whole_window_alignments += other.m_whole_window_alignments;
@@ -271,8 +280,11 @@ namespace protal {
         }
 
         // Strain alleles (--no_allele_scores off): each candidate alignment on a copy with known alleles (the GenomeLoader's
-        // strain_alleles.tsv) gets the shift of its best allele, so that a read of a known strain scores on its species as on
-        // the strain's own gene. Its CIGAR stays the reference's. Nothing without the table.
+        // strain_alleles.tsv) gets its site shift (StrainAlleles.h ShiftOf: the differences the species' alleles have count
+        // as matches, those at its polymorphic sites as half a difference), which a read protal is unsure about takes into
+        // its scores (SettleBySites): a read of a strain then scores on its species as on the strain's own gene, and a
+        // difference where the species varies weighs less than one where it does not. Its CIGAR stays the reference's.
+        // Nothing without the table.
         void SetAlleleScores(bool on) {
             m_allele_scores = on;
         }
@@ -827,6 +839,8 @@ namespace protal {
                 }
             }
 
+            if (m_allele_scores) SettleBySites(results);
+
             // Sort alignment results
             std::sort(results.begin(), results.end(), [](AlignmentResult const& a, AlignmentResult const& b) {
                 return a.AlignmentScore() > b.AlignmentScore();
@@ -838,8 +852,9 @@ namespace protal {
             return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
         }
 
-        // An alignment's best strain allele (StrainAlleles.h): `info` of `anchor`, the read as it was aligned. Its shift, 0 or
-        // below, goes into the score (AlignmentInfo::Score); a copy without alleles keeps the reference's score.
+        // An alignment's site shift against its species' alleles (StrainAlleles.h ShiftOf): `info` of `anchor`, the read as it
+        // was aligned. It waits in site_shift_pending (0 or below) until SettleBySites sees the read's other candidates; a
+        // copy without alleles has none.
         template<typename A>
         void ScoreAlleles(A const& anchor, AlignmentInfo& info, std::string const& read) {
             auto const& table = m_genome_loader.GetStrainAlleles();
@@ -847,9 +862,42 @@ namespace protal {
             uint32_t const taxid = static_cast<uint32_t>(anchor.taxid), gene = static_cast<uint32_t>(anchor.geneid);
             if (table.Of(taxid, gene).empty()) return;
             strain_alleles::FromColumns(info.cigar, read, static_cast<uint32_t>(std::max(info.gene_alignment_start, 0)), m_read_diffs);
-            info.allele_shift = strain_alleles::BestAllele(table, taxid, gene, m_read_diffs).shift;
+            info.site_shift_pending = strain_alleles::ShiftOf(table, taxid, gene, m_read_diffs, m_polymorphism, m_explained).Half();
             m_allele_scored++;
-            m_allele_shifted += info.allele_shift < 0;
+            m_allele_shifted += info.site_shift_pending < 0;
+        }
+
+        // The site shifts decide the reads protal is unsure about: those with a candidate of another species within
+        // kUnsureMismatches of the best by the references alone. Every candidate within that margin takes its shift
+        // (site_shift_pending); the others, and every candidate of a read whose best is clear, keep the references'
+        // scores, so a shift never moves a read that one species fits clearly better.
+        void SettleBySites(AlignmentResultList& results) {
+            if (results.size() < 2) return;
+            auto best = results.begin();
+            for (auto it = results.begin(); it != results.end(); ++it) {
+                if (it->AlignmentScore() > best->AlignmentScore()) best = it;
+            }
+            constexpr int kMismatch = 4;  // AlignmentInfo::Score's default mismatch penalty, which AlignmentScore uses
+            int const floor = best->AlignmentScore() - kUnsureMismatches * kMismatch;
+            auto const best_taxid = best->Taxid();
+            bool const unsure = std::any_of(results.begin(), results.end(), [&](AlignmentResult const& r) {
+                return r.Taxid() != best_taxid && r.AlignmentScore() >= floor;
+            });
+            if (!unsure) return;
+            m_unsure_reads++;
+            bool shifted = false;
+            for (auto& r : results) {
+                auto& info = r.GetAlignmentInfo();
+                if (info.site_shift_pending == 0 || r.AlignmentScore() < floor) continue;
+                info.site_shift = info.site_shift_pending;
+                shifted = true;
+            }
+            if (!shifted) return;
+            auto settled = results.begin();
+            for (auto it = results.begin(); it != results.end(); ++it) {
+                if (it->AlignmentScore() > settled->AlignmentScore()) settled = it;
+            }
+            m_settled_reads += settled->Taxid() != best_taxid;
         }
 
         // The adaptive candidates: a read whose best alignment so far is divergent (identity below kAdaptiveIdentity)

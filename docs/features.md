@@ -35,11 +35,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | no: its scan reads the simulation's genomes, which it tells the models ([below](#the-foreign-features-leak)); in the default set from the merge to 2026-10-08 |
 | `untried` | 2026-10-07 | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
 | `alleles` | 2026-10-08 | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
+| `polymorphic` | 2026-10-09 | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles`
-(82 features since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic`
+(85 features since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -447,10 +448,19 @@ of v18's false negatives ([report](claude/2026-10-08-r226-v18/README.md), sectio
 of each marker gene, up to 4 alleles of the species' other genomes in the full reference as edits of the representative's
 copy (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)). A run uses them twice:
 
-- **In the alignment scores.** Each candidate alignment of a short read gets its species' best allele: the read's
-  differences that allele explains count as matches (`AlignmentInfo::Score`), so that a read of a known strain scores on
-  its species as on the strain's gene, and wins against a congener that fits it better by the references alone. The
-  records keep their alignment to the reference (CIGAR, identity); `--no_allele_scores` turns it off.
+- **In the alignment scores.** Each candidate alignment of a short read gets a site shift against its species'
+  alleles (`StrainAlleles.h` `ShiftOf`):
+  - the read's differences its best allele explains count as matches, and the best allele's own edits that the read
+    lacks count as differences;
+  - a difference that another of the copy's alleles has counts as a match too (strains recombine);
+  - a difference at a polymorphic site, where an allele differs but none has the read's base, counts as half a
+    difference: the species varies there, while a difference where it never varies weighs in full.
+
+  The shifts decide only the reads protal is unsure about (since 2026-10-09): those with a candidate of another species
+  within 3 mismatches of the best by the references alone. There every candidate within that margin takes its shift, so a
+  read of a known strain scores on its species as on the strain's gene and wins against a congener that fits it better
+  by the references alone. A read one species fits clearly better keeps the references' scores. The records keep their
+  alignment to the reference (CIGAR, identity); `--no_allele_scores` turns it off.
 - **As features:**
 
 | feature | what | against |
@@ -471,6 +481,27 @@ with the strain's own genome among their alleles ([report](claude/2026-10-08-r22
 finished database takes its alleles from the same genomes, so the features mean in use what they meant in training.
 The in-silico strains (species with one genome left) have no alleles, as in use a species known from one genome has
 none.
+
+## The polymorphic sites (`polymorphic`, 2026-10-09)
+
+The same alleles also say where a species varies. A site is polymorphic where one of its copy's alleles differs from the
+representative; where the alleles cover a site and none differs, the species is fixed there as far as its known strains
+go. The ancestry sites (`ancestry`) are where the species differs from its congeners. A missed real strain carries its
+congener's base at more of those sites than a novel congener does (AUC 0.37-0.46 for real strains with alleles against
+the false positives, r226 v19), because its differences fall where the species varies. At the sites where the species
+is fixed it carries the congener's base less often (AUC 0.59-0.67;
+[report](claude/2026-10-09-r226-v19/README.md), section 7).
+
+| feature | what |
+|---|---|
+| `polymorphic_known_share` | of the polymorphic sites the taxon's kept records cover, the share where the read has a base (or an indel nearby) one of the alleles has: a known strain's variant |
+| `polymorphic_novel_share` | the share where it has another base or indel: the species varies there, but not as any known strain does |
+| `ancestry_fixed_gain` | the share of the species' base at the ancestry sites where the species is fixed, less that at all its ancestry sites, both weighted by the alleles covering each site (n of them: n/(n+1)) |
+
+All three are -1 without the table and 0 without a site, a species without alleles too, as in the `alleles` group. The
+training table also has `allele_sites_per_kb` (the polymorphic sites per kb of the kept records) and `ancestry_fixed_share`
+(the share of the ancestry sites that are fixed), in no group: they say whether a species has alleles at all, the
+cluster size. The `shape` group's `polymorphic_site_rate` is another thing: the sites where the sample's own reads vary.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

@@ -207,6 +207,126 @@ class InsilicoStrains(unittest.TestCase):
         for s, e, strand, _ in self.genes[:6]:
             self.assertTrue(any(f[2] == strand and f[0] <= s - 1 and f[1] >= e - 3 for f in found), (s, e, strand))
 
+    def test_aligned_bases(self):
+        rng = np.random.default_rng(13)
+        rep = rng.integers(0, 4, 600).astype(np.uint8)
+        other = rep.copy()
+        other[[100, 300]] = (other[[100, 300]] + 1) % 4
+        other[200] = 4  # an N: not compared
+        bases = ins.aligned_bases(rep, other)
+        self.assertEqual(int(bases[100]), int(other[100]))
+        self.assertEqual(int(bases[150]), int(rep[150]))
+        self.assertEqual(int(bases[200]), ins.NOT_COMPARED)
+        positions, compared = ins.substitutions(rep, other)
+        self.assertEqual(positions.tolist(), [100, 300])
+        self.assertEqual(compared, int((bases != ins.NOT_COMPARED).sum()))
+
+
+class CongenerSites(unittest.TestCase):
+    """The in-silico strain of a species whose nearest congener (species_clouds.tsv) differs from it at every 20th base
+    of the marker genes: --congener-share of its marker substitutions land there with the congener's base."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(7)
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = cls.tmp.name
+        parts, cls.genes = [], []
+        pos = 0
+        for k in range(30):
+            spacer = "".join(rng.choice(list("ACGT"), size=120))
+            gene = coding_sequence(rng, 300)
+            strand = "+" if k % 2 == 0 else "-"
+            parts += [spacer, gene if strand == "+" else reverse_complement(gene)]
+            start = pos + len(spacer) + 1
+            cls.genes.append((start, start + len(gene) - 1, strand, k + 1))
+            pos += len(spacer) + len(gene)
+        cls.genome = "".join(parts)
+        # The congener: the same layout, a transversion at every 20th base of each gene (from its 10th).
+        congener = bytearray(cls.genome.encode())
+        cls.sites = {}
+        for s, e, _, _ in cls.genes:
+            for p in range(s - 1 + 10, e, 20):
+                congener[p] = ord("ACGT"["ACGT".index(chr(congener[p])) ^ 1])
+                cls.sites[p] = chr(congener[p])
+        cls.congener = congener.decode()
+        paths = {}
+        for acc, seq in (("GCF_000000001.1", cls.genome), ("GCF_000000004.1", cls.congener)):
+            paths[acc] = os.path.join(d, acc + ".fna")
+            with open(paths[acc], "w") as fh:
+                fh.write(">c1\n" + seq + "\n")
+        cls.single = paths["GCF_000000001.1"]
+        table = os.path.join(d, "genomes.tsv")
+        with open(table, "w") as fh:
+            fh.write(f"GCF_000000001.1\td__Bacteria;g__G;s__G one\t{paths['GCF_000000001.1']}\t{len(cls.genome)}\n")
+            fh.write(f"GCF_000000004.1\td__Bacteria;g__G;s__G four\t{paths['GCF_000000004.1']}\t{len(cls.genome)}\n")
+        positions = os.path.join(d, "gene_positions.tsv")
+        with open(positions, "w") as fh:
+            fh.write("accession\ttaxid\tcontig\tcontig_length\tcircular\tgene\tstart\tend\tstrand\tplaced\tkmer_share\n")
+            for acc, taxid in (("GCF_000000001.1", 1), ("GCF_000000004.1", 2)):
+                for s, e, strand, gene in cls.genes:
+                    fh.write(f"{acc}\t{taxid}\tc1\t{len(cls.genome)}\t0\t{gene}\t{s}\t{e}\t{strand}\texact\t1\n")
+        taxonomy = os.path.join(d, "internal_taxonomy.dmp")
+        with open(taxonomy, "w") as fh:
+            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n")
+            fh.write("1\t3\t0\ts__G one\tspecies\t7\tGCF_000000001.1\n")
+            fh.write("2\t3\t0\ts__G four\tspecies\t7\tGCF_000000004.1\n")
+            fh.write("3\t3\t0\tg__G\tgenus\t6\t\n")
+        clouds = os.path.join(d, "species_clouds.tsv")
+        with open(clouds, "w") as fh:
+            fh.write("1\t2:0.033\n")  # the congener's species lists none
+        common = ["--genome-table", table, "--positions", positions, "--taxonomy", taxonomy, "--ani", "96-96",
+                  "--marker-scale", "1", "--omega", "0.15", "-t", "1"]
+        name = ins.strain_name("GCF_000000001.1")
+        cls.strains = {}
+        for share in ("0", "0.5"):
+            out = os.path.join(d, "strains" + share)
+            ins.main(common + ["--output", os.path.join(d, f"simulated{share}.tsv"), "--out-dir", out, "--clouds", clouds,
+                               "--congener-share", share])
+            cls.strains[share] = ins.read_fasta(os.path.join(out, name + ".fna.gz"))[0][1].decode()
+            with open(os.path.join(out, ins.SUMMARY)) as fh:
+                rows = [line.rstrip("\n").split("\t") for line in fh]
+            cls.summary = {r[0]: dict(zip(rows[0], r)) for r in rows[1:]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def shares(self, strain):
+        """(marker substitutions, the share of them at a congener site with the congener's base)."""
+        changed = at = 0
+        for s, e, _, _ in self.genes:
+            for p in range(s - 1, e):
+                if strain[p] != self.genome[p]:
+                    changed += 1
+                    at += self.sites.get(p) == strain[p]
+        return changed, at / max(changed, 1)
+
+    def test_share_at_the_congener_sites(self):
+        changed0, share0 = self.shares(self.strains["0"])
+        changed, share = self.shares(self.strains["0.5"])
+        # Without the share: by chance (a twentieth of the bases, one of three alternatives, transitions favoured).
+        self.assertLess(share0, 0.05)
+        self.assertAlmostEqual(share, 0.5, delta=0.06)
+        # Each placed base took the place of another substitution: the genes keep their divergence.
+        self.assertAlmostEqual(changed / (30 * 903), 0.04, delta=0.008)
+        row = self.summary[ins.strain_name("GCF_000000001.1")]
+        self.assertEqual(row["congener"], "GCF_000000004.1")
+        self.assertGreater(int(row["congener_substitutions"]), 300)
+        # The congener's species has no congener in the clouds: none placed.
+        self.assertEqual(self.summary[ins.strain_name("GCF_000000004.1")]["congener"], "")
+
+    def test_no_stop_codons(self):
+        strain = self.strains["0.5"]
+        for s, e, strand, _ in self.genes:
+            ref, alt = self.genome[s - 1:e], strain[s - 1:e]
+            if strand == "-":
+                ref, alt = reverse_complement(ref), reverse_complement(alt)
+            for i in range(0, len(ref) - 3, 3):  # the last codon may be the stop of the frame
+                codon = alt[i:i + 3]
+                index = 16 * "ACGT".index(codon[0]) + 4 * "ACGT".index(codon[1]) + "ACGT".index(codon[2])
+                self.assertFalse(ins.STOP[index], (s, strand, i))
+
 
 if __name__ == "__main__":
     unittest.main()

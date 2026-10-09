@@ -3,12 +3,15 @@
 // deletions). StrainAllelesBuild.h makes it at --build from the full reference; a run loads it into the GenomeLoader.
 //
 // A run uses it twice, both times as "which of the species' known strains does this read look like":
-//  - the alignment handler (AlignmentStrategy.h) gives each candidate alignment its best allele's shift: the change in
-//    the read's mismatches if that allele were the reference (AlignmentInfo::allele_shift), so that a read of a known
+//  - the alignment handler (AlignmentStrategy.h) gives each candidate alignment its site shift (ShiftOf): its best
+//    allele's change in the read's mismatches, the read's other differences that another allele has as matches too, and
+//    those at the species' polymorphic sites as half a difference. A read protal is unsure about (candidates of two
+//    species within a few mismatches) takes the shifts into its scores (AlignmentInfo::site_shift), so that a read of a
 //    strain scores on its species as it would on the strain's own copy (--no_allele_scores: not);
 //  - the profiler counts, per taxon, the share of its reads' differences from the reference that an allele explains and
-//    the identity it gains (Profiler.h, the "alleles" features): a strain's few differences mostly sit where the
-//    species' strains differ, a novel congener's mostly do not.
+//    the identity it gains (the "alleles" features), and how its reads stand at the species' polymorphic sites and at
+//    the ancestry sites the species does not vary at (Polymorphism, CountSites; the "polymorphic" features): a strain's
+//    few differences mostly sit where the species' strains differ, a novel congener's mostly do not.
 // The records keep their alignment to the representative (CIGAR, identity); only the score moves.
 //
 // Which genomes may give alleles: --allele_genome_share of each species' genomes, chosen by a hash of the accession
@@ -428,8 +431,10 @@ namespace protal::strain_alleles {
         return d <= kIndelTolerance && a.Length() == r.Length();
     }
 
-    inline Explained Explain(Table::View const& allele, ReadDiffs const& read) {
+    // With `used_out`, also which of the read's diffs the allele explains (1 per diff it does).
+    inline Explained Explain(Table::View const& allele, ReadDiffs const& read, std::vector<uint8_t>* used_out = nullptr) {
         Explained x;
+        if (used_out) used_out->assign(read.diffs.size(), 0);
         uint32_t const lo = std::max<uint32_t>(read.begin, allele.begin);
         uint32_t const hi = std::min<uint32_t>(read.end, allele.end);
         if (lo >= hi) return x;
@@ -464,6 +469,9 @@ namespace protal::strain_alleles {
             if (found) x.explained++;
             else x.contradicted++;
         }
+        if (used_out) {
+            for (size_t i = 0; i < n; i++) (*used_out)[i] = is_used(i) ? 1 : 0;
+        }
         return x;
     }
 
@@ -487,5 +495,183 @@ namespace protal::strain_alleles {
             }
         }
         return best;
+    }
+
+    // The polymorphic sites of a copy (docs/claude/2026-10-09-r226-v19, section 7): where any of its alleles differs from
+    // the representative. A substitution makes a site at its position with its base; an insertion a site at its position
+    // and a deletion one at each base it removes, both an indel. Elsewhere in what the alleles cover the species is fixed,
+    // as far as its known strains go: there a read with another base sides with another species, at a polymorphic site
+    // it may be a strain of this one.
+    struct Site {
+        uint16_t pos = 0;
+        uint8_t bases = 0;   // bit b: an allele has base b here
+        bool indel = false;  // an allele inserts bases here or deletes this base
+    };
+
+    // A copy's alleles by position, set for a span (a read's): its polymorphic sites there and the alleles' ranges.
+    class Polymorphism {
+    public:
+        void Set(Table const& table, std::span<Table::Stored const> alleles, uint32_t begin, uint32_t end) {
+            m_sites.clear();
+            m_ranges.clear();
+            for (auto const& stored : alleles) {
+                auto const allele = table.Get(stored);
+                m_ranges.emplace_back(allele.begin, allele.end);
+                // A deletion before the span may reach into it: the edits from the allele's first.
+                for (auto const& e : allele.edits) {
+                    if (e.pos >= end) break;
+                    switch (e.GetKind()) {
+                        case kSubstitution:
+                            if (e.pos >= begin) m_sites.push_back({ e.pos, static_cast<uint8_t>(1u << e.Base()), false });
+                            break;
+                        case kInsertion:
+                            if (e.pos >= begin) m_sites.push_back({ e.pos, 0, true });
+                            break;
+                        case kDeletion:
+                            for (uint32_t p = std::max<uint32_t>(e.pos, begin); p < std::min<uint32_t>(e.pos + e.Length(), end); p++) {
+                                m_sites.push_back({ static_cast<uint16_t>(p), 0, true });
+                            }
+                            break;
+                    }
+                }
+            }
+            std::sort(m_sites.begin(), m_sites.end(), [](Site const& a, Site const& b) { return a.pos < b.pos; });
+            size_t out = 0;
+            for (size_t i = 0; i < m_sites.size(); i++) {
+                if (out > 0 && m_sites[out - 1].pos == m_sites[i].pos) {
+                    m_sites[out - 1].bases |= m_sites[i].bases;
+                    m_sites[out - 1].indel |= m_sites[i].indel;
+                } else {
+                    m_sites[out++] = m_sites[i];
+                }
+            }
+            m_sites.resize(out);
+        }
+
+        bool Empty() const { return m_ranges.empty(); }
+        std::span<Site const> Sites() const { return m_sites; }
+
+        // The site at `pos` (inside the span Set took), or nullptr where the species is fixed.
+        Site const* Find(uint32_t pos) const {
+            auto const it = std::lower_bound(m_sites.begin(), m_sites.end(), pos, [](Site const& s, uint32_t p) { return s.pos < p; });
+            return it != m_sites.end() && it->pos == pos ? &*it : nullptr;
+        }
+
+        // Whether an allele has an indel within kIndelTolerance of `pos`.
+        bool IndelNear(uint32_t pos) const {
+            uint32_t const from = pos > kIndelTolerance ? pos - kIndelTolerance : 0;
+            auto it = std::lower_bound(m_sites.begin(), m_sites.end(), from, [](Site const& s, uint32_t p) { return s.pos < p; });
+            for (; it != m_sites.end() && it->pos <= pos + kIndelTolerance; ++it) {
+                if (it->indel) return true;
+            }
+            return false;
+        }
+
+        // The alleles whose range holds `pos`: how much "fixed" there rests on.
+        uint32_t Cover(uint32_t pos) const {
+            uint32_t n = 0;
+            for (auto const& [b, e] : m_ranges) n += b <= pos && pos < e;
+            return n;
+        }
+
+    private:
+        std::vector<Site> m_sites;
+        std::vector<std::pair<uint16_t, uint16_t>> m_ranges;
+    };
+
+    // A read at the polymorphic sites inside its span: those it covers; of them those where it has a base an allele has
+    // there (or an indel where an allele has one: within kIndelTolerance) and those where it has another base or indel;
+    // at the rest it has the representative's base. A site where its base is not A, C, G or T counts neither way.
+    struct SiteCounts {
+        uint32_t sites = 0;
+        uint32_t known = 0;
+        uint32_t novel = 0;
+    };
+
+    inline SiteCounts CountSites(Polymorphism const& poly, ReadDiffs const& read) {
+        SiteCounts c;
+        auto const& diffs = read.diffs;
+        size_t const n = diffs.size();
+        auto end_of = [](Edit const& e) { return static_cast<uint32_t>(e.pos) + (e.GetKind() == kDeletion ? e.Length() : 1u); };
+        size_t lo = 0;
+        for (auto const& site : poly.Sites()) {
+            if (site.pos < read.begin) continue;
+            if (site.pos >= read.end) break;
+            // Diffs that end too far before the site to touch it are passed for good (by position; a long deletion
+            // before them stops the pointer, which then only costs a longer scan).
+            while (lo < n && end_of(diffs[lo]) + kIndelTolerance <= site.pos) lo++;
+            int substitution = -1;
+            bool indel = false;
+            for (size_t j = lo; j < n && diffs[j].pos <= site.pos + kIndelTolerance; j++) {
+                auto const& r = diffs[j];
+                if (r.GetKind() == kSubstitution) {
+                    if (r.pos == site.pos) substitution = static_cast<int>(j);
+                    continue;
+                }
+                bool const over = r.GetKind() == kDeletion && site.pos >= r.pos && site.pos < end_of(r);
+                uint32_t const d = r.pos > site.pos ? r.pos - site.pos : site.pos - r.pos;
+                if (over || (site.indel && d <= kIndelTolerance)) indel = true;
+            }
+            if (substitution >= 0) {
+                if (read.other_base[static_cast<size_t>(substitution)]) continue;
+                c.sites++;
+                if (site.bases >> diffs[static_cast<size_t>(substitution)].Base() & 1) c.known++;
+                else c.novel++;
+            } else if (indel) {
+                c.sites++;
+                if (site.indel) c.known++;
+                else c.novel++;
+            } else {
+                c.sites++;
+            }
+        }
+        return c;
+    }
+
+    // A candidate alignment against its species' alleles, for the alignment handler. Its best allele's shift (BestAllele:
+    // the read's differences that allele has count as matches, the allele's own edits the read lacks as differences);
+    // of the read's differences that allele leaves, those another of the copy's alleles has (a known variant: a match
+    // too, as strains recombine) and those at a polymorphic site where no allele has the read's base or indel (the
+    // species varies there: half a difference). Half() is the shift in half differences, 0 or below.
+    struct SiteShift {
+        int best = 0;
+        uint32_t known = 0;
+        uint32_t variable = 0;
+        int Half() const { return 2 * best - 2 * static_cast<int>(known) - static_cast<int>(variable); }
+    };
+
+    // `poly` and `used` are the caller's scratch.
+    inline SiteShift ShiftOf(Table const& table, uint32_t taxid, uint32_t gene, ReadDiffs const& read, Polymorphism& poly,
+                             std::vector<uint8_t>& used) {
+        SiteShift s;
+        auto const alleles = table.Of(taxid, gene);
+        if (alleles.empty() || read.diffs.empty()) return s;
+        auto const best = BestAllele(table, taxid, gene, read);
+        s.best = best.shift;
+        if (best.allele >= 0) Explain(table.Get(alleles[static_cast<size_t>(best.allele)]), read, &used);
+        else used.assign(read.diffs.size(), 0);
+        poly.Set(table, alleles, read.begin, read.end);
+        for (size_t i = 0; i < read.diffs.size(); i++) {
+            if (used[i] || read.other_base[i]) continue;
+            auto const& r = read.diffs[i];
+            if (r.GetKind() == kSubstitution) {
+                auto const* site = poly.Find(r.pos);
+                if (site == nullptr) continue;
+                if (site->bases >> r.Base() & 1) s.known++;
+                else s.variable++;
+                continue;
+            }
+            bool known = false;
+            for (auto const& stored : alleles) {
+                auto const allele = table.Get(stored);
+                uint32_t const from = r.pos > kIndelTolerance ? r.pos - kIndelTolerance : 0;
+                auto it = std::lower_bound(allele.edits.begin(), allele.edits.end(), from, [](Edit const& e, uint32_t p) { return e.pos < p; });
+                for (; it != allele.edits.end() && it->pos <= r.pos + kIndelTolerance && !known; ++it) known = Matches(*it, r);
+                if (known) break;
+            }
+            if (known) s.known++;
+            else if (poly.IndelNear(r.pos)) s.variable++;
+        }
+        return s;
     }
 }

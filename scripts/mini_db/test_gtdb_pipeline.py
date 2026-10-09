@@ -284,6 +284,12 @@ class GtdbBuildTest(unittest.TestCase):
         # The species with one genome (10 of the download are representatives only) got in-silico strains, and the
         # collections simulated from them, too.
         self.assertRegex(metadata["insilico_strains"], r"^\d+ in-silico strains of the \d+ species with one genome")
+        # The species clouds come before them: their congener sites are measured on the real strains (or there are too
+        # few substitutions to measure on), never left out for want of the clouds.
+        self.assertRegex(self.text("out", "logs", "insilico_strains.log"),
+                         r"congener share [0-9.]+|no congener sites \(no real strains")
+        console = self.text("out", "console.log")
+        self.assertLess(console.index("species clouds (species_clouds.tsv"), console.index("in-silico strains of the species"))
         self.assertTrue(any(line.startswith("insilico_")
                             for line in self.text("out", "work", "genomes_simulated.tsv").splitlines()))
         self.assertFalse(any(line.startswith("insilico_") for line in self.text("out", "work", "genomes.tsv").splitlines()))

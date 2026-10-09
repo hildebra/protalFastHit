@@ -822,6 +822,13 @@ namespace protal {
             size_t allele_records = 0;
             uint64_t allele_differences = 0, allele_explained = 0, allele_gain = 0, allele_aligned = 0;
             bool alleles_known = false;
+            // The polymorphic sites (StrainAlleles.h Polymorphism, NotePolymorphism): of the kept records on a copy with
+            // alleles, the sites where an allele differs that they cover, and of those the ones where the read has a base
+            // (or an indel) an allele has and the ones where it has another. And their ancestry sites (AncestrySites.h)
+            // weighted by the alleles covering each (kFixedWeights), all of them and those where no allele differs (fixed
+            // within the species), with the read's base the species' at each.
+            uint64_t poly_sites = 0, poly_known = 0, poly_novel = 0;
+            uint64_t fixed_all = 0, fixed_all_agree = 0, fixed = 0, fixed_agree = 0;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -885,6 +892,13 @@ namespace protal {
                 allele_gain += other.allele_gain;
                 allele_aligned += other.allele_aligned;
                 alleles_known = alleles_known || other.alleles_known;
+                poly_sites += other.poly_sites;
+                poly_known += other.poly_known;
+                poly_novel += other.poly_novel;
+                fixed_all += other.fixed_all;
+                fixed_all_agree += other.fixed_all_agree;
+                fixed += other.fixed;
+                fixed_agree += other.fixed_agree;
                 return *this;
             }
         };
@@ -1500,6 +1514,41 @@ namespace protal {
                 if (!m_records.alleles_known) return strain_alleles::kUnknown;
                 return m_records.allele_aligned == 0 ? 0
                     : static_cast<double>(m_records.allele_gain) / static_cast<double>(m_records.allele_aligned);
+            }
+            // The polymorphic sites (RecordEvidence::poly_*, fixed*; docs/claude/2026-10-09-r226-v19, section 7), -1 without
+            // the table, 0 without a site (a species without alleles too, as above):
+            //  - of the polymorphic sites its kept records cover, the share where the read has a base (or indel) one of the
+            //    species' alleles has (a known strain's variant) and the share where it has another (agreeing and
+            //    disagreeing; the rest have the representative's base);
+            //  - the share of the species' base at the ancestry sites fixed within the species (no allele differs there) less
+            //    that at all its ancestry sites, both weighted by the alleles covering each site: a strain's congener-like
+            //    bases fall on the polymorphic sites (the share rises without them), a novel congener's on the fixed ones.
+            // AlleleSitesPerKb and AncestryFixedShare (the polymorphic sites per kb of its kept records, and the share of
+            // its ancestry sites that are fixed) say whether the species has alleles at all: training-table columns in no
+            // feature group, as allele_copy_share. (The shape group's polymorphic_site_rate is another thing: the
+            // sites where the sample's own reads vary.)
+            double PolymorphicKnownShare() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.poly_sites == 0 ? 0 : static_cast<double>(m_records.poly_known) / static_cast<double>(m_records.poly_sites);
+            }
+            double PolymorphicNovelShare() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.poly_sites == 0 ? 0 : static_cast<double>(m_records.poly_novel) / static_cast<double>(m_records.poly_sites);
+            }
+            double AncestryFixedGain() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                if (m_records.fixed == 0 || m_records.fixed_all == 0) return 0;
+                return static_cast<double>(m_records.fixed_agree) / static_cast<double>(m_records.fixed) -
+                       static_cast<double>(m_records.fixed_all_agree) / static_cast<double>(m_records.fixed_all);
+            }
+            double AlleleSitesPerKb() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.allele_aligned == 0 ? 0
+                    : 1000.0 * static_cast<double>(m_records.poly_sites) / static_cast<double>(m_records.allele_aligned);
+            }
+            double AncestryFixedShare() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.fixed_all == 0 ? 0 : static_cast<double>(m_records.fixed) / static_cast<double>(m_records.fixed_all);
             }
             // The gaps to the congeners' copies (congener_gaps.tsv, RecordEvidence::gap_records): the share of its kept
             // records on copies with a congener's copy at least congener_gaps::kMinGap away, of those the shares whose
@@ -2591,6 +2640,14 @@ namespace protal {
             f.emplace_back("allele_copy_share", taxon.AlleleCopyShare());
             f.emplace_back("allele_explained_share", taxon.AlleleExplainedShare());
             f.emplace_back("allele_identity_gain", taxon.AlleleIdentityGain());
+            // How its reads stand at its species' polymorphic sites and at the ancestry sites fixed within the species
+            // (strain_alleles.tsv); -1 without the table. The last two are in no feature group (they too tell a species with
+            // other genomes from one without).
+            f.emplace_back("polymorphic_known_share", taxon.PolymorphicKnownShare());
+            f.emplace_back("polymorphic_novel_share", taxon.PolymorphicNovelShare());
+            f.emplace_back("ancestry_fixed_gain", taxon.AncestryFixedGain());
+            f.emplace_back("allele_sites_per_kb", taxon.AlleleSitesPerKb());
+            f.emplace_back("ancestry_fixed_share", taxon.AncestryFixedShare());
             return f;
         }
 
@@ -3060,7 +3117,7 @@ namespace protal {
                     e.crowding_log2 += static_cast<uint64_t>(std::llround(std::log2(static_cast<double>(sam.m_crowding)) * kLog2Unit));
                 }
                 if (kept) NoteCopy(e, taxid, geneid, differences, aligned);
-                if (kept) NoteAlleles(e, taxid, geneid, sam);
+                if (kept) NoteAlleles(e, taxid, geneid, sam, sites.get());
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
@@ -3083,19 +3140,45 @@ namespace protal {
 
             // A kept record against its copy's strain alleles (strain_alleles.tsv): its differences from the reference (CIGAR and SEQ)
             // and columns, every kept record's, and on a copy with alleles those the best allele explains (StrainAlleles.h
-            // BestAllele). Nothing without the table; a record without SEQ is not counted.
-            void NoteAlleles(RecordEvidence& e, uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
+            // BestAllele), how the read stands at the copy's polymorphic sites (CountSites), and its ancestry sites (`sites`,
+            // the copy's; may be nullptr) weighted by the alleles covering each, all and those fixed within the species.
+            // Nothing without the table; a record without SEQ is not counted.
+            void NoteAlleles(RecordEvidence& e, uint32_t taxid, uint32_t geneid, SamEntry const& sam, ancestry::Sites const* sites) {
                 auto const& table = m_genome_loader->GetStrainAlleles();
                 if (table.Empty()) return;
                 e.alleles_known = true;
                 if (!strain_alleles::FromSamRecord(sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, m_allele_diffs)) return;
                 e.allele_differences += m_allele_diffs.diffs.size();
                 e.allele_aligned += m_allele_diffs.columns;
-                if (table.Of(taxid, geneid).empty()) return;
+                auto const alleles = table.Of(taxid, geneid);
+                if (alleles.empty()) return;
                 auto const best = strain_alleles::BestAllele(table, taxid, geneid, m_allele_diffs);
                 e.allele_records++;
                 e.allele_explained += best.explained;
                 e.allele_gain += static_cast<uint64_t>(-best.shift);
+                m_polymorphism.Set(table, alleles, m_allele_diffs.begin, m_allele_diffs.end);
+                auto const c = strain_alleles::CountSites(m_polymorphism, m_allele_diffs);
+                e.poly_sites += c.sites;
+                e.poly_known += c.known;
+                e.poly_novel += c.novel;
+                if (sites == nullptr) return;
+                ancestry::ForEachSite(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, [&](size_t p, int outcome) {
+                    uint64_t const w = FixedWeight(m_polymorphism.Cover(static_cast<uint32_t>(p)));
+                    if (w == 0) return;
+                    bool const agree = outcome == ancestry::kSpeciesBase;
+                    e.fixed_all += w;
+                    e.fixed_all_agree += agree ? w : 0;
+                    if (m_polymorphism.Find(static_cast<uint32_t>(p)) != nullptr) return;
+                    e.fixed += w;
+                    e.fixed_agree += agree ? w : 0;
+                });
+            }
+
+            // An ancestry site's weight for the fixed-site agreement, in 1/60ths: n/(n + 1) of the n alleles covering it (0
+            // without one: whether the species varies there is unknown), so that a site four strains agree on counts more
+            // than one a single strain does.
+            static uint64_t FixedWeight(uint32_t covering) {
+                return covering == 0 ? 0 : 60u * covering / (covering + 1);
             }
 
             // A kept record's copy (taxid, gene) in the database's per-copy tables: where its divergence lies in the copy's gap
@@ -3391,6 +3474,7 @@ namespace protal {
             // run's cache (GenomeLoader::AncestrySitesOf) once each.
             std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
             strain_alleles::ReadDiffs m_allele_diffs;  // NoteAlleles' scratch
+            strain_alleles::Polymorphism m_polymorphism;  // NoteAlleles' scratch
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
             std::vector<uint32_t> m_link_taxa;  // FinishLink's scratch
