@@ -1,0 +1,97 @@
+
+# pe: 72019 records; FN own 32490 by class {np.str_('real strain'): 27308, np.str_('in-silico strain'): 3150, np.str_('representative'): 2032}
+
+class                                            FP genus  in-silico strain  real strain  representative
+records                                        36478.0000         3150.0000   27308.0000       2032.0000
+records with polymorphic sites                     0.3325            0.0349       0.5790          0.3848
+bases at polymorphic sites                         0.0118            0.0009       0.0247          0.0134
+mismatches at polymorphic sites                    0.1459            0.0031       0.3996          0.0193
+every mismatch polymorphic (>= 2, with sites)      0.1192            0.0357       0.2860          0.0078
+species' base at fixed sites                       0.9269            0.9654       0.9444          0.9946
+species' base at congener sites                    0.9126            0.9652       0.8998          0.9945
+identity                                           0.9770            0.9808       0.9743          0.9952
+fixed-site identity                                0.9801            0.9809       0.9842          0.9953
+
+  per taxon (>= 10 sites), each FN class against 2705 FP genus taxa (0.444 of them with alleles), AUC (FN high):
+        FN class species with alleles  taxa  identity  species_base_at_congener_sites  species_base_at_fixed_sites  fixed_site_identity
+  representative                  any   471     0.874                           0.889                        0.853                0.840
+  representative                  yes   214     0.901                           0.922                        0.850                0.829
+  representative                   no   257     0.853                           0.861                        0.861                0.853
+     real strain                  any  2759     0.443                           0.468                        0.627                0.606
+     real strain                  yes  1922     0.440                           0.450                        0.647                0.634
+     real strain                   no   837     0.474                           0.520                        0.520                0.474
+in-silico strain                  any   560     0.560                           0.749                        0.683                0.503
+in-silico strain                  yes    35     0.615                           0.789                        0.674                0.489
+in-silico strain                   no   525     0.541                           0.728                        0.728                0.541
+
+# se: 32269 records; FN own 8900 by class {np.str_('real strain'): 7429, np.str_('in-silico strain'): 909, np.str_('representative'): 562}
+
+class                                            FP genus  in-silico strain  real strain  representative
+records                                        21918.0000          909.0000    7429.0000        562.0000
+records with polymorphic sites                     0.3613            0.0341       0.5851          0.3986
+bases at polymorphic sites                         0.0123            0.0009       0.0236          0.0152
+mismatches at polymorphic sites                    0.1540            0.0070       0.4090          0.0253
+every mismatch polymorphic (>= 2, with sites)      0.1076            0.0952       0.3130          0.0000
+species' base at fixed sites                       0.9242            0.9655       0.9406          0.9977
+species' base at congener sites                    0.9105            0.9650       0.8986          0.9977
+identity                                           0.9775            0.9831       0.9762          0.9982
+fixed-site identity                                0.9808            0.9832       0.9856          0.9982
+
+  per taxon (>= 10 sites), each FN class against 2496 FP genus taxa (0.480 of them with alleles), AUC (FN high):
+        FN class species with alleles  taxa  identity  species_base_at_congener_sites  species_base_at_fixed_sites  fixed_site_identity
+  representative                  any   208     0.922                           0.909                        0.881                0.897
+  representative                  yes    97     0.937                           0.920                        0.863                0.889
+  representative                   no   111     0.908                           0.899                        0.899                0.908
+     real strain                  any  1401     0.480                           0.483                        0.643                0.635
+     real strain                  yes   968     0.470                           0.463                        0.667                0.662
+     real strain                   no   433     0.516                           0.537                        0.537                0.516
+in-silico strain                  any   259     0.607                           0.773                        0.712                0.550
+in-silico strain                   no   245     0.595                           0.765                        0.765                0.595
+
+# pb: 12736 records; FN own 6382 by class {np.str_('real strain'): 5829, np.str_('in-silico strain'): 376, np.str_('representative'): 177}
+
+class                                           FP genus  in-silico strain  real strain  representative
+records                                        5897.0000          376.0000    5829.0000        177.0000
+records with polymorphic sites                    0.4684            0.0346       0.6972          0.4576
+bases at polymorphic sites                        0.0140            0.0003       0.0262          0.0133
+mismatches at polymorphic sites                   0.1910            0.0012       0.4691          0.0000
+every mismatch polymorphic (>= 2, with sites)     0.0391            0.0000       0.1895             NaN
+species' base at fixed sites                      0.9249            0.9644       0.9349          1.0000
+species' base at congener sites                   0.9072            0.9643       0.8798          1.0000
+identity                                          0.9786            0.9847       0.9725          1.0000
+fixed-site identity                               0.9824            0.9847       0.9850          1.0000
+
+  per taxon (>= 10 sites), each FN class against 1380 FP genus taxa (0.484 of them with alleles), AUC (FN high):
+        FN class species with alleles  taxa  identity  species_base_at_congener_sites  species_base_at_fixed_sites  fixed_site_identity
+  representative                  any    64     0.960                           0.943                        0.912                0.949
+  representative                  yes    33     0.978                           0.963                        0.899                0.955
+  representative                   no    31     0.945                           0.925                        0.925                0.945
+     real strain                  any  1617     0.353                           0.362                        0.567                0.561
+     real strain                  yes  1173     0.371                           0.373                        0.614                0.614
+     real strain                   no   444     0.325                           0.351                        0.351                0.325
+in-silico strain                  any   126     0.535                           0.721                        0.629                0.464
+in-silico strain                   no   117     0.526                           0.706                        0.706                0.526
+
+# ont: 15682 records; FN own 6927 by class {np.str_('real strain'): 6173, np.str_('in-silico strain'): 434, np.str_('representative'): 320}
+
+class                                           FP genus  in-silico strain  real strain  representative
+records                                        8274.0000          434.0000    6173.0000        320.0000
+records with polymorphic sites                    0.4650            0.0714       0.6827          0.6094
+bases at polymorphic sites                        0.0136            0.0012       0.0259          0.0170
+mismatches at polymorphic sites                   0.1006            0.0011       0.2637          0.0161
+every mismatch polymorphic (>= 2, with sites)     0.0026            0.0000       0.0081          0.0000
+species' base at fixed sites                      0.9016            0.9512       0.9167          0.9748
+species' base at congener sites                   0.8845            0.9514       0.8657          0.9749
+identity                                          0.9573            0.9647       0.9549          0.9732
+fixed-site identity                               0.9611            0.9647       0.9659          0.9732
+
+  per taxon (>= 10 sites), each FN class against 1839 FP genus taxa (0.472 of them with alleles), AUC (FN high):
+        FN class species with alleles  taxa  identity  species_base_at_congener_sites  species_base_at_fixed_sites  fixed_site_identity
+  representative                  any   172     0.685                           0.870                        0.828                0.645
+  representative                  yes   118     0.718                           0.900                        0.818                0.636
+  representative                   no    54     0.616                           0.820                        0.820                0.616
+     real strain                  any  1731     0.440                           0.390                        0.568                0.550
+     real strain                  yes  1245     0.446                           0.376                        0.585                0.568
+     real strain                   no   486     0.415                           0.409                        0.409                0.415
+in-silico strain                  any   170     0.573                           0.766                        0.684                0.526
+in-silico strain                   no   155     0.565                           0.755                        0.755                0.565
