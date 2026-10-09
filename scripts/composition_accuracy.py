@@ -23,11 +23,13 @@ A paired-end or single-end sample's host share is its reads beyond the community
 paired-end sample whose community it replays (drawn by bases at the same share).
 
 Writes --out (one line per sample) and prints a summary per set and read type (--summary writes it too): the median
-and the 10-90% range of each estimate's error against its truth.
+and the 10-90% range of each estimate's error against its truth. --species-out writes every sample's species present
+or called, protal's depth and genome size beside the truth, so that a bias can be traced to the species it comes from
+off the cluster, where the profiles and manifests are not.
 
   python3 scripts/composition_accuracy.py --calls OUT/model_logs/trained_model.calls.tsv.gz --training OUT/work/training \\
       --test OUT/work/test --heldout OUT/model_logs/heldout_species.txt --read-type pe \\
-      --out OUT/model_logs/composition_accuracy.tsv
+      --out OUT/model_logs/composition_accuracy.tsv --species-out OUT/model_logs/composition_species.tsv.gz
 """
 import argparse
 import collections
@@ -52,6 +54,12 @@ COLUMNS = ["set", "read_type", "point", "scenario", "sample", "host_share", "spe
            "true_unknown", "true_unknown_given_calls", "unknown", "true_ags", "true_ags_called", "ags", "ags_p10", "ags_p90",
            "missing_at_median", "missing_at_lowest", "depth_ratio", "size_ratio"]
 QUANTILES = (0.1, 0.25, 0.5, 0.75, 0.9)  # Composition.h's kQuantiles
+# --species-out: per sample, every species present or called. genomes: those its reads came from (the manifest's; an
+# in-silico strain's name starts with insilico_); true_read_pairs: the paired-end community's (a drawn sample's reads
+# are drawn from it by bases); depth and genome_size: protal's (VCov, GenomeSize; NA where the profile lacks the taxon).
+SPECIES_COLUMNS = ["set", "read_type", "point", "scenario", "sample", "species", "taxid", "genomes", "present",
+                   "in_database", "called", "true_read_pairs", "true_cell_share", "true_genome_length", "true_depth",
+                   "depth", "genome_size"]
 
 
 def number(text):
@@ -266,7 +274,28 @@ def evaluate(job):
             if ags_called_cells > 0 else NAN, "ags": est["ags"], "ags_p10": est["quantiles"][0], "ags_p90": est["quantiles"][4],
             "missing_at_median": est["missing_at_median"], "missing_at_lowest": est["missing_at_lowest"],
             "depth_ratio": median([r[0] for r in ratios]), "size_ratio": median([r[1] for r in ratios])}
-    return (line, ratios), None
+    # Per species (--species-out): every species present or called, with protal's depth and genome size where the
+    # profile has the taxon (called or not) and the truth where it is present.
+    by_name = {}
+    for t, (name, _, d, size) in taxa.items():
+        by_name.setdefault(name, (t, d, size))
+    genomes_of = collections.defaultdict(list)
+    for r in rows:
+        genomes_of[r["taxonomy"].split(";")[-1]].append(r.get("genome", ""))
+    called_names = set(names.values())
+    species_rows = []
+    for name in sorted(present | called_names):
+        here = name in present
+        taxid, d, size = by_name.get(name, ("", NAN, NAN))
+        t = truth[name] if here else None
+        species_rows.append({
+            "set": set_name, "read_type": read_type, "point": point, "scenario": scenario, "sample": sample,
+            "species": name, "taxid": taxid, "genomes": ",".join(genomes_of.get(name, [])), "present": int(here),
+            "in_database": int(name not in heldout), "called": int(name in called_names),
+            "true_read_pairs": t[0] if here else NAN, "true_cell_share": t[1] / cells if here and cells > 0 else NAN,
+            "true_genome_length": t[2] / t[1] if here and t[1] > 0 else NAN, "true_depth": depth[name] if here else NAN,
+            "depth": d, "genome_size": size if size > 0 else NAN})
+    return (line, ratios, species_rows), None
 
 
 def spread(values):
@@ -334,6 +363,8 @@ def main(argv=None):
     ap.add_argument("--read-type", default="pe", choices=list(collect.READ_TYPES))
     ap.add_argument("--out", required=True, help="the table, one line per sample")
     ap.add_argument("--summary", help="also write the summary here")
+    ap.add_argument("--species-out", help="also a table of every sample's species present or called (SPECIES_COLUMNS; "
+                                          ".gz: gzipped): protal's depth and genome size against the truth")
     ap.add_argument("--threads", type=int, default=1, help="samples read at once")
     args = ap.parse_args(argv)
     collections_ = {"training": args.training, "test": args.test}
@@ -354,21 +385,31 @@ def main(argv=None):
             results = list(pool.map(evaluate, jobs, chunksize=4))
     else:
         results = [evaluate(job) for job in jobs]
-    lines, ratios_of, skipped = [], {}, collections.Counter()
+    lines, ratios_of, species_rows, skipped = [], {}, [], collections.Counter()
     for result, why in results:
         if result is None:
             skipped[why] += 1
             continue
-        line, ratios = result
+        line, ratios, rows = result
         lines.append(line)
         ratios_of[id(line)] = ratios
+        species_rows.extend(rows)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+
+    def cell(v):
+        return "NA" if isinstance(v, float) and math.isnan(v) else (f"{v:.6g}" if isinstance(v, float) else v)
     with open(args.out, "w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
         w.writerow(COLUMNS)
         for line in lines:
-            w.writerow(["NA" if isinstance(v, float) and math.isnan(v) else (f"{v:.6g}" if isinstance(v, float) else v)
-                        for v in (line[c] for c in COLUMNS)])
+            w.writerow([cell(line[c]) for c in COLUMNS])
+    if args.species_out:
+        opener = gzip.open if args.species_out.endswith(".gz") else open
+        with opener(args.species_out, "wt", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t", lineterminator="\n")
+            w.writerow(SPECIES_COLUMNS)
+            for row in species_rows:
+                w.writerow([cell(row[c]) for c in SPECIES_COLUMNS])
     text = [f"Composition of the {args.read_type} samples against their truth ("
             + ("the model's calls, " + os.path.basename(args.calls) if args.calls else "the profiles' own calls") + f"): {args.out}"]
     for name in SETS:

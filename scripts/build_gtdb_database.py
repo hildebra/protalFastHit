@@ -87,7 +87,8 @@ read type, a table of every sample's error taxa and where their reads went, the 
 on taxa but aligned nowhere, whose unmapped records protal writes for these samples; error_reads.py). With --share-logs
 it also keeps the SAM records of those reads, the false positives' and the false negatives' in files of their own per
 sample (a sample of each taxon's), and the run ends by packing OUT_DIR/<name>_share.tar.gz: console.log, logs/,
-model_logs/ (without the models), the taxonomy and the training and test tables, to copy off the cluster.
+model_logs/ (without the models), the taxonomy and the training and test tables, and from the samples' disk the design
+points' simulator logs and the in-silico strains' table, to copy off the cluster.
 
 A reduced database holds a subset of the marker genes (--n-genes N: the N most
 distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
@@ -1214,11 +1215,42 @@ def shorten_table(job):
     return os.path.getsize(source), os.path.getsize(target)
 
 
-def share_archive(outdir, folders, threads=1):
+GATHERED_MAX = 1 << 20  # a log gathered into the share archive longer than this keeps its first and last GATHERED_KEEP
+GATHERED_KEEP = 1 << 18  # bytes
+
+
+def natural_key(text):
+    """Sorts names with numbers by their numbers (p2 before p10)."""
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", text)]
+
+
+def concatenate_logs(paths, target, label):
+    """Writes the files one after the other into target, each under a "==> label(path) <==" line; a file longer than
+    GATHERED_MAX keeps its first and last GATHERED_KEEP bytes."""
+    with open(target, "wb") as out:
+        for path in paths:
+            out.write(f"==> {label(path)} <==\n".encode())
+            size = os.path.getsize(path)
+            with open(path, "rb") as fh:
+                if size <= GATHERED_MAX:
+                    text = fh.read()
+                else:
+                    text = fh.read(GATHERED_KEEP) + f"\n[... {size - 2 * GATHERED_KEEP} bytes left out ...]\n".encode()
+                    fh.seek(size - GATHERED_KEEP)
+                    text += fh.read()
+            out.write(text if text.endswith(b"\n") or not text else text + b"\n")
+
+
+def share_archive(outdir, folders, threads=1, insilico_table=None):
     """--share-logs: OUTDIR/<name>_share.tar.gz, all under <name>/ where OUTDIR has them: console.log, logs/, model_logs/
     (the reports, predictions, calls and the error reads' tables and SAMs; not the models, which are in the database),
     protal_db/build_metadata.tsv, work/internal_taxonomy.dmp and each collection's tables (work/training/, work/test/;
-    shortened by shorten_table). A failure is reported, and does not stop the build."""
+    shortened by shorten_table). And from the samples' disk, which the end of a cluster job may clear: per collection
+    (folders: [(name, its collect_training_data.py -o)]) its design points' simulator logs and parameters (simulate.log,
+    design.log, stream*.log, run_params.tsv) as logs/simulations_<collection>.log, its protal runs' logs as
+    logs/protal_runs_<collection>.log where the build did not gather them there (without --scratch), and
+    insilico_strains.tsv (insilico_strains.py's per-strain table) as model_logs/insilico_strains.tsv. A failure is
+    reported, and does not stop the build."""
     name = os.path.basename(os.path.normpath(outdir))
     target = os.path.join(outdir, name + "_share.tar.gz")
     began = time.time()
@@ -1235,6 +1267,30 @@ def share_archive(outdir, folders, threads=1):
         if jobs:
             with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(jobs)))) as pool:
                 sizes = list(pool.map(shorten_table, jobs))
+        gathered, simulator_logs = [], 0
+        os.makedirs(shortened, exist_ok=True)
+        for which, folder in folders:
+            if not folder:
+                continue
+            points = os.path.join(folder, "points")
+            logs = sorted(glob.glob(os.path.join(points, "*", "*.log")) +
+                          glob.glob(os.path.join(points, "*", "*", "run_params.tsv")),
+                          key=lambda p: natural_key(os.path.relpath(p, points)))
+            if logs:
+                path = os.path.join(shortened, f"simulations_{which}.log")
+                concatenate_logs(logs, path, lambda p: os.path.relpath(p, points))
+                gathered.append((path, f"{LOGS}/simulations_{which}.log"))
+                simulator_logs += len(logs)
+            if not os.path.isfile(os.path.join(outdir, LOGS, f"protal_runs_{which}.log")):
+                profile_all = os.path.join(folder, "profile_all")
+                runs = sorted(glob.glob(os.path.join(profile_all, "**", "protal.log"), recursive=True),
+                              key=lambda p: natural_key(os.path.relpath(p, profile_all)))
+                if runs:
+                    path = os.path.join(shortened, f"protal_runs_{which}.log")
+                    concatenate_logs(runs, path, lambda p: os.path.relpath(os.path.dirname(p), profile_all))
+                    gathered.append((path, f"{LOGS}/protal_runs_{which}.log"))
+        if insilico_table and os.path.isfile(insilico_table):
+            gathered.append((insilico_table, f"{REPORTS}/insilico_strains.tsv"))
         left_out = (".partial", ".xml", ".joblib")
         with tarfile.open(target + ".partial", "w:gz", compresslevel=6) as tar:
             for path in ("console.log", LOGS, REPORTS, os.path.join(DATABASE, "build_metadata.tsv"),
@@ -1244,11 +1300,15 @@ def share_archive(outdir, folders, threads=1):
                             filter=lambda t: None if t.name.endswith(left_out) else t)
             for _, table in jobs:
                 tar.add(table, f"{name}/{WORK}/{os.path.relpath(table, shortened)}")
+            for source, path in gathered:
+                tar.add(source, f"{name}/{path}")
         os.replace(target + ".partial", target)
         before, after = sum(s[0] for s in sizes), sum(s[1] for s in sizes)
         say(f"Logs to share: {target}, {gigabytes(os.path.getsize(target))} in {clock(time.time() - began)} (the logs, "
-            f"model_logs/ and {len(jobs)} tables, {gigabytes(before)} shortened to {gigabytes(after)}); unpack with "
-            f"tar xzf {os.path.basename(target)}")
+            f"model_logs/ and {len(jobs)} tables, {gigabytes(before)} shortened to {gigabytes(after)}; from the samples' "
+            f"disk {simulator_logs} simulator logs" + (" and the in-silico strains' table" if insilico_table and
+                                                       os.path.isfile(insilico_table) else "") +
+            f"); unpack with tar xzf {os.path.basename(target)}")
     except Exception as e:  # noqa: BLE001: the database is ready either way
         say(f"Packing the logs to share failed ({e}); the database is ready either way")
     finally:
@@ -1524,8 +1584,9 @@ def composition_report(read_types, prefixes, training, test, heldout, logs, thre
     """model_logs/composition_accuracy[_<read type>].tsv and composition_accuracy.txt (composition_accuracy.py): how well
     the samples' composition (the share of their reads the called species explain, the profile's unknown share "?", the
     average genome size, the species' genome sizes and depths) matches the simulator's truth, with the trained models'
-    calls (PREFIX.calls.tsv.gz). -> ({read type: one line of medians}, the summary's lines). A failure is reported, and
-    does not stop the build."""
+    calls (PREFIX.calls.tsv.gz); composition_species[_<read type>].tsv.gz, every sample's species present or called with
+    protal's depth and genome size against the truth (the profiles and manifests it rests on stay on the samples' disk).
+    -> ({read type: one line of medians}, the summary's lines). A failure is reported, and does not stop the build."""
     import composition_accuracy
     briefs, text = {}, []
     for t in read_types:
@@ -1533,8 +1594,10 @@ def composition_report(read_types, prefixes, training, test, heldout, logs, thre
         if not os.path.isfile(calls):
             briefs[t] = f"no {os.path.basename(calls)}"
             continue
+        suffix = "" if t == "pe" else "_" + t
         argv = ["--calls", calls, "--training", training, "--read-type", t, "--threads", str(threads),
-                "--out", os.path.join(logs, "composition_accuracy" + ("" if t == "pe" else "_" + t) + ".tsv")]
+                "--out", os.path.join(logs, f"composition_accuracy{suffix}.tsv"),
+                "--species-out", os.path.join(logs, f"composition_species{suffix}.tsv.gz")]
         argv += ["--test", test] if test else []
         argv += ["--heldout", heldout] if heldout else []
         output = io.StringIO()
@@ -2069,8 +2132,9 @@ def main():
                         "species differs from its congeners (model_logs/ancestry_sites/, ancestry_sites.py; the training "
                         "database's full reference is kept until then), and at the end pack OUTDIR/<OUTDIR's "
                         "name>_share.tar.gz: console.log, logs/, model_logs/ (without the models), the build's metadata, "
-                        "the taxonomy and the training and test tables (their numbers to 9 significant digits), to be "
-                        "copied off the cluster and read elsewhere")
+                        "the taxonomy and the training and test tables (their numbers to 9 significant digits), and from the "
+                        "samples' disk the design points' simulator logs and parameters (logs/simulations_<collection>.log) "
+                        "and the in-silico strains' table, to be copied off the cluster and read elsewhere")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -3245,7 +3309,8 @@ def main():
         say(f"The genome store {genome_store} holds {gigabytes(tree_size(genome_store))}, kept for the next build "
             "(remove it to free the space; --genome-store none builds without one)")
     if args.share_logs:
-        share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads)
+        share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads,
+                      os.path.join(samples_root, "insilico_strains", "insilico_strains.tsv"))
     files = {name: sum(len(names) for _, _, names in os.walk(os.path.join(args.outdir, name)))
              for name in (DATABASE, REPORTS, LOGS, WORK)}
     say(f"In {args.outdir}: {DATABASE}/ the database ({files[DATABASE]} files), {REPORTS}/ the evaluation "

@@ -222,6 +222,13 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertTrue(sizes, t)
             self.assertLess(abs(sorted(sizes)[len(sizes) // 2] - 1), 0.05, t)
             self.assertTrue(all(row["unknown"] != "NA" and 0 <= float(row["unknown"]) <= 1 for row in rows), t)
+            # And per species (composition_species*.tsv.gz): protal's depth beside the truth of every species present or
+            # called, the genomes its reads came from.
+            with gzip.open(os.path.join(out, "model_logs", name.replace("accuracy", "species") + ".gz"), "rt") as fh:
+                species = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual({row["read_type"] for row in species}, {t})
+            present = [row for row in species if row["present"] == "1" and row["called"] == "1"]
+            self.assertTrue(present and all(row["genomes"] and row["true_depth"] != "NA" for row in present), t)
         self.assertIn("Composition of the pe samples against their truth", self.text("out", "model_logs", "summary.txt"))
         self.assertRegex(first.stdout, r"\d+/\d+ checking the samples' composition against the truth")
         self.assertRegex(first.stdout, r"pe: median errors over \d+ test samples without a host: explained share [-+]")
@@ -834,6 +841,13 @@ class GtdbBuildTest(unittest.TestCase):
                          "protal_db/build_metadata.tsv", "work/internal_taxonomy.dmp", "work/training/training_data.tsv",
                          "work/training/training_data_se.tsv", "work/test/training_data.tsv"):
                 self.assertIn("scenarios/" + name, members)
+            # From the scratch disk: the design points' simulator logs, and the in-silico strains' table.
+            for name in ("logs/simulations_training.log", "logs/simulations_test.log", "model_logs/insilico_strains.tsv",
+                         "model_logs/composition_species.tsv.gz"):
+                self.assertIn("scenarios/" + name, members)
+            simulations = tar.extractfile("scenarios/logs/simulations_training.log").read().decode()
+            self.assertRegex(simulations, r"==> [^\n]+/(simulate|design|stream[a-z_]*)\.log <==")
+            self.assertRegex(simulations, r"==> [^\n]+/run_params\.tsv <==")
             self.assertTrue(any(m.endswith(".FP.sam.zst") or m.endswith(".FN.sam.zst") for m in members))
             self.assertFalse(any(m.endswith((".partial", ".xml", ".joblib")) or "share_tables" in m for m in members))
             self.assertFalse(any(m.startswith("scenarios/protal_db/database") for m in members))

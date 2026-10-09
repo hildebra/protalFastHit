@@ -15,6 +15,7 @@ import gzip
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -212,18 +213,57 @@ class BuildOptionsTest(unittest.TestCase):
                 os.makedirs(os.path.dirname(os.path.join(out, path)), exist_ok=True)
                 with open(os.path.join(out, path), "w") as fh:
                     fh.write(text)
+            # From the samples' disk (here the collection in work/): the design points' simulator logs and parameters,
+            # in the points' order (p2 before p10), a long one cut to its ends; the protal runs' logs, which the build
+            # gathers into logs/ only with --scratch; the in-silico strains' table.
+            scratch = os.path.join(root, "scratch")
+            points = os.path.join(out, "work", "training", "points")
+            disk = {os.path.join(points, "p10", "simulate.log"): "p10 simulated\n",
+                    os.path.join(points, "p2", "design.log"): "p2 design\n",
+                    os.path.join(points, "p2", "sim", "run_params.tsv"): "param\tvalue\n",
+                    os.path.join(points, "p3", "stream_pe.log"): "a" * (build.GATHERED_MAX + 10),
+                    os.path.join(points, "p2", "sim", "reads", "x.log"): "not a point's log\n",
+                    os.path.join(out, "work", "training", "profile_all", "run1", "protal.log"): "Sample s strain alleles\n",
+                    os.path.join(scratch, "insilico_strains", "insilico_strains.tsv"): "strain\tcongener\n"}
+            for path, text in disk.items():
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as fh:
+                    fh.write(text)
             with contextlib.redirect_stdout(io.StringIO()):
-                build.share_archive(out, [("training", os.path.join(out, "work", "training")), ("test", None)])
+                build.share_archive(out, [("training", os.path.join(out, "work", "training")), ("test", None)],
+                                    insilico_table=os.path.join(scratch, "insilico_strains", "insilico_strains.tsv"))
             with tarfile.open(os.path.join(out, "r226_v18_share.tar.gz")) as tar:
                 members = {m.name for m in tar.getmembers() if m.isfile()}
                 table = tar.extractfile("r226_v18/work/training/training_data.tsv").read().decode()
+                simulations = tar.extractfile("r226_v18/logs/simulations_training.log").read().decode()
+                runs = tar.extractfile("r226_v18/logs/protal_runs_training.log").read().decode()
             self.assertEqual(members, {"r226_v18/" + p for p in ("console.log", "logs/convert.log", "model_logs/summary.txt",
                                                                  "model_logs/error_reads/pe/taxa.tsv.gz",
                                                                  "protal_db/build_metadata.tsv",
                                                                  "work/internal_taxonomy.dmp",
-                                                                 "work/training/training_data.tsv")})
+                                                                 "work/training/training_data.tsv",
+                                                                 "logs/simulations_training.log",
+                                                                 "logs/protal_runs_training.log",
+                                                                 "model_logs/insilico_strains.tsv")})
             self.assertEqual(table, "truth\tp\n1\t0.123456789\n")
+            headers = re.findall(r"==> (.+) <==", simulations)
+            self.assertEqual(headers, ["p2/design.log", "p2/sim/run_params.tsv", "p3/stream_pe.log", "p10/simulate.log"])
+            self.assertIn("p10 simulated\n", simulations)
+            self.assertIn(f"[... {build.GATHERED_MAX + 10 - 2 * build.GATHERED_KEEP} bytes left out ...]", simulations)
+            self.assertLess(len(simulations), 2 * build.GATHERED_KEEP + 1000)
+            self.assertEqual(runs, "==> run1 <==\nSample s strain alleles\n")
             self.assertFalse(os.path.exists(os.path.join(out, "work", "share_tables")))
+            # The build gathered the protal runs' logs (--scratch): not again.
+            os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+            with open(os.path.join(out, "logs", "protal_runs_training.log"), "w") as fh:
+                fh.write("gathered\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                build.share_archive(out, [("training", os.path.join(out, "work", "training")), ("test", None)])
+            with tarfile.open(os.path.join(out, "r226_v18_share.tar.gz")) as tar:
+                names = [m.name for m in tar.getmembers() if m.isfile()]
+                self.assertEqual(tar.extractfile("r226_v18/logs/protal_runs_training.log").read().decode(), "gathered\n")
+            self.assertEqual(names.count("r226_v18/logs/protal_runs_training.log"), 1)
+            self.assertNotIn("r226_v18/model_logs/insilico_strains.tsv", names)
 
     def test_error_reads(self):
         # --error-reads: all (every read type's samples), none, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO.

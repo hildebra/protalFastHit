@@ -120,6 +120,35 @@ class CompositionAccuracyTest(unittest.TestCase):
         self.assertAlmostEqual(line["true_explained_by_calls"], 0.4)
         self.assertAlmostEqual(line["true_unknown_given_calls"], 0.6)
 
+    def test_the_species_table(self):
+        # --species-out: A, B and C present (C held out and not in the profile: no taxid, no depth). X is in the profile
+        # but neither present nor called (the profile's own calls are A and B): no row.
+        species = os.path.join(self.tmp.name, "species.tsv.gz")
+        self.run_script("--species-out", species)
+        with gzip.open(species, "rt") as fh:
+            rows = {r["species"]: r for r in csv.DictReader(fh, delimiter="\t")}
+        self.assertEqual(sorted(rows), ["s__A", "s__B", "s__C"])
+        a, b, c = rows["s__A"], rows["s__B"], rows["s__C"]
+        self.assertEqual((a["taxid"], a["genomes"], a["present"], a["in_database"], a["called"]), ("1", "gA", "1", "1", "1"))
+        self.assertAlmostEqual(float(a["true_depth"]), 1.5)
+        self.assertAlmostEqual(float(a["depth"]), 1.44)
+        self.assertAlmostEqual(float(a["true_genome_length"]), 2e6)
+        self.assertAlmostEqual(float(b["genome_size"]), 4.4e6)
+        self.assertAlmostEqual(float(b["true_cell_share"]), 0.2)
+        self.assertEqual(b["true_read_pairs"], "10000")
+        self.assertEqual((c["present"], c["in_database"], c["called"], c["taxid"], c["depth"]), ("1", "0", "0", "", "NA"))
+        # With the model's calls X is called: a row of its own, absent (no truth), with its depth.
+        calls_pe = os.path.join(self.tmp.name, "trained_model.calls.tsv.gz")
+        with gzip.open(calls_pe, "wt") as fh:
+            fh.write("meta_design\tmeta_sample\tmeta_read_type\ttaxon\tset\tcall\n"
+                     "p\tp_s_1\tpe\t1\ttest\t1\np\tp_s_1\tpe\t2\ttest\t0\np\tp_s_1\tpe\t9\ttest\t1\n")
+        self.run_script("--calls", calls_pe, "--species-out", species)
+        with gzip.open(species, "rt") as fh:
+            rows = {r["species"]: r for r in csv.DictReader(fh, delimiter="\t")}
+        x = rows["s__X"]
+        self.assertEqual((x["present"], x["called"], x["true_depth"], x["depth"]), ("0", "1", "NA", "0.2"))
+        self.assertEqual((rows["s__B"]["called"], rows["s__B"]["depth"]), ("0", "0.75"))  # in the profile, not called
+
     def test_compose_matches_protal(self):
         # Composition.h's unit test (test_Composition.cpp, TheSharesAsComputedByHand): A depth 10 at 2 Mb, B 5 at 4 Mb, C 1
         # without a size; 100 Mb read, 10% the mates' overlap.
