@@ -243,15 +243,14 @@ class GtdbBuildTest(unittest.TestCase):
         # listed; the full references gone after.
         self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
         # The strain alleles (--strain-alleles 4, --allele-genome-share 0.5): both builds took them from the genomes of the
-        # allele share, which the genome table lost (none of them simulated), and indexed the deep ones' k-mers
-        # (--index-alleles 0.01).
+        # allele share, which the genome table lost (none of them simulated), and indexed none of their k-mers
+        # (--index-alleles, off by default since r226 v22).
         for log in ("index_and_package.log", "training_db_index.log"):
             self.assertRegex(self.text("out", "logs", log), r"Strain alleles: (\d+ alleles \(\d+ edits\) of \d+ gene copies of \d+ "
                                                             r"species, up to 4 each|none) \(of \d+ full-reference copies")
             self.assertIn("outside --allele_genome_share 0.5", self.text("out", "logs", log))
             if "Strain alleles: none" not in self.text("out", "logs", log):
-                self.assertRegex(self.text("out", "logs", log), r"Index alleles: (\d+ seeds of \d+ strain alleles at least 0\.01 "
-                                                                r"from the representative's copy|none \(--index_alleles 0\.01\))")
+                self.assertIn("Index alleles: none (--index_alleles 1)", self.text("out", "logs", log))
         self.assertRegex(first.stdout, r"genome table \(genomes\.tsv, genome_table\.txt\): .*; \d+ genomes left to the strain "
                                        r"alleles, not simulated \(--allele-genome-share 0\.5\)")
         alleles = re.search(r"Strain alleles: (\d+) alleles", self.text("out", "logs", "training_db_index.log"))

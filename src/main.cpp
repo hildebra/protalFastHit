@@ -85,8 +85,8 @@
 //   polymorphic), untested at r226. After 0.8.0 (2026-10-09, from a world grown on known trees,
 //   docs/claude/2026-10-09-ancestry-true-positive-test): the agreement at the fixed sites as a feature of its own (86),
 //   the alleles chosen for the sample's coverage instead of farthest first, the consensus tolerant of one congener
-//   with a base of its own from six compared, and the deep alleles' k-mers in the index (--index_alleles 0.01: a read
-//   of a deep strain finds its species). 2026-10-10: the columns' conservation from the family (column_weights.tsv,
+//   with a base of its own from six compared, and the deep alleles' k-mers in the index (--index_alleles: a read of
+//   a deep strain finds its species; off by default since r226 v22, too little gain). 2026-10-10: the columns' conservation from the family (column_weights.tsv,
 //   --build --column_weights; ColumnWeights.h): per column -log(1 - p) within the genera and among the genus
 //   references, the amino acid per codon, the family's consensus base; five 'weights' features (91 default features:
 //   mismatches at conserved columns are errors or reads from afar), the ancestry sites of small genera polarised by

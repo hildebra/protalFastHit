@@ -223,8 +223,8 @@ namespace protal::strain_alleles {
     // (docs/claude/2026-10-09-site-weighted-evidence-plan, section 8). The windows over an indel (whose inserted bases
     // the table does not keep) or over a base that is not A, C, G or T are left out, as are the k-mers of the
     // representative's copy (`own`) and those an earlier allele of the copy gave. The positions are the representative's
-    // (substitutions keep them). Returns how many alleles were used; `scratch` is the thread's.
-    inline constexpr double kDefaultIndexDivergence = 0.01;
+    // (substitutions keep them). Returns how many alleles were used; `scratch` is the thread's. Off by default
+    // (--index_alleles 1) since the r226 v22 build: too little gain for the entries.
 
     struct SeedScratch {
         std::string sequence;

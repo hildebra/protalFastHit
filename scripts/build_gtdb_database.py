@@ -1961,7 +1961,7 @@ def full_reference_fate(folder, keep, why="the ancestry report"):
 
 
 # The strain alleles' options of every protal --build of the run (--strain-alleles, --allele-genome-share,
-# --index-alleles), set by main():
+# --index-alleles, off by default), set by main():
 # both databases take their alleles from the same genomes, none the simulations draw strains from.
 ALLELE_ARGS = []
 # The share of the genomes the strain alleles come from (1: all), for the ancestry report's alleles (ancestry_reports).
@@ -2278,10 +2278,11 @@ def main():
                         "(protal --allele_genome_share); the genome table loses those but the representatives, so that no "
                         "simulated strain is its species' own allele, and the ancestry report takes its alleles from the "
                         "same genomes (default 0.5)")
-    p.add_argument("--index-alleles", type=float, default=0.01, metavar="DIVERGENCE",
+    p.add_argument("--index-alleles", type=float, default=1, metavar="DIVERGENCE",
                    help="the k-mers of the strain alleles at least this far from the representative's copy (edits per base) "
                         "go into both databases' indexes under the species as non-unique entries, so that a read of a deep "
-                        "strain finds its species (protal --build --index_alleles; default 0.01, 1 or more: none)")
+                        "strain finds its species (protal --build --index_alleles; default 1: none, off since the r226 v22 "
+                        "build, whose gain was too small for the entries; 0.01 indexes the alleles 1%% or more from the representative)")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
