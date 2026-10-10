@@ -1,0 +1,15 @@
+class	twin	from	to	reads
+D	0	congener	target	11
+D	0	none	target	1
+D	0	sister	target	104
+D	1	congener	target	10
+D	1	sister	target	440
+N	0	congener	target	149
+N	0	sister	target	1521
+N	1	congener	target	87
+N	1	sister	target	4361
+Q	0	congener	target	89
+Q	0	none	target	2
+Q	0	sister	target	498
+Q	1	congener	target	107
+Q	1	sister	target	2543

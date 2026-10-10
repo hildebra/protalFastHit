@@ -829,6 +829,17 @@ namespace protal {
             // within the species), with the read's base the species' at each.
             uint64_t poly_sites = 0, poly_known = 0, poly_novel = 0;
             uint64_t fixed_all = 0, fixed_all_agree = 0, fixed = 0, fixed_agree = 0;
+            // The column weights (ColumnWeights.h, NoteRecord; the "weights" features): of the best records' aligned bases,
+            // those at columns with an estimate and the sum of their within codes; of their mismatches at such columns, the
+            // number, the sums of the within and among codes, those at conserved columns; the mismatches by codon
+            // (synonymous or not, the latter also at columns whose amino acid is conserved); and the ancestry sites weighted
+            // by their among code (a site without one weighs 1): all of them and those with the species' base.
+            // weights_known: the database has the table.
+            uint64_t cw_columns = 0, cw_aligned = 0, cw_within_aligned = 0;
+            uint64_t cw_mismatches = 0, cw_within_mismatches = 0, cw_among_mismatches = 0, cw_conserved_mismatches = 0;
+            uint64_t cw_synonymous = 0, cw_nonsynonymous = 0, cw_nonsynonymous_conserved = 0;
+            uint64_t cw_sites_weight = 0, cw_agree_weight = 0;
+            bool weights_known = false;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -899,6 +910,19 @@ namespace protal {
                 fixed_all_agree += other.fixed_all_agree;
                 fixed += other.fixed;
                 fixed_agree += other.fixed_agree;
+                cw_columns += other.cw_columns;
+                cw_aligned += other.cw_aligned;
+                cw_within_aligned += other.cw_within_aligned;
+                cw_mismatches += other.cw_mismatches;
+                cw_within_mismatches += other.cw_within_mismatches;
+                cw_among_mismatches += other.cw_among_mismatches;
+                cw_conserved_mismatches += other.cw_conserved_mismatches;
+                cw_synonymous += other.cw_synonymous;
+                cw_nonsynonymous += other.cw_nonsynonymous;
+                cw_nonsynonymous_conserved += other.cw_nonsynonymous_conserved;
+                cw_sites_weight += other.cw_sites_weight;
+                cw_agree_weight += other.cw_agree_weight;
+                weights_known = weights_known || other.weights_known;
                 return *this;
             }
         };
@@ -1522,7 +1546,11 @@ namespace protal {
             //    disagreeing; the rest have the representative's base);
             //  - the share of the species' base at the ancestry sites fixed within the species (no allele differs there) less
             //    that at all its ancestry sites, both weighted by the alleles covering each site: a strain's congener-like
-            //    bases fall on the polymorphic sites (the share rises without them), a novel congener's on the fixed ones.
+            //    bases fall on the polymorphic sites (the share rises without them), a novel congener's on the fixed ones;
+            //  - and that share at the fixed sites itself (AncestryFixedAgreement, 2026-10-09): a strain of the species near
+            //    1 however deep it sits in the species, a novel congener at the fraction of the species' stem it shares; the
+            //    models could only rebuild it from ancestry_agreement and the gain
+            //    (docs/claude/2026-10-09-ancestry-true-positive-test).
             // AlleleSitesPerKb and AncestryFixedShare (the polymorphic sites per kb of its kept records, and the share of
             // its ancestry sites that are fixed) say whether the species has alleles at all: training-table columns in no
             // feature group, as allele_copy_share. (The shape group's polymorphic_site_rate is another thing: the
@@ -1541,6 +1569,10 @@ namespace protal {
                 return static_cast<double>(m_records.fixed_agree) / static_cast<double>(m_records.fixed) -
                        static_cast<double>(m_records.fixed_all_agree) / static_cast<double>(m_records.fixed_all);
             }
+            double AncestryFixedAgreement() const {
+                if (!m_records.alleles_known) return strain_alleles::kUnknown;
+                return m_records.fixed == 0 ? 0 : static_cast<double>(m_records.fixed_agree) / static_cast<double>(m_records.fixed);
+            }
             double AlleleSitesPerKb() const {
                 if (!m_records.alleles_known) return strain_alleles::kUnknown;
                 return m_records.allele_aligned == 0 ? 0
@@ -1549,6 +1581,49 @@ namespace protal {
             double AncestryFixedShare() const {
                 if (!m_records.alleles_known) return strain_alleles::kUnknown;
                 return m_records.fixed_all == 0 ? 0 : static_cast<double>(m_records.fixed) / static_cast<double>(m_records.fixed_all);
+            }
+            // The column weights (ColumnWeights.h, RecordEvidence::cw_*; the "weights" group, 2026-10-10), -1 without the
+            // table (or --no_site_weights):
+            //  - the mean within weight of its mismatches over the mean within weight of its aligned columns: 1 for
+            //    mismatches spread as errors are, below 1 for a relative whose mutations avoid the conserved columns,
+            //    above 1 for a read from afar whose fast columns are saturated; 0 without a mismatch;
+            //  - its mismatches at conserved columns (within >= kConservedCode, ~99%) per kb aligned at known columns;
+            //  - the ancestry agreement with each site weighted by its among code (a derived state at a column the genera
+            //    never change counts more than one at a hypervariable column); -1 without a site;
+            //  - of its mismatches classified by codon, the share that change the amino acid, and those at codon columns
+            //    whose amino acid is conserved per kb aligned: a strain's mutations are mostly synonymous.
+            // ColumnWeightCoverage (the share of its aligned bases at columns with an estimate) is a column of the training
+            // table in no group: it says whether the species' family has the weights at all.
+            double ConservedMismatchRatio() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                if (m_records.cw_mismatches == 0 || m_records.cw_aligned == 0 || m_records.cw_within_aligned == 0) return 0;
+                double const mismatch = static_cast<double>(m_records.cw_within_mismatches) / static_cast<double>(m_records.cw_mismatches);
+                double const aligned = static_cast<double>(m_records.cw_within_aligned) / static_cast<double>(m_records.cw_aligned);
+                return mismatch / aligned;
+            }
+            double ConservedMismatchRate() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                return m_records.cw_aligned == 0 ? 0
+                    : 1000.0 * static_cast<double>(m_records.cw_conserved_mismatches) / static_cast<double>(m_records.cw_aligned);
+            }
+            double AncestryAgreementWeighted() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                return m_records.cw_sites_weight == 0 ? column_weights::kUnknown
+                    : static_cast<double>(m_records.cw_agree_weight) / static_cast<double>(m_records.cw_sites_weight);
+            }
+            double NonsynonymousShare() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                uint64_t const classified = m_records.cw_synonymous + m_records.cw_nonsynonymous;
+                return classified == 0 ? 0 : static_cast<double>(m_records.cw_nonsynonymous) / static_cast<double>(classified);
+            }
+            double NonsynonymousConservedRate() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                return m_records.cw_aligned == 0 ? 0
+                    : 1000.0 * static_cast<double>(m_records.cw_nonsynonymous_conserved) / static_cast<double>(m_records.cw_aligned);
+            }
+            double ColumnWeightCoverage() const {
+                if (!m_records.weights_known) return column_weights::kUnknown;
+                return m_records.cw_columns == 0 ? 0 : static_cast<double>(m_records.cw_aligned) / static_cast<double>(m_records.cw_columns);
             }
             // The gaps to the congeners' copies (congener_gaps.tsv, RecordEvidence::gap_records): the share of its kept
             // records on copies with a congener's copy at least congener_gaps::kMinGap away, of those the shares whose
@@ -2646,8 +2721,17 @@ namespace protal {
             f.emplace_back("polymorphic_known_share", taxon.PolymorphicKnownShare());
             f.emplace_back("polymorphic_novel_share", taxon.PolymorphicNovelShare());
             f.emplace_back("ancestry_fixed_gain", taxon.AncestryFixedGain());
+            f.emplace_back("ancestry_fixed_agreement", taxon.AncestryFixedAgreement());
             f.emplace_back("allele_sites_per_kb", taxon.AlleleSitesPerKb());
             f.emplace_back("ancestry_fixed_share", taxon.AncestryFixedShare());
+            // Its mismatches against the conservation of the columns in its species' family (column_weights.tsv); -1
+            // without the table. column_weight_coverage is in no feature group (whether the family has the weights at all).
+            f.emplace_back("conserved_mismatch_ratio", taxon.ConservedMismatchRatio());
+            f.emplace_back("conserved_mismatch_rate", taxon.ConservedMismatchRate());
+            f.emplace_back("ancestry_agreement_weighted", taxon.AncestryAgreementWeighted());
+            f.emplace_back("nonsynonymous_share", taxon.NonsynonymousShare());
+            f.emplace_back("nonsynonymous_conserved_rate", taxon.NonsynonymousConservedRate());
+            f.emplace_back("column_weight_coverage", taxon.ColumnWeightCoverage());
             return f;
         }
 
@@ -3110,6 +3194,47 @@ namespace protal {
                     e.ancestry_indel_agree += c.indel_agree;
                     e.ancestry_indel_congener += c.indel_congener;
                 }
+                // The column weights of the copy (ColumnWeights.h), from the run's cache once per collector as the sites.
+                if (!m_genome_loader->GetColumnWeights().Empty()) {
+                    e.weights_known = true;
+                    auto& columns = m_column_weights[(static_cast<uint64_t>(taxid) << 32) | geneid];
+                    if (!columns.first) {
+                        columns.first = true;
+                        columns.second = m_genome_loader->ColumnWeightsOf(taxid, geneid);
+                    }
+                    if (columns.second && !columns.second->Empty()) {
+                        // The copy's sequence object must outlive the view (as the ancestry cache keeps it): a view of
+                        // the temporary read freed memory, and one mismatch in a few hundred was classified wrongly.
+                        auto const count_with = [&](std::string_view copy) {
+                            return column_weights::Count(*columns.second, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, copy);
+                        };
+                        column_weights::Counts c;
+                        if (m_genome_loader->HasGene(taxid, geneid)) {
+                            auto const own = m_genome_loader->GetGeneOMP(taxid, geneid).Sequence();
+                            c = count_with(own.View());
+                        } else {
+                            c = count_with(std::string_view());
+                        }
+                        e.cw_columns += c.columns;
+                        e.cw_aligned += c.aligned;
+                        e.cw_within_aligned += c.within_aligned;
+                        e.cw_mismatches += c.mismatches;
+                        e.cw_within_mismatches += c.within_mismatches;
+                        e.cw_among_mismatches += c.among_mismatches;
+                        e.cw_conserved_mismatches += c.conserved_mismatches;
+                        e.cw_synonymous += c.synonymous;
+                        e.cw_nonsynonymous += c.nonsynonymous;
+                        e.cw_nonsynonymous_conserved += c.nonsynonymous_conserved;
+                        if (!sites->Empty()) {
+                            auto const& among = columns.second->among;
+                            ancestry::ForEachSite(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, [&](size_t p, int outcome) {
+                                uint64_t const w = p < among.size() ? std::max<uint64_t>(1, among[p]) : 1;
+                                e.cw_sites_weight += w;
+                                if (outcome == ancestry::kSpeciesBase) e.cw_agree_weight += w;
+                            });
+                        }
+                    }
+                }
                 e.settled_by_read += sam.m_settled == 1;
                 e.settled_inconsistent += sam.m_settled == 2;
                 if (sam.m_crowding > 0) {
@@ -3473,6 +3598,8 @@ namespace protal {
             // The ancestry sites of the (taxon, gene) pairs this collector's records touched (NoteRecord), from the
             // run's cache (GenomeLoader::AncestrySitesOf) once each.
             std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
+            // The column weights of every copy this collector saw (looked up: nullptr for a copy without a row).
+            std::unordered_map<uint64_t, std::pair<bool, std::shared_ptr<column_weights::Columns const>>> m_column_weights;
             strain_alleles::ReadDiffs m_allele_diffs;  // NoteAlleles' scratch
             strain_alleles::Polymorphism m_polymorphism;  // NoteAlleles' scratch
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch

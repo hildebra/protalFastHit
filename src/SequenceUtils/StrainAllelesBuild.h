@@ -2,10 +2,15 @@
 // database species' gene from a genome that may give alleles (AlleleGenome, --allele_genome_share) is aligned against
 // the representative's copy (WFA2, protal's scores, both ends partly free: gene calls start and end apart) and turned
 // into edits; of a copy's distinct alleles, the Settings::candidates with the least hashes are kept (a sample that does
-// not depend on the order the threads read them in), and of those Settings::alleles chosen farthest first from the
-// representative and each other (k-center: every sampled allele lies near a chosen one). An allele must stay on its
-// species' side of the nearest congener: nearer the representative than the copy's nearest congener's copy is
-// (congener_gaps.tsv), and within kMaxDivergence; one that is not is a misassigned genome or a congener's gene, whose
+// not depend on the order the threads read them in), and of those Settings::alleles chosen greedily for the coverage of
+// the sample (Select): each sampled allele stands for the strains near it, and the chosen ones together explain as much
+// of the sample's edits, allele by allele, as a read of each would be scored with (Coverage). Until 2026-10-09 the
+// choice was farthest first from the representative and each other (k-center), which kept the deep lineages and
+// dropped a strain's near relatives: in a world grown on known trees, a strain's nearest allele genome was stored in
+// half of its genes with eight allele genomes against nine tenths with two, and the models called the strains the
+// alleles reach at 0.98 and the others at 0.3-0.6 (docs/claude/2026-10-09-ancestry-true-positive-test). An allele must
+// stay on its species' side of the nearest congener: nearer the representative than the copy's nearest congener's copy
+// is (congener_gaps.tsv), and within kMaxDivergence; one that is not is a misassigned genome or a congener's gene, whose
 // reads the species would otherwise take.
 #pragma once
 
@@ -152,25 +157,57 @@ namespace protal::strain_alleles {
         return a.edits.size() + b.edits.size() - 2 * shared;
     }
 
-    // Of a copy's sampled alleles (hash, allele), up to k chosen farthest first: each the one farthest from the
-    // representative and the alleles chosen before it (of equals the least hash), until k or none differs.
+    // Edits two alleles share (both lists sorted).
+    inline size_t SharedEdits(Allele const& a, Allele const& b) {
+        return (a.edits.size() + b.edits.size() - EditDistance(a, b)) / 2;
+    }
+
+    // How much of the allele `a` the allele `c`, stored, would save a read of a's genome that spans the gene, as the
+    // alignment scores count it (BestAllele: the edits of a that c shares, less the edits of c that a lacks, when
+    // positive), as a share of a's edits in units of kCoverageUnit: the unit for c = a, 0 when c shares no more than
+    // half of its own edits with a (the read keeps the representative) or when a has no edit.
+    inline constexpr uint64_t kCoverageUnit = 1u << 20;
+
+    inline uint64_t Coverage(Allele const& a, Allele const& c) {
+        size_t const shared = SharedEdits(a, c);
+        if (a.edits.empty() || 2 * shared <= c.edits.size()) return 0;
+        return kCoverageUnit * static_cast<uint64_t>(2 * shared - c.edits.size()) / a.edits.size();
+    }
+
+    // Of a copy's sampled alleles (hash, allele), up to k chosen greedily for the sample's coverage: the sum over the
+    // sampled alleles of the best Coverage a chosen allele gives each (every sampled allele stands for the strains near
+    // it, with the same weight whatever its distance from the representative). Each step takes the allele that adds
+    // most (of equals the least hash), until k or none adds any (one identical to a chosen allele). Integer units, so
+    // that equal gains are equal on every machine.
     inline std::vector<Allele> Select(std::vector<std::pair<uint64_t, Allele>> sample, size_t k) {
         std::sort(sample.begin(), sample.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
-        std::vector<size_t> nearest(sample.size());
-        for (size_t i = 0; i < sample.size(); i++) nearest[i] = sample[i].second.edits.size();
+        size_t const n = sample.size();
+        std::vector<uint64_t> coverage(n * n);  // of allele i by allele j stored
+        for (size_t i = 0; i < n; i++) {
+            for (size_t j = 0; j < n; j++) coverage[i * n + j] = Coverage(sample[i].second, sample[j].second);
+        }
+        std::vector<uint64_t> covered(n, 0);
+        std::vector<uint8_t> taken(n, 0);
         std::vector<Allele> chosen;
-        std::vector<uint8_t> taken(sample.size(), 0);
         while (chosen.size() < k) {
-            size_t best = sample.size();
-            for (size_t i = 0; i < sample.size(); i++) {
-                if (!taken[i] && nearest[i] > 0 && (best == sample.size() || nearest[i] > nearest[best])) best = i;
+            size_t best = n;
+            uint64_t best_gain = 0;
+            for (size_t j = 0; j < n; j++) {
+                if (taken[j]) continue;
+                uint64_t gain = 0;
+                for (size_t i = 0; i < n; i++) {
+                    uint64_t const c = coverage[i * n + j];
+                    if (c > covered[i]) gain += c - covered[i];
+                }
+                if (gain > best_gain) {
+                    best = j;
+                    best_gain = gain;
+                }
             }
-            if (best == sample.size()) break;
+            if (best == n) break;
             taken[best] = 1;
             chosen.push_back(sample[best].second);
-            for (size_t i = 0; i < sample.size(); i++) {
-                if (!taken[i]) nearest[i] = std::min(nearest[i], EditDistance(sample[i].second, sample[best].second));
-            }
+            for (size_t i = 0; i < n; i++) covered[i] = std::max(covered[i], coverage[i * n + best]);
         }
         return chosen;
     }

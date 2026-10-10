@@ -36,11 +36,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `untried` | 0.8.0 (2026-10-07) | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
 | `alleles` | 0.8.0 (2026-10-08) | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
 | `polymorphic` | 0.8.0 (2026-10-09) | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
+| `weights` | 2026-10-10 | its mismatches against how conserved each column is in the species' family (`column_weights.tsv`): errors and reads from afar hit conserved columns, a relative's mutations avoid them; the amino-acid changes | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic`
-(85 features in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights`
+(91 features since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening, 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -497,11 +498,46 @@ is fixed it carries the congener's base less often (AUC 0.59-0.67;
 | `polymorphic_known_share` | of the polymorphic sites the taxon's kept records cover, the share where the read has a base (or an indel nearby) one of the alleles has: a known strain's variant |
 | `polymorphic_novel_share` | the share where it has another base or indel: the species varies there, but not as any known strain does |
 | `ancestry_fixed_gain` | the share of the species' base at the ancestry sites where the species is fixed, less that at all its ancestry sites, both weighted by the alleles covering each site (n of them: n/(n+1)) |
+| `ancestry_fixed_agreement` (2026-10-09, after 0.8.0) | that share at the fixed sites itself: a strain of the species near 1 however deep it sits in the species (its congener-like bases fall where the species varies), a novel congener at the fraction of the species' stem it shares. In a world grown on known trees the models could only rebuild it from `ancestry_agreement` and the gain ([report](claude/2026-10-09-ancestry-true-positive-test/README.md)) |
 
-All three are -1 without the table and 0 without a site, a species without alleles too, as in the `alleles` group. The
+All four are -1 without the table and 0 without a site, a species without alleles too, as in the `alleles` group. The
 training table also has `allele_sites_per_kb` (the polymorphic sites per kb of the kept records) and `ancestry_fixed_share`
 (the share of the ancestry sites that are fixed), in no group: they say whether a species has alleles at all, the
 cluster size. The `shape` group's `polymorphic_site_rate` is another thing: the sites where the sample's own reads vary.
+
+## The columns' conservation (`weights`, 2026-10-10)
+
+A mismatch means different things at different columns of a marker gene. At a column the species' family never
+changes it is a sequencing error or a read from far away; at a column the species of the genus change freely it is
+what a strain's own mutations look like. The odds that a mismatch at a column with conservation `p` is a real
+substitution of a close relative, against an error or a distant read's difference, scale with `1 − p`, so each
+mismatch weighs `−log(1 − p)`: 2.3 nats at 90%, 4.6 at 99%, 6.9 at 99.9%, a ten-fold step in the odds per nine.
+Summed over a read's mismatches the weights are a log-likelihood ratio
+([plan](claude/2026-10-09-site-weighted-evidence-plan/README.md)). Half of r226's false positives were reads from other
+genera at low identity ([report](claude/2026-10-03-false-positive-anatomy/README.md)): their fast columns are
+saturated, so their differences sit on conserved columns at a share no strain shows.
+
+`--build` writes `column_weights.tsv` ([databases.md](databases.md#2-build-the-index)): per family and gene, the
+family's reference copy (one genus reference, chosen by hash, among up to `--column_weights` genera) gives the
+columns; the genus references of the voting genera are aligned to it (WFA2, up to 0.4 divergence) for the `among`
+conservation; every genus's species are aligned to their genus reference (up to 0.2) for the `within` conservation,
+one vote per genus however many species it has, averaged over the family's genera (no phylum-wide consensus, which
+would mean little); the amino acids per codon alike, in the copies' own frame; and every copy's mapping onto the
+columns. Each weight is stored in half nats on 4 bits, with the family's consensus base per column; a run expands a
+copy's columns once (`ColumnWeights.h`). The consensus base also polarises the ancestry sites of a species with fewer
+than three congeners (`ancestry`): its congener's difference is a site only where the congener's base is the family's.
+
+| feature | what it measures | matters for |
+|---|---|---|
+| `conserved_mismatch_ratio` | the mean within weight of the taxon's mismatches over the mean within weight of its aligned columns: 1 for mismatches spread as errors are, below 1 for a relative whose mutations avoid the conserved columns, above 1 for a read from afar; 0 without a mismatch | reads from other genera; errors |
+| `conserved_mismatch_rate` | its mismatches at columns conserved at ~99% or more (4.5 nats) per kb aligned at columns with an estimate | the same, as a rate beside the sample's error rate |
+| `ancestry_agreement_weighted` | the ancestry agreement with each site weighted by its among weight: a derived state at a column the genera never change counts more than one at a hypervariable column; -1 without a site | strain against novel congener |
+| `nonsynonymous_share` | of the mismatches classified by codon (the read's codon is the copy's with the read's base), the share that change the amino acid; a strain's mutations are mostly synonymous | reads from afar; errors |
+| `nonsynonymous_conserved_rate` | the non-synonymous mismatches at codon columns whose amino acid the family keeps, per kb aligned | the strongest single sign that a read is no close relative |
+
+All five are -1 without the table (a database built before 2026-10-10, `--column_weights 0`, or a run with
+`--no_site_weights`). The training table also has `column_weight_coverage`, the share of the aligned bases at columns
+with an estimate, in no group: it says whether the species' family has the weights at all.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

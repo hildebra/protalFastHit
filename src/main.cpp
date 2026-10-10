@@ -82,7 +82,14 @@
 //   species' polymorphic sites (--no_allele_scores), and the gaps to the congeners' copies (congener_gaps.tsv); a
 //   divergent read tries its genus's untried candidates (--adaptive_candidates, ZC); the ancestry sites are the
 //   congeners' consensus, chained across indels, with indel sites; 85 default features (gaps, untried, alleles,
-//   polymorphic), untested at r226. The profile ends with the share of the genomes its species do not explain ("?",
+//   polymorphic), untested at r226. After 0.8.0 (2026-10-09, from a world grown on known trees,
+//   docs/claude/2026-10-09-ancestry-true-positive-test): the agreement at the fixed sites as a feature of its own (86),
+//   the alleles chosen for the sample's coverage instead of farthest first, the consensus tolerant of one congener
+//   with a base of its own from six compared. 2026-10-10: the columns' conservation from the family (column_weights.tsv,
+//   --build --column_weights; ColumnWeights.h): per column -log(1 - p) within the genera and among the genus
+//   references, the amino acid per codon, the family's consensus base; five 'weights' features (91 default features:
+//   mismatches at conserved columns are errors or reads from afar), the ancestry sites of small genera polarised by
+//   the consensus; --no_site_weights (docs/claude/2026-10-09-site-weighted-evidence-plan). The profile ends with the share of the genomes its species do not explain ("?",
 //   from the genome sizes in species_priors.tsv; <profile>.composition; --no_unknown_share). Speed: ONT candidates
 //   refused by an exact indel-distance bound before WFA2 (-45% of the bench's ONT alignment instructions;
 //   --no_indel_bound), the seed lookup and syncmer scan in AVX-512 (PROTAL_SIMD; seeding -10% on Zen 4), BGZF input

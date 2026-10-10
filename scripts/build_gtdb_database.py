@@ -2404,6 +2404,13 @@ def main():
     p.add_argument("--insilico-ani", metavar="MIN-MAX",
                    help="draw the in-silico strains' genome ANI uniformly from MIN-MAX (e.g. 95-99) instead of the "
                         "real strains' marker divergence")
+    p.add_argument("--insilico-multi", type=float, default=0.5, metavar="SHARE",
+                   help="give this share of the species with real strains in the genome table an in-silico strain as "
+                        "well (insilico_strains.py --multi-share; default 0.5, 0: none): a strain its species' alleles "
+                        "do not reach, as a strain of a lineage GTDB has not sampled is. Trained on real strains alone, "
+                        "half of whose relatives are the alleles, the models learn that a strain the alleles explain is "
+                        "present and one they do not is not, and call the strains of lineages without an allele genome "
+                        "at 0.3-0.6 against 0.98 (docs/claude/2026-10-09-ancestry-true-positive-test)")
     p.add_argument("--test-samples", type=int, default=4,
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "
                         "has another design than the training data (--test-*), so that the report shows what "
@@ -3016,7 +3023,9 @@ def main():
     # its representative (codon-aware substitutions, the divergence of the table's real strains, the genes'
     # conservation factors, as many of its marker substitutions at the sites where its nearest congener differs, with
     # the congener's base, as the real strains have there: species_clouds.tsv), so that it is simulated from a strain
-    # as often as a species with two genomes. Without
+    # as often as a species with two genomes; and --insilico-multi of the species with real strains get one too, a
+    # strain their alleles do not reach (half of a species' other genomes are its alleles, the other half its simulated
+    # strains, so without these every simulated strain had a close allele). Without
     # them a model given GTDB's cluster sizes learns that a divergent read cloud on a one-genome species is a
     # relative the database lacks (docs/claude/2026-10-04-r226-v10-evaluation). The simulations draw from
     # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself. The strains'
@@ -3058,10 +3067,12 @@ def main():
         sim_table = os.path.join(work, "genomes_simulated.tsv")
         strains = os.path.join(samples_root, "insilico_strains")
         log = step_log("insilico_strains.log")
-        Steps.start("in-silico strains of the species with one genome (insilico_strains.log, genomes_simulated.tsv)")
+        Steps.start("in-silico strains of the species with one genome" +
+                    (f" and of {args.insilico_multi:g} of those with real strains" if args.insilico_multi > 0 else "") +
+                    " (insilico_strains.log, genomes_simulated.tsv)")
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
                         "convert": convert_key, "gene_neighbours": neighbours_key, "share": args.insilico_strains,
-                        "ani": args.insilico_ani, "seed": args.seed, "strains": strains,
+                        "multi": args.insilico_multi, "ani": args.insilico_ani, "seed": args.seed, "strains": strains,
                         "clouds": content_hash(clouds_file) if make_clouds and os.path.isfile(clouds_file) else None}
         # A new --scratch (the next job's node) has none of them: made again (the same strains, at the same seed).
         if stages.done("insilico", insilico_key) and os.path.isfile(sim_table) and \
@@ -3086,7 +3097,7 @@ def main():
                                convert(converted))
             positions = positions_file()
             command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
-                       strains, "--share", str(args.insilico_strains),
+                       strains, "--share", str(args.insilico_strains), "--multi-share", str(args.insilico_multi),
                        "--seed", str(args.seed), "-t", str(args.threads)]
             if positions:
                 command += ["--positions", positions, "--taxonomy", taxonomy]

@@ -151,16 +151,26 @@ TEST(StrainAlleles, AnAllelesEditsComeFromItsAlignmentToTheRepresentative) {
     EXPECT_EQ(back.Alleles(), 1u);
 }
 
-// The build's sample of a copy's alleles (the least hashes) and its choice (farthest first) do not depend on the order
-// the alleles come in; an allele as far as the nearest congener's copy, of a genome outside the share, identical to the
-// representative or seen before is not offered.
+// The build's sample of a copy's alleles (the least hashes) and its choice (the sample's coverage, greedily) do not
+// depend on the order the alleles come in; an allele as far as the nearest congener's copy, of a genome outside the
+// share, identical to the representative or seen before is not offered.
 TEST(StrainAlleles, TheBuildsSampleAndChoiceDoNotDependOnTheOrder) {
     using E = sa::Edit;
     sa::Allele const a{ 0, 100, { E::Substitution(10, 0), E::Substitution(20, 1), E::Substitution(30, 2) } };  // 3 from the rep
     sa::Allele const b{ 0, 100, { E::Substitution(10, 0) } };                                                   // 1, near a
     sa::Allele const c{ 0, 100, { E::Substitution(40, 3), E::Substitution(50, 3) } };                           // 2, far from a
-    EXPECT_EQ(sa::Select({ { 1, a }, { 2, b }, { 3, c } }, 2), (std::vector<sa::Allele>{ a, c }));
-    EXPECT_EQ(sa::Select({ { 1, a }, { 2, b }, { 3, c } }, 5), (std::vector<sa::Allele>{ a, c, b }));
+    // Stored, b saves a read of a one of its three edits (a shares b's one edit, more than half of b's), a saves a read
+    // of b nothing (b lacks two of a's three: the read keeps the representative), c nothing of either.
+    EXPECT_EQ(sa::Coverage(a, b), sa::kCoverageUnit / 3);
+    EXPECT_EQ(sa::Coverage(b, a), 0u);
+    EXPECT_EQ(sa::Coverage(a, a), sa::kCoverageUnit);
+    EXPECT_EQ(sa::Coverage(c, a), 0u);
+    // So b covers 1 + 1/3 of the sample, a and c 1 each: b first, then c (1 against the 2/3 a still adds), then a.
+    EXPECT_EQ(sa::Select({ { 1, a }, { 2, b }, { 3, c } }, 2), (std::vector<sa::Allele>{ b, c }));
+    EXPECT_EQ(sa::Select({ { 1, a }, { 2, b }, { 3, c } }, 5), (std::vector<sa::Allele>{ b, c, a }));
+    // Farthest first (until 2026-10-09) took a and c: a deep lineage's alleles over a strain's near relatives.
+    sa::Allele const a2 = a;
+    EXPECT_EQ(sa::Select({ { 1, a }, { 2, a2 }, { 3, c } }, 5), (std::vector<sa::Allele>{ a, c }));  // a twin adds nothing
     std::vector<sa::Allele> many;
     for (uint16_t p = 1; p <= 12; p++) many.push_back(sa::Allele{ 0, 200, { E::Substitution(p, 0), E::Substitution(static_cast<uint16_t>(p + 100), 1) } });
     auto rows_of = [&](std::vector<sa::Allele> order, size_t threads) {
@@ -480,7 +490,7 @@ TEST(StrainAlleles, ThePolymorphicFeaturesOfATaxon) {
     sam += SamRecord("c", 1, 1, 0, "80=1X69=", c);
     sam += SamRecord("d", 2, 1, 0, "150=", congener.substr(0, 150));
     std::vector<char const*> const names{ "polymorphic_known_share", "polymorphic_novel_share", "ancestry_fixed_gain",
-                                          "allele_sites_per_kb", "ancestry_fixed_share" };
+                                          "ancestry_fixed_agreement", "allele_sites_per_kb", "ancestry_fixed_share" };
     auto const without = Features(Profile(ref, sam).GetTaxa().at(1));
     for (auto const* name : names) EXPECT_EQ(without.at(name), -1.0) << name;
     // The ancestry sites: 18 visits, 15 with the species' base (a's at 40 and b's at 20 the congener's, c's at 80 neither).
@@ -495,6 +505,7 @@ TEST(StrainAlleles, ThePolymorphicFeaturesOfATaxon) {
         EXPECT_NEAR(f1.at("polymorphic_novel_share"), 1.0 / 6, 1e-12);
         // The fixed sites (20, 60, 100, 120): 11 of 12 the species' base (b's at 20 not), against 15 of 18 at all.
         EXPECT_NEAR(f1.at("ancestry_fixed_gain"), 11.0 / 12 - 15.0 / 18, 1e-12);
+        EXPECT_NEAR(f1.at("ancestry_fixed_agreement"), 11.0 / 12, 1e-12);
         EXPECT_NEAR(f1.at("allele_sites_per_kb"), 1000.0 * 6 / 450, 1e-9);
         EXPECT_NEAR(f1.at("ancestry_fixed_share"), 12.0 / 18, 1e-12);
         auto const f2 = Features(profile.GetTaxa().at(2));

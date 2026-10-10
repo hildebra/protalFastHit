@@ -25,6 +25,7 @@
 #include "Profiling/SampleContext.h"
 #include "SequenceUtils/CongenerGaps.h"
 #include "SequenceUtils/StrainAllelesBuild.h"
+#include "SequenceUtils/ColumnWeightsBuild.h"
 #include "Taxonomy.h"
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -295,6 +296,7 @@ namespace protal::build {
         if (fs::exists(options.GetSpeciesNeighboursFile())) sources.push_back({Options::PROTAL_SPECIES_NEIGHBOURS_FILE, options.GetSpeciesNeighboursFile()});
         if (fs::exists(options.GetCongenerGapsFile())) sources.push_back({Options::PROTAL_CONGENER_GAPS_FILE, options.GetCongenerGapsFile()});
         if (fs::exists(options.GetStrainAllelesFile())) sources.push_back({Options::PROTAL_STRAIN_ALLELES_FILE, options.GetStrainAllelesFile()});
+        if (fs::exists(options.GetColumnWeightsFile())) sources.push_back({Options::PROTAL_COLUMN_WEIGHTS_FILE, options.GetColumnWeightsFile()});
         if (fs::exists(options.GetForeignRatesFile())) sources.push_back({Options::PROTAL_FOREIGN_RATES_FILE, options.GetForeignRatesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
@@ -745,6 +747,11 @@ namespace protal::build {
                 error = table.Read(is);
                 if (error.empty()) error = PriorsMatchTaxonomy(file, options);
                 summary = std::to_string(table.Size()) + " species, " + std::to_string(table.WithGenomeSize()) + " with a genome size";
+            } else if (error.empty() && name == Options::PROTAL_COLUMN_WEIGHTS_FILE) {
+                column_weights::Table table;
+                error = table.Read(is);
+                summary = std::to_string(table.Families()) + " family-gene rows, " + std::to_string(table.Copies()) + " gene copies of " +
+                          std::to_string(table.Species()) + " species mapped";
             } else if (error.empty()) {
                 foreign_rates::Table table;
                 error = table.Read(is);
@@ -1581,6 +1588,114 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // column_weights.tsv in the database (ColumnWeightsBuild.h): per family and gene, how conserved each column is among
+    // the family's genus references (up to --column_weights of them) and within each genus, averaged over genera, with
+    // the amino acids' conservation per codon and the family's consensus base; and every copy's mapping onto the family
+    // reference's columns. Gene by gene, the gene's copies held while its families are compared, the families on all
+    // threads. No file with --column_weights 0; an earlier build's is removed.
+    static void WriteColumnWeights(protal::Options const& options, GenomeLoader& genomes) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Column weights");
+        bm.Start();
+        std::string const target = options.GetColumnWeightsFile();
+        std::error_code ec;
+        fs::remove(target, ec);
+        column_weights::Settings settings;
+        settings.genera = options.GetColumnWeights();
+        if (settings.genera == 0) {
+            std::cout << "Column weights: none (--column_weights 0)" << std::endl;
+            return;
+        }
+        // Each species' genus and family from the taxonomy (as Genera does).
+        std::unordered_map<uint32_t, uint32_t> parent;
+        std::unordered_map<uint32_t, uint8_t> rank;  // 1 genus, 2 family
+        {
+            std::ifstream taxonomy(options.GetInternalTaxonomyFile());
+            std::string line;
+            while (std::getline(taxonomy, line)) {
+                std::vector<std::string> fields;
+                size_t start = 0;
+                for (size_t tab; (tab = line.find('\t', start)) != std::string::npos; start = tab + 1) fields.push_back(line.substr(start, tab - start));
+                fields.push_back(line.substr(start));
+                uint32_t id = 0, up = 0;
+                if (fields.size() < 5 || std::from_chars(fields[0].data(), fields[0].data() + fields[0].size(), id).ec != std::errc() ||
+                    std::from_chars(fields[1].data(), fields[1].data() + fields[1].size(), up).ec != std::errc()) continue;
+                parent[id] = up;
+                rank[id] = fields[4] == "genus" ? 1 : fields[4] == "family" ? 2 : 0;
+            }
+        }
+        auto ancestor = [&](uint32_t taxid, uint8_t wanted) -> uint32_t {
+            uint32_t node = taxid;
+            for (int depth = 0; depth < 32; depth++) {
+                auto const it = parent.find(node);
+                if (it == parent.end() || it->second == node) return 0;
+                node = it->second;
+                if (rank[node] == wanted) return node;
+            }
+            return 0;
+        };
+        std::vector<uint32_t> taxids;
+        size_t max_gene = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            taxids.push_back(static_cast<uint32_t>(taxid));
+            max_gene = std::max(max_gene, genome.GetGeneList().size());
+        }
+        std::sort(taxids.begin(), taxids.end());
+        std::vector<uint32_t> genus_all(taxids.size()), family_all(taxids.size());
+        for (size_t i = 0; i < taxids.size(); i++) {
+            genus_all[i] = ancestor(taxids[i], 1);
+            family_all[i] = ancestor(taxids[i], 2);
+        }
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        column_weights::Stats stats;
+        std::vector<column_weights::Family> families;
+        std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<column_weights::Run>>> copies;
+        std::vector<uint32_t> holders, genus_of, family_of;
+        std::vector<std::string> seqs;
+        for (size_t g = 1; g <= max_gene; g++) {
+            if (!options.BuildGeneAllowed(g)) continue;
+            holders.clear();
+            genus_of.clear();
+            family_of.clear();
+            for (size_t i = 0; i < taxids.size(); i++) {
+                auto const& list = genomes.GetGenome(taxids[i]).GetGeneList();
+                if (g <= list.size() && list[g - 1].IsSet() && family_all[i] != 0 && genus_all[i] != 0) {
+                    holders.push_back(taxids[i]);
+                    genus_of.push_back(genus_all[i]);
+                    family_of.push_back(family_all[i]);
+                }
+            }
+            if (holders.empty()) continue;
+            seqs.assign(holders.size(), std::string());
+            #pragma omp parallel for schedule(dynamic, 64) num_threads(threads)
+            for (int64_t i = 0; i < static_cast<int64_t>(holders.size()); i++) {
+                seqs[static_cast<size_t>(i)] = std::string(genomes.GetGenome(holders[static_cast<size_t>(i)]).GetGeneOMP(g).Sequence().View());
+            }
+            column_weights::ScanGene(static_cast<uint32_t>(g), holders, seqs, genus_of, family_of, settings, threads, stats, families, copies);
+        }
+        seqs.clear();
+        seqs.shrink_to_fit();
+        if (families.empty()) {
+            std::cout << "Column weights: none (no species with a family and a genus in the taxonomy)" << std::endl;
+            return;
+        }
+        auto const table = column_weights::Table::FromRows(std::move(families), std::move(copies));
+        std::ofstream os(target);
+        table.Write(os);
+        os.close();
+        if (!os) {
+            std::cerr << "Writing " << target << " failed" << std::endl;
+            exit(8);
+        }
+        std::cout << "Column weights: " << table.Families() << " family-gene rows of " << table.ColumnCount() << " columns, "
+                  << table.Copies() << " gene copies of " << table.Species() << " species mapped (" << stats.single_genus
+                  << " rows of a family with one genus); " << stats.alignments << " alignments, " << stats.unaligned
+                  << " failed (beyond " << column_weights::kMaxWithinDivergence << " within a genus, " << column_weights::kMaxAmongDivergence
+                  << " among genera, or too little overlap); up to " << settings.genera << " genera vote per family: " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // suspect_copies.tsv in the database and gene_incongruence.tsv beside it (gene_incongruence::Scan): every
     // species' copy of each gene sketched and compared with the other species' copies; a copy within
     // --suspect_copy_distance of another genus's copy, and farther from its congeners' or without one, is suspect
@@ -2090,6 +2205,7 @@ namespace protal::build {
         WriteSpeciesNeighbours(options, genomes, options.GetSpeciesNeighboursFile());
         auto const gaps = WriteCongenerGaps(options, genomes);
         WriteStrainAlleles(options, genomes, gaps);
+        WriteColumnWeights(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
         ReleaseFreeMemory();

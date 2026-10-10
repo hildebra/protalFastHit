@@ -14,7 +14,12 @@
 // consensus over the congeners (one vote per species, kConsensus of those compared at the position, kMinCongeners of
 // them at least) leaves the species' own derived sites; a large genus, whose nearest congener shares most of the
 // species' history, gets as many as a small one; with fewer congeners the sites are the nearest's differences, as
-// before.
+// before. With kTolerantFrom congeners or more compared, one of them may carry a third base, neither the species' nor
+// the others' (its own change at the position, which says nothing about the species' state): a world grown on known
+// trees showed the nine-in-ten rule, which needs all of six congeners, losing a fifth of the species' derived sites
+// to such a congener (docs/claude/2026-10-09-ancestry-true-positive-test). A congener that carries the species' base
+// still blocks the site: it may share the state by descent, and then a species that branched off below the site
+// carries it too.
 //
 // Two copies are compared along their shared 12-mers, without an alignment: the 12-mers unique to each copy pair them
 // on diagonals (the position on one copy minus the position on the other), the pairs are chained in order along the
@@ -54,6 +59,9 @@ namespace protal::ancestry {
                                                    // three, ..., nine of ten)
     inline constexpr size_t kMinCongeners = 3;     // congeners compared at a position for the consensus to apply; with
                                                    // fewer the site is the nearest congener's difference, as in 0.7.9
+    inline constexpr size_t kTolerantFrom = 6;     // congeners compared at a position from which one of them may carry
+                                                   // a third base (or another indel) at a site: all but one of six
+                                                   // carry the congeners' state, the one its own
     inline constexpr double kMinCompared = 0.5;    // of the species' copy compared, else the congener's copy is no use
     inline constexpr int64_t kMaxIndel = 60;       // bases a chained pair may shift the diagonal by: a longer one ends the chain
     inline constexpr size_t kMinIndelLength = 3;   // an indel site is at least this long: shorter ones are frameshifts in
@@ -316,14 +324,30 @@ namespace protal::ancestry {
         return std::move(c->sites);
     }
 
+    // Whether the congeners compared at a position agree on a state other than the species': `best` of `compared` carry
+    // one such state, `other` another one (neither the species' nor the best). kConsensus of them (three of three, nine
+    // of ten), or, from kTolerantFrom compared, all but one, when that one carries a state of its own: a congener with
+    // the species' state is never tolerated (above).
+    inline bool Agree(size_t best, size_t other, size_t compared) {
+        if (best == 0) return false;
+        if (static_cast<double>(best) >= kConsensus * static_cast<double>(compared)) return true;
+        return compared >= kTolerantFrom && best + 1 == compared && best + other == compared;
+    }
+
     // The consensus sites of a copy of `length` over its comparisons with its congeners (one vote each): at the positions
-    // compared with kMinCongeners congeners or more, those where kConsensus of them carry one base other than the
-    // species' (three of three, nine of ten); at the positions compared with fewer (a small genus, or a stretch past an
-    // indel in the others' copies), those where the nearest congener (the highest identity) differs, with its base, as
-    // 0.7.9 had everywhere. The indels alike: a congener compared at the base before or after an indel votes for it
-    // (the same position and length) or against it. congener and identity are the nearest congener's, compared counts
-    // the positions any congener was compared at, congeners how many were. Empty without a comparison.
-    inline Sites Consensus(size_t length, std::vector<Comparison> const& comparisons) {
+    // compared with kMinCongeners congeners or more, those where the congeners Agree on one base other than the
+    // species' (kConsensus of them; from kTolerantFrom all but one that carries a third base); at the positions compared
+    // with fewer (a small genus, or a stretch past an indel in the others' copies), those where the nearest congener
+    // (the highest identity) differs, with its base, as 0.7.9 had everywhere. The indels alike: a congener compared at
+    // the base before or after an indel votes for it (the same position and length) or against it; one that carries
+    // another indel at the same position is the tolerated dissenter. congener and identity are the nearest congener's,
+    // compared counts the positions any congener was compared at, congeners how many were. Empty without a comparison.
+    // `outgroup`, if given (the family's consensus base per position of the copy, column_weights::Columns::consensus,
+    // 4 for none), polarises the positions compared with fewer than kMinCongeners congeners: there the nearest
+    // congener's difference is a site only where the congener's base is the family's (the species' base is derived),
+    // not where the congener's own base is the new one, which the 0.7.9 fallback could not tell (half of a congener
+    // pair's differences are the congener's own derived states, and a novel species agrees with the species at them).
+    inline Sites Consensus(size_t length, std::vector<Comparison> const& comparisons, std::vector<uint8_t> const* outgroup = nullptr) {
         Sites out;
         if (comparisons.empty() || length > kMaxLength) return out;
         auto const nearest = std::max_element(comparisons.begin(), comparisons.end(), [](Comparison const& a, Comparison const& b) {
@@ -350,7 +374,8 @@ namespace protal::ancestry {
             if (compared[i] == 0) continue;
             out.compared++;
             if (compared[i] < kMinCongeners) {
-                if (fallback[i] >= 0) {
+                bool polarised = outgroup != nullptr && i < outgroup->size() && (*outgroup)[i] < 4;
+                if (fallback[i] >= 0 && (!polarised || (*outgroup)[i] == static_cast<uint8_t>(fallback[i]))) {
                     out.positions.push_back(static_cast<uint16_t>(i));
                     out.bases.push_back(static_cast<uint8_t>(fallback[i]));
                 }
@@ -360,7 +385,8 @@ namespace protal::ancestry {
             for (uint8_t b = 1; b < 4; b++) {
                 if (votes[i][b] > votes[i][best]) best = b;
             }
-            if (votes[i][best] > 0 && static_cast<double>(votes[i][best]) >= kConsensus * static_cast<double>(compared[i])) {
+            size_t const other = static_cast<size_t>(votes[i][0]) + votes[i][1] + votes[i][2] + votes[i][3] - votes[i][best];
+            if (Agree(votes[i][best], other, compared[i])) {
                 out.positions.push_back(static_cast<uint16_t>(i));
                 out.bases.push_back(best);
             }
@@ -382,7 +408,11 @@ namespace protal::ancestry {
             if (at < kMinCongeners) {
                 site = std::find(nearest->sites.indels.begin(), nearest->sites.indels.end(), indel) != nearest->sites.indels.end();
             } else {
-                site = static_cast<double>(n) >= kConsensus * static_cast<double>(at);
+                size_t other = 0;  // votes for another indel at the same position (a congener has one indel there at most)
+                for (auto const& [o, m] : indel_votes) {
+                    if (o.position == indel.position && o.length != indel.length) other += m;
+                }
+                site = Agree(n, std::min(other, at > n ? at - n : 0), at);
             }
             if (site) out.indels.push_back(indel);
         }
@@ -522,10 +552,12 @@ namespace protal::ancestry {
     public:
         // gaps: the database's congener_gaps.tsv, or nullptr (the species' neighbours alone); neighbours may be empty (the
         // gene's nearest by the gaps alone).
+        // `outgroup`: the family's consensus base per position of the copy (ColumnWeights.h), for Consensus; may be null.
         template<typename Genomes>
         std::shared_ptr<Sites const> Get(uint32_t taxid, uint32_t geneid, Genomes& genomes,
                                          species_neighbours::Table const& neighbours,
-                                         congener_gaps::Table const* gaps = nullptr) {
+                                         congener_gaps::Table const* gaps = nullptr,
+                                         std::vector<uint8_t> const* outgroup = nullptr) {
             static std::shared_ptr<Sites const> const none = std::make_shared<Sites const>();
             bool const by_gaps = gaps != nullptr && !gaps->Empty();
             if (neighbours.Empty() && !by_gaps) return none;
@@ -560,7 +592,7 @@ namespace protal::ancestry {
                         comparison->sites.congener = congener;
                         comparisons.push_back(std::move(*comparison));
                     }
-                    if (!comparisons.empty()) result = std::make_shared<Sites const>(Consensus(view.size(), comparisons));
+                    if (!comparisons.empty()) result = std::make_shared<Sites const>(Consensus(view.size(), comparisons, outgroup));
                 }
             }
             std::lock_guard<std::mutex> lock(m_mutex);

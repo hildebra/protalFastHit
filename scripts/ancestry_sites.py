@@ -71,6 +71,7 @@ NEAREST = 3  # congeners whose majority base defines the second set of sites
 CONSENSUS = 0.9  # protal's consensus sites (AncestrySites.h kConsensus): of the congeners compared at a position, the
 MIN_CONGENERS = 3  # share that carry one other base, where at least this many were compared (kMinCongeners); else the
 #                    nearest congener's difference
+TOLERANT_FROM = 6  # kTolerantFrom (2026-10-09): from this many compared, all but one that carries a base of its own
 BANDS = ((0.93, 0.96), (0.96, 0.975), (0.975, 0.99))
 MIN_SITES = (3, 10, 30)
 COUNTS = ["aligned", "mismatches", "sites1", "agree1", "alt1", "sites3", "agree3", "alt3", "sites4", "agree4", "alt4",
@@ -369,7 +370,10 @@ class Sites:
             count = votes.max(axis=1)
             enough = compared_by >= MIN_CONGENERS
             self.alt4[~enough] = self.alt1[~enough]
-            consensus = enough & (count > 0) & (count >= CONSENSUS * compared_by)
+            # kConsensus of those compared, or from TOLERANT_FROM all but one that carries a base of its own (every
+            # congener compared differs from T, and all but one agree)
+            tolerated = (compared_by >= TOLERANT_FROM) & (count + 1 == compared_by) & (votes.sum(axis=1) == compared_by)
+            consensus = enough & (count > 0) & ((count >= CONSENSUS * compared_by) | tolerated)
             self.alt4[consensus] = majority[consensus]
         self.poly_by = []  # (genome accession or "", its allele's polymorphic sites)
         for genome, copy in alleles:

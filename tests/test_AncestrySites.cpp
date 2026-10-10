@@ -168,6 +168,40 @@ TEST(AncestrySites, ConsensusKeepsTheSitesTheCongenersShare) {
     EXPECT_TRUE(an::Consensus(own.size(), {}).Empty());
 }
 
+// From six congeners compared, one may carry a third base at a site (its own change there); one that carries the
+// species' base blocks the site, and so do two dissenters. Below six the nine-in-ten rule needs all of them.
+TEST(AncestrySites, ConsensusToleratesOneCongenerWithABaseOfItsOwn) {
+    std::mt19937 rng(15);
+    auto const own = RandomSequence(900, rng);
+    auto make = [&](size_t n) {
+        std::vector<std::string> seqs(n, own);
+        for (auto& s : seqs) s[100] = Alt(own[100], 0);                        // all: a site
+        for (size_t i = 1; i < n; i++) seqs[i][200] = Alt(own[200], 0);        // all but the first, which has the species'
+        for (size_t i = 0; i < n; i++) seqs[i][300] = Alt(own[300], i == 0 ? 1 : 0);  // all but one, which has a third base
+        for (size_t i = 2; i < n; i++) seqs[i][400] = Alt(own[400], i == 2 ? 1 : 0);  // one third base and two the species'
+        for (size_t i = 2; i < n; i++) seqs[i][500] = Alt(own[500], i < 4 ? 1 : 0);   // two third bases, two the species'
+        std::vector<an::Comparison> comparisons;
+        for (size_t i = 0; i < n; i++) {
+            auto comparison = an::CompareCopies(own, seqs[i]);
+            EXPECT_TRUE(comparison.has_value());
+            comparison->sites.congener = static_cast<uint32_t>(31 + i);
+            comparisons.push_back(std::move(*comparison));
+        }
+        return an::Consensus(own.size(), comparisons);
+    };
+    auto const six = make(6);
+    EXPECT_EQ(six.positions, (std::vector<uint16_t>{ 100, 300 }));
+    EXPECT_EQ(six.bases[1], an::Code(Alt(own[300], 0)));  // the five's base, not the dissenter's
+    auto const five = make(5);
+    EXPECT_EQ(five.positions, (std::vector<uint16_t>{ 100 }));
+    EXPECT_TRUE(an::Agree(5, 1, 6));
+    EXPECT_FALSE(an::Agree(5, 0, 6));   // the sixth carries the species' base
+    EXPECT_FALSE(an::Agree(4, 2, 6));
+    EXPECT_FALSE(an::Agree(4, 1, 5));
+    EXPECT_TRUE(an::Agree(9, 0, 10));   // nine in ten, as before
+    EXPECT_TRUE(an::Agree(10, 1, 11));
+}
+
 // The indels alike: an indel site where nine in ten of the congeners compared at its flanks carry it (all of four), the
 // nearest congener's with fewer than three compared.
 TEST(AncestrySites, ConsensusTakesTheIndelsTheCongenersShare) {

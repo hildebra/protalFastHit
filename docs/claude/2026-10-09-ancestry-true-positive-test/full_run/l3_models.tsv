@@ -1,0 +1,55 @@
+model	stratum	Q	N	auc	tpr_at_5pct_fpr	sensitivity_at_knob	fpr_at_knob	f1_at_knob
+hifi_base	target rows	576	513	0.872	0.564	0.682	0.131	
+hifi_base	hard: Q_deep vs N_0.8/0.95	101	138	0.683	0.277	0.475	0.232	
+hifi_base	twin genera	288	254	0.843	0.476	0.649	0.134	
+hifi_base	no allele genomes	192	172	0.848	0.562	0.667	0.163	
+hifi_base	recombination high	192	166	0.935	0.682	0.891	0.205	
+hifi_base	all test rows	896	940	0.950	-	0.796	0.071	0.851
+hifi_default	target rows	576	513	0.939	0.804	0.849	0.099	
+hifi_default	hard: Q_deep vs N_0.8/0.95	101	138	0.845	0.535	0.723	0.196	
+hifi_default	twin genera	288	254	0.928	0.774	0.872	0.142	
+hifi_default	no allele genomes	192	172	0.856	0.562	0.714	0.163	
+hifi_default	recombination high	192	166	0.974	0.885	0.906	0.096	
+hifi_default	all test rows	896	940	0.976	-	0.903	0.054	0.921
+pe_alleles	target rows	1724	1493	0.922	0.733	0.794	0.101	
+pe_alleles	hard: Q_deep vs N_0.8/0.95	310	442	0.801	0.503	0.606	0.129	
+pe_alleles	twin genera	860	735	0.929	0.728	0.802	0.112	
+pe_alleles	no allele genomes	573	496	0.823	0.487	0.599	0.115	
+pe_alleles	recombination high	575	492	0.938	0.763	0.810	0.085	
+pe_alleles	all test rows	2684	3724	0.977	-	0.867	0.042	0.901
+pe_ancestry+alleles	target rows	1724	1493	0.917	0.738	0.791	0.094	
+pe_ancestry+alleles	hard: Q_deep vs N_0.8/0.95	310	442	0.791	0.481	0.594	0.122	
+pe_ancestry+alleles	twin genera	860	735	0.925	0.744	0.785	0.086	
+pe_ancestry+alleles	no allele genomes	573	496	0.816	0.508	0.579	0.083	
+pe_ancestry+alleles	recombination high	575	492	0.934	0.763	0.809	0.089	
+pe_ancestry+alleles	all test rows	2684	3724	0.975	-	0.865	0.039	0.901
+pe_ancestry	target rows	1724	1493	0.844	0.475	0.668	0.157	
+pe_ancestry	hard: Q_deep vs N_0.8/0.95	310	442	0.642	0.165	0.471	0.258	
+pe_ancestry	twin genera	860	735	0.837	0.459	0.641	0.137	
+pe_ancestry	no allele genomes	573	496	0.818	0.469	0.668	0.177	
+pe_ancestry	recombination high	575	492	0.883	0.496	0.810	0.209	
+pe_ancestry	all test rows	2684	3724	0.955	-	0.787	0.064	0.839
+pe_base	target rows	1724	1493	0.845	0.486	0.668	0.151	
+pe_base	hard: Q_deep vs N_0.8/0.95	310	442	0.641	0.194	0.452	0.249	
+pe_base	twin genera	860	735	0.832	0.455	0.642	0.148	
+pe_base	no allele genomes	573	496	0.823	0.476	0.661	0.149	
+pe_base	recombination high	575	492	0.885	0.506	0.800	0.177	
+pe_base	all test rows	2684	3724	0.956	-	0.785	0.062	0.839
+pe_default	target rows	1724	1493	0.918	0.734	0.795	0.094	
+pe_default	hard: Q_deep vs N_0.8/0.95	310	442	0.791	0.474	0.594	0.118	
+pe_default	twin genera	860	735	0.928	0.748	0.795	0.095	
+pe_default	no allele genomes	573	496	0.818	0.501	0.593	0.105	
+pe_default	recombination high	575	492	0.935	0.757	0.807	0.085	
+pe_default	all test rows	2684	3724	0.975	-	0.868	0.039	0.903
+pe_default_on_noallele	target rows	1714	1465	0.913	0.723	0.780	0.092	
+pe_default_on_noallele	hard: Q_deep vs N_0.8/0.95	307	436	0.792	0.433	0.593	0.115	
+pe_default_on_noallele	twin genera	850	709	0.919	0.713	0.765	0.090	
+pe_default_on_noallele	no allele genomes	573	496	0.818	0.494	0.593	0.099	
+pe_default_on_noallele	recombination high	572	486	0.932	0.731	0.792	0.088	
+pe_default_on_noallele	all test rows	2674	3876	0.974	-	0.859	0.037	0.898
+pe_default_on_shuffled	target rows	1716	1467	0.829	0.484	0.595	0.106	
+pe_default_on_shuffled	hard: Q_deep vs N_0.8/0.95	307	437	0.630	0.130	0.342	0.140	
+pe_default_on_shuffled	twin genera	852	711	0.824	0.481	0.576	0.110	
+pe_default_on_shuffled	no allele genomes	573	496	0.818	0.499	0.595	0.101	
+pe_default_on_shuffled	recombination high	573	487	0.876	0.538	0.649	0.094	
+pe_default_on_shuffled	all test rows	2676	3864	0.951	-	0.740	0.042	0.822

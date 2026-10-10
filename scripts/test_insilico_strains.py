@@ -77,6 +77,25 @@ class InsilicoStrains(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    def test_multi_genome_species(self):
+        # --multi-share: the species with two genomes gets a strain of its first genome too (no taxonomy names the
+        # representative), named after that genome; the one-genome species as before.
+        with tempfile.TemporaryDirectory() as d:
+            output = os.path.join(d, "simulated.tsv")
+            ins.main(["--genome-table", self.table, "--output", output, "--out-dir", os.path.join(d, "strains"),
+                      "--positions", self.positions, "--ani", "96-96", "--marker-scale", "1", "--multi-share", "1", "-t", "1"])
+            rows = ins.read_table(output)
+            self.assertEqual(len(rows), 5)
+            names = [r[0] for r in rows if ins.is_insilico(r[0])]
+            self.assertEqual(sorted(names), sorted([ins.strain_name("GCF_000000001.1"), ins.strain_name("GCF_000000002.1")]))
+            multi = next(r for r in rows if r[0] == ins.strain_name("GCF_000000002.1"))
+            self.assertEqual(multi[1], "d__Bacteria;s__Duo two")
+            self.assertTrue(os.path.isfile(multi[2]))
+        rows = ins.read_table(self.table)
+        self.assertEqual([r[0] for r in ins.multi_genome_species(rows)], ["GCF_000000002.1"])
+        self.assertEqual([r[0] for r in ins.multi_genome_species(rows, {"GCF_000000003.1"})], ["GCF_000000003.1"])
+        self.assertEqual(ins.multi_genome_species(rows, {"GCF_000000001.1"}), [])
+
     def test_table(self):
         rows = ins.read_table(self.output)
         self.assertEqual(len(rows), 4)  # the three genomes and one strain: only the one-genome species gets one

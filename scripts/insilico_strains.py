@@ -110,13 +110,43 @@ def read_table(path):
         return [line.rstrip("\n").split("\t") for line in fh if line.strip() and not line.startswith("#")]
 
 
-def one_genome_species(rows):
-    """The rows of the species with one genome (by the last rank of the taxonomy), in the table's order."""
+def genome_counts(rows):
+    """({species: genomes in the table}, the rows that are no header), species by the last rank of the taxonomy."""
     rows = [r for r in rows if len(r) >= 3 and ";s__" in r[1]]  # not a header
     count = {}
     for r in rows:
         count[r[1].split(";")[-1]] = count.get(r[1].split(";")[-1], 0) + 1
+    return count, rows
+
+
+def one_genome_species(rows):
+    """The rows of the species with one genome (by the last rank of the taxonomy), in the table's order."""
+    count, rows = genome_counts(rows)
     return [r for r in rows if count[r[1].split(";")[-1]] == 1 and not is_insilico(r[0])]
+
+
+def multi_genome_species(rows, reps=None):
+    """The representative's row of each species with two or more genomes in the table, in the table's order: the row
+    whose accession internal_taxonomy.dmp names as the representative (`reps`), or without them the species' first.
+    Their in-silico strains (--multi-share) are strains the species' alleles do not reach: a mutated copy of the
+    representative shares none of the other genomes' variants, as a strain of a lineage GTDB has not sampled does
+    not. Trained on real strains alone, half of whose relatives are the alleles, the models learnt that a strain the
+    alleles explain is present and one they do not is not, and called the strains of lineages without an allele
+    genome at 0.3-0.6 against 0.98 (docs/claude/2026-10-09-ancestry-true-positive-test)."""
+    count, rows = genome_counts(rows)
+    first, out = set(), []
+    for r in rows:
+        species = r[1].split(";")[-1]
+        if count[species] < 2 or is_insilico(r[0]):
+            continue
+        acc = normalize_accession(r[0])
+        if reps is not None and acc not in reps:
+            continue
+        if species in first:
+            continue
+        first.add(species)
+        out.append(r)
+    return out
 
 
 def representatives(taxonomy):
@@ -713,6 +743,11 @@ def main(argv=None):
     ap.add_argument("--taxonomy", help="internal_taxonomy.dmp: which placed genomes are representatives (the others are "
                                        "the real strains); with --positions")
     ap.add_argument("--share", type=float, default=1.0, help="of the species with one genome, the share given a strain (default 1)")
+    ap.add_argument("--multi-share", type=float, default=0.0,
+                    help="of the species with two or more genomes in the table, the share whose representative gets a "
+                         "strain too (default 0): a strain its species' alleles do not reach, which the models need to "
+                         "see present (with --taxonomy the representative is the one internal_taxonomy.dmp names, else "
+                         "the species' first genome)")
     ap.add_argument("--ani", type=parse_ani, help="MIN-MAX: the genome's ANI drawn uniformly (e.g. 95-99), instead of the "
                                                   "real strains' marker divergence (the default)")
     ap.add_argument("--min-ani", type=float, default=0.95, help="no strain further than this ANI (default 0.95)")
@@ -736,8 +771,12 @@ def main(argv=None):
     rows = read_table(args.genome_table)
     rows = [r for r in rows if not is_insilico(r[0])]
     single = one_genome_species(rows)
+    reps = representatives(args.taxonomy) if args.taxonomy else None
+    multi = multi_genome_species(rows, reps) if args.multi_share > 0 else []
     rng = np.random.default_rng(args.seed)
     chosen = [r for r in single if rng.random() < args.share]
+    chosen_multi = [r for r in multi if rng.random() < args.multi_share]
+    chosen += chosen_multi
     wanted = {normalize_accession(r[0]) for r in chosen}
     # Each chosen species' nearest congener with a representative in the table, whose marker genes give the congener
     # sites (--congener-share).
@@ -747,7 +786,6 @@ def main(argv=None):
                    for r in chosen}
     genes, strains = {}, {}
     if args.positions:
-        reps = representatives(args.taxonomy) if args.taxonomy else None
         genes, strains = read_positions(args.positions, wanted | {c for c in congener_of.values() if c}, reps)
     divergences = sorted(strain_divergences(strains))
     factors = conservation_factors(strains)
@@ -819,8 +857,11 @@ def main(argv=None):
     os.replace(args.output + ".partial", args.output)
     placed = sum(1 for j in jobs if j[4])
     genome_divs = [float(s[3]) for s in summary]
-    print(f"{len(summary)} in-silico strains of the {len(single)} species with one genome (of {len(rows)} genomes), "
-          f"{placed} with their marker genes placed; genome divergence median "
+    print(f"{len(summary) - len(chosen_multi)} in-silico strains of the {len(single)} species with one genome (of "
+          f"{len(rows)} genomes)"
+          + (f" and {len(chosen_multi)} of the {len(multi)} species with real strains (strains their alleles do not reach)"
+             if args.multi_share > 0 else "")
+          + f", {placed} with their marker genes placed; genome divergence median "
           f"{statistics.median(genome_divs) if genome_divs else 0:.4f} (ANI {100 * (1 - max(genome_divs, default=0)):.1f}-"
           f"{100 * (1 - min(genome_divs, default=0)):.1f}%); "
           + (f"drawn from {len(divergences)} real strains' marker divergence (median {statistics.median(divergences):.4f}), "

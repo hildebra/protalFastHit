@@ -31,6 +31,7 @@
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
 #include "StrainAlleles.h"
+#include "ColumnWeights.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -105,6 +106,7 @@ namespace protal {
         options.add_options("Alignment")
                 ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
                 ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling).", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ADAPTIVE_CANDIDATES)))
+                ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1) and the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
                 ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene; the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
@@ -174,21 +176,22 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv or strain_alleles.tsv (what --build writes) or species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes) or species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
                 ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
-                ("strain_alleles", "With --build: up to this many alleles per species and gene from the other genomes' copies in --full_reference, stored as edits of the representative's copy (strain_alleles.tsv), for the alignment scores (--no_allele_scores) and the profiler's 'alleles' features. Chosen farthest first among up to 16 distinct ones sampled by hash, each nearer the representative than the gene's nearest congener's copy (congener_gaps.tsv) and within 0.1 of it. 0: none.", cxxopts::value<size_t>()->default_value("4"))
+                ("strain_alleles", "With --build: up to this many alleles per species and gene from the other genomes' copies in --full_reference, stored as edits of the representative's copy (strain_alleles.tsv), for the alignment scores (--no_allele_scores) and the profiler's 'alleles' features. Chosen among up to 16 distinct ones sampled by hash for the sample's coverage (greedily: together they explain as much of each sampled allele as a read of it would be scored with; farthest first until 2026-10-09), each nearer the representative than the gene's nearest congener's copy (congener_gaps.tsv) and within 0.1 of it. 0: none.", cxxopts::value<size_t>()->default_value("4"))
                 ("allele_genome_share", "With --build: the share of each species' genomes that may give alleles (--strain_alleles), by a hash of the genome's accession (the full reference's second header word, which the converter writes since 2026-10-08). build_gtdb_database.py passes 0.5 and simulates strains only from the other genomes, so that no simulated strain is its species' own allele. Below 1 it needs a full reference that names its genomes.", cxxopts::value<double>()->default_value("1"))
+                ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -234,6 +237,8 @@ namespace protal {
         double suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;
         size_t strain_alleles = 4;
         double allele_genome_share = 1.0;
+        size_t column_weights = 10;
+        bool no_site_weights = false;
         bool no_phasing = false;
         std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
         bool fastalign = false;
@@ -363,6 +368,8 @@ namespace protal {
         double m_suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;  // --suspect_copy_distance (--build)
         size_t m_strain_alleles = 4;  // --strain_alleles (--build)
         double m_allele_genome_share = 1.0;  // --allele_genome_share (--build)
+        size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
+        bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_no_phasing = false;
         std::string m_strain_spill;  // --strain_spill
         bool m_fastalign = false;
@@ -487,6 +494,7 @@ namespace protal {
         static inline const std::string PROTAL_SPECIES_NEIGHBOURS_FILE = species_neighbours::kFileName;
         static inline const std::string PROTAL_CONGENER_GAPS_FILE = congener_gaps::kFileName;
         static inline const std::string PROTAL_STRAIN_ALLELES_FILE = strain_alleles::kFileName;
+        static inline const std::string PROTAL_COLUMN_WEIGHTS_FILE = column_weights::kFileName;
         static inline const std::string PROTAL_FOREIGN_RATES_FILE = foreign_rates::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
@@ -540,6 +548,8 @@ namespace protal {
                 m_suspect_copy_distance(d.suspect_copy_distance),
                 m_strain_alleles(d.strain_alleles),
                 m_allele_genome_share(d.allele_genome_share),
+                m_column_weights(d.column_weights),
+                m_no_site_weights(d.no_site_weights),
                 m_no_phasing(d.no_phasing),
                 m_preload_genomes(d.preload_genomes),
                 m_show_help(d.show_help),
@@ -834,7 +844,8 @@ namespace protal {
 
         // The tables --add_tables may store, by file name.
         static std::vector<std::string> AddableTables() {
-            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE, PROTAL_STRAIN_ALLELES_FILE };
+            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE, PROTAL_STRAIN_ALLELES_FILE,
+                     PROTAL_COLUMN_WEIGHTS_FILE };
         }
 
         // --no_allele_scores: candidates scored against the reference alone, not their species' strain alleles.
@@ -930,6 +941,16 @@ namespace protal {
         // --allele_genome_share (--build): the share of the genomes that may give alleles (strain_alleles::AlleleGenome).
         double GetAlleleGenomeShare() const {
             return m_allele_genome_share;
+        }
+
+        // --column_weights (--build): genera per family that vote on the column weights; 0: no table.
+        size_t GetColumnWeights() const {
+            return m_column_weights;
+        }
+
+        // --no_site_weights: the database's column weights left unread.
+        bool NoSiteWeights() const {
+            return m_no_site_weights;
         }
 
         // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).
@@ -1042,6 +1063,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_STRAIN_ALLELES_FILE;
         }
 
+        // Each family's column weights (ColumnWeights.h), written and packed by --build (--column_weights).
+        std::string GetColumnWeightsFile() const {
+            return m_database_path + "/" + PROTAL_COLUMN_WEIGHTS_FILE;
+        }
+
         // Each gene copy's reads of a tiled scan and their foreign share (ForeignRatesTable.h): packed by --build if the
         // folder has it, or by --add_tables.
         std::string GetForeignRatesFile() const {
@@ -1135,6 +1161,11 @@ namespace protal {
         // The database's strain_alleles.tsv (--build's since 2026-10-08); Exists() is false if it has none.
         db::DbFile StrainAllelesDbFile() const {
             return DbFileNamed(PROTAL_STRAIN_ALLELES_FILE, GetStrainAllelesFile());
+        }
+
+        // The database's column_weights.tsv (--build's since 2026-10-10); Exists() is false if it has none.
+        db::DbFile ColumnWeightsDbFile() const {
+            return DbFileNamed(PROTAL_COLUMN_WEIGHTS_FILE, GetColumnWeightsFile());
         }
 
         // The database's foreign_rates.tsv (scripts/foreign_rates.py, --add_tables); Exists() is false if it has none.

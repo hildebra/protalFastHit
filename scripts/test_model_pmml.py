@@ -329,7 +329,8 @@ class FeatureSetsTest(unittest.TestCase):
                    mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES +
                    mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES +
                    mf.NEIGHBOURHOOD_FEATURES + mf.ANCESTRY_FEATURES + mf.GAP_FEATURES + mf.FOREIGN_FEATURES + mf.UNTRIED_FEATURES +
-                   mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES + mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
+                   mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES + mf.WEIGHT_FEATURES + mf.PRIORS_FEATURES +
+                   ["genus_top_fragments", "other"])
         # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
         # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06, the groups against
         # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07, the ancestry
@@ -339,7 +340,7 @@ class FeatureSetsTest(unittest.TestCase):
         # the samples are drawn from, which they told the models (r226 v17, 2026-10-08); the scan of the full
         # reference since then is offered to --features auto by one named set.
         self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
-                                                 "consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic")
+                                                 "consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights")
         self.assertEqual([named for named in mf.FEATURE_SETS if "foreign" in named.split("+")],
                          [mf.DEFAULT_FEATURE_SET + "+foreign"])
         self.assertIn(mf.DEFAULT_FEATURE_SET + "+foreign", mf.AUTO_CANDIDATES)
@@ -349,12 +350,17 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertEqual(mf.ALLELE_FEATURES, ["allele_explained_share", "allele_identity_gain"])
         self.assertNotIn("allele_copy_share", [c for group in mf.FEATURE_GROUPS.values() for c in group])
         # So are the polymorphic sites per kb and the share of the ancestry sites fixed within the species.
-        self.assertEqual(mf.POLYMORPHIC_FEATURES, ["polymorphic_known_share", "polymorphic_novel_share", "ancestry_fixed_gain"])
+        self.assertEqual(mf.POLYMORPHIC_FEATURES, ["polymorphic_known_share", "polymorphic_novel_share", "ancestry_fixed_gain",
+                                                   "ancestry_fixed_agreement"])
         for column in ("allele_sites_per_kb", "ancestry_fixed_share"):
             self.assertNotIn(column, [c for group in mf.FEATURE_GROUPS.values() for c in group])
-        copies = mf.GAP_FEATURES + mf.UNTRIED_FEATURES + mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES
-        self.assertEqual(len(copies), 10)
-        self.assertEqual(len(set(copies)), 10)
+        # The column weights (2026-10-10): five features; column_weight_coverage is in no group.
+        self.assertEqual(mf.WEIGHT_FEATURES, ["conserved_mismatch_ratio", "conserved_mismatch_rate", "ancestry_agreement_weighted",
+                                              "nonsynonymous_share", "nonsynonymous_conserved_rate"])
+        self.assertNotIn("column_weight_coverage", [c for group in mf.FEATURE_GROUPS.values() for c in group])
+        copies = mf.GAP_FEATURES + mf.UNTRIED_FEATURES + mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES + mf.WEIGHT_FEATURES
+        self.assertEqual(len(copies), 16)
+        self.assertEqual(len(set(copies)), 16)
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
         self.assertEqual(mf.ANCESTRY_FEATURES, ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share",
@@ -380,12 +386,17 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # an old default
         # A table of a protal of 2026-10-08 (the strain alleles, before the polymorphic sites): a clear error with the default,
         # the set without them works.
-        alleles_only = [c for c in columns if c not in mf.POLYMORPHIC_FEATURES]
+        alleles_only = [c for c in columns if c not in mf.POLYMORPHIC_FEATURES and c not in mf.WEIGHT_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "polymorphic_known_share"):
             mf.feature_columns(alleles_only, mf.DEFAULT_FEATURE_SET)
-        self.assertIn(mf.DEFAULT_FEATURE_SET.removesuffix("+polymorphic"), mf.AUTO_CANDIDATES)
+        self.assertIn(mf.DEFAULT_FEATURE_SET.removesuffix("+weights").removesuffix("+polymorphic"), mf.AUTO_CANDIDATES)
+        # A table of a protal before the column weights (2026-10-10): the set without them is named too.
+        before_weights = [c for c in columns if c not in mf.WEIGHT_FEATURES]
+        with self.assertRaisesRegex(RuntimeError, "conserved_mismatch_ratio"):
+            mf.feature_columns(before_weights, mf.DEFAULT_FEATURE_SET)
+        self.assertIn(mf.DEFAULT_FEATURE_SET.removesuffix("+weights"), mf.AUTO_CANDIDATES)
         # A table of the r226 v18 build (before the strain alleles): a clear error with the default, the set without them works.
-        v18 = [c for c in columns if c not in mf.ALLELE_FEATURES and c not in mf.POLYMORPHIC_FEATURES]
+        v18 = [c for c in columns if c not in mf.ALLELE_FEATURES and c not in mf.POLYMORPHIC_FEATURES and c not in mf.WEIGHT_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "allele_explained_share"):
             mf.feature_columns(v18, mf.DEFAULT_FEATURE_SET)
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+"

@@ -46,6 +46,7 @@ add_executable(protal_tests
         test_StrainAlleles.cpp
         test_ModelFeatures.cpp
         test_AncestrySites.cpp
+        test_ColumnWeights.cpp
         test_Composition.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 # tests/data (golden_model_rules.tsv), wherever the tests run from; on that file alone, so the others' compile commands

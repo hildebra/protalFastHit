@@ -1,0 +1,151 @@
+set	class	by	level	rows	identity	ancestry_agreement	allele_explained_share	polymorphic_known_share	fixed_agreement_approx	oracle_fixed_agreement
+pe	Q	MRCA with nearest allele genome	0.002-0.01	278	0.295	0.392	0.403	0.295	0.457	0.000
+pe	Q	MRCA with nearest allele genome	long ago (>=0.01)	64	0.078	0.125	0.078	0.094	0.078	0.000
+pe	Q	MRCA with nearest allele genome	no allele genome	573	0.351	0.527	0.000	0.000	0.092	0.000
+pe	Q	MRCA with nearest allele genome	recent (<0.002)	809	0.387	0.524	0.740	0.472	0.696	0.000
+pe	Q	depth	10	435	0.349	0.499	0.405	0.255	0.421	0.000
+pe	Q	depth	100	426	0.329	0.469	0.423	0.293	0.404	0.000
+pe	Q	depth	3	439	0.405	0.528	0.424	0.264	0.492	0.000
+pe	Q	depth	30	424	0.309	0.458	0.410	0.278	0.417	0.000
+pe	Q	distance to rep	0.005-0.015	790	0.363	0.516	0.473	0.272	0.420	0.000
+pe	Q	distance to rep	0.015-0.03	433	0.051	0.330	0.527	0.367	0.365	0.000
+pe	Q	distance to rep	<0.005	298	0.977	0.966	0.074	0.070	0.735	0.000
+pe	Q	distance to rep	>=0.03	203	0.005	0.020	0.453	0.369	0.192	0.000
+pe	Q	genes with a congener's segment	0.1-0.3	570	0.318	0.488	0.428	0.267	0.361	0.000
+pe	Q	genes with a congener's segment	<=0.1	454	0.326	0.478	0.410	0.229	0.463	0.000
+pe	Q	genes with a congener's segment	>0.3	251	0.303	0.514	0.502	0.307	0.335	0.000
+pe	Q	genes with a congener's segment	none	449	0.437	0.488	0.356	0.305	0.552	0.000
+pe	Q	regime	high	575	0.353	0.520	0.445	0.233	0.348	0.000
+pe	Q	regime	low	574	0.286	0.456	0.425	0.267	0.432	0.000
+pe	Q	regime	none	575	0.407	0.490	0.376	0.318	0.522	0.000
+pe	Q	rep-lineage sites it lacks that the alleles cover	all (>=0.9)	933	0.339	0.477	0.740	0.464	0.684	0.000
+pe	Q	rep-lineage sites it lacks that the alleles cover	no such site	4	1.000	1.000	0.000	0.000	1.000	0.000
+pe	Q	rep-lineage sites it lacks that the alleles cover	none (<0.1)	589	0.367	0.518	0.000	0.002	0.090	0.000
+pe	Q	rep-lineage sites it lacks that the alleles cover	partly	198	0.328	0.449	0.131	0.182	0.268	0.000
+pe	Q	role	Q_deep	310	0.126	0.165	0.432	0.335	0.306	0.000
+pe	Q	role	Q_ils	200	0.090	0.105	0.370	0.280	0.075	0.000
+pe	Q	role	Q_imp	402	0.308	0.515	0.507	0.331	0.386	0.000
+pe	Q	role	Q_lone	277	0.397	0.632	0.101	0.079	0.220	0.000
+pe	Q	role	Q_near	334	0.395	0.569	0.763	0.464	0.832	0.000
+pe	Q	role	Q_rep	201	0.886	0.990	0.104	0.000	0.716	0.000
+pe	Q	twin genus	0	864	0.241	0.542	0.407	0.223	0.444	0.000
+pe	Q	twin genus	1	860	0.457	0.436	0.423	0.322	0.423	0.000
+pe	N	depth	10	382	0.052	0.026	0.058	0.071	0.047	0.000
+pe	N	depth	100	377	0.011	0.029	0.013	0.005	0.016	0.000
+pe	N	depth	3	354	0.124	0.124	0.093	0.105	0.113	0.000
+pe	N	depth	30	381	0.018	0.026	0.039	0.024	0.029	0.000
+pe	N	genes with a segment of S or a congener	<=0.3	861	0.043	0.056	0.042	0.052	0.048	0.000
+pe	N	genes with a segment of S or a congener	>0.3	266	0.045	0.015	0.049	0.064	0.019	0.000
+pe	N	genes with a segment of S or a congener	none	367	0.071	0.063	0.071	0.035	0.079	0.000
+pe	N	regime	high	492	0.063	0.057	0.053	0.061	0.035	0.000
+pe	N	regime	low	496	0.024	0.044	0.036	0.056	0.054	0.000
+pe	N	regime	none	506	0.063	0.049	0.061	0.034	0.061	0.000
+pe	N	role	N_0	196	0.010	0.000	0.031	0.056	0.000	0.000
+pe	N	role	N_0.5	203	0.025	0.010	0.020	0.039	0.015	0.000
+pe	N	role	N_0.8	215	0.042	0.028	0.047	0.051	0.028	0.000
+pe	N	role	N_0.95	227	0.079	0.115	0.070	0.031	0.079	0.000
+pe	N	role	N_1	228	0.110	0.154	0.105	0.053	0.184	0.000
+pe	N	role	N_imp0.2	213	0.033	0.014	0.033	0.066	0.014	0.000
+pe	N	role	N_imp0.4	212	0.042	0.014	0.038	0.057	0.014	0.000
+pe	N	twin genus	0	759	0.003	0.063	0.026	0.028	0.043	0.000
+pe	N	twin genus	1	735	0.099	0.037	0.075	0.073	0.057	0.000
+se	Q	MRCA with nearest allele genome	0.002-0.01	275	0.280	0.364	0.404	0.240	0.076	
+se	Q	MRCA with nearest allele genome	long ago (>=0.01)	64	0.078	0.109	0.141	0.062	0.000	
+se	Q	MRCA with nearest allele genome	no allele genome	570	0.332	0.453	0.000	0.000	0.000	
+se	Q	MRCA with nearest allele genome	recent (<0.002)	805	0.354	0.477	0.717	0.405	0.130	
+se	Q	depth	10	435	0.340	0.444	0.393	0.216	0.120	
+se	Q	depth	100	426	0.300	0.401	0.427	0.242	0.038	
+se	Q	depth	3	429	0.366	0.485	0.382	0.231	0.051	
+se	Q	depth	30	424	0.290	0.417	0.425	0.236	0.085	
+se	Q	distance to rep	0.005-0.015	785	0.324	0.460	0.461	0.232	0.073	
+se	Q	distance to rep	0.015-0.03	429	0.054	0.249	0.503	0.312	0.054	
+se	Q	distance to rep	<0.005	298	0.933	0.933	0.091	0.060	0.141	
+se	Q	distance to rep	>=0.03	202	0.005	0.015	0.455	0.307	0.020	
+se	Q	genes with a congener's segment	0.1-0.3	567	0.325	0.429	0.420	0.208	0.067	
+se	Q	genes with a congener's segment	<=0.1	453	0.272	0.406	0.400	0.185	0.071	
+se	Q	genes with a congener's segment	>0.3	248	0.282	0.476	0.476	0.286	0.048	
+se	Q	genes with a congener's segment	none	446	0.401	0.457	0.359	0.276	0.099	
+se	Q	regime	high	571	0.340	0.473	0.427	0.186	0.060	
+se	Q	regime	low	573	0.258	0.389	0.414	0.215	0.072	
+se	Q	regime	none	570	0.375	0.449	0.379	0.293	0.089	
+se	Q	rep-lineage sites it lacks that the alleles cover	all (>=0.9)	928	0.314	0.430	0.719	0.399	0.128	
+se	Q	rep-lineage sites it lacks that the alleles cover	no such site	4	1.000	1.000	0.000	0.000	0.000	
+se	Q	rep-lineage sites it lacks that the alleles cover	none (<0.1)	586	0.340	0.447	0.000	0.000	0.000	
+se	Q	rep-lineage sites it lacks that the alleles cover	partly	196	0.316	0.429	0.153	0.133	0.036	
+se	Q	role	Q_deep	309	0.091	0.142	0.427	0.262	0.052	
+se	Q	role	Q_ils	197	0.071	0.091	0.335	0.254	0.015	
+se	Q	role	Q_imp	398	0.307	0.462	0.482	0.294	0.068	
+se	Q	role	Q_lone	276	0.366	0.496	0.109	0.072	0.040	
+se	Q	role	Q_near	333	0.354	0.523	0.751	0.381	0.156	
+se	Q	role	Q_rep	201	0.861	0.955	0.134	0.005	0.085	
+se	Q	twin genus	0	858	0.228	0.456	0.402	0.182	0.056	
+se	Q	twin genus	1	856	0.421	0.418	0.411	0.280	0.091	
+se	N	depth	10	382	0.050	0.045	0.071	0.071	0.016	
+se	N	depth	100	377	0.005	0.008	0.005	0.008	0.000	
+se	N	depth	3	351	0.131	0.145	0.094	0.100	0.023	
+se	N	depth	30	381	0.021	0.010	0.034	0.013	0.008	
+se	N	genes with a segment of S or a congener	<=0.3	863	0.051	0.053	0.042	0.049	0.009	
+se	N	genes with a segment of S or a congener	>0.3	264	0.042	0.030	0.038	0.053	0.008	
+se	N	genes with a segment of S or a congener	none	364	0.055	0.058	0.080	0.038	0.019	
+se	N	regime	high	489	0.063	0.053	0.051	0.057	0.008	
+se	N	regime	low	498	0.034	0.046	0.036	0.048	0.012	
+se	N	regime	none	504	0.054	0.052	0.063	0.036	0.014	
+se	N	role	N_0	199	0.025	0.000	0.030	0.065	0.005	
+se	N	role	N_0.5	202	0.030	0.010	0.025	0.035	0.005	
+se	N	role	N_0.8	213	0.033	0.028	0.047	0.038	0.009	
+se	N	role	N_0.95	226	0.066	0.106	0.080	0.049	0.018	
+se	N	role	N_1	227	0.106	0.132	0.101	0.040	0.031	
+se	N	role	N_imp0.2	212	0.038	0.038	0.028	0.052	0.005	
+se	N	role	N_imp0.4	212	0.047	0.024	0.033	0.052	0.005	
+se	N	twin genus	0	756	0.003	0.038	0.022	0.033	0.003	
+se	N	twin genus	1	735	0.099	0.063	0.079	0.061	0.020	
+hifi	Q	MRCA with nearest allele genome	0.002-0.01	97	0.361	0.381	0.515	0.381	0.454	
+hifi	Q	MRCA with nearest allele genome	long ago (>=0.01)	20	0.200	0.300	0.000	0.150	0.200	
+hifi	Q	MRCA with nearest allele genome	no allele genome	192	0.417	0.516	0.000	0.000	0.073	
+hifi	Q	MRCA with nearest allele genome	recent (<0.002)	267	0.536	0.588	0.940	0.528	0.566	
+hifi	Q	depth	0.5	143	0.462	0.524	0.524	0.329	0.364	
+hifi	Q	depth	1	159	0.453	0.484	0.535	0.302	0.384	
+hifi	Q	depth	2	136	0.500	0.544	0.507	0.294	0.338	
+hifi	Q	depth	4	138	0.406	0.529	0.522	0.333	0.391	
+hifi	Q	distance to rep	0.005-0.015	274	0.595	0.518	0.573	0.314	0.350	
+hifi	Q	distance to rep	0.015-0.03	148	0.034	0.426	0.514	0.385	0.216	
+hifi	Q	distance to rep	<0.005	94	1.000	1.000	0.404	0.064	0.830	
+hifi	Q	distance to rep	>=0.03	60	0.000	0.000	0.500	0.533	0.117	
+hifi	Q	genes with a congener's segment	0.1-0.3	190	0.463	0.505	0.553	0.353	0.258	
+hifi	Q	genes with a congener's segment	<=0.1	152	0.441	0.454	0.513	0.289	0.467	
+hifi	Q	genes with a congener's segment	>0.3	82	0.366	0.622	0.524	0.232	0.024	
+hifi	Q	genes with a congener's segment	none	152	0.507	0.546	0.493	0.336	0.599	
+hifi	Q	regime	high	192	0.495	0.583	0.573	0.286	0.260	
+hifi	Q	regime	low	192	0.375	0.438	0.521	0.323	0.380	
+hifi	Q	regime	none	192	0.495	0.536	0.474	0.333	0.469	
+hifi	Q	rep-lineage sites it lacks that the alleles cover	all (>=0.9)	314	0.490	0.525	0.908	0.529	0.605	
+hifi	Q	rep-lineage sites it lacks that the alleles cover	no such site	2	1.000	1.000	0.000	0.000	1.000	
+hifi	Q	rep-lineage sites it lacks that the alleles cover	none (<0.1)	198	0.434	0.505	0.000	0.000	0.071	
+hifi	Q	rep-lineage sites it lacks that the alleles cover	partly	62	0.323	0.516	0.258	0.242	0.113	
+hifi	Q	role	Q_deep	101	0.218	0.198	0.475	0.436	0.307	
+hifi	Q	role	Q_ils	74	0.149	0.122	0.473	0.432	0.027	
+hifi	Q	role	Q_imp	136	0.382	0.559	0.551	0.309	0.059	
+hifi	Q	role	Q_lone	92	0.489	0.620	0.185	0.141	0.283	
+hifi	Q	role	Q_near	100	0.620	0.640	1.000	0.500	0.880	
+hifi	Q	role	Q_rep	73	0.959	1.000	0.356	0.000	0.795	
+hifi	Q	twin genus	0	288	0.319	0.611	0.524	0.267	0.372	
+hifi	Q	twin genus	1	288	0.590	0.427	0.521	0.361	0.368	
+hifi	N	depth	0.5	129	0.047	0.054	0.054	0.070	0.047	
+hifi	N	depth	1	135	0.044	0.030	0.052	0.067	0.037	
+hifi	N	depth	2	122	0.074	0.066	0.057	0.033	0.049	
+hifi	N	depth	4	127	0.039	0.055	0.039	0.031	0.071	
+hifi	N	genes with a segment of S or a congener	<=0.3	289	0.045	0.038	0.031	0.035	0.038	
+hifi	N	genes with a segment of S or a congener	>0.3	98	0.000	0.000	0.020	0.082	0.000	
+hifi	N	genes with a segment of S or a congener	none	126	0.103	0.119	0.119	0.063	0.119	
+hifi	N	regime	high	166	0.030	0.012	0.030	0.072	0.012	
+hifi	N	regime	low	168	0.048	0.054	0.024	0.012	0.054	
+hifi	N	regime	none	179	0.073	0.084	0.095	0.067	0.084	
+hifi	N	role	N_0	75	0.027	0.000	0.013	0.013	0.000	
+hifi	N	role	N_0.5	74	0.000	0.000	0.000	0.068	0.000	
+hifi	N	role	N_0.8	65	0.046	0.046	0.000	0.031	0.000	
+hifi	N	role	N_0.95	73	0.110	0.137	0.096	0.068	0.055	
+hifi	N	role	N_1	72	0.181	0.181	0.222	0.042	0.306	
+hifi	N	role	N_imp0.2	77	0.000	0.000	0.000	0.065	0.000	
+hifi	N	role	N_imp0.4	77	0.000	0.000	0.026	0.065	0.000	
+hifi	N	twin genus	0	259	0.004	0.073	0.008	0.073	0.039	
+hifi	N	twin genus	1	254	0.098	0.028	0.094	0.028	0.063	

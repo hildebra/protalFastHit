@@ -50,6 +50,7 @@
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
 #include "StrainAlleles.h"
+#include "ColumnWeights.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -857,6 +858,8 @@ namespace protal {
         congener_gaps::Table m_congener_gaps;  // empty: no copy's gap to its congeners known (CongenerGapsTable.h)
         foreign_rates::Table m_foreign_rates;  // empty: no copy's foreign reads known (ForeignRatesTable.h)
         strain_alleles::Table m_strain_alleles;  // empty: no copy's strain alleles known (StrainAlleles.h)
+        column_weights::Table m_column_weights;  // empty: no column's conservation known (ColumnWeights.h)
+        column_weights::Cache m_column_weights_cache;  // the columns of every copy a run touched, expanded
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
 
         int m_threads = 1;  // for reading reference.map
@@ -1204,7 +1207,27 @@ namespace protal {
         // (species_neighbours.tsv), for the ancestry features; empty without either table, or without a congener with the
         // gene whose copy pairs with the species'.
         std::shared_ptr<ancestry::Sites const> AncestrySitesOf(uint32_t taxid, uint32_t geneid) {
-            return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps);
+            auto const columns = ColumnWeightsOf(taxid, geneid);  // the family's consensus polarises a small genus's sites
+            return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps,
+                                        columns ? &columns->consensus : nullptr);
+        }
+
+        // Each gene copy's column weights (ColumnWeights.h: how conserved each column is in the species' family, and the
+        // family's consensus base), expanded along the copy once per run, for the "weights" features and the ancestry
+        // sites' polarisation; nullptr without the table (a database built before 2026-10-10, or --no_site_weights) or
+        // without a row for the copy.
+        std::shared_ptr<column_weights::Columns const> ColumnWeightsOf(uint32_t taxid, uint32_t geneid) {
+            return m_column_weights_cache.Get(taxid, geneid, *this, m_column_weights);
+        }
+
+        column_weights::Table const& GetColumnWeights() const {
+            return m_column_weights;
+        }
+
+        void SetColumnWeights(column_weights::Table table) {
+            m_column_weights = std::move(table);
+            m_column_weights_cache.Clear();
+            m_ancestry_sites.Clear();  // their polarisation comes from the table
         }
 
         // Each gene copy's gap to its congeners' copies (CongenerGapsTable.h), for the "gaps" features; empty unless set (a

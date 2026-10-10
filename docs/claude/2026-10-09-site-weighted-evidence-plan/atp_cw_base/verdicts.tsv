@@ -1,0 +1,24 @@
+hypothesis	prediction	outcome	verdict
+H1a table	stored alleles are the allele genomes' differences (>= 0.95 exact)	min share exact 1.000	PASS
+H3 sites	consensus sites = stem + representative's lineage (no recombination, >= 3 congeners): >= 0.98 of them, recall >= 0.95	share 0.930, recall 0.866	FAIL
+H3 fallback	with 2 congeners the nearest congener's own derived states enter (share in history clearly below 1)	mean share 0.502	PASS
+H7 novel reads	the allele scores draw some of a novel species' reads onto the target (it carries the alleles' ancestral base at the representative's own sites)	6386 of 116107 reads (0.055)	INFO
+H7 settling	the strains' reads the allele scores move go to their species (>= 0.9)	1.000 of 3285 moved	PASS
+H1b/H2b oracle	protal's ancestry, allele and polymorphic features equal the oracle's (error-free reads, every row within 1e-6)	worst share within 1e-6: 1.000	PASS
+H1 leak	an allele genome's own reads: allele_explained_share >= 0.95, polymorphic_novel_share <= 0.02	0.956, 0.000	PASS
+H2 calibration	planted A_a: ancestry_agreement = a (+-0.03)	worst |diff| 0.015	PASS
+H1 calibration	planted P_f: allele_explained_share rises with f (a step near 0.5: a read is explained once it shares more than half of the allele's edits in its span)	f 0: 0.000, f 0.25: 0.051, f 0.5: 0.286, f 0.75: 0.542, f 1: 0.705	PASS
+H4 ancestry, clean strata	the same with >= 3 congeners and no recombination (the consensus applies)	b 0: 0.999, b 0.5: 0.857	INFO
+H5 fixed sites	deep strains with their representative-lineage sites covered (>= 0.8) against late novel species (b 0.8, 0.95), genera with alleles: ancestry_fixed_gain adds to ancestry_agreement (CI above 0)	AUC 0.653 -> 0.885, gain 0.232 [0.154, 0.312]; ancestry_fixed_agreement alone 0.839, the true fixed-site agreement alone 0.839 (160 Q, 297 N rows)	PASS
+H4 ancestry	ancestry_agreement separates deep strains from novel species that left the stem early (b <= 0.5): AUC >= 0.9	b 0: 0.906, b 0.5: 0.815	FAIL
+H6 confound	allele_explained_share favours strains with a stored relative (Q_near) over late twins, but not lone strains	Q_near 0.909, Q_lone 0.319	PASS
+H9 decoy	the decoy (a tip of the deep strains' clade labelled a species) against Q_deep: no feature separates (AUC 0.5 +- 0.1)	largest |AUC - 0.5|: top_identity 0.472 (310 Q, 200 decoy rows)	PASS
+H9b crown lineage	N_1, a novel lineage leaving at S's crown, against Q_deep: the ancestry features cannot tell them apart; the allele features can where Q_deep shares its side of the crown with allele genomes	ancestry_agreement 0.529, allele_explained_share 0.640	INFO
+H4/H5 gain	the three groups add separation over identity and depth (pe, CI above 0)	0.116 [0.069, 0.164]	PASS
+H5 ceiling	the true fixed-site agreement alone (the oracle's) adds separation; compare with '+all three' for the gap	0.000 [-0.006, 0.006]	INFO
+H5 ceiling, genera with alleles	the true fixed-site agreement (the oracle's) over identity and depth, where the fixed sites exist; compare with '+all three'	0.074 [0.047, 0.096]	INFO
+H8 calls pe target rows	the default set's model separates better than base (AUC gain, 95% CI by genus above 0)	0.063 [0.035, 0.093]	PASS
+H8 calls pe hard	the default set's model separates better than base (AUC gain, 95% CI by genus above 0)	0.132 [0.066, 0.197]	PASS
+H8 calls hifi target rows	the default set's model separates better than base (AUC gain, 95% CI by genus above 0)	0.056 [0.034, 0.081]	PASS
+H8 calls hifi hard	the default set's model separates better than base (AUC gain, 95% CI by genus above 0)	0.148 [0.070, 0.219]	PASS
+H9 shuffled	shuffled alleles cost the default model separation (the alleles carry information)	AUC 0.921 -> 0.830	PASS
