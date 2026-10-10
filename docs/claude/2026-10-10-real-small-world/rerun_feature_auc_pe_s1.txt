@@ -1,0 +1,15 @@
+== pe: real strains 1681 (hard 110), absent beside a held-out congener 2782 (hard 204); AUC of strains over absent
+                     feature known strains known absent  AUC all  AUC hard
+          ancestry_agreement          0.98         0.94    0.926     0.392
+     ancestry_congener_share          0.98         0.94    0.101     0.600
+   ancestry_sites_per_record          1.00         1.00    0.683     0.397
+         ancestry_fixed_gain          1.00         1.00    0.585     0.546
+    ancestry_fixed_agreement          1.00         1.00    0.761     0.572
+    conserved_mismatch_ratio          1.00         1.00    0.840     0.445
+     conserved_mismatch_rate          1.00         1.00    0.500     0.500
+ ancestry_agreement_weighted          0.97         0.93    0.923     0.392
+         nonsynonymous_share          1.00         1.00    0.849     0.442
+nonsynonymous_conserved_rate          1.00         1.00    0.500     0.500
+      allele_explained_share          1.00         1.00    0.679     0.576
+      column_weight_coverage          1.00         1.00    0.442     0.534
+                    identity          1.00         1.00    0.977     0.373

@@ -116,10 +116,45 @@ sites (shared by the species' other strains) separate cleanly.
 ## 4. What to do next
 
 1. **Define the ancestry sites from the species' known genomes**, not its representative alone: a site only where the
-   species' alleles (the other genomes of the full reference) share the derived base, or each site weighted by the
-   share of the species' genomes carrying it. The agreement then measures the species, not one genome. Test it on
-   this world (three builds, ~45 min of 4 cores) before r226.
+   species' alleles (the other genomes of the full reference) share the derived base. The agreement then measures the
+   species, not one genome. Done in `371ac84` and tested on this world the same evening (section 5): the feature
+   improves a little, the calls do not change.
 2. **Judge the column weights on whole families** (r226, or this world with every genus of the six families): here
    no column is conserved.
 3. **Train on more real strains:** 23% of the simulated species are real strains here (35% in-silico), and the
    ancestry features' gain at r226 v22 came through in-silico strains, which keep the representative's sites.
+
+## 5. Follow-up: the sites the species' genomes share (`371ac84`)
+
+The same evening the ancestry features were changed to count only the sites the species' known genomes share
+(`AncestrySites.h SharedBySpecies`: a site goes where one of the copy's strain alleles carries another base, or an
+indel near; a copy without alleles keeps all its sites; the fixed-site features keep all the sites). The world was
+built again at `371ac84` with the same three seeds ([run_all.sh](run_all.sh) `sp_`: WSL `~/realworld_sp_s1..3`), so the
+samples, hold-outs and candidate taxa are the first run's and only the features differ; [compare_rerun.sh](compare_rerun.sh)
+pairs the rerun's full models with the first run's ([rerun_vs_before_pe.txt](rerun_vs_before_pe.txt),
+[rerun_vs_before_pb.txt](rerun_vs_before_pb.txt)), refits the variants ([rerun_variants_pe.txt](rerun_variants_pe.txt),
+[rerun_variants_pb.txt](rerun_variants_pb.txt)) and takes each feature alone ([rerun_feature_auc_pe_s1.txt](rerun_feature_auc_pe_s1.txt),
+`_s2`, `_s3`).
+
+| species held out | pe F1 (FP / FN) | pb F1 (FP / FN) |
+|---|---|---|
+| first run, the representative's sites | 0.9667 (554 / 606) | 0.9757 (61 / 90) |
+| rerun, the species' shared sites | 0.9665 (567 / 603) | 0.9751 (63 / 92) |
+| paired difference | −0.0003 [−0.0010, +0.0005] | −0.0007 [−0.0020, +0.0008] |
+
+- **The calls do not change** beyond noise; by class the counts move by a few (pe FP beside held-out congeners 452 →
+  462, FN of real strains with alleles 160 → 160).
+- **The feature improves a little and is still inverted on the hard rows:** `ancestry_agreement` all rows 0.920 /
+  0.915 / 0.915 → 0.926 / 0.927 / 0.919, hard rows 0.342 / 0.412 / 0.434 → 0.392 / 0.467 / 0.476 (seeds 1-3).
+- **Within the rerun the groups still add nothing:** without the ancestry features +0.0002 [−0.0005, +0.0008], without
+  all three +0.0002 [−0.0007, +0.0011] (pe, species held out).
+- **Why so little:** the filter needs the species' other genomes as alleles, and here 40 species of the training
+  database have any (4,138 alleles; the other genomes are split between the alleles and the simulation, and most
+  species have one genome). For the rest the sites are the representative's as before. A strain of a species without
+  alleles, or one that diverged where no allele genome covers, still carries the congeners' base at the
+  representative's private mutations; and the hard absent rows are close novel congeners, which share most of the
+  species' lineage whatever the sites.
+
+So, in this world, neither the representative's nor the species' shared sites make the ancestry features separate
+congeners where the models need it. The fixed sites and the alleles carry what little there is (hard-row AUC 0.50-0.69).
+Keeping the change costs nothing (the calls are the same) and makes the feature mean what it says where alleles exist.
