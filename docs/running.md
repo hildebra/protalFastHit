@@ -403,7 +403,11 @@ between its own species' reference and a congener's ranks its own species below 
 Since 2026-10-08, with a database that has strain alleles (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)),
 each candidate alignment of a short read gets a site shift against its species' known alleles:
 - the read's differences from the reference that an allele has count as matches;
-- a difference at a site where the species' alleles vary, but none has the read's base, counts as half a difference.
+- a difference at a site where the species' alleles vary, but none has the read's base, counts as half a difference;
+- since 2026-10-10, with column weights in the database (`column_weights.tsv`,
+  [features.md](features.md#the-columns-conservation-weights-2026-10-10)), a remaining substitution at a column the
+  family's genera change freely (below 3 nats of among-genus conservation) counts half a difference; a copy without
+  alleles gets this part of the shift too. `--no_site_weights` turns it off.
 
 Since 2026-10-09 the shifts decide only the reads protal is unsure about: a candidate of another species within 3
 mismatches of the best by the references alone. Then a read of a known strain scores on its species as on the strain's

@@ -539,6 +539,14 @@ All five are -1 without the table (a database built before 2026-10-10, `--column
 `--no_site_weights`). The training table also has `column_weight_coverage`, the share of the aligned bases at columns
 with an estimate, in no group: it says whether the species' family has the weights at all.
 
+**In the alignment scores.** The same weights enter the site shift of the reads protal is unsure about
+([running.md](running.md#strain-alleles-in-the-alignment-scores)): of a candidate's differences that no allele
+explains and no polymorphic site covers, a substitution at a column conserved among the genus references at 3 nats
+or more counts in full, one below that half a difference (never less: the count of differences must still order the
+candidates, or the unsure reads of a family whose every column is variable become ties). A read unsure between a
+species and its twin is then settled by the columns that reliably differ. `--no_allele_scores` or
+`--no_site_weights` turns it off.
+
 ## The species' priors (`priors`, 0.7.5, opt-in)
 
 Per-species constants from GTDB, written by the converter into `species_priors.tsv` (−1 unknown).

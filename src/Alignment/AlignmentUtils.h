@@ -162,7 +162,8 @@ namespace protal {
         }
 
         // site_shift moves differences the species' alleles have to matches (each counted as a mismatch would be, an indel
-        // too) and takes half of one off for a difference at a polymorphic site: it counts half differences.
+        // too), takes half of one off for a difference at a polymorphic site, and half or all of one off for a
+        // substitution at a column the family's genera change freely (StrainAlleles.h ShiftOf): it counts half differences.
         int Score(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) const {
             return (matches * match_score) - (mismatch_penalty * mismatches + gap_open_penalty * (insertion_blocks + deletion_blocks) + gap_extend_penalty * (insertions + deletions)) -
                    (match_score + mismatch_penalty) * site_shift / 2;

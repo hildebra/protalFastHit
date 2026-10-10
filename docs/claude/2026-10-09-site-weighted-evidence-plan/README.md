@@ -276,3 +276,30 @@ with its error reads' `conserved_mismatch_ratio` the first thing to look at.
 binary (its build line: 237 family-gene rows of 3 species), pipeline 6 (a GTDB-like build with the weights), scripts
 41 + 8, ancestry world 19 (with the quick end-to-end run and the oracle's equality): all OK on WSL, 4 cores.
 
+Committed as `f566cd0` (my hunks only, from a temporary index: another session's index-alleles work shares the
+checkout; the committed tree builds and passes its unit tests on its own).
+
+### Phase 3: the weighted site shift in the alignment (2026-10-10, after the commit)
+
+`StrainAlleles.h ShiftOf` takes the copy's expanded columns (`column_weights::Columns`): of a candidate's
+differences that no allele explains and no polymorphic site covers, a substitution at a column with an among code
+below `kDiscountNone` (6, 3 nats, ~95% of the genus references agree) loses half a difference, one at `kDiscountFull`
+(2, 1 nat) or below the whole difference (`DiscountHalves`, `SiteShift::discounted`). The alignment handler
+(`AlignmentStrategy.h ScoreAlleles`) looks a copy's columns up once per handler and computes the shift for copies
+without alleles too; `SettleBySites` is unchanged, so only the reads protal is unsure about (another species'
+candidate within 3 mismatches) take it, and `--no_allele_scores` or `--no_site_weights` turns it off. Documented in
+`running.md` and `features.md`; tests: the shift with columns in `StrainAlleles.ThePolymorphicSitesOfACopy`, and
+`ColumnWeights.TheShiftDiscountsDifferencesAtVariableColumns` (two species four differences from a read each, the
+one whose differences sit at hypervariable columns wins only with the table).
+
+**The first version was wrong, and the rates worlds showed it at once**
+([atp_shift_full_discount/](atp_shift_full_discount/summary.md)): it took a whole difference off at a hypervariable
+column (among code 2 or less) and half at a middling one. In these worlds every column is below 3 nats, so every
+candidate's unexplained differences were discounted alike and mostly in full, the candidates of an unsure read
+became ties, and the strains' reads the shifts moved went to their own species at 0.505 instead of 0.999 (H7
+settling FAIL); strain reads on the target fell from 0.946 to 0.934 without a twin and from 0.930 to 0.896 with one,
+the novel species' reads from 0.866 to 0.811; the paired-end default model fell from 0.925 to 0.914 on the target
+rows (hard stratum 0.798 → 0.778), HiFi unchanged (no shift for long reads). The lesson is in the code's comment:
+the discount can never exceed half a difference, so that the count of differences still orders the candidates and
+the columns' reliability decides only among those within the unsure margin.
+

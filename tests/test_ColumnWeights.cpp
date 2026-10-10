@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "Core/AlignmentStrategy.h"
 #include "Profiling/Profiler.h"
 #include "SequenceUtils/AncestrySites.h"
 #include "SequenceUtils/ColumnWeights.h"
@@ -345,6 +346,75 @@ TEST(ColumnWeights, TheFeaturesComeFromTheRecords) {
     auto const empty = Features(Profile(ref, other).GetTaxa().at(2));
     EXPECT_EQ(empty.at("conserved_mismatch_ratio"), 0.0);
     EXPECT_EQ(empty.at("column_weight_coverage"), 0.0);
+}
+
+// The weighted site shift in the alignment: a read that fits two species alike by the references alone (four
+// differences each) is settled for the species whose differences lie at columns the family's genera change freely
+// (among code 1: each half a difference off), against the one whose differences lie at conserved columns (code 9).
+// Without the table neither candidate shifts; a copy without strain alleles gets the discount alone.
+TEST(ColumnWeights, TheShiftDiscountsDifferencesAtVariableColumns) {
+    std::mt19937 rng(41);
+    std::string const base = CodingSequence(200, rng);  // 600 bases
+    auto substituted = [&base](std::vector<size_t> const& positions) {
+        std::string s = base;
+        for (size_t const p : positions) s[p] = Other(s[p]);
+        return s;
+    };
+    std::string const rep1 = substituted({ 105, 125, 145, 165 }), rep2 = substituted({ 110, 130, 150, 170 });
+    test::LoadedReference ref({ { 1, { rep1 } }, { 2, { rep2 } } }, "weighted shift");
+    cw::Family f1, f2;
+    f1.family = 10;
+    f2.family = 20;
+    f1.gene = f2.gene = 1;
+    f1.reference = 1;
+    f2.reference = 2;
+    f1.genera = f2.genera = 5;
+    for (auto* f : { &f1, &f2 }) {
+        f->within.assign(600, 9);
+        f->among.assign(600, 9);
+        f->aa.assign(200, 9);
+        f->consensus.assign(600, cw::kNoBase);
+    }
+    for (size_t const p : { 105, 125, 145, 165 }) f1.among[p] = 1;  // taxon 1 differs from the read where the family drifts
+    auto const table = cw::Table::FromRows({ f1, f2 }, { { 1, 1, 0, { cw::Run{ 0, 0, 600 } } }, { 2, 1, 1, { cw::Run{ 0, 0, 600 } } } });
+    std::string const read = base.substr(100, 150);
+    std::string const rev = KmerUtils::ReverseComplement(read);
+    WFA2Wrapper2 aligner(4, 6, 2, 1000);
+    std::string id = "r";
+    for (bool weights : { false, true }) {
+        SCOPED_TRACE(weights);
+        if (weights) ref.loader->SetColumnWeights(table);
+        SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
+        handler.SetAnchoredAlignment(false);
+        handler.SetAlleleScores(true);
+        AlignmentAnchorList anchors;
+        for (uint32_t t : { 2u, 1u }) {
+            ChainAlignmentAnchor anchor(t, 1, true);
+            anchor.chain.emplace_back(100u, static_cast<uint16_t>(0), static_cast<uint16_t>(20));
+            anchor.total_length = 100;
+            anchors.push_back(anchor);
+        }
+        AlignmentResultList results;
+        handler(anchors, results, read, rev, 3, id);
+        ASSERT_EQ(results.size(), 2u);
+        auto const& on1 = results.front().Taxid() == 1 ? results.front() : results.back();
+        auto const& on2 = results.front().Taxid() == 2 ? results.front() : results.back();
+        EXPECT_EQ(on1.GetAlignmentInfo().mismatches, 4);
+        EXPECT_EQ(on2.GetAlignmentInfo().mismatches, 4);
+        EXPECT_EQ(handler.m_unsure_reads, 1u);  // a tie by the references: unsure either way
+        if (!weights) {
+            EXPECT_EQ(on1.GetAlignmentInfo().site_shift, 0);
+            EXPECT_EQ(on2.GetAlignmentInfo().site_shift, 0);
+            EXPECT_EQ(handler.m_settled_reads, 0u);
+            continue;
+        }
+        EXPECT_EQ(on1.GetAlignmentInfo().site_shift, -4);  // four half differences off
+        EXPECT_EQ(on2.GetAlignmentInfo().site_shift, 0);   // conserved columns: nothing off
+        EXPECT_EQ(results.front().Taxid(), 1u);
+        EXPECT_GT(on1.AlignmentScore(), on2.AlignmentScore());
+        EXPECT_EQ(handler.m_allele_scored, 0u);  // no strain alleles: the weights alone
+        EXPECT_EQ(handler.m_allele_shifted, 1u);
+    }
 }
 
 // The family's consensus polarises the sites of a species with fewer than three congeners: where the congener's base

@@ -20,6 +20,8 @@
 // the ancestry report takes its alleles from the same genomes (docs/claude/2026-10-08-r226-v18, section 5).
 #pragma once
 
+#include "ColumnWeights.h"
+
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
@@ -632,35 +634,61 @@ namespace protal::strain_alleles {
     // the read's differences that allele has count as matches, the allele's own edits the read lacks as differences);
     // of the read's differences that allele leaves, those another of the copy's alleles has (a known variant: a match
     // too, as strains recombine) and those at a polymorphic site where no allele has the read's base or indel (the
-    // species varies there: half a difference). Half() is the shift in half differences, 0 or below.
+    // species varies there: half a difference). And, with the copy's column weights (ColumnWeights.h, `columns`;
+    // 2026-10-10), the substitutions left at columns the family's genera change freely: a difference at a column
+    // conserved among the genus references (among code kDiscountNone or more) counts in full, at a column below that
+    // half. Never less than half: a first version took a whole difference off at a hypervariable column, and where
+    // every column is variable (small families) every candidate's differences then vanished alike, the unsure reads
+    // became ties and half of a strain's moved reads went to congeners (docs/claude/2026-10-09-site-weighted-
+    // evidence-plan, section 9). At half, the count of differences still orders the candidates, and the columns'
+    // reliability decides only among candidates within the unsure margin. Half() is the shift in half differences,
+    // 0 or below.
+    inline constexpr uint8_t kDiscountNone = 6;  // 3 nats, 95% conserved among the genus references: a full difference
+
     struct SiteShift {
         int best = 0;
         uint32_t known = 0;
         uint32_t variable = 0;
-        int Half() const { return 2 * best - 2 * static_cast<int>(known) - static_cast<int>(variable); }
+        uint32_t discounted = 0;  // half differences taken off for the columns' weights
+        int Half() const { return 2 * best - 2 * static_cast<int>(known) - static_cast<int>(variable) - static_cast<int>(discounted); }
     };
 
-    // `poly` and `used` are the caller's scratch.
+    // The half differences a substitution at a column with among code `code` loses: 1 below kDiscountNone, else 0; 0
+    // without an estimate (kNoCode).
+    inline uint32_t DiscountHalves(uint8_t code) {
+        return code == column_weights::kNoCode || code >= kDiscountNone ? 0 : 1;
+    }
+
+    // `poly` and `used` are the caller's scratch; `columns` the copy's expanded column weights, or nullptr. A copy
+    // without alleles has no allele part; its substitutions are still discounted by their columns.
     inline SiteShift ShiftOf(Table const& table, uint32_t taxid, uint32_t gene, ReadDiffs const& read, Polymorphism& poly,
-                             std::vector<uint8_t>& used) {
+                             std::vector<uint8_t>& used, column_weights::Columns const* columns = nullptr) {
         SiteShift s;
         auto const alleles = table.Of(taxid, gene);
-        if (alleles.empty() || read.diffs.empty()) return s;
-        auto const best = BestAllele(table, taxid, gene, read);
-        s.best = best.shift;
-        if (best.allele >= 0) Explain(table.Get(alleles[static_cast<size_t>(best.allele)]), read, &used);
-        else used.assign(read.diffs.size(), 0);
+        if (read.diffs.empty() || (alleles.empty() && columns == nullptr)) return s;
+        if (alleles.empty()) {
+            used.assign(read.diffs.size(), 0);
+        } else {
+            auto const best = BestAllele(table, taxid, gene, read);
+            s.best = best.shift;
+            if (best.allele >= 0) Explain(table.Get(alleles[static_cast<size_t>(best.allele)]), read, &used);
+            else used.assign(read.diffs.size(), 0);
+        }
         poly.Set(table, alleles, read.begin, read.end);
         for (size_t i = 0; i < read.diffs.size(); i++) {
             if (used[i] || read.other_base[i]) continue;
             auto const& r = read.diffs[i];
             if (r.GetKind() == kSubstitution) {
                 auto const* site = poly.Find(r.pos);
-                if (site == nullptr) continue;
+                if (site == nullptr) {
+                    if (columns != nullptr && r.pos < columns->among.size()) s.discounted += DiscountHalves(columns->among[r.pos]);
+                    continue;
+                }
                 if (site->bases >> r.Base() & 1) s.known++;
                 else s.variable++;
                 continue;
             }
+            if (alleles.empty()) continue;
             bool known = false;
             for (auto const& stored : alleles) {
                 auto const allele = table.Get(stored);

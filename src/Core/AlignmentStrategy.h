@@ -132,6 +132,8 @@ namespace protal {
         strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
         strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
         std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
+        // The column weights of every copy this handler scored (looked up: nullptr for a copy without a row).
+        std::unordered_map<uint64_t, std::pair<bool, std::shared_ptr<column_weights::Columns const>>> m_columns;
         AlignmentScreen m_screen;
         IndelBound m_indel_bound;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
@@ -891,15 +893,28 @@ namespace protal {
         // An alignment's site shift against its species' alleles (StrainAlleles.h ShiftOf): `info` of `anchor`, the read as it
         // was aligned. It waits in site_shift_pending (0 or below) until SettleBySites sees the read's other candidates; a
         // copy without alleles has none.
+        // With the database's column weights (ColumnWeights.h, 2026-10-10) the shift also discounts the differences left at
+        // the columns the family's genera change freely (ShiftOf's `columns`), on a copy without alleles too; the copy's
+        // columns come from the loader's cache once per handler (m_columns).
         template<typename A>
         void ScoreAlleles(A const& anchor, AlignmentInfo& info, std::string const& read) {
             auto const& table = m_genome_loader.GetStrainAlleles();
-            if (table.Empty()) return;
             uint32_t const taxid = static_cast<uint32_t>(anchor.taxid), gene = static_cast<uint32_t>(anchor.geneid);
-            if (table.Of(taxid, gene).empty()) return;
+            bool const alleles = !table.Empty() && !table.Of(taxid, gene).empty();
+            column_weights::Columns const* columns = nullptr;
+            if (!m_genome_loader.GetColumnWeights().Empty()) {
+                if (m_columns.size() >= column_weights::kMaxCached) m_columns.clear();
+                auto& cached = m_columns[(static_cast<uint64_t>(taxid) << 32) | gene];
+                if (!cached.first) {
+                    cached.first = true;
+                    cached.second = m_genome_loader.ColumnWeightsOf(taxid, gene);
+                }
+                columns = cached.second.get();
+            }
+            if (!alleles && columns == nullptr) return;
             strain_alleles::FromColumns(info.cigar, read, static_cast<uint32_t>(std::max(info.gene_alignment_start, 0)), m_read_diffs);
-            info.site_shift_pending = strain_alleles::ShiftOf(table, taxid, gene, m_read_diffs, m_polymorphism, m_explained).Half();
-            m_allele_scored++;
+            info.site_shift_pending = strain_alleles::ShiftOf(table, taxid, gene, m_read_diffs, m_polymorphism, m_explained, columns).Half();
+            m_allele_scored += alleles;
             m_allele_shifted += info.site_shift_pending < 0;
         }
 

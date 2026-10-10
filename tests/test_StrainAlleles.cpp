@@ -411,6 +411,34 @@ TEST(StrainAlleles, ThePolymorphicSitesOfACopy) {
     EXPECT_EQ(s.Half(), -2);  // A2's deletion, within its tolerance: explained
     // A substitution where the species is fixed and no allele covers: nothing (copy 4, 2 has no alleles).
     EXPECT_EQ(sa::ShiftOf(table, 4, 2, diffs, poly, used).Half(), 0);
+    // With column weights (2026-10-10): the read on [100, 250) with G at 150 (fixed, no allele) and C at 110 (A2's).
+    // At 150 a variable column takes half the difference off, a conserved one nothing; the explained 110 and the
+    // polymorphic 200 are not discounted. A copy without alleles gets the discount alone.
+    seq[100] = 'A';
+    ASSERT_TRUE(sa::FromSamRecord("10=1X39=1X49=1X49=", 101, seq, diffs));
+    column_weights::Columns columns;
+    columns.within.assign(400, 9);
+    columns.among.assign(400, 9);
+    columns.aa.assign(400, 9);
+    columns.consensus.assign(400, 0);
+    EXPECT_EQ(sa::ShiftOf(table, 4, 1, diffs, poly, used, &columns).Half(), -3);
+    columns.among[150] = 4;  // 2 nats: half a difference off
+    EXPECT_EQ(sa::ShiftOf(table, 4, 1, diffs, poly, used, &columns).Half(), -4);
+    columns.among[150] = 1;  // 0.5 nats: still half, never a whole difference
+    columns.among[110] = 1;  // explained by A2: no discount on top
+    columns.among[200] = 1;  // a polymorphic site: its half, no discount on top
+    EXPECT_EQ(sa::ShiftOf(table, 4, 1, diffs, poly, used, &columns).Half(), -4);
+    columns.among[150] = column_weights::kNoCode;  // no estimate: no discount
+    EXPECT_EQ(sa::ShiftOf(table, 4, 1, diffs, poly, used, &columns).Half(), -3);
+    columns.among[150] = 2;
+    auto const alone = sa::ShiftOf(table, 4, 2, diffs, poly, used, &columns);  // copy 4, 2: no alleles, no sites
+    EXPECT_EQ(alone.best, 0);
+    EXPECT_EQ(alone.discounted, 3u);  // all three substitutions at variable columns (110, 150, 200), half each
+    EXPECT_EQ(alone.Half(), -3);
+    EXPECT_EQ(sa::DiscountHalves(6), 0u);
+    EXPECT_EQ(sa::DiscountHalves(3), 1u);
+    EXPECT_EQ(sa::DiscountHalves(1), 1u);
+    EXPECT_EQ(sa::DiscountHalves(column_weights::kNoCode), 0u);
 }
 
 // A read of a known strain of taxon 1 (its allele: the gene before taxon 1's own six differences) fits taxon 2 better by
