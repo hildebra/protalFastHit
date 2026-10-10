@@ -106,8 +106,9 @@ namespace protal {
         options.add_options("Alignment")
                 ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
                 ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling).", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ADAPTIVE_CANDIDATES)))
-                ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and the site shift of a read protal is unsure about (--no_allele_scores) no longer discounts its differences at the columns the family's genera change freely. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
-                ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene, and, with column weights (column_weights.tsv), discounts its differences at the columns the family's genera change freely; the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
+                ("weighted_site_shift", "Short reads, with column weights in the database (column_weights.tsv): the site shift of a read protal is unsure about (--no_allele_scores) also takes half a difference off for each of the candidate's substitutions at a column the family's genera change freely (below 3 nats of conservation among the genus references; StrainAlleles.h ShiftOf), so that the columns that reliably differ settle the read. Off by default: on simulated worlds whose every column is variable it cost 0.006 of F1 (docs/claude/2026-10-09-site-weighted-evidence-plan, section 9); to be measured on a GTDB database, whose families have conserved columns.")
+                ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and --weighted_site_shift has nothing to weigh by. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
+                ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
@@ -240,6 +241,7 @@ namespace protal {
         double allele_genome_share = 1.0;
         size_t column_weights = 10;
         bool no_site_weights = false;
+        bool weighted_site_shift = false;
         double index_alleles = 0.01;
         bool no_phasing = false;
         std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
@@ -373,6 +375,7 @@ namespace protal {
         double m_index_alleles = 0.01;  // --index_alleles (--build): the least divergence of an allele whose k-mers are indexed
         size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
+        bool m_weighted_site_shift = false;  // --weighted_site_shift: the shift discounts differences at variable columns
         bool m_no_phasing = false;
         std::string m_strain_spill;  // --strain_spill
         bool m_fastalign = false;
@@ -554,6 +557,7 @@ namespace protal {
                 m_index_alleles(d.index_alleles),
                 m_column_weights(d.column_weights),
                 m_no_site_weights(d.no_site_weights),
+                m_weighted_site_shift(d.weighted_site_shift),
                 m_no_phasing(d.no_phasing),
                 m_preload_genomes(d.preload_genomes),
                 m_show_help(d.show_help),
@@ -961,6 +965,11 @@ namespace protal {
         // --no_site_weights: the database's column weights left unread.
         bool NoSiteWeights() const {
             return m_no_site_weights;
+        }
+
+        // --weighted_site_shift: the site shift discounts a candidate's differences at variable columns (StrainAlleles.h).
+        bool WeightedSiteShift() const {
+            return m_weighted_site_shift;
         }
 
         // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).

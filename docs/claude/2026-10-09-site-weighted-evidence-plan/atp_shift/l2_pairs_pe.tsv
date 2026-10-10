@@ -1,0 +1,37 @@
+pair	stratum	Q	N	identity	lu_per_kb	ancestry_agreement	allele_explained_share	polymorphic_known_share	ancestry_fixed_agreement	fixed_agreement_approx	oracle_fixed_agreement
+Q_deep vs N_0	congeners 2	157	84	0.783	0.852	0.977	0.724	0.669	0.781	0.958	0.781
+Q_deep vs N_0	congeners 6	150	91	0.845	0.897	0.956	0.662	0.646	0.737	0.958	0.731
+Q_deep vs N_0	no twin	162	92	0.972	0.959	0.985	0.759	0.684	0.799	0.988	0.796
+Q_deep vs N_0	twin	145	83	0.916	0.840	0.948	0.635	0.627	0.723	0.929	0.720
+Q_deep vs N_0	no allele genomes	79	59	0.828	0.877	0.973	0.500	0.500	0.500	0.973	0.500
+Q_deep vs N_0	allele genomes	228	116	0.817	0.879	0.965	0.807	0.740	0.930	0.965	0.930
+Q_deep vs N_0	6 congeners, allele genomes, no recombination	37	20	0.815	0.823	0.976	0.768	0.798	0.945	0.995	0.946
+Q_deep vs N_0	recombination none	105	58	0.822	0.856	0.988	0.689	0.700	0.766	0.974	0.763
+Q_deep vs N_0	recombination high	102	57	0.808	0.854	0.940	0.718	0.643	0.773	0.963	0.766
+Q_deep vs N_0.5	congeners 2	157	95	0.677	0.746	0.847	0.748	0.688	0.740	0.903	0.739
+Q_deep vs N_0.5	congeners 6	150	99	0.704	0.785	0.878	0.637	0.631	0.694	0.877	0.692
+Q_deep vs N_0.5	no twin	162	100	0.937	0.926	0.911	0.729	0.671	0.802	0.917	0.801
+Q_deep vs N_0.5	twin	145	94	0.694	0.658	0.821	0.667	0.640	0.649	0.843	0.648
+Q_deep vs N_0.5	no allele genomes	79	69	0.707	0.756	0.855	0.500	0.500	0.500	0.855	0.500
+Q_deep vs N_0.5	allele genomes	228	125	0.687	0.774	0.873	0.804	0.728	0.845	0.922	0.844
+Q_deep vs N_0.5	6 congeners, allele genomes, no recombination	37	21	0.641	0.694	0.864	0.689	0.731	0.896	0.954	0.893
+Q_deep vs N_0.5	recombination none	105	63	0.719	0.781	0.886	0.675	0.684	0.747	0.920	0.742
+Q_deep vs N_0.5	recombination high	102	67	0.705	0.789	0.891	0.724	0.649	0.716	0.937	0.716
+Q_deep vs N_0.8	congeners 2	157	108	0.609	0.680	0.679	0.685	0.622	0.689	0.755	0.688
+Q_deep vs N_0.8	congeners 6	150	104	0.599	0.650	0.686	0.598	0.606	0.615	0.688	0.614
+Q_deep vs N_0.8	no twin	162	111	0.714	0.740	0.686	0.674	0.638	0.719	0.753	0.719
+Q_deep vs N_0.8	twin	145	101	0.632	0.605	0.678	0.619	0.587	0.606	0.684	0.606
+Q_deep vs N_0.8	no allele genomes	79	66	0.616	0.663	0.690	0.500	0.500	0.500	0.690	0.500
+Q_deep vs N_0.8	allele genomes	228	146	0.601	0.669	0.687	0.735	0.678	0.742	0.776	0.743
+Q_deep vs N_0.8	6 congeners, allele genomes, no recombination	37	24	0.557	0.606	0.584	0.666	0.761	0.653	0.709	0.660
+Q_deep vs N_0.8	recombination none	105	72	0.576	0.593	0.676	0.647	0.663	0.647	0.742	0.648
+Q_deep vs N_0.8	recombination high	102	74	0.615	0.736	0.713	0.651	0.597	0.671	0.766	0.672
+Q_deep vs N_0.95	congeners 2	157	105	0.540	0.528	0.591	0.689	0.657	0.618	0.665	0.618
+Q_deep vs N_0.95	congeners 6	150	112	0.552	0.575	0.581	0.598	0.625	0.597	0.612	0.597
+Q_deep vs N_0.95	no twin	162	114	0.565	0.588	0.585	0.654	0.653	0.659	0.663	0.659
+Q_deep vs N_0.95	twin	145	103	0.566	0.503	0.585	0.630	0.620	0.581	0.626	0.581
+Q_deep vs N_0.95	no allele genomes	79	72	0.567	0.550	0.605	0.500	0.500	0.500	0.605	0.500
+Q_deep vs N_0.95	allele genomes	228	145	0.551	0.559	0.586	0.723	0.710	0.644	0.666	0.644
+Q_deep vs N_0.95	6 congeners, allele genomes, no recombination	37	25	0.559	0.652	0.579	0.672	0.788	0.591	0.583	0.582
+Q_deep vs N_0.95	recombination none	105	70	0.560	0.559	0.609	0.657	0.691	0.614	0.650	0.613
+Q_deep vs N_0.95	recombination high	102	72	0.558	0.599	0.625	0.657	0.633	0.644	0.713	0.645

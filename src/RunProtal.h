@@ -760,6 +760,7 @@ namespace protal {
                 alignment_handler.SetIndelBound(indel_bound);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAlleleScores(!options.NoAlleleScores());
+                if (!IsLongReadType(read_type)) alignment_handler.SetWeightedShift(options.WeightedSiteShift());
 
 
 

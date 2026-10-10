@@ -129,6 +129,7 @@ namespace protal {
         std::shared_ptr<std::vector<uint32_t> const> m_genera;
         // Strain alleles (SetAlleleScores): each candidate's site shift against its species' alleles (AlignmentInfo::site_shift).
         bool m_allele_scores = false;
+        bool m_weighted_shift = false;  // SetWeightedShift
         strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
         strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
         std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
@@ -299,6 +300,12 @@ namespace protal {
         // Nothing without the table.
         void SetAlleleScores(bool on) {
             m_allele_scores = on;
+        }
+
+        // --weighted_site_shift: the shift also discounts a candidate's differences at the columns the family's genera
+        // change freely (ScoreAlleles, with the GenomeLoader's column_weights.tsv). Off by default (StrainAlleles.h ShiftOf).
+        void SetWeightedShift(bool on) {
+            m_weighted_shift = on;
         }
 
         void SetAnchoredAlignment(bool anchored) {
@@ -902,7 +909,7 @@ namespace protal {
             uint32_t const taxid = static_cast<uint32_t>(anchor.taxid), gene = static_cast<uint32_t>(anchor.geneid);
             bool const alleles = !table.Empty() && !table.Of(taxid, gene).empty();
             column_weights::Columns const* columns = nullptr;
-            if (!m_genome_loader.GetColumnWeights().Empty()) {
+            if (m_weighted_shift && !m_genome_loader.GetColumnWeights().Empty()) {
                 if (m_columns.size() >= column_weights::kMaxCached) m_columns.clear();
                 auto& cached = m_columns[(static_cast<uint64_t>(taxid) << 32) | gene];
                 if (!cached.first) {

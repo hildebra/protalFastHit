@@ -303,3 +303,13 @@ rows (hard stratum 0.798 → 0.778), HiFi unchanged (no shift for long reads). T
 the discount can never exceed half a difference, so that the count of differences still orders the candidates and
 the columns' reliability decides only among those within the unsure margin.
 
+**At half a difference it still costs here** ([atp_shift/](atp_shift/summary.md), committed as `82bcc15`, the
+same worlds and reads as `atp_rates`): the strains' moved reads go to their species at 0.967 (0.999 without the
+weighted shift), the novel species' reads drawn onto the target fall a little (0.866 → 0.857, 0.832 → 0.824 with a
+twin), and the paired-end models lose: default 0.917 against 0.925 on the target rows (hard 0.779 against 0.798),
+F1 0.899 against 0.905. In a world whose every column is below 3 nats the discount is noise: it halves most
+differences of every candidate alike and lets the few undiscounted ones decide. It can only pay where columns
+differ in conservation, which these worlds lack. **So the weighted shift is opt-in (`--weighted_site_shift`, off by
+default; the handler's `SetWeightedShift`)**, to be measured on a GTDB database: if the r226 run with it does not
+beat the run without, it goes.
+

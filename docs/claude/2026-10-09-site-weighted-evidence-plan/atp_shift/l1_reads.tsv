@@ -1,0 +1,5 @@
+class	twin	reads	on_target_noallele	on_target_default	moved	moved_to_target	share_moves_to_target
+Q	0	66509	0.939	0.945	487	453	0.930
+Q	1	65698	0.889	0.929	2826	2752	0.974
+N	0	57611	0.830	0.857	1794	1642	0.915
+N	1	58489	0.757	0.824	4270	4072	0.954

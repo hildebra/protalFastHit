@@ -1,0 +1,49 @@
+set	model	auc_base	auc	gain	gain_lo	gain_hi
+pe	identity, depth +ancestry	0.782	0.832	0.050	0.032	0.063
+pe	identity, depth +alleles	0.782	0.855	0.073	0.038	0.117
+pe	identity, depth +polymorphic	0.782	0.815	0.033	0.006	0.063
+pe	identity, depth +weights	0.782	0.837	0.055	0.040	0.066
+pe	identity, depth +all three	0.782	0.911	0.129	0.093	0.166
+pe	identity, depth +ancestry, polymorphic	0.782	0.889	0.107	0.077	0.137
+pe	identity, depth +all four	0.782	0.913	0.131	0.093	0.168
+pe	identity, depth +oracle fixed agreement	0.782	0.783	0.001	-0.005	0.008
+pe, genera with alleles	identity, depth +ancestry	0.786	0.833	0.047	0.026	0.066
+pe, genera with alleles	identity, depth +alleles	0.786	0.917	0.131	0.076	0.191
+pe, genera with alleles	identity, depth +polymorphic	0.786	0.881	0.095	0.055	0.146
+pe, genera with alleles	identity, depth +weights	0.786	0.838	0.052	0.034	0.070
+pe, genera with alleles	identity, depth +all three	0.786	0.944	0.158	0.100	0.214
+pe, genera with alleles	identity, depth +ancestry, polymorphic	0.786	0.917	0.131	0.089	0.183
+pe, genera with alleles	identity, depth +all four	0.786	0.945	0.159	0.101	0.217
+pe, genera with alleles	identity, depth +oracle fixed agreement	0.786	0.845	0.059	0.044	0.075
+se	identity, depth +ancestry	0.765	0.810	0.045	0.028	0.059
+se	identity, depth +alleles	0.765	0.848	0.082	0.047	0.125
+se	identity, depth +polymorphic	0.765	0.803	0.038	0.013	0.062
+se	identity, depth +weights	0.765	0.812	0.046	0.034	0.060
+se	identity, depth +all three	0.765	0.900	0.135	0.102	0.169
+se	identity, depth +ancestry, polymorphic	0.765	0.866	0.101	0.072	0.130
+se	identity, depth +all four	0.765	0.901	0.136	0.103	0.167
+se	identity, depth +oracle fixed agreement	0.765	0.765	0.000	0.000	0.000
+se, genera with alleles	identity, depth +ancestry	0.768	0.804	0.036	0.019	0.053
+se, genera with alleles	identity, depth +alleles	0.768	0.908	0.141	0.091	0.196
+se, genera with alleles	identity, depth +polymorphic	0.768	0.844	0.077	0.039	0.113
+se, genera with alleles	identity, depth +weights	0.768	0.806	0.039	0.023	0.053
+se, genera with alleles	identity, depth +all three	0.768	0.932	0.164	0.114	0.218
+se, genera with alleles	identity, depth +ancestry, polymorphic	0.768	0.889	0.121	0.081	0.160
+se, genera with alleles	identity, depth +all four	0.768	0.932	0.164	0.115	0.219
+se, genera with alleles	identity, depth +oracle fixed agreement	0.768	0.768	0.000	0.000	0.000
+hifi	identity, depth +ancestry	0.808	0.874	0.066	0.038	0.094
+hifi	identity, depth +alleles	0.808	0.885	0.077	0.037	0.124
+hifi	identity, depth +polymorphic	0.808	0.894	0.086	0.042	0.125
+hifi	identity, depth +weights	0.808	0.883	0.075	0.046	0.103
+hifi	identity, depth +all three	0.808	0.946	0.138	0.095	0.180
+hifi	identity, depth +ancestry, polymorphic	0.808	0.934	0.125	0.086	0.166
+hifi	identity, depth +all four	0.808	0.952	0.143	0.104	0.186
+hifi	identity, depth +oracle fixed agreement	0.808	0.808	0.000	0.000	0.000
+hifi, genera with alleles	identity, depth +ancestry	0.809	0.870	0.061	0.024	0.090
+hifi, genera with alleles	identity, depth +alleles	0.809	0.955	0.146	0.084	0.198
+hifi, genera with alleles	identity, depth +polymorphic	0.809	0.954	0.145	0.091	0.203
+hifi, genera with alleles	identity, depth +weights	0.809	0.882	0.073	0.040	0.100
+hifi, genera with alleles	identity, depth +all three	0.809	0.966	0.157	0.098	0.209
+hifi, genera with alleles	identity, depth +ancestry, polymorphic	0.809	0.956	0.147	0.095	0.198
+hifi, genera with alleles	identity, depth +all four	0.809	0.971	0.162	0.108	0.212
+hifi, genera with alleles	identity, depth +oracle fixed agreement	0.809	0.809	0.000	0.000	0.000

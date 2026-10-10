@@ -387,6 +387,7 @@ TEST(ColumnWeights, TheShiftDiscountsDifferencesAtVariableColumns) {
         SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
         handler.SetAnchoredAlignment(false);
         handler.SetAlleleScores(true);
+        handler.SetWeightedShift(true);  // --weighted_site_shift; without it the table changes nothing here
         AlignmentAnchorList anchors;
         for (uint32_t t : { 2u, 1u }) {
             ChainAlignmentAnchor anchor(t, 1, true);
@@ -397,6 +398,16 @@ TEST(ColumnWeights, TheShiftDiscountsDifferencesAtVariableColumns) {
         AlignmentResultList results;
         handler(anchors, results, read, rev, 3, id);
         ASSERT_EQ(results.size(), 2u);
+        if (weights) {
+            SimpleAlignmentHandler off(*ref.loader, aligner, 31, 3, 0.9, false);
+            off.SetAnchoredAlignment(false);
+            off.SetAlleleScores(true);
+            AlignmentResultList plain;
+            off(anchors, plain, read, rev, 3, id);
+            ASSERT_EQ(plain.size(), 2u);
+            EXPECT_EQ(plain.front().GetAlignmentInfo().site_shift, 0);  // the default: no weighted shift
+            EXPECT_EQ(off.m_allele_shifted, 0u);
+        }
         auto const& on1 = results.front().Taxid() == 1 ? results.front() : results.back();
         auto const& on2 = results.front().Taxid() == 2 ? results.front() : results.back();
         EXPECT_EQ(on1.GetAlignmentInfo().mismatches, 4);
