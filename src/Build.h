@@ -1604,6 +1604,7 @@ namespace protal::build {
         fs::remove(target, ec);
         column_weights::Settings settings;
         settings.genera = options.GetColumnWeights();
+        settings.codons = options.ColumnWeightsByCodons();
         if (settings.genera == 0) {
             std::cout << "Column weights: none (--column_weights 0)" << std::endl;
             return;
@@ -1697,7 +1698,8 @@ namespace protal::build {
                   << table.Copies() << " gene copies of " << table.Species() << " species mapped (" << stats.single_genus
                   << " rows of a family with one genus); " << stats.alignments << " alignments, " << stats.unaligned
                   << " failed; up to " << settings.genera << " genera vote per family: " << target << std::endl;
-        auto const failures = [&](size_t kind, double limit) {
+        auto const failures = [&](size_t kind) {
+            double const limit = settings.MaxDivergence(kind);
             auto const& f = stats.failed[kind];
             using column_weights::MapFailure;
             std::ostringstream s;
@@ -1706,12 +1708,13 @@ namespace protal::build {
               << column_weights::kFarFactor * limit << "), " << f[static_cast<size_t>(MapFailure::kGaveUp)]
               << " given up by the aligner (score beyond the bound: far or gappy), " << f[static_cast<size_t>(MapFailure::kOverlap)]
               << " overlapping less than " << column_weights::kMinOverlap << " of the shorter, " << f[static_cast<size_t>(MapFailure::kSequence)]
-              << " empty or too long";
+              << (settings.codons ? " empty, too long or too short" : " empty or too long") << "; the divergence of those compared: quartiles "
+              << stats.Quantile(kind, 0.25) << ", " << stats.Quantile(kind, 0.5) << ", " << stats.Quantile(kind, 0.75) << " (bins of 0.05)";
             return s.str();
         };
-        std::cout << "Column weights alignments: genus references against their family's: "
-                  << failures(column_weights::kAmong, column_weights::kMaxAmongDivergence) << "; species against their genus's: "
-                  << failures(column_weights::kWithin, column_weights::kMaxWithinDivergence) << "; " << stats.skipped
+        std::cout << "Column weights alignments (" << (settings.codons ? "amino acids, translated in frame" : "bases")
+                  << "): genus references against their family's: " << failures(column_weights::kAmong)
+                  << "; species against their genus's: " << failures(column_weights::kWithin) << "; " << stats.skipped
                   << " species' copies not aligned (their genus reference failed)" << std::endl;
         std::cout << "Column weights codes (half nats) of the " << codes.columns << " columns: " << codes.Line(strain_alleles::kDiscountNone) << std::endl;
         bm.Stop();

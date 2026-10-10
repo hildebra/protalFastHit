@@ -1,0 +1,14 @@
+read the taxonomy and metadata (77 genomes): 0.0 s
+found the marker files (53 of representatives, 53 of all genomes): 0.0 s
+spooled the representatives' marker genes (23 species): 0.0 s
+species priors (0 representatives with a duplicated marker, CheckM quality for 23, species clusters for 0, genome sizes for 23 of 23 species; no sp_clusters file): 0.0 s
+wrote the taxonomy: 0.0 s
+sorted each gene's representative sequences (870): 0.0 s
+wrote reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv: 0.0 s
+wrote the full reference's chunks (53, zstd-compressed): 1.1 s
+joined them into full_reference.fna.zst: 0.0 s
+GTDB r226 -> /home/falk/real_ancestry/ar53_db_aa
+  species:            23 (taxids 1..23, root 24)
+  marker genes:       53 ids, 870 representative sequences
+  full reference:     3036 sequences (full_reference.fna.zst, 0.00 GB)
+  skipped rep records: not in taxonomy: 0, not a representative: 0, duplicate: 0

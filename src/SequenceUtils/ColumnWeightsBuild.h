@@ -1,15 +1,17 @@
 // ColumnWeightsBuild.h - how --build makes column_weights.tsv (ColumnWeights.h): per family and marker gene, the
 // conservation of every column from the family's own copies, by alignment (WFA2, protal's scores, both ends partly
-// free: gene calls start and end apart).
+// free: gene calls start and end apart). Since 2026-10-10 the copies are aligned as proteins, translated in frame,
+// each aligned amino-acid pair mapping its codon's bases (MapByCodons; Settings::codons, --column_weights_alignment):
+// within GTDB's genera the bases of a gene are often too far apart to align, the amino acids are not.
 //
 // Per family and gene:
 //  1. The genus references: one species per genus, chosen by a hash of the genus (the same species for every gene it
 //     has; the next by hash where it lacks the gene). Up to Settings::genera genera, chosen by hash, vote; the first
 //     of them gives the family reference, whose copy is the columns' coordinate system. Every genus reference is
-//     aligned to the family reference (up to kMaxAmongDivergence), for the mapping of its genus's copies and, for the
+//     aligned to the family reference (up to Settings::MaxDivergence), for the mapping of its genus's copies and, for the
 //     voting genera, the `among` votes: per column the genus references' bases, their consensus and how many agree
 //     (CodeOf: (k + 1)/(n + 2)); per codon column the amino acids alike (aa).
-//  2. Within each genus: every species' copy aligned to the genus reference (up to kMaxWithinDivergence): per genus
+//  2. Within each genus: every species' copy aligned to the genus reference (up to its MaxDivergence): per genus
 //     column the species' bases (the reference's too), the consensus and the share agreeing, k/n, where two or more
 //     were compared (one sequence says nothing of how a column varies); the genus's shares are carried onto the family
 //     columns through the reference's alignment, and a family column's `within` is the mean of its genera's shares
@@ -48,6 +50,9 @@ namespace protal::column_weights {
     inline constexpr double kFreeEnds = 0.15;              // of each copy's length, free at either end
     inline constexpr double kMaxWithinDivergence = 0.2;    // a species' copy farther than this from its genus reference is not used
     inline constexpr double kMaxAmongDivergence = 0.4;     // a genus reference farther than this from the family reference is not used
+    inline constexpr double kMaxWithinAminoDivergence = 0.3;  // the same, of the amino acids (Settings::codons)
+    inline constexpr double kMaxAmongAminoDivergence = 0.5;
+    inline constexpr size_t kMinProtein = 10;              // amino acids a translated copy needs to be aligned
     inline constexpr double kMinOverlap = 0.5;             // aligned columns needed, of the shorter copy's length
     inline constexpr uint32_t kMinCompared = 2;            // sequences compared at a column for a genus's (or the genus
                                                            // references') share to vote in within (aa)
@@ -57,17 +62,30 @@ namespace protal::column_weights {
                                                            // genus per family the "consensus" was a congener's or the species'
                                                            // own copy, and polarising by it broke the two-congener genera)
 
+    inline constexpr size_t kAmong = 0, kWithin = 1;  // the alignments' kinds (Stats, Settings::MaxDivergence)
+
     struct Settings {
         size_t genera = 10;    // genera per family that vote in the among estimate (--column_weights; 0: no table)
         size_t species = 24;   // species per genus aligned for the within estimate (every species is aligned for its mapping)
+        // The copies aligned as proteins, translated in frame (MapByCodons; --column_weights_alignment aa, the default
+        // since 2026-10-10), or as bases (MapTo; nt). Real GTDB genera are wider than the bases' limits allow: in a
+        // family of r226 the species' nearest congener was 0.12-0.25 of the bases away (quartiles), and two thirds of
+        // the species' alignments to their genus reference failed (docs/claude/2026-10-10-real-ancestry).
+        bool codons = true;
+
+        double MaxDivergence(size_t kind) const {
+            if (codons) return kind == kAmong ? kMaxAmongAminoDivergence : kMaxWithinAminoDivergence;
+            return kind == kAmong ? kMaxAmongDivergence : kMaxWithinDivergence;
+        }
     };
 
-    // Why MapTo found no alignment: an empty sequence or one longer than kMaxLength, the aligner gave up (its score
-    // beyond the divergence's bound: far, or gappy), too little overlap, or more divergent than allowed.
+    // Why MapTo found no alignment: an empty sequence or one longer than kMaxLength (or a protein shorter than
+    // kMinProtein), the aligner gave up (its score beyond the divergence's bound: far, or gappy), too little overlap,
+    // or more divergent than allowed.
     enum class MapFailure : uint8_t { kNone, kSequence, kGaveUp, kOverlap, kDivergence };
     inline constexpr size_t kFailures = 5;
-    inline constexpr size_t kAmong = 0, kWithin = 1;  // the alignments' kinds in Stats
     inline constexpr double kFarFactor = 1.5;         // a divergence failure beyond this times the limit counts as far
+    inline constexpr size_t kDivergenceBins = 20;     // the divergences seen, in steps of 0.05 (the last: 0.95 or more)
 
     struct Stats {
         size_t genes = 0;             // genes with a family of two copies or more
@@ -83,14 +101,32 @@ namespace protal::column_weights {
         std::array<std::array<size_t, kFailures>, 2> failed{};
         std::array<size_t, 2> far{};
         size_t skipped = 0;
+        // By kind, the divergences of the alignments that got as far as counting them (kept, or failed on divergence).
+        std::array<std::array<size_t, kDivergenceBins>, 2> divergences{};
 
         void Note(size_t kind, MapFailure why, double divergence, double limit) {
             alignments++;
             made[kind]++;
+            if (why == MapFailure::kNone || why == MapFailure::kDivergence) {
+                divergences[kind][std::min(kDivergenceBins - 1, static_cast<size_t>(divergence / 0.05))]++;
+            }
             if (why == MapFailure::kNone) return;
             unaligned++;
             failed[kind][static_cast<size_t>(why)]++;
             far[kind] += why == MapFailure::kDivergence && divergence > kFarFactor * limit;
+        }
+
+        // The divergence below which share q of a kind's counted alignments lie (the upper edge of its bin).
+        double Quantile(size_t kind, double q) const {
+            auto const& h = divergences[kind];
+            size_t const total = std::accumulate(h.begin(), h.end(), size_t{ 0 });
+            if (total == 0) return 0;
+            size_t seen = 0;
+            for (size_t b = 0; b < kDivergenceBins; b++) {
+                seen += h[b];
+                if (static_cast<double>(seen) >= q * static_cast<double>(total)) return 0.05 * static_cast<double>(b + 1);
+            }
+            return 1.0;
         }
 
         void Add(Stats const& o) {
@@ -104,6 +140,7 @@ namespace protal::column_weights {
                 made[k] += o.made[k];
                 far[k] += o.far[k];
                 for (size_t c = 0; c < kFailures; c++) failed[k][c] += o.failed[k][c];
+                for (size_t b = 0; b < kDivergenceBins; b++) divergences[k][b] += o.divergences[k][b];
             }
             skipped += o.skipped;
         }
@@ -208,6 +245,61 @@ namespace protal::column_weights {
             map.clear();
         }
         return map;
+    }
+
+    // A gene copy's protein, in frame from its first base (the marker genes are gene calls): one letter per whole
+    // codon ('*' a stop, 'X' a codon with a base other than A, C, G or T).
+    inline std::string Translate(std::string_view bases) {
+        std::string protein;
+        protein.reserve(bases.size() / 3);
+        for (size_t i = 0; i + 2 < bases.size(); i += 3) {
+            protein.push_back(AminoAcid(BaseCode(bases[i]), BaseCode(bases[i + 1]), BaseCode(bases[i + 2])));
+        }
+        return protein;
+    }
+
+    // MapTo through the proteins: both copies translated in frame and aligned as amino acids (MapTo is blind to the
+    // alphabet: WFA2 compares letters, with one mismatch penalty for any two amino acids, which at the divergences
+    // within a family aligns about as well as a substitution matrix would), the divergence and overlap counted in
+    // amino acids, and each aligned amino-acid pair mapping its codon's three bases onto the other's (a reference base
+    // past the last whole codon, or in a codon the copy lacks, gets -1). The proteins' synonymous differences are no
+    // differences, so copies whose bases are too far apart to align (the third positions saturated) still map.
+    // Identical copies map one to one without an alignment.
+    inline std::vector<int32_t> MapByCodons(std::string const& reference, std::string const& copy, double max_divergence,
+                                            WFA2Wrapper2& aligner, std::string& cigar, MapFailure* why = nullptr,
+                                            double* divergence = nullptr) {
+        if (why) *why = MapFailure::kNone;
+        if (divergence) *divergence = 0;
+        if (reference.size() > kMaxLength || copy.size() > kMaxLength || reference.size() < 3 * kMinProtein ||
+            copy.size() < 3 * kMinProtein) {
+            if (why) *why = MapFailure::kSequence;
+            return {};
+        }
+        if (reference == copy) {
+            std::vector<int32_t> map(reference.size());
+            for (size_t i = 0; i < map.size(); i++) map[i] = static_cast<int32_t>(i);
+            return map;
+        }
+        auto const amino = MapTo(Translate(reference), Translate(copy), max_divergence, aligner, cigar, why, divergence);
+        if (amino.empty()) return {};
+        std::vector<int32_t> map(reference.size(), -1);
+        for (size_t a = 0; a < amino.size(); a++) {
+            if (amino[a] < 0) continue;
+            size_t const q = 3 * static_cast<size_t>(amino[a]);
+            for (size_t k = 0; k < 3; k++) {
+                if (3 * a + k < map.size() && q + k < copy.size()) map[3 * a + k] = static_cast<int32_t>(q + k);
+            }
+        }
+        return map;
+    }
+
+    // A copy's alignment as the settings say (MapByCodons or MapTo), with its kind's divergence limit.
+    inline std::vector<int32_t> MapCopy(std::string const& reference, std::string const& copy, size_t kind,
+                                        Settings const& settings, WFA2Wrapper2& aligner, std::string& cigar,
+                                        MapFailure* why, double* divergence) {
+        double const limit = settings.MaxDivergence(kind);
+        return settings.codons ? MapByCodons(reference, copy, limit, aligner, cigar, why, divergence)
+                               : MapTo(reference, copy, limit, aligner, cigar, why, divergence);
     }
 
     // The runs of a copy on the family columns from its map (per copy position the column, -1 none).
@@ -351,8 +443,8 @@ namespace protal::column_weights {
                 ref_at.resize(length);
                 for (size_t i = 0; i < length; i++) ref_at[i] = static_cast<int32_t>(i);
             } else {
-                ref_at = MapTo(reference, genus_ref, kMaxAmongDivergence, aligner, cigar, &why, &divergence);
-                stats.Note(kAmong, why, divergence, kMaxAmongDivergence);
+                ref_at = MapCopy(reference, genus_ref, kAmong, settings, aligner, cigar, &why, &divergence);
+                stats.Note(kAmong, why, divergence, settings.MaxDivergence(kAmong));
                 if (ref_at.empty()) {
                     stats.skipped += members.size() - 1;
                     continue;  // a genus too far from the family reference: its copies get no row
@@ -377,8 +469,8 @@ namespace protal::column_weights {
             size_t aligned_species = 1;
             for (size_t m = 1; m < members.size(); m++) {
                 size_t const i = members[m].second;
-                auto const copy_at = MapTo(genus_ref, seqs[i], kMaxWithinDivergence, aligner, cigar, &why, &divergence);
-                stats.Note(kWithin, why, divergence, kMaxWithinDivergence);
+                auto const copy_at = MapCopy(genus_ref, seqs[i], kWithin, settings, aligner, cigar, &why, &divergence);
+                stats.Note(kWithin, why, divergence, settings.MaxDivergence(kWithin));
                 if (copy_at.empty()) continue;
                 if (aligned_species < settings.species) {
                     within.Add(seqs[i], copy_at);

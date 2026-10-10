@@ -1106,9 +1106,13 @@ alone (before the index takes its memory), then the index:
    species as on the strain's gene; the records keep their alignment to the reference) and counts the alleles
    features. One pass over the full reference, as for the conservation factors. `--strain_alleles 0`: none.
    Then the column weights (since 2026-10-10, `column_weights.tsv`): gene by gene, per family one genus reference
-   (chosen by hash) gives the columns, the other genus references are aligned to it (WFA2, up to 0.4 divergence; up
-   to `--column_weights` genera, 10, vote on the consensus among genera), every species' copy is aligned to its genus
-   reference (up to 0.2) for the conservation within the genus, averaged over the family's genera (since the evening
+   (chosen by hash) gives the columns, the other genus references are aligned to it (up to `--column_weights`
+   genera, 10, vote on the consensus among genera), every species' copy is aligned to its genus reference for the
+   conservation within the genus. The alignments (WFA2) are of the proteins, the copies translated in frame, each
+   aligned amino-acid pair mapping its codon's three bases (`--column_weights_alignment aa`, the default since the
+   evening of 2026-10-10; up to 0.3 of the amino acids different within a genus, 0.5 among genera): GTDB's genera are
+   too wide for the bases (`nt`: up to 0.2 within, 0.4 among), which lost two thirds of the copies of a real family
+   ([report](claude/2026-10-10-real-ancestry/README.md)). The conservation within is averaged over the family's genera (since the evening
    of 2026-10-10 with the pseudocounts over all the species compared, so that the evidence of the genera adds up:
    before, no column could reach "conserved", 98.9%, and two of the `weights` features were 0 everywhere), and the
    amino acids per codon alike; every copy's mapping onto the columns is kept. One alignment per copy and one per genus

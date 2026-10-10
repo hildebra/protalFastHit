@@ -1,0 +1,25 @@
+species 23, genera 4, strains 54, genes 53
+sites per kb compared, per species: n=23: 5%=31.597 25%=51.884 50%=84.294 75%=125.295 95%=179.607, mean 92.490
+sites per 150-base read, per species (mean over its genes' windows): n=23: 5%=4.589 25%=8.562 50%=13.079 75%=19.247 95%=24.293, mean 13.693
+share of 150-base reads without a site, per species: n=23: 5%=0.018 25%=0.050 50%=0.080 75%=0.112 95%=0.247, mean 0.094
+-- strains (pairs with >= 10 sites covered; congeners left out of the sites)
+   identity to the representative: n=54: 5%=0.994 25%=0.997 50%=0.998 75%=0.999 95%=1.000, mean 0.998
+   sites covered: n=54: 5%=1197.000 25%=2276.000 50%=2851.000 75%=3892.000 95%=4186.000, mean 2875.778
+   agreement (T's base): n=54: 5%=0.984 25%=0.988 50%=0.993 75%=0.997 95%=1.000, mean 0.992
+   the congeners' base: n=54: 5%=0.000 25%=0.001 50%=0.004 75%=0.008 95%=0.011, mean 0.005
+   agreement at the fixed sites (>= 5 covered, 51 pairs): n=51: 5%=0.997 25%=0.999 50%=1.000 75%=1.000 95%=1.000, mean 0.999
+-- congeners (pairs with >= 10 sites covered; congeners left out of the sites)
+   identity to the representative: n=146: 5%=0.718 25%=0.731 50%=0.746 75%=0.781 95%=0.901, mean 0.768
+   sites covered: n=146: 5%=132.000 25%=349.000 50%=584.000 75%=1275.000 95%=3124.000, mean 990.000
+   agreement (T's base): n=146: 5%=0.129 25%=0.219 50%=0.277 75%=0.345 95%=0.597, mean 0.293
+   the congeners' base: n=146: 5%=0.279 25%=0.434 50%=0.520 75%=0.641 95%=0.765, mean 0.531
+   agreement at the fixed sites (>= 5 covered, 54 pairs): n=54: 5%=0.000 25%=0.012 50%=0.065 75%=0.213 95%=0.341, mean 0.108
+AUC of agreement, strains over left-out congeners: 1.000
+AUC of the fixed-site agreement: 1.000
+-- by identity to T's copies: agreement of strains | of left-out congeners (pairs)
+   [0.00, 0.85): - (0) | 0.268 (127)
+   [0.85, 0.90): - (0) | 0.434 (11)
+   [0.90, 0.95): - (0) | 0.488 (6)
+   [0.95, 0.97): - (0) | 0.799 (2)
+   [0.97, 0.99): 0.979 (2) | - (0)
+   [0.99, 1.01): 0.993 (52) | - (0)

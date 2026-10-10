@@ -1,0 +1,6 @@
+1 families qualify; chosen: f__Micrarchaeaceae
+  f__Micrarchaeaceae: 4 genera, 23 species, 54 strains (JAJYXL01, JAJZAB01, JAJZMY01, JAMCYW01)
+total: 4 genera, 23 species, 54 strains, 77 genomes
+reps: 53 marker files, 870 records of 23 genomes
+all: 53 marker files, 3036 records of 77 genomes
+taxonomy and metadata rows written

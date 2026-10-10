@@ -194,6 +194,7 @@ namespace protal {
                 ("allele_genome_share", "With --build: the share of each species' genomes that may give alleles (--strain_alleles), by a hash of the genome's accession (the full reference's second header word, which the converter writes since 2026-10-08). build_gtdb_database.py passes 0.5 and simulates strains only from the other genomes, so that no simulated strain is its species' own allele. Below 1 it needs a full reference that names its genomes.", cxxopts::value<double>()->default_value("1"))
                 ("index_alleles", "With --build: the k-mers of the strain alleles at least this far from the representative's copy (edits per base of the allele's range) go into the index under the species as non-unique entries, so that a read of a deep strain, which seeds on few of the representative's k-mers, finds its species and is aligned and scored against the representative as before. The seeds are left out of unique_kmers.tsv's totals. Off by default (1 or more: none) since the r226 v22 build, whose F1 gains with 0.01 (and the other changes of that build) were too small for the entries it adds (about three per edit, +5% on the test worlds).", cxxopts::value<double>()->default_value("1"))
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
+                ("column_weights_alignment", "With --build and --column_weights: how a species' copy is aligned to its genus reference and a genus reference to its family's: aa (default since 2026-10-10), the copies translated in frame (codon 1 at the gene's first base) and their proteins aligned (WFA2, up to 0.3 of the amino acids different within a genus, 0.5 among genera), each aligned amino-acid pair mapping its three bases; or nt, the bases aligned (up to 0.2 within a genus, 0.4 among genera), which fails for most copies of the wide genera of GTDB, whose synonymous sites are saturated (docs/claude/2026-10-10-real-ancestry).", cxxopts::value<std::string>()->default_value("aa"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -240,6 +241,7 @@ namespace protal {
         size_t strain_alleles = 4;
         double allele_genome_share = 1.0;
         size_t column_weights = 10;
+        std::string column_weights_alignment = "aa";
         bool no_site_weights = false;
         bool weighted_site_shift = false;
         double index_alleles = 1;
@@ -374,6 +376,7 @@ namespace protal {
         double m_allele_genome_share = 1.0;  // --allele_genome_share (--build)
         double m_index_alleles = 1;  // --index_alleles (--build): the least divergence of an allele whose k-mers are indexed
         size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
+        std::string m_column_weights_alignment = "aa";  // --column_weights_alignment (--build): aa or nt
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_weighted_site_shift = false;  // --weighted_site_shift: the shift discounts differences at variable columns
         bool m_no_phasing = false;
@@ -556,6 +559,7 @@ namespace protal {
                 m_allele_genome_share(d.allele_genome_share),
                 m_index_alleles(d.index_alleles),
                 m_column_weights(d.column_weights),
+                m_column_weights_alignment(std::move(d.column_weights_alignment)),
                 m_no_site_weights(d.no_site_weights),
                 m_weighted_site_shift(d.weighted_site_shift),
                 m_no_phasing(d.no_phasing),
@@ -960,6 +964,11 @@ namespace protal {
         // --column_weights (--build): genera per family that vote on the column weights; 0: no table.
         size_t GetColumnWeights() const {
             return m_column_weights;
+        }
+
+        // --column_weights_alignment (--build): the copies aligned as proteins (aa, the default) or as bases (nt).
+        bool ColumnWeightsByCodons() const {
+            return m_column_weights_alignment != "nt";
         }
 
         // --no_site_weights: the database's column weights left unread.
@@ -2386,6 +2395,9 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             if (!(m_msa_identity_margin >= 0)) {
                 error_log.emplace_back("--msa_identity_margin must be 0 or more");
             }
+            if (m_column_weights_alignment != "aa" && m_column_weights_alignment != "nt") {
+                error_log.emplace_back("--column_weights_alignment must be aa or nt, not " + m_column_weights_alignment);
+            }
             if (!m_gene_conservation.empty() && m_gene_conservation != "none" && m_gene_conservation != "db" &&
                 !std::filesystem::is_regular_file(m_gene_conservation)) {
                 error_log.emplace_back("--gene_conservation does not exist: " + m_gene_conservation + " (none, db or a file)");
@@ -3306,6 +3318,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.strain_alleles           = result["strain_alleles"].as<size_t>();
             d.allele_genome_share      = result["allele_genome_share"].as<double>();
             d.index_alleles            = result["index_alleles"].as<double>();
+            // The column weights' options (declared with f566cd0 but never read back until 2026-10-10: --column_weights,
+            // --no_site_weights and --weighted_site_shift kept their defaults whatever the command line said).
+            d.column_weights           = result["column_weights"].as<size_t>();
+            d.column_weights_alignment = result["column_weights_alignment"].as<std::string>();
+            d.no_site_weights          = result.count("no_site_weights") > 0;
+            d.weighted_site_shift      = result.count("weighted_site_shift") > 0;
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
             d.gene_conservation        = result["gene_conservation"].as<std::string>();
             d.model                    = result["model"].as<std::string>();

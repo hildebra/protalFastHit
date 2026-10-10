@@ -519,8 +519,10 @@ saturated, so their differences sit on conserved columns at a share no strain sh
 
 `--build` writes `column_weights.tsv` ([databases.md](databases.md#2-build-the-index)): per family and gene, the
 family's reference copy (one genus reference, chosen by hash, among up to `--column_weights` genera) gives the
-columns; the genus references of the voting genera are aligned to it (WFA2, up to 0.4 divergence) for the `among`
-conservation; every genus's species are aligned to their genus reference (up to 0.2) for the `within` conservation,
+columns; the genus references of the voting genera are aligned to it for the `among` conservation; every genus's
+species are aligned to their genus reference for the `within` conservation (WFA2, of the proteins translated in frame
+since the evening of 2026-10-10, each aligned amino-acid pair mapping its codon's bases: up to 0.3 of the amino acids
+different within a genus, 0.5 among genera; `--column_weights_alignment nt` aligns the bases, up to 0.2 and 0.4),
 one vote per genus however many species it has (a genus votes at a column where two or more of its species were
 compared), averaged over the family's genera (no phylum-wide consensus, which would mean little), with the
 pseudocounts (k + 1)/(n + 2) over all the species compared, so that ten genera that keep a column count for more than

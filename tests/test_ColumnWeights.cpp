@@ -255,6 +255,7 @@ TEST(ColumnWeights, TheGeneraPoolTheirEvidenceAndTheFailuresHaveCauses) {
     }
     cw::Settings settings;
     settings.genera = 11;
+    settings.codons = false;  // the bases' limits: genus 3's eleventh species fails on divergence, not in the aligner
     cw::Stats stats;
     std::vector<cw::Family> families;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<cw::Run>>> copies;
@@ -284,6 +285,74 @@ TEST(ColumnWeights, TheGeneraPoolTheirEvidenceAndTheFailuresHaveCauses) {
     for (size_t c = cw::kConservedCode; c <= cw::kMaxCode; c++) conserved += codes.histogram[0][c];
     EXPECT_GT(conserved, base.size() / 2);
     EXPECT_NE(codes.Line(6).find("within 600 of 600 with an estimate"), std::string::npos) << codes.Line(6);
+}
+
+// The proteins: a copy whose bases differ at a third of the positions but whose amino acids are the species' (every
+// codon changed synonymously where it can be) and which lacks one codon does not align as bases (0.2) but does as
+// amino acids, every reference base mapping to the copy's base of the same codon position, the missing codon's bases
+// to none. In a family, such a species maps and votes through the proteins; through the bases it is lost.
+TEST(ColumnWeights, TheProteinsAlignWhereTheBasesAreTooFarApart) {
+    EXPECT_EQ(cw::Translate("ATGAAATAAGC"), "MK*");  // the trailing bases of no whole codon are left out
+    EXPECT_EQ(cw::Translate("ATGNAA"), "MX");
+    std::mt19937 rng(5);
+    auto const reference = CodingSequence(200, rng);
+    std::string copy = reference;
+    size_t changed = 0;
+    for (size_t c = 0; c < 200; c++) {
+        char const aa = cw::AminoAcid(cw::BaseCode(copy[3 * c]), cw::BaseCode(copy[3 * c + 1]), cw::BaseCode(copy[3 * c + 2]));
+        for (size_t k = 0; k < 3; k++) {
+            char const third = Other(copy[3 * c + 2], k);
+            if (cw::AminoAcid(cw::BaseCode(copy[3 * c]), cw::BaseCode(copy[3 * c + 1]), cw::BaseCode(third)) == aa) {
+                copy[3 * c + 2] = third;
+                changed++;
+                break;
+            }
+        }
+    }
+    ASSERT_GT(changed, 150u);
+    ASSERT_EQ(cw::Translate(copy), cw::Translate(reference));
+    copy.erase(3 * 100, 3);  // the copy lacks codon 100
+    WFA2Wrapper2 aligner(4, 6, 2, 0);
+    std::string cigar;
+    cw::MapFailure why;
+    double divergence;
+    EXPECT_TRUE(cw::MapTo(reference, copy, cw::kMaxWithinDivergence, aligner, cigar, &why, &divergence).empty());
+    auto const map = cw::MapByCodons(reference, copy, cw::kMaxWithinAminoDivergence, aligner, cigar, &why, &divergence);
+    ASSERT_EQ(map.size(), reference.size()) << static_cast<int>(why);
+    EXPECT_EQ(why, cw::MapFailure::kNone);
+    EXPECT_LT(divergence, 0.01);  // one amino acid of 200 missing
+    EXPECT_EQ(map[3 * 50 + 2], 3 * 50 + 2);
+    EXPECT_EQ(map[3 * 150 + 1], 3 * 149 + 1);  // after the missing codon the copy runs one codon behind
+    for (size_t k = 0; k < 3; k++) EXPECT_EQ(map[3 * 100 + k], -1);
+    EXPECT_EQ(cw::MapByCodons(reference, reference, 0.3, aligner, cigar)[77], 77);
+    EXPECT_TRUE(cw::MapByCodons(reference.substr(0, 20), reference, 0.3, aligner, cigar, &why).empty());
+    EXPECT_EQ(why, cw::MapFailure::kSequence);  // fewer than kMinProtein codons
+
+    // A genus of three: two copies of the reference and the synonymous one. As proteins all three vote and map;
+    // as bases the synonymous one is lost (or, as the genus reference by hash, the other two are).
+    std::vector<uint32_t> taxids{ 1, 2, 3 }, genus{ 10, 10, 10 };
+    std::vector<std::string> seqs{ reference, reference, copy };
+    seqs[1][30] = Other(reference[30], 0);
+    uint64_t least = UINT64_MAX;
+    uint32_t genus_reference = 0;
+    for (uint32_t t : taxids) {
+        if (cw::detail::Mix(t ^ cw::detail::Mix(10)) < least) {
+            least = cw::detail::Mix(t ^ cw::detail::Mix(10));
+            genus_reference = t;
+        }
+    }
+    size_t const lost = genus_reference == 3 ? 2 : 1;
+    for (bool const codons : { true, false }) {
+        cw::Settings settings;
+        settings.codons = codons;
+        cw::Stats stats;
+        std::vector<cw::Family> families;
+        std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<cw::Run>>> copies;
+        ASSERT_TRUE(cw::BuildFamily(9, 1, taxids, seqs, genus, settings, aligner, stats, families, copies));
+        EXPECT_EQ(stats.made[cw::kWithin], 2u);
+        EXPECT_EQ(stats.unaligned, codons ? 0u : lost) << "codons " << codons;
+        EXPECT_EQ(copies.size(), codons ? 3u : 3u - lost) << "codons " << codons;
+    }
 }
 
 // The table round-trips through its text, finds copies and expands their columns.
