@@ -1,0 +1,141 @@
+                                             ,,  
+`7MM"""Mq.                   mm            `7MM  
+  MM   `MM.                  MM              MM  
+  MM   ,M9 `7Mb,od8 ,pW"Wq.mmMMmm  ,6"Yb.    MM  
+  MMmmdM9    MM' "'6W'   `Wb MM   8)   MM    MM  
+  MM         MM    8M     M8 MM    ,pm9MM    MM  
+  MM         MM    YA.   ,A9 MM   8M   MM    MM  
+.JMML.     .JMML.   `Ybmd9'  `Mbmo`Moo9^Yo..JMML.
+
+
+Total available memory is 23GB
+
+Options:
+------ General ------------------------------------
+build:               1
+compress database:   zstd level 19, window 2^27, 64 MB frames, single file database.protal
+no strains:          0
+threads:             4
+-------- I/O --------------------------------------
+first:               
+second:              
+db path:             /home/falk/real_ancestry/bac120_db_nt
+sequence file:       /home/falk/real_ancestry/bac120_db_nt/reference.fna
+sam file:            
+profile file:        
+output prefix:       
+Output dir:          
+preload genomes:     yes
+----- Alignment -----------------------------------
+align top:           3
+adaptive candidates: 7
+allele scores:       the database's strain alleles, if it has them
+max key ubiquity:    256
+max seed size:       128
+max score ani:       0.900000
+x-drop:              1000
+short reads aligned: from their anchors
+alignment screen:    k-mers shared with the window before WFA2
+SAM header lists:    the genes aligned to
+unaligned reads:     counted per taxon in the SAM header
+fastalign:           0
+max out:             1
+------ Strains ------------------------------------
+snp min cov:         2
+snp min phred sum:   90
+snp min mean qual:   15
+snp min af:          0.150000
+snp require strand:  yes
+snp max alleles:     3
+run qcmsa:           yes
+msa species:         
+msa min hcov:        1000
+msa min depth:       1
+msa identity margin: 0.040000
+msa knob:            0.500000 (--knob)
+phasing:             long-read samples
+foreign genes:       left out of depth and MSAs
+suspect gene copies: left out of the evidence
+---- Dev Options ----------------------------------
+verbose:             no
+benchmark alignment: no
+profile truth:       yes
+^ output:            
+---------------------------------------------------
+
+Loading the gene tables took 37ms
+Gene tables: reference.map 16080 rows: reading 0.03 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s; unique_kmers.tsv 0 rows: reading 0.00 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s, genome sums 0.00 s
+Preload genomes
+Preload genomes took 20ms
+Preload: 16080 genes, 0.02 Gb, 0.00 GB packed, from 0.02 GB of reference: listing the genes 0.00 s (sorted), arena 0.00 s, reading and packing 0.02 s, marking the genomes 0.00 s
+Memory after the genome preload: 0.01 GB resident, peak 0.08 GB
+Loading the taxonomy, models and tables took less than 1ms
+Gene conservation: factors 0.25-1.9 for 120 genes, from 40 species (47614 copies compared): /home/falk/real_ancestry/bac120_db_nt/gene_conservation.tsv
+Gene conservation took 478ms
+Gene congeners: 168 pairs of species of 20 genera (147 species); the genes' divergence between congeners correlates 0.66 with their factors (Spearman, 120 genes); genes of factor below 1: between-species factor 0.84, the nearest congener's copy identical in 0.6% of species, nearer than 0.01 in 4.1%; the other genes: 1.11, 0.0%, 0.8%: /home/falk/real_ancestry/bac120_db_nt/gene_congeners.tsv
+Gene congeners took 312ms
+Suspect copies: 0 of 16080 gene copies (0.00%) of 0 species within 0.02 of another genus's copy and farther from their congeners': none; 0 near pairs across genera (within 0.05) of 120 genes, 100444 candidate pairs, 16371 of them compared in full (the others cannot be within 0.05): /home/falk/real_ancestry/bac120_db_nt/gene_incongruence.tsv
+Suspect copies took 207ms
+Species neighbours: 554 pairs of congeners compared in 20 genera; 220 neighbours within 0.15 listed for 147 species, 2 with a congener within 0.01, 2 within 0.02: /home/falk/real_ancestry/bac120_db_nt/species_neighbours.tsv
+Species neighbours took 97ms
+Congener gaps: 16066 gene copies of 147 species in 20 genera, 120 genes; 55960 copies aligned (5109 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.0685, 0.1303, 0.2108: /home/falk/real_ancestry/bac120_db_nt/congener_gaps.tsv
+Congener gaps took 5s 216ms
+Strain alleles: 10130 alleles (129672 edits) of 5431 gene copies of 76 species, up to 4 each (of 48425 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 30808 identical to the representative's, 5045 repeated, 400 covering less than 0.5 of it or more than 0.1 apart, 744 as far as the nearest congener's copy or farther; 11428 alleles offered): /home/falk/real_ancestry/bac120_db_nt/strain_alleles.tsv
+Strain alleles took 173ms
+Column weights: 597 family-gene rows of 691812 columns, 6327 gene copies of 140 species mapped (0 rows of a family with one genus); 11323 alignments, 5593 failed; up to 10 genera vote per family: /home/falk/real_ancestry/bac120_db_nt/column_weights.tsv
+Column weights alignments (bases): genus references against their family's: 1781 aligned, 1066 kept; failed: 585 beyond 0.4 (4 beyond 0.6), 130 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty or too long; the divergence of those compared: quartiles 0.35, 0.4, 0.45 (bins of 0.05); species against their genus's: 9542 aligned, 4664 kept; failed: 1840 beyond 0.2 (23 beyond 0.3), 3038 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty or too long; the divergence of those compared: quartiles 0.1, 0.2, 0.25 (bins of 0.05); 4160 species' copies not aligned (their genus reference failed)
+Column weights codes (half nats) of the 691812 columns: within 616337 of 691812 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 691812 of 691812 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 209187 of 230604 with an estimate, median 4, largest 7, 0.00% at 9 or more
+Column weights took 1s 468ms
+Gene neighbours: none (gene_neighbours.tsv, which scripts/mini_db/gene_neighbours.py writes from whole genomes, is not in the folder)
+Memory after the gene tables: 0.08 GB resident, peak 0.42 GB
+Index passes: the reference's records from the preloaded genes (2213 bases of them as the reference has them, not A, C, G or T)
+Run Build
+Build: iterate records
+minimizers: 3320592
+Pass 1 (count the k-mers) took 543ms
+Index in memory: 3320592 entries of 30 bits (taxid * 121 + gene 15, position 13, 2 flags) and their 32-bit flex cells, 41.34 bits per slot of the file: 0.0 GB; key map 3.2 GB
+Index cores: 3320592 k-mers of the reference in 2522094 cores (their 15-base keys); cores by their values: 1: 2062597 cores, 2062597 k-mers (62.12%), 2-15: 459357 cores, 1255320 k-mers (37.80%), 16-255: 140 cores, 2675 k-mers (0.08%), 256-2047: 0 cores, 0 k-mers (0.00%), 2048 or more: 0 cores, 0 k-mers (0.00%)
+Index cores left out: 0 cores of 2048 values or more, whole (0 k-mers, 0.00% of the reference's; the largest core 0): a k-mer that common places no read. The other cores keep all their values: 4007657 cells (entries and flex cells), 0.03 GB in the file's 8-byte layout; key map 3.00 GB
+Value pointers took 1s 211ms
+After first put
+Pass 2 (place the values) took 185ms
+Memory after pass 2: 3.15 GB resident, peak 3.15 GB
+Index alleles: none (--index_alleles 1)
+Check Uniqueness: /home/falk/real_ancestry/bac120_db_nt/full_reference.fna.zst
+Uniqueness check: 120 frames of /home/falk/real_ancestry/bac120_db_nt/full_reference.fna.zst, decompressed on 2 threads at once
+Uniqueness check took 353ms
+Uniqueness check: 10477467 k-mers, 3524191 of them distinct in their key range and round and looked up once each; 1473475 flex cells compared (0.1 per k-mer), 253027 whole k-mers found under another taxon or more than once, 69376 single entries read back from their genes
+Memory after the uniqueness check: 3.12 GB resident, peak 3.18 GB
+Save unique kmer info: 
+/home/falk/real_ancestry/bac120_db_nt/unique_kmers.tsv
+ShortUniques:    2035318
+LongUniques:    765861
+LongUniquesTwo:    519535
+Nonuniques: 519413
+Unique k-mer statistics took 166ms
+Distance-two flags: 1341020 flex parts compared
+Wrote /home/falk/real_ancestry/bac120_db_nt/gene_table.bin: 16080 genes, the binary form of /home/falk/real_ancestry/bac120_db_nt/reference.map and /home/falk/real_ancestry/bac120_db_nt/unique_kmers.tsv, which a run from database.protal loads
+Write gene_table.bin took 92ms
+Models for read types: pe; none for se, pb, ont (protal --add_model FILE --read_type TYPE --db /home/falk/real_ancestry/bac120_db_nt/database.protal adds one)
+Write /home/falk/real_ancestry/bac120_db_nt/database.protal from the index in memory, reference.fna, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, gene_table.bin, model_pe.xml (seekable zstd files' frames as they are, the others compressed at zstd level 19, 64.00 MB frames; verified)
+Write the index into database.protal (zstd level 19, columns in 64.00 MB chunks, verified, 4 thread(s))
+Index in database.protal: 17.22 MB (3.03 GB uncompressed, 180.1x)
+Write index took 6s 115ms
+Memory after writing the index: 0.17 GB resident, peak 3.73 GB
+/home/falk/real_ancestry/bac120_db_nt/database.protal: 21.75 MB (33.01 MB as separate files, besides the index). Removed the separate files; /home/falk/bidx/build/protal --unpack_db --db /home/falk/real_ancestry/bac120_db_nt/database.protal writes them back.
+Write database.protal took 23s 130ms
+Memory after writing database.protal: 0.17 GB resident, peak 3.73 GB
+Run build took 33s 892ms
+Processed reads:    	32160
+Reads with errors:  	0
+Total kmers:        	35622342
+Minimizers kmers:   	6648740
+Seeds:              	0 (per read avg 0)
+Best anchor seeds:  	0 (per best anchor avg -nan)
+Total succ. lookups:	0 (per reads with at least one successful lookup -nan)
+Anchors:            	0
+Total alignments:   	0
+Output alignments:  	0
+Threads:            	5
+Run protal took 33s 976ms
+Freeing memory took 0s 1ms

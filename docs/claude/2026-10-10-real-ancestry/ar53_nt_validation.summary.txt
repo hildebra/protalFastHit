@@ -1,0 +1,13 @@
+8452 copy pairs of 44 markers; GTDB's aligned residue pairs: coverage = the table maps both residues, agreement = on the same family column (of those mapped)
+  same genus: 2408 pairs, 548834 residue pairs, coverage 0.080, agreement 0.9977
+  two genera: 6044 pairs, 1392159 residue pairs, coverage 0.084, agreement 0.9827
+  all       : 8452 pairs, 1940993 residue pairs, coverage 0.083, agreement 0.9868
+  by the pair's protein divergence (GTDB's columns): pairs, coverage, agreement
+    [0.00, 0.05):   224 pairs, coverage 0.468, agreement 0.9994
+    [0.05, 0.10):   214 pairs, coverage 0.328, agreement 0.9975
+    [0.10, 0.20):   679 pairs, coverage 0.109, agreement 0.9914
+    [0.20, 0.30):  1428 pairs, coverage 0.132, agreement 0.9921
+    [0.30, 0.40):  2564 pairs, coverage 0.075, agreement 0.9777
+    [0.40, 0.50):  1986 pairs, coverage 0.040, agreement 0.9685
+    [0.50, 0.60):  1153 pairs, coverage 0.001, agreement 0.9468
+    [0.60, 1.01):   204 pairs, coverage 0.000, agreement 0.0000

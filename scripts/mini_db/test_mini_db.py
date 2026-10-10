@@ -281,6 +281,60 @@ class MiniDbTest(unittest.TestCase):
                      "database.protal"):
             self.assertFalse(os.path.exists(os.path.join(src, name)), name)
 
+    def test_gtdb_alignments_and_tree(self):
+        # A release with GTDB-Tk's alignments (extracted, as individual/<set>_r<R>_reps_<marker>.faa) and a tree: the
+        # conversion writes the representatives' rows under their taxids (column_msa/<geneid>.faa[.zst]) and the tree
+        # with taxid leaves (species_tree.nwk, other genomes' leaves kept by name); a --from_db copy takes both;
+        # --no_msa leaves them out.
+        gtdb = os.path.join(self.tmp.name, "gtdb_msa")
+        shutil.copytree(self.gtdb, gtdb)
+        rel = next(n.split("_r")[-1].split(".")[0] for n in os.listdir(gtdb) if n.startswith("bac120_taxonomy_r"))
+        taxid_of = {}
+        with open(os.path.join(self.db, "genome2tiid.tsv")) as fh:
+            for line in fh:
+                acc, taxid, rep = line.split("\t")[:3]
+                if acc == rep:
+                    taxid_of[acc] = int(taxid)
+        with open(os.path.join(self.db, "gene2geneid.tsv")) as fh:
+            gene_ids = {m: int(g) for m, g in (line.split() for line in fh)}
+        reps = sorted(taxid_of)
+        folder = os.path.join(gtdb, "genomic_files_reps", "individual")
+        os.makedirs(folder)
+        for marker in gene_ids:
+            with open(os.path.join(folder, f"bac120_r{rel}_reps_{marker}.faa"), "w") as fh:
+                for k, acc in enumerate(reps):
+                    fh.write(f">RS_{acc}\n--MK{'A' * (k % 5)}TV-\n")
+                fh.write(">RS_GCF_999999999.1\n--MKTV--\n")  # not in the database
+        with open(os.path.join(gtdb, f"bac120_r{rel}.tree"), "w") as fh:
+            fh.write("((" + ",".join(f"RS_{a}:0.1" for a in reps[:2]) + ")'100:g__X':0.2,"
+                     + ",".join(f"GB_{a}:0.3" for a in reps[2:]) + ",RS_GCF_999999999.1:0.4);\n")
+        db = os.path.join(self.tmp.name, "db_msa")
+        run(CONVERT, "--gtdb", gtdb, "--outdir", db)
+        from gtdb_to_protal_db import COLUMN_MSA, SPECIES_TREE
+        for marker, gid in gene_ids.items():
+            path = os.path.join(db, COLUMN_MSA, f"{gid}.faa")
+            if os.path.exists(path + ".zst"):
+                text = subprocess.run(["zstd", "-dc", path + ".zst"], capture_output=True, text=True, check=True).stdout
+            else:
+                with open(path) as fh:
+                    text = fh.read()
+            rows = text.split(">")[1:]
+            self.assertEqual(sorted(int(r.split("\n")[0]) for r in rows), sorted(taxid_of.values()), marker)
+            self.assertIn(f">{taxid_of[reps[1]]}\n--MKATV-\n", text)
+        with open(os.path.join(db, SPECIES_TREE)) as fh:
+            tree = fh.read()
+        self.assertNotIn("g__X", tree)
+        for acc in reps:
+            self.assertIn(f"{taxid_of[acc]}:", tree)
+        self.assertIn("RS_GCF_999999999.1:0.4", tree)
+        copy = os.path.join(self.tmp.name, "db_msa_copy")
+        run(CONVERT, "--from_db", db, "--outdir", copy)
+        self.assertTrue(os.path.isfile(os.path.join(copy, SPECIES_TREE)))
+        self.assertEqual(sorted(os.listdir(os.path.join(copy, COLUMN_MSA))), sorted(os.listdir(os.path.join(db, COLUMN_MSA))))
+        run(CONVERT, "--gtdb", gtdb, "--outdir", db, "--no_msa")
+        self.assertFalse(os.path.exists(os.path.join(db, COLUMN_MSA)))
+        self.assertFalse(os.path.exists(os.path.join(db, SPECIES_TREE)))
+
     def test_divergence_ranges(self):
         def divergence(root):
             with open(os.path.join(root, "simulation", "divergence.tsv")) as fh:

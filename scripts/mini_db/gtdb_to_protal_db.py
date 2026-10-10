@@ -11,6 +11,10 @@ Reads from the GTDB release directory:
   genomic_files_reps/*_marker_genes_reps_r<R>/**.fna[.gz]   marker genes of reps
   genomic_files_all/*_marker_genes_all_r<R>/**.fna[.gz]     marker genes of all
                                            genomes (optional, for unique k-mers)
+  genomic_files_reps/*_msa_marker_genes_reps_r<R>.tar.gz (or its extracted individual/*.faa) and
+  {bac120,ar53}_r<R>.tree                  GTDB-Tk's alignments of the representatives' marker
+                                           proteins and GTDB's trees (optional, since 2026-10-10;
+                                           read packed): column_msa/ and species_tree.nwk below
 The marker gene tarballs must be extracted first. One FASTA per marker; the
 marker id (PFxxxxx.x / TIGRxxxxx) is taken from the file name and the genome
 accession from the record header.
@@ -38,6 +42,10 @@ Writes to <outdir>:
                          cluster, and (since 2026-10-08) the species' genome size (the mean of its
                          genomes' sizes corrected by CheckM), the representative's assembly size and
                          the bases of its marker genes; --priors_only writes this file alone
+  column_msa/<geneid>.faa.zst  the representatives' rows of GTDB-Tk's alignment of each marker, >taxid
+  species_tree.nwk       GTDB's bacterial and archaeal trees under one root, leaves renamed to taxids:
+                         both for protal --build's column weights (ColumnWeightsMsa.h; build inputs,
+                         not packed into the database; --no_msa leaves them out)
   model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
                          models for other read types: protal --add_model, see README)
 
@@ -87,6 +95,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 
@@ -105,6 +114,7 @@ RANKS = [("d", "domain"), ("p", "phylum"), ("c", "class"), ("o", "order"),
 ACCESSION_RE = re.compile(r"(GC[AF]_\d{9}\.\d+)")
 MARKER_RE = re.compile(r"(PF\d{5}\.\d+|TIGR\d{5})")
 FASTA_RE = re.compile(r"\.(fna|fa|fasta)(\.gz)?$")
+MSA_RE = re.compile(r"\.(faa|fa|fasta)(\.gz)?$")  # GTDB-Tk's per-marker protein alignments
 
 
 def open_text(path):
@@ -315,6 +325,112 @@ def marker_files(gtdb, subdir, kind, rel):
     return files
 
 
+def msa_sources(gtdb, rel):
+    """-> [(marker id, opener)] of GTDB's per-marker alignments of the representatives' proteins: each set's
+    <set>_msa_marker_genes_reps_r<rel>.tar.gz read packed, or its extracted individual/<set>_r<rel>_reps_<marker>.faa
+    files under genomic_files_reps. An opener returns the file's text."""
+    found = []
+    for mset in MARKER_SETS:
+        packed = os.path.join(gtdb, "genomic_files_reps", f"{mset}_msa_marker_genes_reps_r{rel}.tar.gz")
+        stem = f"{mset}_r{rel}_reps_"
+        if os.path.exists(packed):
+            found.append((None, packed, stem))
+            continue
+        for dirpath, _dirs, names in os.walk(os.path.join(gtdb, "genomic_files_reps")):
+            for name in sorted(names):
+                if name.startswith(stem) and MSA_RE.search(name):
+                    found.append((MSA_RE.sub("", name)[len(stem):], os.path.join(dirpath, name), stem))
+    return found
+
+
+def _msa_texts(sources):
+    """(marker, text) of every alignment the sources hold, the packed ones streamed member by member."""
+    for marker, path, stem in sources:
+        if marker is not None:
+            with open_text(path) as fh:
+                yield marker, fh.read()
+            continue
+        with tarfile.open(path, "r|gz") as tar:
+            for member in tar:
+                name = os.path.basename(member.name)
+                if member.isfile() and name.startswith(stem) and MSA_RE.search(name):
+                    yield MSA_RE.sub("", name)[len(stem):], tar.extractfile(member).read().decode()
+
+
+def write_column_msa(gtdb, rel, outdir, gene_ids, keep, taxid_of_rep, use_zstd):
+    """column_msa/<geneid>.faa[.zst] in outdir from the release's alignments: the rows of the representatives in the
+    database (taxid_of_rep: accession -> taxid), named by taxid. -> (genes, rows), (0, 0) without the alignments."""
+    sources = msa_sources(gtdb, rel)
+    folder = os.path.join(outdir, COLUMN_MSA)
+    shutil.rmtree(folder, ignore_errors=True)
+    if not sources:
+        return 0, 0
+    os.makedirs(folder)
+    genes = rows = 0
+    for marker, text in _msa_texts(sources):
+        gid = gene_ids.get(marker)
+        if gid is None:
+            m = MARKER_RE.search(marker)
+            gid = gene_ids.get(m.group(1)) if m else None
+        if gid is None or (keep is not None and gid not in keep):
+            continue
+        out, name, taxid = [], None, None
+        for line in text.splitlines():
+            if line.startswith(">"):
+                taxid = taxid_of_rep.get(normalize_accession(line[1:]))
+                if taxid is not None:
+                    out.append(f">{taxid}\n")
+            elif taxid is not None and line.strip():
+                out.append(line.strip())
+                out.append("\n")
+        data = "".join(out).encode()
+        path = os.path.join(folder, f"{gid}.faa")
+        if use_zstd:
+            subprocess.run(["zstd", "-q", "-3", "-f", "-o", path + ".zst"], input=data, check=True)
+        else:
+            with open(path, "wb") as fh:
+                fh.write(data)
+        genes += 1
+        rows += data.count(b">")
+    return genes, rows
+
+
+def write_species_tree(gtdb, rel, outdir, taxid_of_rep):
+    """species_tree.nwk in outdir: the release's trees (<set>_r<rel>.tree[.gz]) under one root, their leaves renamed
+    to the database's taxids (leaves of other genomes keep their names, which protal skips), inner labels dropped.
+    -> the leaves renamed (0 without a tree)."""
+    trees = []
+    for mset in MARKER_SETS:
+        for name in (f"{mset}_r{rel}.tree", f"{mset}_r{rel}.tree.gz"):
+            path = os.path.join(gtdb, name)
+            if os.path.exists(path):
+                with open_text(path) as fh:
+                    trees.append(fh.read().strip().rstrip(";"))
+                break
+    target = os.path.join(outdir, SPECIES_TREE)
+    if not trees:
+        if os.path.exists(target):
+            os.remove(target)
+        return 0
+    renamed = 0
+
+    def leaf(m):
+        nonlocal renamed
+        taxid = taxid_of_rep.get(normalize_accession(m.group(2)))
+        if taxid is None:
+            return m.group(0)
+        renamed += 1
+        return f"{m.group(1)}{taxid}"
+
+    out = []
+    for text in trees:
+        text = re.sub(r"\)('[^']*'|[^(),:;]*)", ")", text)  # inner labels (support values, taxa)
+        out.append(re.sub(r"([(,])([^(),:;']+)", leaf, text))
+    with open(target, "w", newline="\n") as fh:
+        fh.write(("(" + ",".join(out) + ");" if len(out) > 1 else out[0] + ";") + "\n")
+    return renamed
+
+
 def read_fasta(path):
     header, chunks = None, []
     with open_text(path) as fh:
@@ -457,7 +573,14 @@ def species_taxids(taxonomy_rows, names, what):
 # and gene_neighbours.tsv (gene_neighbours.py; per clade). A copy without some species derives
 # gene_neighbours.tsv anew from gene_positions.tsv, without their genomes, when the folder has one.
 CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv", "gene_neighbours.tsv",
-                   "species_priors.tsv", "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
+                   "species_priors.tsv", "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml",
+                   "species_tree.nwk")
+# GTDB's own alignments of the representatives' marker proteins and its tree, for protal --build's column weights
+# (ColumnWeightsMsa.h, --column_weights_alignment msa): column_msa/<geneid>.faa[.zst] (">taxid" and the aligned row,
+# GTDB-Tk's insertions trimmed) and species_tree.nwk (the bacterial and archaeal trees under one root, leaves named by
+# taxid, inner labels dropped). Build inputs, not packed into database.protal.
+COLUMN_MSA = "column_msa"
+SPECIES_TREE = "species_tree.nwk"
 GENE_POSITIONS = "gene_positions.tsv"
 # What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
 # the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)
@@ -670,6 +793,11 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
             shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
         elif os.path.isfile(os.path.join(dst, name)):
             os.remove(os.path.join(dst, name))
+    # GTDB's alignments, whole: protal --build reads only the rows of the species dst holds, so those left out never
+    # enter its column weights.
+    shutil.rmtree(os.path.join(dst, COLUMN_MSA), ignore_errors=True)
+    if os.path.isdir(os.path.join(src, COLUMN_MSA)):
+        shutil.copytree(os.path.join(src, COLUMN_MSA), os.path.join(dst, COLUMN_MSA))
     if keep is not None and os.path.isfile(os.path.join(src, "gene2geneid.tsv")):
         with open(os.path.join(src, "gene2geneid.tsv")) as fin, \
                 open(os.path.join(dst, "gene2geneid.tsv"), "w", newline="\n") as fout:
@@ -974,6 +1102,10 @@ def main():
                                     "TIGR00001; PF00380 matches any version) or protal gene ids, comma-separated or "
                                     "one per line in a file (first column, # comments). The genes keep their ids; "
                                     "with --from_db the gene neighbours are counted anew over them")
+    ap.add_argument("--no_msa", action="store_true",
+                    help="leave out GTDB's alignments and tree (column_msa/, species_tree.nwk), which protal --build "
+                         "takes for the column weights where they are (--column_weights_alignment auto); without them it "
+                         "aligns the proteins itself")
     ap.add_argument("--priors_only", action="store_true",
                     help="write species_priors.tsv only (into --outdir, nothing else there is touched): the priors with "
                          "the genome sizes for a database converted from this release before 2026-10-08, to store with "
@@ -1162,6 +1294,22 @@ def main():
             if sp in taxid:
                 fh.write(f"{acc}\t{taxid[sp]}\t{species_rep[sp]}\t{lineage[acc]}\n")
     phase(REFERENCE_WRITTEN)
+
+    # GTDB's alignments and tree for the column weights (protal --build --column_weights_alignment auto/msa).
+    if not args.no_msa:
+        taxid_of_rep = {species_rep[sp]: taxid[sp] for sp in taxid}
+        n_genes, n_rows = write_column_msa(args.gtdb, rel, args.outdir, gene_ids, keep, taxid_of_rep, _WORK["zstd"])
+        n_leaves = write_species_tree(args.gtdb, rel, args.outdir, taxid_of_rep)
+        if n_genes and not n_leaves:
+            sys.stderr.write(f"Note: alignments but no tree ({'/'.join(f'{m}_r{rel}.tree' for m in MARKER_SETS)}): "
+                             "protal --build aligns the proteins for the column weights\n")
+        phase(f"GTDB's alignments and tree for the column weights: {n_genes} genes, {n_rows} rows in {COLUMN_MSA}/, "
+              f"{n_leaves} tree leaves renamed to taxids" if n_genes else
+              "no GTDB alignments (*_msa_marker_genes_reps archives): protal --build aligns the proteins for the column weights")
+    else:
+        shutil.rmtree(out(COLUMN_MSA), ignore_errors=True)
+        if os.path.exists(out(SPECIES_TREE)):
+            os.remove(out(SPECIES_TREE))
 
     # --- all genomes, for the unique k-mer check -----------------------------------------
     n_full = 0

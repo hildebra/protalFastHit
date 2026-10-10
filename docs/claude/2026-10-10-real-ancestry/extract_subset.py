@@ -7,6 +7,7 @@ usage: extract_subset.py <GTDB release dir> <taxa.tsv> <out dir> [marker set: ba
 """
 import gzip
 import os
+import shutil
 import sys
 import tarfile
 
@@ -44,6 +45,32 @@ for kind, keep in (("reps", reps), ("all", chosen)):
             with open(target, "w") as o:
                 o.write("\n".join(out) + ("\n" if out else ""))
     print(f"{kind}: {files} marker files, {kept} records of {len(keep)} genomes")
+
+# GTDB-Tk's alignments of the representatives' proteins (the chosen rows, extracted as the server's archive unpacks:
+# individual/<set>_r226_reps_<marker>.faa) and the tree, for the column weights from GTDB's columns.
+src = f"{REL}/genomic_files_reps/{SET}_msa_marker_genes_reps_{R}.tar.gz"
+if os.path.exists(src):
+    kept = files = 0
+    with tarfile.open(src, "r|gz") as tar:
+        for member in tar:
+            if not member.isfile() or not member.name.endswith(".faa") or "/individual/" not in "/" + member.name:
+                continue
+            files += 1
+            target = os.path.join(OUT, "genomic_files_reps", member.name)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            out, take = [], False
+            for line in tar.extractfile(member).read().decode().splitlines():
+                if line.startswith(">"):
+                    take = line[1:].split()[0] in reps
+                if take:
+                    out.append(line)
+                    kept += line.startswith(">")
+            with open(target, "w") as o:
+                o.write("\n".join(out) + ("\n" if out else ""))
+    print(f"alignments: {files} marker files, {kept} rows of {len(reps)} representatives")
+if os.path.exists(f"{REL}/{SET}_{R}.tree"):
+    shutil.copyfile(f"{REL}/{SET}_{R}.tree", f"{OUT}/{SET}_{R}.tree")
+    print("tree copied")
 
 for name in (f"{SET}_taxonomy_{R}.tsv.gz", f"{SET}_metadata_{R}.tsv.gz"):
     with gzip.open(f"{REL}/{name}", "rt") as f, gzip.open(f"{OUT}/{name}", "wt") as o:

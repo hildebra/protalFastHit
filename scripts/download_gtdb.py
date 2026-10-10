@@ -14,7 +14,8 @@ Two parts:
   the representatives and of all genomes, checked against the release's MD5SUM.txt and extracted.
   Releases 207 and later (bac120 and ar53 marker sets); the newest point release (e.g. 214.1) unless
   --release names one. With --rep_genomes gtdb also GTDB's archive of all representative genomes
-  (127 GB for r226).
+  (127 GB for r226). Unless --no_msa also GTDB-Tk's alignments of the representatives' marker
+  proteins (kept packed) and the trees, for the column weights (2.2 GB for r226).
 - Genomes to simulate training samples from, from NCBI (the `datasets` CLI): GTDB distributes the
   representatives' genomes only, which are the database's own references; real samples hold other
   strains. From the metadata, per domain in GTDB's proportions: --species species with
@@ -102,6 +103,10 @@ def parse_args(argv=None):
                    help="representatives' genomes of the simulated species from NCBI (default), or GTDB's archive "
                         "of all representative genomes (127 GB for r226)")
     p.add_argument("--no_genomes", action="store_true", help="GTDB's files only, no genomes from NCBI")
+    p.add_argument("--no_msa", action="store_true",
+                   help="leave out GTDB's alignments of the representatives' marker proteins and its trees (2.2 GB at "
+                        "r226), from which protal --build takes the column weights' columns and ancestral sequences; "
+                        "without them it aligns the proteins itself")
     p.add_argument("--dry_run", action="store_true", help="list GTDB's files to download, with their sizes, and stop")
     p.add_argument("--keep_archives", action="store_true",
                    help="keep the downloaded .tar.gz archives after extracting them (default: removed)")
@@ -170,7 +175,7 @@ def resolve_release(opts):
     return number, versions[-1]
 
 
-def release_files(md5sums, number, rep_genomes):
+def release_files(md5sums, number, rep_genomes, msa=True):
     """The files of the release to download: [(path in the release, md5, extract?)]."""
     wanted = []
 
@@ -201,6 +206,15 @@ def release_files(md5sums, number, rep_genomes):
     clusters = one_of(f"auxillary_files/sp_clusters_r{number}.tsv", f"auxillary_files/sp_clusters_r{number}.tsv.gz")
     if clusters:
         wanted.append((clusters, False))
+    # GTDB-Tk's alignments of the representatives' marker proteins and the trees inferred from them (since 2026-10-10,
+    # unless --no_msa): the converter writes them into the database folder for protal --build's column weights,
+    # which then take the family columns from GTDB's alignment and each genus's and family's ancestral sequence from
+    # the tree (2.2 GB at r226, read packed).
+    if msa:
+        for mset in MARKER_SETS:
+            for name in (f"genomic_files_reps/{mset}_msa_marker_genes_reps_r{number}.tar.gz", f"{mset}_r{number}.tree"):
+                if name in md5sums:
+                    wanted.append((name, False))
     if "VERSION.txt" in md5sums:
         wanted.append(("VERSION.txt", False))
     return [(name, md5sums[name], extract) for name, extract in wanted]
@@ -296,14 +310,14 @@ def get_release(opts, state):
     print(f"GTDB r{number} ({version}) from {base}", flush=True)
     if opts.dry_run:
         total = 0
-        for name, _md5, _unpack in release_files(md5sums, number, opts.rep_genomes):
+        for name, _md5, _unpack in release_files(md5sums, number, opts.rep_genomes, not opts.no_msa):
             with urllib.request.urlopen(urllib.request.Request(f"{base}/{name}", method="HEAD"), timeout=120) as r:
                 size = int(r.headers.get("Content-Length", 0))
             total += size
             print(f"  {name}: {size / 1e9:.2f} GB", flush=True)
         print(f"  total {total / 1e9:.1f} GB from GTDB; genomes from NCBI come on top (about 4 MB each)")
         sys.exit(0)
-    for name, md5, unpack in release_files(md5sums, number, opts.rep_genomes):
+    for name, md5, unpack in release_files(md5sums, number, opts.rep_genomes, not opts.no_msa):
         dest = os.path.join(release_dir, name)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         done = files.get(name, {})

@@ -1,0 +1,15 @@
+read the taxonomy and metadata (453 genomes): 0.0 s
+found the marker files (120 of representatives, 120 of all genomes): 0.0 s
+spooled the representatives' marker genes (147 species): 0.1 s
+species priors (0 representatives with a duplicated marker, CheckM quality for 147, species clusters for 0, genome sizes for 147 of 147 species; no sp_clusters file): 0.0 s
+wrote the taxonomy: 0.0 s
+sorted each gene's representative sequences (16080): 0.0 s
+wrote reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv: 0.0 s
+GTDB's alignments and tree for the column weights: 120 genes, 17640 rows in column_msa/, 147 tree leaves renamed to taxids: 0.3 s
+wrote the full reference's chunks (120, zstd-compressed): 1.4 s
+joined them into full_reference.fna.zst: 0.0 s
+GTDB r226 -> /home/falk/real_ancestry/bac120_db_nt
+  species:            147 (taxids 1..147, root 148)
+  marker genes:       120 ids, 16080 representative sequences
+  full reference:     50480 sequences (full_reference.fna.zst, 0.01 GB)
+  skipped rep records: not in taxonomy: 0, not a representative: 0, duplicate: 0

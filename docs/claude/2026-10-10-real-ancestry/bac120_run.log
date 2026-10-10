@@ -1,0 +1,36 @@
+51 families qualify; chosen: f__Cyclobacteriaceae, f__Chitinophagaceae, f__Ruminococcaceae, f__Azotimanducaceae, f__Acidimicrobiaceae
+  f__Cyclobacteriaceae: 4 genera, 30 species, 57 strains (Imperialibacter, JAMZMI01, Reichenbachiella, UBA4465)
+  f__Chitinophagaceae: 4 genera, 25 species, 42 strains (CAIQDX01, CW01, Hydrotalea, UBA1930)
+  f__Ruminococcaceae: 4 genera, 26 species, 61 strains (Egerieicola, UBA1405, UBA5884, UMGS363)
+  f__Azotimanducaceae: 4 genera, 31 species, 40 strains (Azophilus, JAHRVQ01, SLTB01, UBA11889)
+  f__Acidimicrobiaceae: 4 genera, 35 species, 106 strains (Acidithrix, Ferrimicrobium, Ferrithrix, SCQM01)
+total: 20 genera, 147 species, 306 strains, 453 genomes
+reps: 120 marker files, 16080 records of 147 genomes
+all: 120 marker files, 50480 records of 453 genomes
+taxonomy and metadata rows written
+species 147, genera 20, strains 306, genes 120
+sites per kb compared, per species: n=147: 5%=5.376 25%=18.329 50%=33.677 75%=66.970 95%=141.710, mean 51.676
+sites per 150-base read, per species (mean over its genes' windows): n=147: 5%=0.813 25%=2.838 50%=5.275 75%=10.461 95%=20.777, mean 7.755
+share of 150-base reads without a site, per species: n=147: 5%=0.030 25%=0.069 50%=0.122 75%=0.244 95%=0.569, mean 0.188
+-- strains (pairs with >= 10 sites covered; congeners left out of the sites)
+   identity to the representative: n=306: 5%=0.968 25%=0.992 50%=0.998 75%=0.999 95%=1.000, mean 0.994
+   sites covered: n=306: 5%=223.000 25%=1305.000 50%=4734.000 75%=7912.000 95%=12796.000, mean 5293.725
+   agreement (T's base): n=306: 5%=0.678 25%=0.885 50%=0.989 75%=0.998 95%=1.000, mean 0.930
+   the congeners' base: n=306: 5%=0.000 25%=0.002 50%=0.008 75%=0.105 95%=0.312, mean 0.065
+   agreement at the fixed sites (>= 5 covered, 287 pairs): n=287: 5%=0.909 25%=0.994 50%=0.999 75%=1.000 95%=1.000, mean 0.982
+-- congeners (pairs with >= 10 sites covered; congeners left out of the sites)
+   identity to the representative: n=1108: 5%=0.716 25%=0.757 50%=0.792 75%=0.843 95%=0.949, mean 0.807
+   sites covered: n=1108: 5%=244.000 25%=860.000 50%=1892.000 75%=3372.000 95%=10284.000, mean 2868.724
+   agreement (T's base): n=1108: 5%=0.033 25%=0.128 50%=0.204 75%=0.293 95%=0.489, mean 0.225
+   the congeners' base: n=1108: 5%=0.339 25%=0.525 50%=0.667 75%=0.776 95%=0.942, mean 0.649
+   agreement at the fixed sites (>= 5 covered, 543 pairs): n=543: 5%=0.000 25%=0.003 50%=0.023 75%=0.064 95%=0.192, mean 0.048
+AUC of agreement, strains over left-out congeners: 0.994
+AUC of the fixed-site agreement: 1.000
+-- by identity to T's copies: agreement of strains | of left-out congeners (pairs)
+   [0.00, 0.85): - (0) | 0.195 (857)
+   [0.85, 0.90): - (0) | 0.272 (113)
+   [0.90, 0.95): - (0) | 0.178 (92)
+   [0.95, 0.97): 0.858 (16) | 0.218 (40)
+   [0.97, 0.99): 0.851 (41) | 0.358 (4)
+   [0.99, 1.01): 0.992 (249) | 0.989 (2)
+== RUN DONE bac120 15:34:19

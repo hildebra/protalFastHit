@@ -14,6 +14,7 @@
 #include "SequenceUtils/AncestrySites.h"
 #include "SequenceUtils/ColumnWeights.h"
 #include "SequenceUtils/ColumnWeightsBuild.h"
+#include "SequenceUtils/ColumnWeightsMsa.h"
 #include "TestReference.h"
 #include "TestUtil.h"
 
@@ -353,6 +354,89 @@ TEST(ColumnWeights, TheProteinsAlignWhereTheBasesAreTooFarApart) {
         EXPECT_EQ(stats.unaligned, codons ? 0u : lost) << "codons " << codons;
         EXPECT_EQ(copies.size(), codons ? 3u : 3u - lost) << "codons " << codons;
     }
+}
+
+// GTDB's columns (ColumnWeightsMsa.h): the tree's leaves by taxid (other labels skipped), a tree induced on some
+// leaves, Fitch parsimony (an unknown leaf constrains nothing, a tie goes to the commoner state), the residues of a
+// protein placed on its trimmed row, and a family of three genera built from rows and the tree: each copy's bases on
+// the family columns, within and among from the genera and their ancestors, the family's ancestral base polarising a
+// column where three genera carry a base and parsimony and the majority disagree.
+TEST(ColumnWeights, TheFamilyColumnsComeFromGtdbsAlignmentAndTree) {
+    namespace msa = cw::msa;
+    std::string error;
+    auto const tree = msa::Tree::Parse("((1:0.1,(2,3)95:0.05)'100:g__X':0.2,((4,5)90:0.1,6)100:0.3,RS_GCF_000001.1:0.4);", error);
+    ASSERT_FALSE(tree.Empty()) << error;
+    EXPECT_EQ(tree.leaf_of.size(), 6u);
+    EXPECT_EQ(tree.leaf_of.count(7), 0u);
+    auto const sub = msa::Induce(tree, { 1, 3, 5, 99 });  // 99 is no leaf
+    EXPECT_EQ(sub.Leaves(), 3u);
+    EXPECT_EQ(sub.leaf.size(), 5u);  // (1,3) and the root over it and 5: unary nodes contracted
+    EXPECT_EQ(sub.children.back().size(), 2u);
+
+    // Fitch on ((1,(2,3)),((4,5),6)) over all six: column 0 A A A C C A -> A; column 1 A A A C C C -> {A, C} at the
+    // root, three each: the lower state A, ambiguous; column 2 with leaf 1 unknown, 2-6 C: C.
+    auto const all = msa::Induce(tree, { 1, 2, 3, 4, 5, 6 });
+    std::vector<std::vector<uint8_t>> states{ { 0, 0, 4 }, { 0, 0, 1 }, { 0, 0, 1 }, { 1, 1, 1 }, { 1, 1, 1 }, { 0, 1, 1 } };
+    size_t ambiguous = 0;
+    auto const root = msa::Fitch(all, states, 3, msa::kBaseStates, ambiguous);
+    EXPECT_EQ(root[0], 0u);
+    EXPECT_EQ(root[1], 0u);
+    EXPECT_EQ(root[2], 1u);
+    EXPECT_EQ(ambiguous, 1u);
+
+    // A protein whose residues 5-7 are an insertion the row trimmed, and whose first residue GTDB translated as M.
+    std::string const protein = "VKTAYIAKQRQISFVKSHFSRQ";
+    std::string const row = "--MKTAY-QRQISFVKSHFSRQ";
+    std::vector<int32_t> column_of;
+    EXPECT_EQ(msa::PlaceResidues(protein, row, column_of), 18u);  // all but the M
+    EXPECT_EQ(column_of[0], -1);
+    EXPECT_EQ(column_of[1], 3);
+    EXPECT_EQ(column_of[4], 6);
+    EXPECT_EQ(column_of[5], -1);
+    EXPECT_EQ(column_of[7], -1);
+    EXPECT_EQ(column_of[8], 8);
+    // A 100-residue N-terminal extension the row lacks: found beyond kSearch with the longer anchor, from the first
+    // residue whose 8-residue window does not straddle the insertion (Q); the four before it (KTAY, between the
+    // extension and the insertion) stay off their columns.
+    std::string const extended = std::string(100, 'W') + protein;
+    EXPECT_EQ(msa::PlaceResidues(extended, row, column_of), 14u);
+    EXPECT_EQ(column_of[101], -1);
+    EXPECT_EQ(column_of[108], 8);
+    EXPECT_EQ(column_of[121], 21);
+
+    // A family: genus 10 = species 1, 2, 3; genus 20 = 4, 5; genus 30 = 6; species 7 (genus 30) has no row. The genera
+    // differ at base 15 (genus 20 another base); species 3 alone at base 40. Rows: the proteins after two gap columns.
+    std::mt19937 rng(3);
+    auto const base = CodingSequence(30, rng);
+    std::vector<uint32_t> taxids{ 1, 2, 3, 4, 5, 6, 7 }, genus{ 10, 10, 10, 20, 20, 30, 30 };
+    std::vector<std::string> seqs(7, base);
+    for (size_t i : { 3u, 4u }) seqs[i][15] = Other(base[15], 0);
+    seqs[2][40] = Other(base[40], 1);
+    std::vector<std::string> row_text;
+    for (auto const& s : seqs) row_text.push_back("--" + cw::Translate(s));
+    std::vector<std::string const*> rows;
+    for (size_t i = 0; i < 7; i++) rows.push_back(i == 6 ? nullptr : &row_text[i]);
+    size_t const width = row_text[0].size();
+    msa::MsaStats stats;
+    std::vector<cw::Family> families;
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<cw::Run>>> copies;
+    ASSERT_TRUE(msa::BuildFamilyFromMsa(99, 7, taxids, seqs, genus, rows, width, tree, stats, families, copies));
+    auto const& f = families[0];
+    EXPECT_EQ(f.Length(), 3 * width);
+    EXPECT_EQ(f.genera, 3u);
+    EXPECT_EQ(stats.without_row, 1u);
+    EXPECT_EQ(stats.genus_trees, 2u);  // genera 10 and 20; genus 30 has one species with a row
+    ASSERT_EQ(copies.size(), 6u);
+    for (auto const& [taxid, gene, index, runs] : copies) {
+        ASSERT_EQ(runs.size(), 1u) << taxid;
+        EXPECT_EQ(runs[0], (cw::Run{ 0, 6, static_cast<uint16_t>(base.size()) })) << taxid;  // base 0 on column 6
+    }
+    EXPECT_LT(f.within[6 + 40], f.within[6]) << "species 3 varies at base 40";
+    EXPECT_LT(f.among[6 + 15], f.among[6]) << "the genera's ancestors differ at base 15";
+    // Base 15: genus 10 and 30 keep the base, genus 20 has another; parsimony on ((1,(2,3)),((4,5),6)) gives the base.
+    EXPECT_EQ(f.consensus[6 + 15], cw::BaseCode(base[15]));
+    EXPECT_EQ(f.consensus[6], cw::BaseCode(base[0]));
+    EXPECT_EQ(f.consensus[0], cw::kNoBase);  // a gap column
 }
 
 // The table round-trips through its text, finds copies and expands their columns.

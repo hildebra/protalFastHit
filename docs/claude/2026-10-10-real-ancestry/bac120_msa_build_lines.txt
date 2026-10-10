@@ -1,0 +1,9 @@
+Congener gaps: 16066 gene copies of 147 species in 20 genera, 120 genes; 55960 copies aligned (5109 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.0685, 0.1303, 0.2108: /home/falk/real_ancestry/bac120_db_msa/congener_gaps.tsv
+Congener gaps took 5s 206ms
+Strain alleles: 10130 alleles (129672 edits) of 5431 gene copies of 76 species, up to 4 each (of 48425 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 30808 identical to the representative's, 5045 repeated, 400 covering less than 0.5 of it or more than 0.1 apart, 744 as far as the nearest congener's copy or farther; 11428 alleles offered): /home/falk/real_ancestry/bac120_db_msa/strain_alleles.tsv
+Strain alleles took 164ms
+Column weights: 597 family-gene rows of 613779 columns, 16080 gene copies of 147 species mapped, from GTDB's alignments and tree (/home/falk/real_ancestry/bac120_db_msa/column_msa, /home/falk/real_ancestry/bac120_db_msa/species_tree.nwk): /home/falk/real_ancestry/bac120_db_msa/column_weights.tsv
+Column weights from GTDB's alignments: 16080 copies, 0 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.858447 on a column (the rest insertions the alignment trimmed); 2378 genus ancestors (2364 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.215234 ambiguous at the root, 598440 columns polarised; 0 genes without an alignment
+Column weights codes (half nats) of the 613779 columns: within 603417 of 613779 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 605172 of 613779 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 201230 of 204593 with an estimate, median 5, largest 7, 0.00% at 9 or more
+Column weights took 487ms
+Index alleles: none (--index_alleles 1)

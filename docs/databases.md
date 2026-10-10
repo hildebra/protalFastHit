@@ -241,6 +241,7 @@ HTTP 503.
 | `--tech_candidates`, `--no_tech_lookup` | 30 | candidates per species whose sequencing technology is asked of NCBI; or ask for none |
 | `--progenomes` | | a proGenomes ANI-clustering table ([`pg4_ANI_clustering.tsv.gz`](https://progenomes.embl.de/download.cgi)) or any list of accessions: strains only from these |
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list what would be fetched |
+| `--no_msa` | | leave out GTDB-Tk's alignments of the representatives' marker proteins and GTDB's trees (2.2 GB for r226, kept packed), from which `--build` takes the column weights' columns and ancestral sequences (since 2026-10-10); without them it aligns the proteins itself |
 | `--connections`, `--ftp_url` | 8, NCBI's | genomes fetched at once from NCBI's FTP server (0: only through `datasets`) |
 | `--host_genome` | `human` | the host genome: `human`, `ACCESSION_ASSEMBLYNAME` of another NCBI assembly (e.g. `GCF_000001405.40_GRCh38.p14`), or `none` |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per `datasets` request (500), compression threads (8) |
@@ -1105,8 +1106,17 @@ alone (before the index takes its memory), then the index:
    each candidate alignment of a short read with its species' best allele (a read of a known strain then scores on its
    species as on the strain's gene; the records keep their alignment to the reference) and counts the alleles
    features. One pass over the full reference, as for the conservation factors. `--strain_alleles 0`: none.
-   Then the column weights (since 2026-10-10, `column_weights.tsv`): gene by gene, per family one genus reference
-   (chosen by hash) gives the columns, the other genus references are aligned to it (up to `--column_weights`
+   Then the column weights (since 2026-10-10, `column_weights.tsv`). Where the database folder has GTDB's
+   alignments and tree (`column_msa/`, `species_tree.nwk`: `gtdb_to_protal_db.py` writes them from the release's
+   `*_msa_marker_genes_reps` archives and trees, which `download_gtdb.py` fetches unless `--no_msa`), nothing is
+   aligned (`--column_weights_alignment msa`, which `auto`, the default, takes when they are there): each family's
+   columns are those of GTDB-Tk's alignment of the marker, each copy's residues are placed on its row (the row is
+   the protein less its insertions), every genus of the family votes on the `among` conservation through its
+   ancestral sequence (Fitch parsimony on GTDB's tree pruned to the genus), every species votes within its genus,
+   and the family's ancestral base (parsimony over all its species, where three genera or more carry a base)
+   polarises small genera's ancestry sites. On a real archaeal family this mapped 99.9% of GTDB's aligned residue
+   pairs, against 56% by the protein alignment and 8% by the bases'. Without them, gene by gene, per family one
+   genus reference (chosen by hash) gives the columns, the other genus references are aligned to it (up to `--column_weights`
    genera, 10, vote on the consensus among genera), every species' copy is aligned to its genus reference for the
    conservation within the genus. The alignments (WFA2) are of the proteins, the copies translated in frame, each
    aligned amino-acid pair mapping its codon's three bases (`--column_weights_alignment aa`, the default since the

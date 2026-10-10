@@ -534,6 +534,12 @@ test worlds. Each weight is stored in half nats on 4 bits, with the family's con
 copy's columns once (`ColumnWeights.h`). The consensus base also polarises the ancestry sites of a species with fewer
 than three congeners (`ancestry`): its congener's difference is a site only where the congener's base is the family's.
 
+From GTDB's alignments and tree (`--column_weights_alignment msa`, the default where the database folder has them,
+since the evening of 2026-10-10; `ColumnWeightsMsa.h`) nothing is aligned: the columns are those of GTDB-Tk's
+alignment of the marker, every genus of the family votes `among` through its ancestral sequence (parsimony on GTDB's
+tree; no cap of ten genera), every species votes `within` its genus, and the consensus base is the family's ancestral
+base (parsimony over all its species, where three genera or more carry a base).
+
 | feature | what it measures | matters for |
 |---|---|---|
 | `conserved_mismatch_ratio` | the mean within weight of the taxon's mismatches over the mean within weight of its aligned columns: 1 for mismatches spread as errors are, below 1 for a relative whose mutations avoid the conserved columns, above 1 for a read from afar; 0 without a mismatch | reads from other genera; errors |

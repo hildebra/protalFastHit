@@ -1,0 +1,141 @@
+                                             ,,  
+`7MM"""Mq.                   mm            `7MM  
+  MM   `MM.                  MM              MM  
+  MM   ,M9 `7Mb,od8 ,pW"Wq.mmMMmm  ,6"Yb.    MM  
+  MMmmdM9    MM' "'6W'   `Wb MM   8)   MM    MM  
+  MM         MM    8M     M8 MM    ,pm9MM    MM  
+  MM         MM    YA.   ,A9 MM   8M   MM    MM  
+.JMML.     .JMML.   `Ybmd9'  `Mbmo`Moo9^Yo..JMML.
+
+
+Total available memory is 23GB
+
+Options:
+------ General ------------------------------------
+build:               1
+compress database:   zstd level 19, window 2^27, 64 MB frames, single file database.protal
+no strains:          0
+threads:             4
+-------- I/O --------------------------------------
+first:               
+second:              
+db path:             /home/falk/real_ancestry/ar53_db_msa
+sequence file:       /home/falk/real_ancestry/ar53_db_msa/reference.fna
+sam file:            
+profile file:        
+output prefix:       
+Output dir:          
+preload genomes:     yes
+----- Alignment -----------------------------------
+align top:           3
+adaptive candidates: 7
+allele scores:       the database's strain alleles, if it has them
+max key ubiquity:    256
+max seed size:       128
+max score ani:       0.900000
+x-drop:              1000
+short reads aligned: from their anchors
+alignment screen:    k-mers shared with the window before WFA2
+SAM header lists:    the genes aligned to
+unaligned reads:     counted per taxon in the SAM header
+fastalign:           0
+max out:             1
+------ Strains ------------------------------------
+snp min cov:         2
+snp min phred sum:   90
+snp min mean qual:   15
+snp min af:          0.150000
+snp require strand:  yes
+snp max alleles:     3
+run qcmsa:           yes
+msa species:         
+msa min hcov:        1000
+msa min depth:       1
+msa identity margin: 0.040000
+msa knob:            0.500000 (--knob)
+phasing:             long-read samples
+foreign genes:       left out of depth and MSAs
+suspect gene copies: left out of the evidence
+---- Dev Options ----------------------------------
+verbose:             no
+benchmark alignment: no
+profile truth:       yes
+^ output:            
+---------------------------------------------------
+
+Loading the gene tables took 37ms
+Gene tables: reference.map 870 rows: reading 0.03 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s; unique_kmers.tsv 0 rows: reading 0.00 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s, genome sums 0.00 s
+Preload genomes
+Preload genomes took less than 1ms
+Preload: 870 genes, 0.00 Gb, 0.00 GB packed, from 0.00 GB of reference: listing the genes 0.00 s (sorted), arena 0.00 s, reading and packing 0.00 s, marking the genomes 0.00 s
+Memory after the genome preload: 0.01 GB resident, peak 0.07 GB
+Loading the taxonomy, models and tables took less than 1ms
+Gene conservation: factors 0.64-2.3 for 36 genes, from 2 species (2984 copies compared): /home/falk/real_ancestry/ar53_db_msa/gene_conservation.tsv
+Gene conservation took 28ms
+Gene congeners: 11 pairs of species of 4 genera (23 species); the genes' divergence between congeners correlates 0.40 with their factors (Spearman, 36 genes); genes of factor below 1: between-species factor 0.94, the nearest congener's copy identical in 0.0% of species, nearer than 0.01 in 1.1%; the other genes: 1.02, 1.1%, 1.1%: /home/falk/real_ancestry/ar53_db_msa/gene_congeners.tsv
+Gene congeners took 21ms
+Suspect copies: 0 of 870 gene copies (0.00%) of 0 species within 0.02 of another genus's copy and farther from their congeners': none; 0 near pairs across genera (within 0.05) of 44 genes, 2118 candidate pairs, 208 of them compared in full (the others cannot be within 0.05): /home/falk/real_ancestry/ar53_db_msa/gene_incongruence.tsv
+Suspect copies took 22ms
+Species neighbours: 73 pairs of congeners compared in 4 genera; 10 neighbours within 0.15 listed for 23 species, 0 with a congener within 0.01, 0 within 0.02: /home/falk/real_ancestry/ar53_db_msa/species_neighbours.tsv
+Species neighbours took 4ms
+Congener gaps: 865 gene copies of 23 species in 4 genera, 44 genes; 2408 copies aligned (153 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.1195, 0.1822, 0.2486: /home/falk/real_ancestry/ar53_db_msa/congener_gaps.tsv
+Congener gaps took 518ms
+Strain alleles: 586 alleles (2513 edits) of 234 gene copies of 9 species, up to 4 each (of 2984 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 1886 identical to the representative's, 371 repeated, 7 covering less than 0.5 of it or more than 0.1 apart, 2 as far as the nearest congener's copy or farther; 718 alleles offered): /home/falk/real_ancestry/ar53_db_msa/strain_alleles.tsv
+Strain alleles took 8ms
+Column weights: 46 family-gene rows of 36243 columns, 870 gene copies of 23 species mapped, from GTDB's alignments and tree (/home/falk/real_ancestry/ar53_db_msa/column_msa, /home/falk/real_ancestry/ar53_db_msa/species_tree.nwk): /home/falk/real_ancestry/ar53_db_msa/column_weights.tsv
+Column weights from GTDB's alignments: 870 copies, 0 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.861133 on a column (the rest insertions the alignment trimmed); 172 genus ancestors (167 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.218083 ambiguous at the root, 31974 columns polarised; 0 genes without an alignment
+Column weights codes (half nats) of the 36243 columns: within 33921 of 36243 with an estimate, median 4, largest 6, 0.00% at 9 or more; among 35385 of 36243 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 11323 of 12081 with an estimate, median 3, largest 7, 0.00% at 9 or more
+Column weights took 614ms
+Gene neighbours: none (gene_neighbours.tsv, which scripts/mini_db/gene_neighbours.py writes from whole genomes, is not in the folder)
+Memory after the gene tables: 0.02 GB resident, peak 0.10 GB
+Index passes: the reference's records from the preloaded genes (0 bases of them as the reference has them, not A, C, G or T)
+Run Build
+Build: iterate records
+minimizers: 134164
+Pass 1 (count the k-mers) took 261ms
+Index in memory: 134164 entries of 25 bits (taxid * 54 + gene 11, position 12, 2 flags) and their 32-bit flex cells, 38.00 bits per slot of the file: 0.0 GB; key map 3.2 GB
+Index cores: 134164 k-mers of the reference in 120322 cores (their 15-base keys); cores by their values: 1: 109326 cores, 109326 k-mers (81.49%), 2-15: 10996 cores, 24838 k-mers (18.51%), 16-255: 0 cores, 0 k-mers (0.00%), 256-2047: 0 cores, 0 k-mers (0.00%), 2048 or more: 0 cores, 0 k-mers (0.00%)
+Index cores left out: 0 cores of 2048 values or more, whole (0 k-mers, 0.00% of the reference's; the largest core 0): a k-mer that common places no read. The other cores keep all their values: 147468 cells (entries and flex cells), 0.00 GB in the file's 8-byte layout; key map 3.00 GB
+Value pointers took 653ms
+After first put
+Pass 2 (place the values) took 11ms
+Memory after pass 2: 3.03 GB resident, peak 3.03 GB
+Index alleles: none (--index_alleles 1)
+Check Uniqueness: /home/falk/real_ancestry/ar53_db_msa/full_reference.fna.zst
+Uniqueness check: 53 frames of /home/falk/real_ancestry/ar53_db_msa/full_reference.fna.zst, decompressed on 2 threads at once
+Uniqueness check took 20ms
+Uniqueness check: 473281 k-mers, 140978 of them distinct in their key range and round and looked up once each; 25304 flex cells compared (0.1 per k-mer), 3714 whole k-mers found under another taxon or more than once, 657 single entries read back from their genes
+Memory after the uniqueness check: 3.04 GB resident, peak 3.06 GB
+Save unique kmer info: 
+/home/falk/real_ancestry/ar53_db_msa/unique_kmers.tsv
+ShortUniques:    109110
+LongUniques:    17729
+LongUniquesTwo:    12558
+Nonuniques: 7325
+Unique k-mer statistics took 70ms
+Distance-two flags: 23797 flex parts compared
+Wrote /home/falk/real_ancestry/ar53_db_msa/gene_table.bin: 870 genes, the binary form of /home/falk/real_ancestry/ar53_db_msa/reference.map and /home/falk/real_ancestry/ar53_db_msa/unique_kmers.tsv, which a run from database.protal loads
+Write gene_table.bin took 67ms
+Models for read types: pe; none for se, pb, ont (protal --add_model FILE --read_type TYPE --db /home/falk/real_ancestry/ar53_db_msa/database.protal adds one)
+Write /home/falk/real_ancestry/ar53_db_msa/database.protal from the index in memory, reference.fna, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, gene_table.bin, model_pe.xml (seekable zstd files' frames as they are, the others compressed at zstd level 19, 64.00 MB frames; verified)
+Write the index into database.protal (zstd level 19, columns in 64.00 MB chunks, verified, 4 thread(s))
+Index in database.protal: 772686 bytes (3.00 GB uncompressed, 4170.4x)
+Write index took 1s 836ms
+Memory after writing the index: 0.04 GB resident, peak 3.43 GB
+/home/falk/real_ancestry/ar53_db_msa/database.protal: 1.40 MB (11.12 MB as separate files, besides the index). Removed the separate files; /home/falk/bidx/build/protal --unpack_db --db /home/falk/real_ancestry/ar53_db_msa/database.protal writes them back.
+Write database.protal took 6s 440ms
+Memory after writing database.protal: 0.04 GB resident, peak 3.43 GB
+Run build took 8s 924ms
+Processed reads:    	1740
+Reads with errors:  	0
+Total kmers:        	1411734
+Minimizers kmers:   	268328
+Seeds:              	0 (per read avg 0)
+Best anchor seeds:  	0 (per best anchor avg -nan)
+Total succ. lookups:	0 (per reads with at least one successful lookup -nan)
+Anchors:            	0
+Total alignments:   	0
+Output alignments:  	0
+Threads:            	5
+Run protal took 8s 984ms
+Freeing memory took 0s 1ms

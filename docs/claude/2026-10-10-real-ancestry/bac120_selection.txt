@@ -1,0 +1,10 @@
+51 families qualify; chosen: f__Cyclobacteriaceae, f__Chitinophagaceae, f__Ruminococcaceae, f__Azotimanducaceae, f__Acidimicrobiaceae
+  f__Cyclobacteriaceae: 4 genera, 30 species, 57 strains (Imperialibacter, JAMZMI01, Reichenbachiella, UBA4465)
+  f__Chitinophagaceae: 4 genera, 25 species, 42 strains (CAIQDX01, CW01, Hydrotalea, UBA1930)
+  f__Ruminococcaceae: 4 genera, 26 species, 61 strains (Egerieicola, UBA1405, UBA5884, UMGS363)
+  f__Azotimanducaceae: 4 genera, 31 species, 40 strains (Azophilus, JAHRVQ01, SLTB01, UBA11889)
+  f__Acidimicrobiaceae: 4 genera, 35 species, 106 strains (Acidithrix, Ferrimicrobium, Ferrithrix, SCQM01)
+total: 20 genera, 147 species, 306 strains, 453 genomes
+reps: 120 marker files, 16080 records of 147 genomes
+all: 120 marker files, 50480 records of 453 genomes
+taxonomy and metadata rows written

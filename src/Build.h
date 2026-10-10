@@ -26,6 +26,7 @@
 #include "SequenceUtils/CongenerGaps.h"
 #include "SequenceUtils/StrainAllelesBuild.h"
 #include "SequenceUtils/ColumnWeightsBuild.h"
+#include "SequenceUtils/ColumnWeightsMsa.h"
 #include "Taxonomy.h"
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -1604,11 +1605,37 @@ namespace protal::build {
         fs::remove(target, ec);
         column_weights::Settings settings;
         settings.genera = options.GetColumnWeights();
-        settings.codons = options.ColumnWeightsByCodons();
         if (settings.genera == 0) {
             std::cout << "Column weights: none (--column_weights 0)" << std::endl;
             return;
         }
+        // Where the columns come from (--column_weights_alignment): GTDB's alignments and tree in the database folder
+        // (ColumnWeightsMsa.h; auto takes them where they are), else the proteins (or the bases) aligned.
+        std::string folder = fs::path(target).parent_path().string();
+        if (folder.empty()) folder = ".";
+        std::string const msa_folder = folder + "/" + column_weights::msa::kFolder;
+        std::string const tree_path = folder + "/" + column_weights::msa::kTreeFile;
+        bool const has_msa = fs::is_directory(msa_folder) && fs::exists(zstd::Resolve(tree_path));
+        std::string mode = options.ColumnWeightsAlignment();
+        if (mode == "auto") mode = has_msa ? "msa" : "aa";
+        if (mode == "msa" && !has_msa) {
+            std::cerr << "--column_weights_alignment msa: " << folder << " has no " << column_weights::msa::kFolder << "/ and "
+                      << column_weights::msa::kTreeFile << " (gtdb_to_protal_db.py writes them from the release's alignments and tree)" << std::endl;
+            exit(1);
+        }
+        bool const from_msa = mode == "msa";
+        settings.codons = mode != "nt";
+        column_weights::msa::Tree tree;
+        if (from_msa) {
+            std::string error;
+            tree = column_weights::msa::Tree::Read(tree_path, error);
+            if (tree.Empty()) {
+                std::cerr << "Reading " << tree_path << " failed: " << error << std::endl;
+                exit(1);
+            }
+        }
+        column_weights::msa::MsaStats msa_stats;
+        size_t genes_without_msa = 0;
         // Each species' genus and family from the taxonomy (as Genera does).
         std::unordered_map<uint32_t, uint32_t> parent;
         std::unordered_map<uint32_t, uint8_t> rank;  // 1 genus, 2 family
@@ -1674,7 +1701,19 @@ namespace protal::build {
             for (int64_t i = 0; i < static_cast<int64_t>(holders.size()); i++) {
                 seqs[static_cast<size_t>(i)] = std::string(genomes.GetGenome(holders[static_cast<size_t>(i)]).GetGeneOMP(g).Sequence().View());
             }
-            column_weights::ScanGene(static_cast<uint32_t>(g), holders, seqs, genus_of, family_of, settings, threads, stats, families, copies);
+            if (from_msa) {
+                std::unordered_set<uint32_t> const wanted(holders.begin(), holders.end());
+                size_t width = 0;
+                auto const rows = column_weights::msa::ReadRows(msa_folder, static_cast<uint32_t>(g), wanted, width);
+                if (rows.empty()) {
+                    genes_without_msa++;
+                    continue;
+                }
+                column_weights::msa::ScanGeneFromMsa(static_cast<uint32_t>(g), holders, seqs, genus_of, family_of, rows, width, tree,
+                                                     threads, msa_stats, families, copies);
+            } else {
+                column_weights::ScanGene(static_cast<uint32_t>(g), holders, seqs, genus_of, family_of, settings, threads, stats, families, copies);
+            }
         }
         seqs.clear();
         seqs.shrink_to_fit();
@@ -1693,6 +1732,23 @@ namespace protal::build {
         if (!os) {
             std::cerr << "Writing " << target << " failed" << std::endl;
             exit(8);
+        }
+        if (from_msa) {
+            auto const share = [](size_t part, size_t whole) { return whole ? static_cast<double>(part) / static_cast<double>(whole) : 0.0; };
+            std::cout << "Column weights: " << table.Families() << " family-gene rows of " << table.ColumnCount() << " columns, "
+                      << table.Copies() << " gene copies of " << table.Species() << " species mapped, from GTDB's alignments and tree ("
+                      << msa_folder << ", " << tree_path << "): " << target << std::endl;
+            std::cout << "Column weights from GTDB's alignments: " << msa_stats.copies << " copies, " << msa_stats.without_row
+                      << " without a row, " << msa_stats.badly_placed << " placed below " << column_weights::msa::kMinPlaced
+                      << " of their row; of the residues of those used " << share(msa_stats.placed, msa_stats.residues)
+                      << " on a column (the rest insertions the alignment trimmed); " << msa_stats.genus_ancestors << " genus ancestors ("
+                      << msa_stats.genus_trees << " by parsimony on the tree, the others a genus's one species), the families' ancestral bases "
+                      << share(msa_stats.family_ambiguous, msa_stats.family_columns) << " ambiguous at the root, "
+                      << msa_stats.polarised << " columns polarised; " << genes_without_msa << " genes without an alignment" << std::endl;
+            std::cout << "Column weights codes (half nats) of the " << codes.columns << " columns: " << codes.Line(strain_alleles::kDiscountNone) << std::endl;
+            bm.Stop();
+            bm.PrintResults();
+            return;
         }
         std::cout << "Column weights: " << table.Families() << " family-gene rows of " << table.ColumnCount() << " columns, "
                   << table.Copies() << " gene copies of " << table.Species() << " species mapped (" << stats.single_genus

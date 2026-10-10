@@ -1,0 +1,83 @@
+reps: 120 marker files, 16080 records of 147 genomes
+all: 120 marker files, 50480 records of 453 genomes
+alignments: 120 marker files, 17640 rows of 147 representatives
+tree copied
+taxonomy and metadata rows written
+Congener gaps: 16066 gene copies of 147 species in 20 genera, 120 genes; 55960 copies aligned (5109 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.0685, 0.1303, 0.2108: /home/falk/real_ancestry/bac120_db_msa/congener_gaps.tsv
+Congener gaps took 5s 206ms
+Strain alleles: 10130 alleles (129672 edits) of 5431 gene copies of 76 species, up to 4 each (of 48425 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 30808 identical to the representative's, 5045 repeated, 400 covering less than 0.5 of it or more than 0.1 apart, 744 as far as the nearest congener's copy or farther; 11428 alleles offered): /home/falk/real_ancestry/bac120_db_msa/strain_alleles.tsv
+Strain alleles took 164ms
+Column weights: 597 family-gene rows of 613779 columns, 16080 gene copies of 147 species mapped, from GTDB's alignments and tree (/home/falk/real_ancestry/bac120_db_msa/column_msa, /home/falk/real_ancestry/bac120_db_msa/species_tree.nwk): /home/falk/real_ancestry/bac120_db_msa/column_weights.tsv
+Column weights from GTDB's alignments: 16080 copies, 0 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.858447 on a column (the rest insertions the alignment trimmed); 2378 genus ancestors (2364 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.215234 ambiguous at the root, 598440 columns polarised; 0 genes without an alignment
+Column weights codes (half nats) of the 613779 columns: within 603417 of 613779 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 605172 of 613779 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 201230 of 204593 with an estimate, median 5, largest 7, 0.00% at 9 or more
+Column weights took 487ms
+Index alleles: none (--index_alleles 1)
+== BUILD DONE bac120 msa
+Congener gaps: 16066 gene copies of 147 species in 20 genera, 120 genes; 55960 copies aligned (5109 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.0685, 0.1303, 0.2108: /home/falk/real_ancestry/bac120_db_aa/congener_gaps.tsv
+Congener gaps took 5s 374ms
+Strain alleles: 10130 alleles (129672 edits) of 5431 gene copies of 76 species, up to 4 each (of 48425 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 30808 identical to the representative's, 5045 repeated, 400 covering less than 0.5 of it or more than 0.1 apart, 744 as far as the nearest congener's copy or farther; 11428 alleles offered): /home/falk/real_ancestry/bac120_db_aa/strain_alleles.tsv
+Strain alleles took 172ms
+Column weights: 597 family-gene rows of 691812 columns, 12668 gene copies of 147 species mapped (0 rows of a family with one genus); 13443 alignments, 1372 failed; up to 10 genera vote per family: /home/falk/real_ancestry/bac120_db_aa/column_weights.tsv
+Column weights alignments (amino acids, translated in frame): genus references against their family's: 1781 aligned, 1421 kept; failed: 316 beyond 0.5 (16 beyond 0.75), 44 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty, too long or too short; the divergence of those compared: quartiles 0.25, 0.35, 0.5 (bins of 0.05); species against their genus's: 11662 aligned, 10650 kept; failed: 732 beyond 0.3 (11 beyond 0.45), 280 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty, too long or too short; the divergence of those compared: quartiles 0.1, 0.15, 0.2 (bins of 0.05); 2040 species' copies not aligned (their genus reference failed)
+Column weights codes (half nats) of the 691812 columns: within 671403 of 691812 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 691812 of 691812 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 224786 of 230604 with an estimate, median 4, largest 7, 0.00% at 9 or more
+Column weights took 405ms
+Index alleles: none (--index_alleles 1)
+== BUILD DONE bac120 aa
+Congener gaps: 16066 gene copies of 147 species in 20 genera, 120 genes; 55960 copies aligned (5109 beyond 0.4, 0 without overlap), 0 genus-gene groups above 24 others sampled; the nearest congener's distance: quartiles 0.0685, 0.1303, 0.2108: /home/falk/real_ancestry/bac120_db_nt/congener_gaps.tsv
+Congener gaps took 5s 216ms
+Strain alleles: 10130 alleles (129672 edits) of 5431 gene copies of 76 species, up to 4 each (of 48425 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 30808 identical to the representative's, 5045 repeated, 400 covering less than 0.5 of it or more than 0.1 apart, 744 as far as the nearest congener's copy or farther; 11428 alleles offered): /home/falk/real_ancestry/bac120_db_nt/strain_alleles.tsv
+Strain alleles took 173ms
+Column weights: 597 family-gene rows of 691812 columns, 6327 gene copies of 140 species mapped (0 rows of a family with one genus); 11323 alignments, 5593 failed; up to 10 genera vote per family: /home/falk/real_ancestry/bac120_db_nt/column_weights.tsv
+Column weights alignments (bases): genus references against their family's: 1781 aligned, 1066 kept; failed: 585 beyond 0.4 (4 beyond 0.6), 130 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty or too long; the divergence of those compared: quartiles 0.35, 0.4, 0.45 (bins of 0.05); species against their genus's: 9542 aligned, 4664 kept; failed: 1840 beyond 0.2 (23 beyond 0.3), 3038 given up by the aligner (score beyond the bound: far or gappy), 0 overlapping less than 0.5 of the shorter, 0 empty or too long; the divergence of those compared: quartiles 0.1, 0.2, 0.25 (bins of 0.05); 4160 species' copies not aligned (their genus reference failed)
+Column weights codes (half nats) of the 691812 columns: within 616337 of 691812 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 691812 of 691812 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 209187 of 230604 with an estimate, median 4, largest 7, 0.00% at 9 or more
+Column weights took 1s 468ms
+Index alleles: none (--index_alleles 1)
+== BUILD DONE bac120 nt
+1071940 copy pairs of 120 markers; GTDB's aligned residue pairs: coverage = the table maps both residues, agreement = on the same family column (of those mapped)
+  same genus: 55959 pairs, 17839851 residue pairs, coverage 0.997, agreement 0.9999
+  two genera: 1015981 pairs, 319864500 residue pairs, coverage 0.155, agreement 0.9998
+  all       : 1071940 pairs, 337704351 residue pairs, coverage 0.199, agreement 0.9998
+  by the pair's protein divergence (GTDB's columns): pairs, coverage, agreement
+    [0.00, 0.05): 12094 pairs, coverage 0.999, agreement 1.0000
+    [0.05, 0.10): 14756 pairs, coverage 0.998, agreement 1.0000
+    [0.10, 0.20): 41778 pairs, coverage 0.983, agreement 0.9999
+    [0.20, 0.30): 48618 pairs, coverage 0.858, agreement 0.9998
+    [0.30, 0.40): 94839 pairs, coverage 0.413, agreement 0.9998
+    [0.40, 0.50): 179583 pairs, coverage 0.149, agreement 0.9998
+    [0.50, 0.60): 260011 pairs, coverage 0.068, agreement 0.9997
+    [0.60, 1.01): 420261 pairs, coverage 0.018, agreement 0.9997
+1071940 copy pairs of 120 markers; GTDB's aligned residue pairs: coverage = the table maps both residues, agreement = on the same family column (of those mapped)
+  same genus: 55959 pairs, 17839851 residue pairs, coverage 0.730, agreement 0.9917
+  two genera: 1015981 pairs, 319864500 residue pairs, coverage 0.104, agreement 0.9797
+  all       : 1071940 pairs, 337704351 residue pairs, coverage 0.137, agreement 0.9831
+  by the pair's protein divergence (GTDB's columns): pairs, coverage, agreement
+    [0.00, 0.05): 12094 pairs, coverage 0.874, agreement 0.9989
+    [0.05, 0.10): 14756 pairs, coverage 0.889, agreement 0.9957
+    [0.10, 0.20): 41778 pairs, coverage 0.888, agreement 0.9917
+    [0.20, 0.30): 48618 pairs, coverage 0.719, agreement 0.9823
+    [0.30, 0.40): 94839 pairs, coverage 0.293, agreement 0.9761
+    [0.40, 0.50): 179583 pairs, coverage 0.069, agreement 0.9552
+    [0.50, 0.60): 260011 pairs, coverage 0.005, agreement 0.9466
+    [0.60, 1.01): 420261 pairs, coverage 0.000, agreement 0.9567
+1071940 copy pairs of 120 markers; GTDB's aligned residue pairs: coverage = the table maps both residues, agreement = on the same family column (of those mapped)
+  same genus: 55959 pairs, 17839851 residue pairs, coverage 0.211, agreement 0.9968
+  two genera: 1015981 pairs, 319864500 residue pairs, coverage 0.027, agreement 0.9845
+  all       : 1071940 pairs, 337704351 residue pairs, coverage 0.037, agreement 0.9882
+  by the pair's protein divergence (GTDB's columns): pairs, coverage, agreement
+    [0.00, 0.05): 12094 pairs, coverage 0.555, agreement 0.9992
+    [0.05, 0.10): 14756 pairs, coverage 0.363, agreement 0.9965
+    [0.10, 0.20): 41778 pairs, coverage 0.265, agreement 0.9926
+    [0.20, 0.30): 48618 pairs, coverage 0.178, agreement 0.9833
+    [0.30, 0.40): 94839 pairs, coverage 0.053, agreement 0.9724
+    [0.40, 0.50): 179583 pairs, coverage 0.004, agreement 0.9452
+    [0.50, 0.60): 260011 pairs, coverage 0.000, agreement 0.9347
+    [0.60, 1.01): 420261 pairs, coverage 0.000, agreement 0.8715
+species against their genus reference (protein p-distance on GTDB's columns; share beyond 0.3):
+  random member  n= 12830  quartiles 0.054 0.119 0.213  90% 0.317  beyond 0.116
+  medoid         n=  8545  quartiles 0.032 0.088 0.176  90% 0.276  beyond 0.081
+  ancestor       n= 15921  quartiles 0.035 0.075 0.137  90% 0.207  beyond 0.027
+genus references (medoids) against the family reference (protein p-distance on GTDB's columns; share beyond 0.5):
+  random member  n=   706  quartiles 0.190 0.300 0.424  90% 0.528  beyond 0.122
+  medoid         n=   267  quartiles 0.160 0.292 0.404  90% 0.493  beyond 0.090
+  ancestor       n=  1060  quartiles 0.072 0.111 0.176  90% 0.261  beyond 0.001
+== BAC DONE

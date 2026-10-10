@@ -1,0 +1,8 @@
+species against their genus reference (protein p-distance on GTDB's columns; share beyond 0.3):
+  random member  n=   642  quartiles 0.095 0.212 0.302  90% 0.410  beyond 0.255
+  medoid         n=   372  quartiles 0.048 0.135 0.234  90% 0.319  beyond 0.124
+  ancestor       n=   844  quartiles 0.040 0.111 0.192  90% 0.262  beyond 0.059
+genus references (medoids) against the family reference (protein p-distance on GTDB's columns; share beyond 0.5):
+  random member  n=    48  quartiles 0.317 0.406 0.467  90% 0.542  beyond 0.188
+  medoid         n=    18  quartiles 0.230 0.317 0.368  90% 0.484  beyond 0.056
+  ancestor       n=    69  quartiles 0.120 0.164 0.208  90% 0.264  beyond 0.000
