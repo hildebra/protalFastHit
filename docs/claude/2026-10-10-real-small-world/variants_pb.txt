@@ -1,0 +1,83 @@
+== pb: F1 at knob 0.5 (FP/FN); log loss with species held out
+       variant  logloss held out       held out           test
+          full           0.15165 0.9757 (61/90)  0.9775 (8/31)
+   no_ancestry           0.14824 0.9767 (57/88) 0.9764 (10/31)
+no_polymorphic           0.15330 0.9763 (63/85)  0.9770 (9/31)
+    no_weights           0.15409 0.9764 (56/91)  0.9764 (9/32)
+  no_ancestral           0.15004 0.9761 (59/90) 0.9753 (11/32)
+    no_alleles           0.15291 0.9759 (58/92)  0.9764 (9/32)
+-- pb: paired bootstrap over samples (1000), F1 of the variant - full: mean [2.5%, 97.5%]
+   held out  no_ancestry      +0.0009 [-0.0003, +0.0022]
+   held out  no_polymorphic   +0.0005 [-0.0008, +0.0018]
+   held out  no_weights       +0.0006 [-0.0006, +0.0019]
+   held out  no_ancestral     +0.0003 [-0.0013, +0.0020]
+   held out  no_alleles       +0.0001 [-0.0011, +0.0013]
+   test      no_ancestry      -0.0011 [-0.0028, +0.0000]
+   test      no_polymorphic   -0.0006 [-0.0025, +0.0012]
+   test      no_weights       -0.0012 [-0.0031, +0.0000]
+   test      no_ancestral     -0.0023 [-0.0050, +0.0000]
+   test      no_alleles       -0.0012 [-0.0032, +0.0000]
+-- pb: held out, by class: FN rate of present taxa, FP rate of absent ones (count)
+                           class    n        full no_ancestry no_polymorphic  no_weights no_ancestral  no_alleles
+         FN real strain, alleles  594 0.0471 (28) 0.0471 (28)    0.0455 (27) 0.0488 (29)  0.0488 (29) 0.0488 (29)
+            FN real strain, none  247 0.0526 (13) 0.0486 (12)    0.0486 (12) 0.0445 (11)  0.0486 (12) 0.0567 (14)
+             FN in-silico strain 1638 0.0183 (30) 0.0183 (30)    0.0171 (28) 0.0189 (31)  0.0183 (30) 0.0183 (30)
+               FN representative  648 0.0293 (19) 0.0278 (18)    0.0278 (18) 0.0309 (20)  0.0293 (19) 0.0293 (19)
+     FP beside held-out congener  545 0.0881 (48) 0.0807 (44)    0.0917 (50) 0.0771 (42)  0.0826 (45) 0.0826 (45)
+FP beside present congeners only  123 0.1057 (13) 0.1057 (13)    0.1057 (13) 0.1138 (14)  0.1138 (14) 0.1057 (13)
+        FP no congener in sample    4  0.0000 (0)  0.0000 (0)     0.0000 (0)  0.0000 (0)   0.0000 (0)  0.0000 (0)
+-- pb: test, by class: FN rate of present taxa, FP rate of absent ones (count)
+                           class   n        full no_ancestry no_polymorphic  no_weights no_ancestral  no_alleles
+         FN real strain, alleles 174  0.0517 (9)  0.0517 (9)     0.0517 (9) 0.0575 (10)  0.0575 (10)  0.0517 (9)
+            FN real strain, none  51  0.0392 (2)  0.0392 (2)     0.0392 (2)  0.0392 (2)   0.0392 (2)  0.0392 (2)
+             FN in-silico strain 454 0.0330 (15) 0.0330 (15)    0.0330 (15) 0.0330 (15)  0.0330 (15) 0.0352 (16)
+               FN representative 201  0.0249 (5)  0.0249 (5)     0.0249 (5)  0.0249 (5)   0.0249 (5)  0.0249 (5)
+     FP beside held-out congener 109  0.0550 (6)  0.0734 (8)     0.0642 (7)  0.0642 (7)   0.0826 (9)  0.0642 (7)
+FP beside present congeners only  29  0.0690 (2)  0.0690 (2)     0.0690 (2)  0.0690 (2)   0.0690 (2)  0.0690 (2)
+        FP no congener in sample   1  0.0000 (0)  0.0000 (0)     0.0000 (0)  0.0000 (0)   0.0000 (0)  0.0000 (0)
+-- pb: species held out, the calls that flip from full to each variant, by class (fixed: an error of the base the variant gets right; new: an error the variant adds)
+   no_ancestry
+                           class  fixed  new  net (variant - base errors)
+         FN real strain, alleles      2    2                            0
+            FN real strain, none      1    0                           -1
+             FN in-silico strain      2    2                            0
+               FN representative      1    0                           -1
+     FP beside held-out congener      6    2                           -4
+FP beside present congeners only      0    0                            0
+        FP no congener in sample      0    0                            0
+   no_polymorphic
+                           class  fixed  new  net (variant - base errors)
+         FN real strain, alleles      1    0                           -1
+            FN real strain, none      1    0                           -1
+             FN in-silico strain      4    2                           -2
+               FN representative      1    0                           -1
+     FP beside held-out congener      3    5                            2
+FP beside present congeners only      1    1                            0
+        FP no congener in sample      0    0                            0
+   no_weights
+                           class  fixed  new  net (variant - base errors)
+         FN real strain, alleles      0    1                            1
+            FN real strain, none      2    0                           -2
+             FN in-silico strain      1    2                            1
+               FN representative      1    2                            1
+     FP beside held-out congener      8    2                           -6
+FP beside present congeners only      0    1                            1
+        FP no congener in sample      0    0                            0
+   no_ancestral
+                           class  fixed  new  net (variant - base errors)
+         FN real strain, alleles      2    3                            1
+            FN real strain, none      2    1                           -1
+             FN in-silico strain      3    3                            0
+               FN representative      2    2                            0
+     FP beside held-out congener      7    4                           -3
+FP beside present congeners only      0    1                            1
+        FP no congener in sample      0    0                            0
+   no_alleles
+                           class  fixed  new  net (variant - base errors)
+         FN real strain, alleles      0    1                            1
+            FN real strain, none      0    1                            1
+             FN in-silico strain      1    1                            0
+               FN representative      0    0                            0
+     FP beside held-out congener      5    2                           -3
+FP beside present congeners only      1    1                            0
+        FP no congener in sample      0    0                            0

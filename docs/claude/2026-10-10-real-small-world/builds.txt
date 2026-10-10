@@ -1,0 +1,51 @@
+== seed 1 (~/realworld_s1)
+4/11 in-silico strains of the species with one genome and of 0.5 of those with real strains (insilico_strains.log, genomes_simulated.tsv)
+5/11 training database (training_db, training_db_index.log): 64 species left out, 3 genus clades (18 species) and 46 species alone (model_logs/holdout.txt)
+    100 in-silico strains of the 100 species with one genome (of 352 genomes) and 35 of the 70 species with real strains (strains their alleles do not reach), 135 with their marker genes placed; genome divergence median 0.0035 (ANI 95.0-100.0%); drawn from 180 real strains' marker divergence (median 0.0
+    simulated from: 487 genomes of 170 species (Archaea 23, Bacteria 147); a simulated species is another genome than its representative 58.0% of the time (a real strain 23.4%, an in-silico strain 34.6%)
+6/11 training data (training_data.log): 300 pe, 72 pb samples
+    collected in 0:10:37, peak memory 3.8 GB; taxa present/absent: pe 6142/4159, pb 1126/231; 808 MB in /home/falk/realworld_s1/work/training
+    collected in 0:03:13, peak memory 3.6 GB; taxa present/absent: pe 958/683, pb 316/41; 148 MB in /home/falk/realworld_s1/work/test
+    trained in 0:01:43 (pe 0:01:43, pb 0:00:54); F1 with species held out (knob 0.5)/on the test set (as protal calls): pe 0.970/0.973 (knob 0.62), pb 0.980/0.979
+read type  evaluated on          knob  taxa   TP    FP   TN    FN   sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample
+pe         species held out      0.5   10301  5938  165  3994  204  0.9668       0.9603       0.9730     0.9699  0.0397   0.0332   0.55
+pe         independent test set  0.62  1641   913   5    678   45   0.9530       0.9927       0.9946     0.9733  0.0073   0.0470   0.11
+pb         species held out      0.5   1357   1096  14   217   30   0.9734       0.9394       0.9874     0.9803  0.0606   0.0266   0.19
+pb         independent test set  0.5   357    306   3    38    10   0.9684       0.9268       0.9903     0.9792  0.0732   0.0316   0.12
+
+Column weights from GTDB's alignments: 10503 copies, 344 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.858756 on a column (the rest insertions the alignment trimmed); 2101 genus ancestors (2091 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.229815 am
+Column weights codes (half nats) of the 632112 columns: within 617628 of 632112 with an estimate, median 4, largest 6, 0.00% at 9 or more; among 621774 of 632112 with an estimate, median 3, largest 4, 0.00% at 6 or more; aa 206356 of 210704 with an estimate, median 5, largest 7, 0.00% at 9 or more
+== seed 2 (~/realworld_s2)
+4/11 in-silico strains of the species with one genome and of 0.5 of those with real strains (insilico_strains.log, genomes_simulated.tsv)
+5/11 training database (training_db, training_db_index.log): 70 species left out, 3 genus clades (27 species) and 43 species alone (model_logs/holdout.txt)
+    100 in-silico strains of the 100 species with one genome (of 352 genomes) and 31 of the 70 species with real strains (strains their alleles do not reach), 131 with their marker genes placed; genome divergence median 0.0037 (ANI 95.0-100.0%); drawn from 180 real strains' marker divergence (median 0.0
+    simulated from: 483 genomes of 170 species (Archaea 23, Bacteria 147); a simulated species is another genome than its representative 57.9% of the time (a real strain 23.8%, an in-silico strain 34.1%)
+6/11 training data (training_data.log): 300 pe, 72 pb samples
+    collected in 0:10:53, peak memory 3.7 GB; taxa present/absent: pe 5433/3944, pb 966/211; 785 MB in /home/falk/realworld_s2/work/training
+    collected in 0:03:07, peak memory 3.6 GB; taxa present/absent: pe 861/704, pb 283/45; 140 MB in /home/falk/realworld_s2/work/test
+    trained in 0:01:51 (pe 0:01:51, pb 0:00:55); F1 with species held out (knob 0.5)/on the test set (as protal calls): pe 0.965/0.969, pb 0.975/0.973
+read type  evaluated on          knob  taxa  TP    FP   TN    FN   sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample
+pe         species held out      0.5   9377  5247  189  3755  186  0.9658       0.9521       0.9652     0.9655  0.0479   0.0342   0.63
+pe         independent test set  0.5   1565  821   13   691   40   0.9535       0.9815       0.9844     0.9687  0.0185   0.0465   0.29
+pb         species held out      0.5   1177  937   19   192   29   0.9700       0.9100       0.9801     0.9750  0.0900   0.0300   0.26
+pb         independent test set  0.5   328   272   4    41    11   0.9611       0.9111       0.9855     0.9732  0.0889   0.0389   0.17
+
+Column weights from GTDB's alignments: 10246 copies, 353 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.858881 on a column (the rest insertions the alignment trimmed); 2169 genus ancestors (1896 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.219852 am
+Column weights codes (half nats) of the 631119 columns: within 617568 of 631119 with an estimate, median 4, largest 6, 0.00% at 9 or more; among 620739 of 631119 with an estimate, median 2, largest 4, 0.00% at 6 or more; aa 206327 of 210373 with an estimate, median 5, largest 7, 0.00% at 9 or more
+== seed 3 (~/realworld_s3)
+4/11 in-silico strains of the species with one genome and of 0.5 of those with real strains (insilico_strains.log, genomes_simulated.tsv)
+5/11 training database (training_db, training_db_index.log): 64 species left out, 3 genus clades (18 species) and 46 species alone (model_logs/holdout.txt)
+    100 in-silico strains of the 100 species with one genome (of 352 genomes) and 37 of the 70 species with real strains (strains their alleles do not reach), 137 with their marker genes placed; genome divergence median 0.0049 (ANI 95.0-100.0%); drawn from 180 real strains' marker divergence (median 0.0
+    simulated from: 489 genomes of 170 species (Archaea 23, Bacteria 147); a simulated species is another genome than its representative 58.2% of the time (a real strain 23.3%, an in-silico strain 34.9%)
+6/11 training data (training_data.log): 300 pe, 72 pb samples
+    collected in 0:11:57, peak memory 3.7 GB; taxa present/absent: pe 5889/4312, pb 1035/230; 800 MB in /home/falk/realworld_s3/work/training
+    collected in 0:03:08, peak memory 3.6 GB; taxa present/absent: pe 886/671, pb 281/53; 144 MB in /home/falk/realworld_s3/work/test
+    trained in 0:01:59 (pe 0:01:59, pb 0:01:04); F1 with species held out (knob 0.5)/on the test set (as protal calls): pe 0.965/0.973, pb 0.971/0.980
+read type  evaluated on          knob  taxa   TP    FP   TN    FN   sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample
+pe         species held out      0.5   10201  5673  200  4112  216  0.9633       0.9536       0.9659     0.9646  0.0464   0.0367   0.67
+pe         independent test set  0.5   1557   853   15   656   33   0.9628       0.9776       0.9827     0.9726  0.0224   0.0372   0.33
+pb         species held out      0.5   1265   1004  28   202   31   0.9700       0.8783       0.9729     0.9715  0.1217   0.0300   0.39
+pb         independent test set  0.5   334    271   1    52    10   0.9644       0.9811       0.9963     0.9801  0.0189   0.0356   0.04
+
+Column weights from GTDB's alignments: 10410 copies, 347 without a row, 0 placed below 0.5 of their row; of the residues of those used 0.859214 on a column (the rest insertions the alignment trimmed); 2101 genus ancestors (1959 by parsimony on the tree, the others a genus's one species), the families' ancestral bases 0.224009 am
+Column weights codes (half nats) of the 631761 columns: within 618534 of 631761 with an estimate, median 4, largest 7, 0.00% at 9 or more; among 621666 of 631761 with an estimate, median 3, largest 4, 0.00% at 6 or more; aa 206314 of 210587 with an estimate, median 5, largest 7, 0.00% at 9 or more
