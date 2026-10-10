@@ -1108,9 +1108,12 @@ alone (before the index takes its memory), then the index:
    Then the column weights (since 2026-10-10, `column_weights.tsv`): gene by gene, per family one genus reference
    (chosen by hash) gives the columns, the other genus references are aligned to it (WFA2, up to 0.4 divergence; up
    to `--column_weights` genera, 10, vote on the consensus among genera), every species' copy is aligned to its genus
-   reference (up to 0.2) for the conservation within the genus, averaged over the family's genera, and the amino
-   acids per codon alike; every copy's mapping onto the columns is kept. One alignment per copy and one per genus
-   reference and gene (a few CPU-hours at r226, on all threads). `--column_weights 0`: none.
+   reference (up to 0.2) for the conservation within the genus, averaged over the family's genera (since the evening
+   of 2026-10-10 with the pseudocounts over all the species compared, so that the evidence of the genera adds up:
+   before, no column could reach "conserved", 98.9%, and two of the `weights` features were 0 everywhere), and the
+   amino acids per codon alike; every copy's mapping onto the columns is kept. One alignment per copy and one per genus
+   reference and gene (3 minutes at r226 on 84 threads). `--column_weights 0`: none. The build log gives the failed
+   alignments by kind and cause and how the columns' codes fall ("Column weights alignments", "Column weights codes").
 5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
    k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`. With `--index_alleles 0.01` (on
    by default from 2026-10-09 until the r226 v22 build, off since: its F1 gain was too small for the entries it

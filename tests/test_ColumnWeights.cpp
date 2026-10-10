@@ -76,6 +76,13 @@ TEST(ColumnWeights, TheWeightIsTheLogOddsOfTheConservation) {
     EXPECT_EQ(cw::CodeOf(100000, 100000), cw::kMaxCode);
     EXPECT_EQ(cw::CodeOf(1, 9), 1u);     // 2/11: 0.2 nats, rounded to the least code
     EXPECT_EQ(cw::CodeOfShare(0.99, 1), 9u);
+    // Pooled: the genera's mean raw share with the pseudocounts over every sequence compared.
+    EXPECT_EQ(cw::CodeOfPooled(1.0, 0), cw::kNoCode);
+    EXPECT_EQ(cw::CodeOfPooled(1.0, 3), 3u);      // 4/5: one genus of three
+    EXPECT_EQ(cw::CodeOfPooled(1.0, 24), 7u);     // 25/26: the most one genus of 24 species could claim
+    EXPECT_EQ(cw::CodeOfPooled(1.0, 100), 9u);    // 101/102: a conserved column, from several genera
+    EXPECT_EQ(cw::CodeOfPooled(1.0, 240), 11u);   // ten genera of 24
+    EXPECT_EQ(cw::CodeOfPooled(0.5, 240), 1u);
     EXPECT_DOUBLE_EQ(cw::Nats(9), 4.5);
     EXPECT_GE(cw::kConservedCode, cw::CodeOf(90, 91));  // 90 of 91 agreeing (98.9%) is just below
     EXPECT_EQ(cw::AminoAcid(0, 3, 2), 'M');             // ATG
@@ -211,6 +218,72 @@ TEST(ColumnWeights, AFamilysColumnsAreCountedFromItsCopies) {
     EXPECT_EQ(g.consensus[200], cw::BaseCode(Other(base[200], 0)));  // genera 20 and 30 against 10
     EXPECT_EQ(g.consensus[500], cw::BaseCode(base[500]));             // genera 20 and 30 keep the base's base
     EXPECT_EQ(g.consensus[400], cw::BaseCode(base[400]));             // genus 30 alone differs
+}
+
+// The evidence of the family's genera accumulates: ten genera of ten species that all keep a column make it conserved
+// (within and aa at kConservedCode or more), which no genus alone could (until 2026-10-10 every column stayed below);
+// a column one genus varies at stays below. The failed alignments are counted by kind and cause: a species too far
+// from its genus reference (divergence), and a genus whose reference is too far from the family's, whose other species
+// are never aligned (skipped). The code summary for the build log sees the conserved columns.
+TEST(ColumnWeights, TheGeneraPoolTheirEvidenceAndTheFailuresHaveCauses) {
+    std::mt19937 rng(11);
+    auto const base = CodingSequence(200, rng);  // 600 bases
+    std::vector<uint32_t> taxids, genus;
+    std::vector<std::string> seqs;
+    for (uint32_t g = 1; g <= 10; g++) {
+        for (uint32_t s = 0; s < 10; s++) {
+            taxids.push_back(100 * g + s);
+            genus.push_back(g);
+            seqs.push_back(base);
+            seqs.back()[300 + 3 * g] = Other(base[300 + 3 * g], s);  // genus g varies at its own column
+            if (s == 0) seqs.back()[100 + g] = Other(base[100 + g], 0);  // a genus-level difference elsewhere
+        }
+    }
+    // Genus 3's eleventh species: 2 of every 9 bases changed (0.22, beyond 0.2; the aligner's bound still holds).
+    taxids.push_back(311);
+    genus.push_back(3);
+    seqs.push_back(base);
+    for (size_t i = 0; i < seqs.back().size(); i++) {
+        if (i % 9 == 0 || i % 9 == 4) seqs.back()[i] = Other(seqs.back()[i], 1);
+    }
+    // Genus 11: three species of another sequence altogether; its reference fails against the family's.
+    auto const stranger = CodingSequence(200, rng);
+    for (uint32_t s = 0; s < 3; s++) {
+        taxids.push_back(1100 + s);
+        genus.push_back(11);
+        seqs.push_back(stranger);
+    }
+    cw::Settings settings;
+    settings.genera = 11;
+    cw::Stats stats;
+    std::vector<cw::Family> families;
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<cw::Run>>> copies;
+    WFA2Wrapper2 aligner(4, 6, 2, 0);
+    ASSERT_TRUE(cw::BuildFamily(9, 1, taxids, seqs, genus, settings, aligner, stats, families, copies));
+    auto const& f = families[0];
+    bool const stranger_is_family_reference = f.reference >= 1100;
+    ASSERT_FALSE(stranger_is_family_reference) << "seed 11 picks another family reference";
+    EXPECT_GE(f.within[50], cw::kConservedCode) << "100 species of ten genera agree";
+    EXPECT_GE(f.aa[50 / 3], cw::kConservedCode);
+    EXPECT_LT(f.within[306], cw::kConservedCode) << "genus 2 varies at 306";
+    EXPECT_LT(f.within[306], f.within[50]);
+    // The failures: genus 11's reference (among), genus 3's eleventh species (within, on divergence, not far).
+    EXPECT_EQ(stats.made[cw::kAmong], 10u);
+    size_t among_failed = 0;
+    for (size_t c = 0; c < cw::kFailures; c++) among_failed += stats.failed[cw::kAmong][c];
+    EXPECT_EQ(among_failed, 1u);
+    EXPECT_EQ(stats.skipped, 2u);
+    EXPECT_EQ(stats.made[cw::kWithin], 91u);  // nine species in each of ten genera, and the eleventh of genus 3
+    EXPECT_EQ(stats.failed[cw::kWithin][static_cast<size_t>(cw::MapFailure::kDivergence)], 1u);
+    EXPECT_EQ(stats.far[cw::kWithin], 0u);
+    EXPECT_EQ(stats.alignments, stats.made[cw::kAmong] + stats.made[cw::kWithin]);
+    EXPECT_EQ(stats.unaligned, 2u);
+    auto const codes = cw::CodeSummary(families);
+    EXPECT_EQ(codes.columns, base.size());
+    size_t conserved = 0;
+    for (size_t c = cw::kConservedCode; c <= cw::kMaxCode; c++) conserved += codes.histogram[0][c];
+    EXPECT_GT(conserved, base.size() / 2);
+    EXPECT_NE(codes.Line(6).find("within 600 of 600 with an estimate"), std::string::npos) << codes.Line(6);
 }
 
 // The table round-trips through its text, finds copies and expands their columns.

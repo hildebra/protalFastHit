@@ -521,9 +521,14 @@ saturated, so their differences sit on conserved columns at a share no strain sh
 family's reference copy (one genus reference, chosen by hash, among up to `--column_weights` genera) gives the
 columns; the genus references of the voting genera are aligned to it (WFA2, up to 0.4 divergence) for the `among`
 conservation; every genus's species are aligned to their genus reference (up to 0.2) for the `within` conservation,
-one vote per genus however many species it has, averaged over the family's genera (no phylum-wide consensus, which
-would mean little); the amino acids per codon alike, in the copies' own frame; and every copy's mapping onto the
-columns. Each weight is stored in half nats on 4 bits, with the family's consensus base per column; a run expands a
+one vote per genus however many species it has (a genus votes at a column where two or more of its species were
+compared), averaged over the family's genera (no phylum-wide consensus, which would mean little), with the
+pseudocounts (k + 1)/(n + 2) over all the species compared, so that ten genera that keep a column count for more than
+one; the amino acids per codon alike, in the copies' own frame, with the genus references' share; and every copy's
+mapping onto the columns. Until the evening of 2026-10-10 each genus took its own pseudocounts before the mean, which
+capped every column at 25/26 (24 species per genus): no column reached the 4.5 nats of a "conserved" one, and
+`conserved_mismatch_rate` and `nonsynonymous_conserved_rate` were 0 in every row of the r226 v22 build and of the
+test worlds. Each weight is stored in half nats on 4 bits, with the family's consensus base per column; a run expands a
 copy's columns once (`ColumnWeights.h`). The consensus base also polarises the ancestry sites of a species with fewer
 than three congeners (`ancestry`): its congener's difference is a site only where the congener's base is the family's.
 

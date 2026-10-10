@@ -14,8 +14,8 @@
 //
 // Two conservations per column, from the same alignments (the build, ColumnWeightsBuild.h):
 //  - within: the species of each genus of the family against their genus's reference copy, averaged over the family's
-//    genera with equal weight per genus (no phylum-wide consensus, which would mean little): the rate at which a
-//    strain's own mutations hit the column;
+//    genera with equal weight per genus (no phylum-wide consensus, which would mean little), the pseudocounts over all
+//    the species compared (CodeOfPooled): the rate at which a strain's own mutations hit the column;
 //  - among: the genus references of the family (at most Settings::genera) against the family's reference copy: the rate
 //    at long range, the homoplasy risk of a derived state and the reliability of a difference between twin species.
 // And per codon column the conservation of the amino acid (aa), from the same sequences translated in the copies'
@@ -66,11 +66,23 @@ namespace protal::column_weights {
         return static_cast<uint8_t>(std::clamp<long>(code, 1, kMaxCode));
     }
 
-    // The code of a mean conservation share over genera (the within estimate): the mean of the genera's shares.
+    // The code of a conservation share (CodeOf's pseudocounts already in it).
     inline uint8_t CodeOfShare(double share, size_t genera) {
         if (genera == 0) return kNoCode;
         double const w = -std::log(1.0 - std::clamp(share, 0.0, 0.999));
         return static_cast<uint8_t>(std::clamp<long>(std::lround(2.0 * w), 1, kMaxCode));
+    }
+
+    // The code of a share pooled over groups (the within estimate: the genera's raw shares k/n averaged with equal
+    // weight per genus) with the pseudocounts over every sequence compared: (share n + 1)/(n + 2) for `compared` n
+    // across the groups. The evidence accumulates across the family's genera, so a column invariant in ten genera of 24
+    // species (240 compared) reaches code 11, one invariant in a genus of three code 3. Until 2026-10-10 each genus's
+    // share took its own pseudocounts before the mean, which capped every column at 25/26 (code 7, 24 species per genus)
+    // and left kConservedCode, and the features that count conserved columns, out of reach.
+    inline uint8_t CodeOfPooled(double share, size_t compared) {
+        if (compared == 0) return kNoCode;
+        double const n = static_cast<double>(compared);
+        return CodeOfShare((std::clamp(share, 0.0, 1.0) * n + 1.0) / (n + 2.0), 1);
     }
 
     // A code's weight in nats.
