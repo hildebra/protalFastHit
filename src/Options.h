@@ -191,6 +191,7 @@ namespace protal {
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
                 ("strain_alleles", "With --build: up to this many alleles per species and gene from the other genomes' copies in --full_reference, stored as edits of the representative's copy (strain_alleles.tsv), for the alignment scores (--no_allele_scores) and the profiler's 'alleles' features. Chosen among up to 16 distinct ones sampled by hash for the sample's coverage (greedily: together they explain as much of each sampled allele as a read of it would be scored with; farthest first until 2026-10-09), each nearer the representative than the gene's nearest congener's copy (congener_gaps.tsv) and within 0.1 of it. 0: none.", cxxopts::value<size_t>()->default_value("4"))
                 ("allele_genome_share", "With --build: the share of each species' genomes that may give alleles (--strain_alleles), by a hash of the genome's accession (the full reference's second header word, which the converter writes since 2026-10-08). build_gtdb_database.py passes 0.5 and simulates strains only from the other genomes, so that no simulated strain is its species' own allele. Below 1 it needs a full reference that names its genomes.", cxxopts::value<double>()->default_value("1"))
+                ("index_alleles", "With --build: the k-mers of the strain alleles at least this far from the representative's copy (edits per base of the allele's range) go into the index under the species as non-unique entries, so that a read of a deep strain, which seeds on few of the representative's k-mers, finds its species and is aligned and scored against the representative as before. The seeds are left out of unique_kmers.tsv's totals. Default 0.01 (about three entries per edit); 1 or more: none.", cxxopts::value<double>()->default_value("0.01"))
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
@@ -239,6 +240,7 @@ namespace protal {
         double allele_genome_share = 1.0;
         size_t column_weights = 10;
         bool no_site_weights = false;
+        double index_alleles = 0.01;
         bool no_phasing = false;
         std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
         bool fastalign = false;
@@ -368,6 +370,7 @@ namespace protal {
         double m_suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;  // --suspect_copy_distance (--build)
         size_t m_strain_alleles = 4;  // --strain_alleles (--build)
         double m_allele_genome_share = 1.0;  // --allele_genome_share (--build)
+        double m_index_alleles = 0.01;  // --index_alleles (--build): the least divergence of an allele whose k-mers are indexed
         size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_no_phasing = false;
@@ -548,6 +551,7 @@ namespace protal {
                 m_suspect_copy_distance(d.suspect_copy_distance),
                 m_strain_alleles(d.strain_alleles),
                 m_allele_genome_share(d.allele_genome_share),
+                m_index_alleles(d.index_alleles),
                 m_column_weights(d.column_weights),
                 m_no_site_weights(d.no_site_weights),
                 m_no_phasing(d.no_phasing),
@@ -941,6 +945,12 @@ namespace protal {
         // --allele_genome_share (--build): the share of the genomes that may give alleles (strain_alleles::AlleleGenome).
         double GetAlleleGenomeShare() const {
             return m_allele_genome_share;
+        }
+
+        // --index_alleles (--build): the k-mers of the strain alleles at least this far from the representative are
+        // indexed (StrainAllelesBuild.h AlleleSeeds); 1 or more: none.
+        double IndexAlleles() const {
+            return m_index_alleles;
         }
 
         // --column_weights (--build): genera per family that vote on the column weights; 0: no table.
@@ -3286,6 +3296,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.suspect_copy_distance    = result["suspect_copy_distance"].as<double>();
             d.strain_alleles           = result["strain_alleles"].as<size_t>();
             d.allele_genome_share      = result["allele_genome_share"].as<double>();
+            d.index_alleles            = result["index_alleles"].as<double>();
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
             d.gene_conservation        = result["gene_conservation"].as<std::string>();
             d.model                    = result["model"].as<std::string>();

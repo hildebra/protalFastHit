@@ -1786,7 +1786,9 @@ namespace protal {
         // of their genes' first values in the index, through a sparse_map filled in that order, which
         // is the order the serial scan with four string-keyed maps wrote them in. So the table does not
         // depend on the threads, and is the one earlier builds wrote.
-        UniqueKmerTotals CountUniqueKmers(std::ostream& os, GeneRows const& rows, int threads) {
+        // `left_out`: per gene row, entries to leave out of the row's total (the strain alleles' seeds, --index_alleles:
+        // non-unique entries of a strain's k-mers, not the representative's, so they do not lower its unique shares).
+        UniqueKmerTotals CountUniqueKmers(std::ostream& os, GeneRows const& rows, int threads, std::vector<uint32_t> const* left_out = nullptr) {
             struct Counts { uint32_t short_unique = 0, long_unique = 0, long_unique_two = 0, total = 0; };
             uint64_t const n_rows = rows.Size();
             std::vector<Counts> counts(n_rows);
@@ -1919,7 +1921,10 @@ namespace protal {
             }
             for (auto const& [key, _] : table) {
                 auto [taxid, geneid] = KmerUtils::ExtractHeaderInformation(key);
-                auto const& c = counts[rows.first_row[taxid] + geneid - 1];
+                uint64_t const row = rows.first_row[taxid] + geneid - 1;
+                Counts c = counts[row];
+                if (left_out != nullptr && row < left_out->size()) c.total -= std::min(c.total, (*left_out)[row]);
+                if (c.total == 0) continue;  // every entry a strain allele's seed: no unique k-mer of the representative's
                 os << taxid << '\t'; //1
                 os << geneid << '\t'; //2
                 os << c.short_unique << '\t'; //3

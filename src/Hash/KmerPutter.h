@@ -55,6 +55,14 @@ namespace protal {
             m_sm.PutOMP(key, taxid, geneid, genepos);
         }
 
+        // A value as its bits (a ValueEntry's, flags included: a strain allele's seed goes in non-unique); whether placed.
+        inline bool PutValue(size_t key, uint64_t value) {
+            bool placed = false;
+#pragma omp critical(put)
+            placed = m_sm.PutOwned(key, value);
+            return placed;
+        }
+
         Seedmap& GetMap() {
             return m_sm;
         }

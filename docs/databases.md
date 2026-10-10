@@ -1111,7 +1111,12 @@ alone (before the index takes its memory), then the index:
    acids per codon alike; every copy's mapping onto the columns is kept. One alignment per copy and one per genus
    reference and gene (a few CPU-hours at r226, on all threads). `--column_weights 0`: none.
 5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
-   k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`.
+   k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`. Since 2026-10-09 the index also
+   holds the k-mers of the deep strain alleles (`--index_alleles`, those at least 0.01 from the representative's
+   copy; 1: none): a read of a strain that far from the representative seeds on few of its k-mers and could find
+   its species only through a congener, so the allele's k-mers go in under the species as non-unique entries (about
+   three per edit; the read is then aligned and scored against the representative as before). They are left out of
+   `unique_kmers.tsv`'s totals, so a species' unique shares are the representative's alone.
 6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load: the index straight
    from memory, the other files compressed or copied; it reads each member back, compares, and
    removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay

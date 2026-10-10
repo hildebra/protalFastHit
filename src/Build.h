@@ -1454,8 +1454,9 @@ namespace protal::build {
     // reference from a genome that may give alleles (--allele_genome_share) aligned against the representative's copy,
     // and up to --strain_alleles of each copy's alleles kept, each nearer the representative than the copy's nearest
     // congener's copy (`gaps`, congener_gaps.tsv). One pass over the full reference, as WriteGeneConservation's. No file
-    // without an allele (or with --strain_alleles 0); an earlier build's is removed.
-    static void WriteStrainAlleles(protal::Options const& options, GenomeLoader& genomes, congener_gaps::Table const& gaps) {
+    // without an allele (or with --strain_alleles 0); an earlier build's is removed. Returns the table (empty without
+    // one): the index passes seed the deep alleles from it (--index_alleles).
+    static strain_alleles::Table WriteStrainAlleles(protal::Options const& options, GenomeLoader& genomes, congener_gaps::Table const& gaps) {
         namespace fs = std::filesystem;
         Benchmark bm("Strain alleles");
         bm.Start();
@@ -1467,7 +1468,7 @@ namespace protal::build {
         settings.share = options.GetAlleleGenomeShare();
         if (settings.alleles == 0) {
             std::cout << "Strain alleles: none (--strain_alleles 0)" << std::endl;
-            return;
+            return {};
         }
         std::string const full_reference = options.GetFullSequenceFilePath();
         strain_alleles::Collector collector(settings.candidates);
@@ -1586,6 +1587,7 @@ namespace protal::build {
         }
         bm.Stop();
         bm.PrintResults();
+        return table;
     }
 
     // column_weights.tsv in the database (ColumnWeightsBuild.h): per family and gene, how conserved each column is among
@@ -2204,7 +2206,7 @@ namespace protal::build {
         WriteSuspectCopies(options, genomes);
         WriteSpeciesNeighbours(options, genomes, options.GetSpeciesNeighboursFile());
         auto const gaps = WriteCongenerGaps(options, genomes);
-        WriteStrainAlleles(options, genomes, gaps);
+        auto const alleles = WriteStrainAlleles(options, genomes, gaps);
         WriteColumnWeights(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
@@ -2227,6 +2229,25 @@ namespace protal::build {
         size_t flex_k = putter.GetMap().m_flex_k;
         size_t flex_k_bits = putter.GetMap().m_flex_k_bits;
         size_t const kmer_length = main_k + flex_k;  // a window's length
+
+        // The deep strain alleles' seeds (--index_alleles; StrainAllelesBuild.h AlleleSeeds): the k-mers of a copy's
+        // alleles at least index_alleles from the representative that the copy lacks go into both passes under the
+        // species, as non-unique entries (a strain's k-mer is not the representative's: it neither counts as a unique
+        // hit nor in the copy's totals in unique_kmers.tsv, which allele_seeds keeps per gene row). Counted for the log.
+        double const index_alleles = options.IndexAlleles();
+        bool const seed_alleles = !alleles.Empty() && index_alleles < 1;
+        auto const gene_rows = GeneRowsOf(genomes);
+        std::vector<uint32_t> allele_seeds(seed_alleles ? gene_rows.Size() : 0, 0);
+        std::atomic<size_t> allele_copies{ 0 }, alleles_seeded{ 0 }, allele_kmers{ 0 };
+        auto note_allele_seed = [&](uint64_t value) {
+            ValueEntry entry;
+            entry.value = value;
+            auto const [t, g, pos] = entry.Get();
+            if (t + 1 < gene_rows.first_row.size() && g > 0) {
+                std::atomic_ref<uint32_t>(allele_seeds[gene_rows.first_row[t] + g - 1]).fetch_add(1, std::memory_order_relaxed);
+            }
+            allele_kmers.fetch_add(1, std::memory_order_relaxed);
+        };
 
 
         // The two passes over the reference and the value pointers run in -t threads, the passes by
@@ -2265,7 +2286,7 @@ namespace protal::build {
             Statistics pass;
             with_source([&](auto& source) {
                 PartitionedPass<uint32_t>(source, kmer_handler_global, threads, ranges,
-                    [&](KmerHandler& handler, size_t, size_t gene_id, std::string_view sequence, KmerList& kmers,
+                    [&](KmerHandler& handler, size_t taxonomic_id, size_t gene_id, std::string_view sequence, KmerList& kmers,
                         std::vector<uint32_t>& items, Statistics& stats) {
                         if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) return;
                         stats.reads++;
@@ -2277,6 +2298,14 @@ namespace protal::build {
                             stats.kmers_total += handler.TotalKmers();
                             stats.kmers_accepted += kmers.size();
                         }
+                        if (seed_alleles) {
+                            static thread_local strain_alleles::SeedScratch scratch;
+                            static thread_local KmerList seeds;
+                            seeds.clear();
+                            strain_alleles::AlleleSeeds(alleles, index_alleles, static_cast<uint32_t>(taxonomic_id), static_cast<uint32_t>(gene_id),
+                                                        sequence, kmers, kmer_length, handler, scratch, seeds);
+                            for (auto const& pair : seeds) items.push_back(static_cast<uint32_t>(map.MainKey(pair.first)));
+                        }
                     },
                     [range_shift](uint32_t main_key) { return static_cast<size_t>(main_key >> range_shift); },
                     [&map](uint32_t main_key) { map.CountUpKey(main_key); },
@@ -2285,7 +2314,7 @@ namespace protal::build {
             std::cout << "minimizers: " << pass.kmers_accepted << std::endl;
             statistics.Join(pass);
         } else {
-#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits, kmer_length)
+#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits, kmer_length, seed_alleles, index_alleles, alleles)
                 {
                     // Private variables
                     FastxRecord record;
@@ -2297,6 +2326,8 @@ namespace protal::build {
                     thread_statistics.thread_num = omp_get_thread_num();
 
                     KmerList kmers;
+                    strain_alleles::SeedScratch scratch;  // the deep alleles' seeds (--index_alleles)
+                    KmerList seeds;
 
                     std::cout << "Build: iterate records" << std::endl;
 
@@ -2317,6 +2348,13 @@ namespace protal::build {
                         DropAmbiguousKmers(record.sequence, kmer_length, kmers);
                         for (auto pair : kmers) {
                             putter.FirstPut(pair.first);
+                        }
+                        if (seed_alleles) {
+                            auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(record.header);
+                            seeds.clear();
+                            strain_alleles::AlleleSeeds(alleles, index_alleles, static_cast<uint32_t>(taxonomic_id), static_cast<uint32_t>(gene_id),
+                                                        std::string_view(record.sequence), kmers, kmer_length, kmer_handler, scratch, seeds);
+                            for (auto const& pair : seeds) putter.FirstPut(pair.first);
                         }
 
                         if constexpr(KmerStatisticsConcept<KmerHandler>) {
@@ -2370,7 +2408,7 @@ namespace protal::build {
         if (!serial) {
             // Items: each k-mer with its value (taxon, gene, position of its core), placed by the
             // thread that owns its range into the key's next empty slot, in reference order.
-            struct Placement { uint64_t key; uint64_t value; };
+            struct Placement { uint64_t key; uint64_t value; bool allele; };
             std::cout << "After first put" << std::endl;
             with_source([&](auto& source) {
                 PartitionedPass<Placement>(source, kmer_handler_global, threads, ranges,
@@ -2384,19 +2422,38 @@ namespace protal::build {
                         for (auto const& pair : kmers) {
                             ValueEntry entry;
                             entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
-                            items.push_back({ pair.first, entry.value });
+                            items.push_back({ pair.first, entry.value, false });
                         }
                         if constexpr(KmerStatisticsConcept<KmerHandler>) {
                             stats.kmers_total += handler.TotalKmers();
                             stats.kmers_accepted += handler.TotalMinimizers();
                         }
+                        if (seed_alleles) {
+                            static thread_local strain_alleles::SeedScratch scratch;
+                            static thread_local KmerList seeds;
+                            seeds.clear();
+                            size_t const used = strain_alleles::AlleleSeeds(alleles, index_alleles, static_cast<uint32_t>(taxonomic_id),
+                                                                            static_cast<uint32_t>(gene_id), sequence, kmers, kmer_length,
+                                                                            handler, scratch, seeds);
+                            allele_copies.fetch_add(used > 0, std::memory_order_relaxed);
+                            alleles_seeded.fetch_add(used, std::memory_order_relaxed);
+                            for (auto const& pair : seeds) {
+                                ValueEntry entry;
+                                entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);
+                                entry.SetFlagNonUnique();
+                                items.push_back({ pair.first, entry.value, true });
+                            }
+                        }
                     },
                     [&map, range_shift](Placement const& p) { return static_cast<size_t>(map.MainKey(p.key) >> range_shift); },
-                    [&map](Placement const& p) { map.PutOwned(p.key, p.value); },
+                    [&](Placement const& p) {
+                        bool const placed = map.PutOwned(p.key, p.value);
+                        if (placed && p.allele) note_allele_seed(p.value);
+                    },
                     statistics);
             });
         } else {
-#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length)
+#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length, seed_alleles, index_alleles, alleles, allele_copies, alleles_seeded, note_allele_seed)
     {
         // Private variables
         FastxRecord record;
@@ -2413,6 +2470,8 @@ namespace protal::build {
         size_t genepos = 1;
 
         KmerList kmers;
+        strain_alleles::SeedScratch scratch;  // the deep alleles' seeds (--index_alleles)
+        KmerList seeds;
 
         std::cout << "After first put" << std::endl;
         while (reader(record)) {
@@ -2432,6 +2491,20 @@ namespace protal::build {
             for (auto pair : kmers) {
                 size_t pos = pair.second;
                 putter.Put(pair.first, taxonomic_id, gene_id, pos);
+            }
+            if (seed_alleles) {
+                seeds.clear();
+                size_t const used = strain_alleles::AlleleSeeds(alleles, index_alleles, static_cast<uint32_t>(taxonomic_id),
+                                                                static_cast<uint32_t>(gene_id), std::string_view(record.sequence), kmers,
+                                                                kmer_length, kmer_handler, scratch, seeds);
+                allele_copies.fetch_add(used > 0, std::memory_order_relaxed);
+                alleles_seeded.fetch_add(used, std::memory_order_relaxed);
+                for (auto const& pair : seeds) {
+                    ValueEntry entry;
+                    entry.Put(taxonomic_id, gene_id, pair.second + putter.GetMap().m_flex_k_half);
+                    entry.SetFlagNonUnique();
+                    if (putter.PutValue(pair.first, entry.value)) note_allele_seed(entry.value);
+                }
             }
 
             if constexpr(KmerStatisticsConcept<KmerHandler>) {
@@ -2461,6 +2534,14 @@ namespace protal::build {
         bm_pass2.Stop();
         bm_pass2.PrintResults();
         PrintMemory("pass 2");
+        if (seed_alleles) {
+            std::cout << "Index alleles: " << allele_kmers.load() << " seeds of " << alleles_seeded.load() << " strain alleles at least "
+                      << index_alleles << " from the representative's copy, of " << allele_copies.load() << " gene copies, as non-unique "
+                      << "entries under their species (--index_alleles; left out of the totals in " << Options::PROTAL_UNIQUE_KMER_FILE
+                      << ")" << std::endl;
+        } else if (!alleles.Empty()) {
+            std::cout << "Index alleles: none (--index_alleles " << index_alleles << ")" << std::endl;
+        }
 
         // Options falls back to --reference when no --full_reference is given, so unique_kmers.tsv is
         // always written: a database without it cannot detect anything.
@@ -2620,7 +2701,8 @@ namespace protal::build {
         // unique k-mers, so not hittable, in a database that is otherwise packed and verified as it is.
         std::string const unique_partial = options.GetUniqueKmersFile() + ".partial";
         std::ofstream os(unique_partial);
-        auto const totals = putter.GetMap().CountUniqueKmers(os, GeneRowsOf(genomes), static_cast<int>(options.GetThreads()));
+        auto const totals = putter.GetMap().CountUniqueKmers(os, gene_rows, static_cast<int>(options.GetThreads()),
+                                                             seed_alleles ? &allele_seeds : nullptr);
         os.close();
         {
             std::error_code ec;

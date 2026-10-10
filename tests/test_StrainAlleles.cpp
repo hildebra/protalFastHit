@@ -8,12 +8,15 @@
 #include <map>
 #include <memory>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 #include "Core/AlignmentStrategy.h"
 #include "Profiling/Profiler.h"
+#include "SequenceUtils/KmerIterator.h"
+#include "SequenceUtils/Minimizer.h"
 #include "SequenceUtils/StrainAllelesBuild.h"
 #include "TestReference.h"
 
@@ -149,6 +152,65 @@ TEST(StrainAlleles, AnAllelesEditsComeFromItsAlignmentToTheRepresentative) {
     std::istringstream is(os.str());
     EXPECT_EQ(back.Read(is), "") << os.str();
     EXPECT_EQ(back.Alleles(), 1u);
+}
+
+// The index's seeds of a copy's deep alleles (AlleleSeeds, --index_alleles): k-mers of the representative's copy with
+// the allele's substitutions that the copy does not yield, none over an indel, none the representative or an earlier
+// allele gave, and none of an allele below the divergence asked for.
+TEST(StrainAlleles, DeepAllelesGiveTheIndexSeedsTheRepresentativeLacks) {
+    using E = sa::Edit;
+    constexpr size_t kK = 31, kM = 15;
+    ClosedSyncmer syncmer{ kM, 7, 2, true };
+    SimpleKmerHandler<ClosedSyncmer> handler{ kK, kM, syncmer };
+    std::mt19937 rng(21);
+    std::string const rep = test::RandomSequence(600, rng);
+    KmerList own;
+    handler(std::string_view(rep), own);
+    ASSERT_GT(own.size(), 20u);
+    std::vector<uint64_t> own_keys;
+    for (auto const& p : own) own_keys.push_back(p.first);
+    std::sort(own_keys.begin(), own_keys.end());
+    auto other = [&rep](size_t p) { return static_cast<uint8_t>((sa::BaseCode(rep[p]) + 1) & 3); };
+    // deep: 12 substitutions in 600 (2%); near: 2 (0.3%); indel: 12 substitutions and an insertion before 300.
+    sa::Allele deep{ 0, 600, {} }, near{ 0, 600, { E::Substitution(123, other(123)), E::Substitution(437, other(437)) } }, indel{ 0, 600, {} };
+    for (uint16_t p = 50; p < 600; p += 50) {
+        deep.edits.push_back(E::Substitution(p, other(p)));
+        indel.edits.push_back(E::Substitution(p, other(p)));
+    }
+    indel.edits.push_back(E::Indel(sa::kInsertion, 300, 3));
+    std::sort(indel.edits.begin(), indel.edits.end());
+    auto const table = sa::Table::FromRows({ { 1, 1, { deep, near } }, { 1, 2, { indel } }, { 2, 1, { near } } });
+    sa::SeedScratch scratch;
+    KmerList seeds;
+    // The deep allele's seeds: new k-mers, each window holding one of its substitutions, at the representative's positions.
+    EXPECT_EQ(sa::AlleleSeeds(table, 0.01, 1, 1, rep, own, kK, handler, scratch, seeds), 1u);
+    ASSERT_GT(seeds.size(), 10u);
+    std::set<uint64_t> distinct;
+    for (auto const& [key, pos] : seeds) {
+        EXPECT_FALSE(std::binary_search(own_keys.begin(), own_keys.end(), static_cast<uint64_t>(key)));
+        EXPECT_TRUE(distinct.insert(key).second);
+        EXPECT_LE(pos + kK, 600u);
+        bool holds = false;
+        for (auto const& e : deep.edits) holds = holds || (e.pos >= pos && e.pos < pos + kK);
+        EXPECT_TRUE(holds) << pos;
+    }
+    // Below 0.01 the near allele adds nothing; at 0 it does, and only k-mers the deep one did not give.
+    seeds.clear();
+    EXPECT_EQ(sa::AlleleSeeds(table, 0.0, 1, 1, rep, own, kK, handler, scratch, seeds), 2u);
+    EXPECT_GT(seeds.size(), distinct.size());
+    std::set<uint64_t> all;
+    for (auto const& [key, pos] : seeds) EXPECT_TRUE(all.insert(key).second);
+    // No window over the insertion (bases 299 and 300 are apart in the allele).
+    seeds.clear();
+    EXPECT_EQ(sa::AlleleSeeds(table, 0.01, 1, 2, rep, own, kK, handler, scratch, seeds), 1u);
+    ASSERT_GT(seeds.size(), 5u);
+    for (auto const& [key, pos] : seeds) EXPECT_FALSE(pos < 300 && 300 < pos + kK) << pos;
+    // A copy without alleles, or without a deep one: nothing.
+    seeds.clear();
+    EXPECT_EQ(sa::AlleleSeeds(table, 0.01, 2, 1, rep, own, kK, handler, scratch, seeds), 0u);
+    EXPECT_EQ(sa::AlleleSeeds(table, 0.01, 3, 1, rep, own, kK, handler, scratch, seeds), 0u);
+    EXPECT_TRUE(seeds.empty());
+    EXPECT_NEAR(sa::Divergence(table.Get(table.Of(1, 1)[0])), 11.0 / 600, 1e-9);
 }
 
 // The build's sample of a copy's alleles (the least hashes) and its choice (the sample's coverage, greedily) do not

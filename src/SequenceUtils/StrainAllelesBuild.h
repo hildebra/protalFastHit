@@ -17,6 +17,7 @@
 #include "CongenerGapsTable.h"
 #include "StrainAlleles.h"
 #include "WFA2Wrapper2.h"
+#include "Constants.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -210,6 +211,75 @@ namespace protal::strain_alleles {
             for (size_t i = 0; i < n; i++) covered[i] = std::max(covered[i], coverage[i * n + best]);
         }
         return chosen;
+    }
+
+    // The index's seeds of a copy's deep strain alleles (--index_alleles, Build.h): the k-mers of the representative's
+    // copy with an allele's substitutions applied that the copy itself does not yield, each with the position its
+    // window starts at on the copy. A read of a strain of a lineage the representative is far from seeds on few of the
+    // representative's k-mers (a 1% strain changes a third of the 31-mers) and could find its species only through a
+    // congener; with its allele's k-mers in the index under the species it finds the species, which is then aligned
+    // and scored as before. Only the alleles at least `min_divergence` (edits per base of their range) from the
+    // representative: the near ones' reads seed on the representative anyway, and each edit costs about three entries
+    // (docs/claude/2026-10-09-site-weighted-evidence-plan, section 8). The windows over an indel (whose inserted bases
+    // the table does not keep) or over a base that is not A, C, G or T are left out, as are the k-mers of the
+    // representative's copy (`own`) and those an earlier allele of the copy gave. The positions are the representative's
+    // (substitutions keep them). Returns how many alleles were used; `scratch` is the thread's.
+    inline constexpr double kDefaultIndexDivergence = 0.01;
+
+    struct SeedScratch {
+        std::string sequence;
+        KmerList kmers;
+        std::vector<uint64_t> seen;                           // sorted keys: the representative's and the seeds added
+        std::vector<std::pair<uint32_t, uint32_t>> indels;    // (position, deleted bases; 0 for an insertion before it)
+    };
+
+    inline double Divergence(Table::View const& a) {
+        return a.end > a.begin ? static_cast<double>(a.edits.size()) / static_cast<double>(a.end - a.begin) : 0.0;
+    }
+
+    template<typename KmerHandler>
+    inline size_t AlleleSeeds(Table const& table, double min_divergence, uint32_t taxid, uint32_t gene, std::string_view rep,
+                              KmerList const& own, size_t k, KmerHandler& handler, SeedScratch& scratch, KmerList& out) {
+        auto const alleles = table.Of(taxid, gene);
+        if (alleles.empty() || rep.size() < k) return 0;
+        scratch.seen.clear();
+        for (auto const& pair : own) scratch.seen.push_back(pair.first);
+        std::sort(scratch.seen.begin(), scratch.seen.end());
+        scratch.seen.erase(std::unique(scratch.seen.begin(), scratch.seen.end()), scratch.seen.end());
+        size_t used = 0;
+        for (auto const& stored : alleles) {
+            auto const allele = table.Get(stored);
+            if (Divergence(allele) < min_divergence) continue;
+            scratch.sequence.assign(rep);
+            scratch.indels.clear();
+            for (auto const& e : allele.edits) {
+                if (e.pos >= scratch.sequence.size()) continue;
+                if (e.GetKind() == kSubstitution) scratch.sequence[e.pos] = kBases[e.Base()];
+                else scratch.indels.emplace_back(e.pos, e.GetKind() == kDeletion ? e.Length() : 0u);
+            }
+            used++;
+            scratch.kmers.clear();
+            handler(std::string_view(scratch.sequence), scratch.kmers);
+            for (auto const& [key, pos] : scratch.kmers) {
+                if (pos + k > scratch.sequence.size()) continue;
+                bool skip = false;
+                for (size_t i = pos; i < pos + k && !skip; i++) {
+                    unsigned char const upper = static_cast<unsigned char>(scratch.sequence[i]) & 0xDF;
+                    skip = !(upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T');
+                }
+                for (auto const& [at, deleted] : scratch.indels) {
+                    if (skip) break;
+                    // An insertion before `at` sits between at - 1 and at; a deletion removes [at, at + deleted).
+                    skip = deleted == 0 ? (pos < at && at < pos + k) : (pos < at + deleted && at < pos + k);
+                }
+                if (skip) continue;
+                auto const it = std::lower_bound(scratch.seen.begin(), scratch.seen.end(), static_cast<uint64_t>(key));
+                if (it != scratch.seen.end() && *it == static_cast<uint64_t>(key)) continue;
+                scratch.seen.insert(it, static_cast<uint64_t>(key));
+                out.emplace_back(key, pos);
+            }
+        }
+        return used;
     }
 
     // The alleles offered per copy, from any thread: per copy the seen sequences (by hash, up to kSeen, so that the many
