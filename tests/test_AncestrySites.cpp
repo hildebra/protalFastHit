@@ -264,6 +264,41 @@ TEST(AncestrySites, CountFindsTheIndelSites) {
     EXPECT_EQ(an::Count(an::Sites{}, "100M", 1, seq).indel_sites, 0u);
 }
 
+// The sites the species' other genomes share (SharedBySpecies): a base site where one of them carries another base
+// goes, so does an indel site with one of their indels near; the rest stay with their bases, and a read counts only
+// those (the representative's own mutation at 50 no longer counts against a strain that lacks it).
+TEST(AncestrySites, TheSpeciesSitesAreThoseItsGenomesShare) {
+    an::Sites sites;
+    sites.positions = { 10, 50, 90 };
+    sites.bases = { 1, 2, 3 };
+    sites.indels = { { 30, 4 }, { 70, -3 } };
+    sites.congener = 7;
+    sites.congeners = 4;
+    std::set<uint32_t> const varies{ 50 }, indels{ 72 };
+    auto const shared = an::SharedBySpecies(sites, [&](uint32_t p) { return varies.count(p) > 0; },
+                                            [&](uint32_t p) { return indels.lower_bound(p > 4 ? p - 4 : 0) != indels.end() &&
+                                                                     *indels.lower_bound(p > 4 ? p - 4 : 0) <= p + 4; });
+    EXPECT_EQ(shared.positions, (std::vector<uint16_t>{ 10, 90 }));
+    EXPECT_EQ(shared.bases, (std::vector<uint8_t>{ 1, 3 }));
+    ASSERT_EQ(shared.indels.size(), 1u);
+    EXPECT_EQ(shared.indels[0].position, 30u);
+    EXPECT_EQ(shared.congener, 7u);
+    EXPECT_EQ(shared.congeners, 4u);
+    // A strain with the congeners' base at 50 (the representative's own mutation): on all sites one of three is the
+    // congeners', on the shared ones none.
+    std::string seq(100, 'A');
+    seq[50] = 'G';  // Code 2: the congeners' base there
+    EXPECT_EQ(an::Count(sites, "50M1X49M", 1, seq).congener, 1u);
+    auto const c = an::Count(shared, "50M1X49M", 1, seq);
+    EXPECT_EQ(c.sites, 2u);
+    EXPECT_EQ(c.agree, 2u);
+    EXPECT_EQ(c.congener, 0u);
+    // Nothing varies: the same sites.
+    auto const all = an::SharedBySpecies(sites, [](uint32_t) { return false; }, [](uint32_t) { return false; });
+    EXPECT_EQ(all.positions, sites.positions);
+    EXPECT_EQ(all.indels.size(), 2u);
+}
+
 TEST(AncestrySites, CountWalksTheCigar) {
     an::Sites sites;
     sites.positions = { 10, 20, 30, 45 };

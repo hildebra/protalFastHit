@@ -321,6 +321,11 @@ class OracleTest(unittest.TestCase):
             has_alleles = True
             alleles = {(1, 1): [oracle.parse_allele("0-100:20C")]}
 
+            species_sites = oracle.Database.species_sites
+
+            def __init__(self):
+                self._sites = {}
+
             def sites(self, taxid, gene):
                 s = oracle.Sites()
                 s.positions, s.bases = [20, 40], [1, 1]
@@ -329,8 +334,10 @@ class OracleTest(unittest.TestCase):
         read = "A" * 20 + "C" + "A" * 19 + "C" + "A" * 39
         oracle.note_record(e, Db(), 1, 1, "20M1X19M1X39M", 1, read, 60, True)
         f = e.features()
-        # site 20: polymorphic (the allele's C), the read the congener's base; site 40 fixed, the congener's base
-        self.assertEqual((e.ancestry_sites, e.ancestry_agree, e.ancestry_congener), (2, 0, 2))
+        # site 20: polymorphic (the allele's C), the read the congener's base; site 40 fixed, the congener's base. The
+        # ancestry counts take the sites the species' alleles share (since 2026-10-10): 40 alone; the fixed-site counts
+        # all of them.
+        self.assertEqual((e.ancestry_sites, e.ancestry_agree, e.ancestry_congener), (1, 0, 1))
         self.assertEqual(f["allele_explained_share"], 0.5)
         self.assertEqual(f["ancestry_fixed_gain"], 0.0)
         self.assertEqual(f["oracle_fixed_agreement"], 0.0)

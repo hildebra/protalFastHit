@@ -807,6 +807,33 @@ class Database:
         self._sites[key] = result
         return result
 
+    def species_sites(self, taxid, gene):
+        """GenomeLoader::SpeciesAncestrySitesOf: the sites the species' alleles share (AncestrySites.h SharedBySpecies:
+        without the base sites where an allele has another base or an indel, the indel sites with an allele's indel within
+        INDEL_TOLERANCE); the same sites for a copy without alleles."""
+        sites = self.sites(taxid, gene)
+        alleles = self.alleles.get((taxid, gene)) if self.has_alleles else None
+        if sites.empty() or not alleles:
+            return sites
+        key = ("species", taxid, gene)
+        if key in self._sites:
+            return self._sites[key]
+        poly = Polymorphism(alleles, 0, MAX_LENGTH)
+        indels = sorted(p for p, _bits, indel in poly.sites if indel)
+        out = Sites()
+        out.congener, out.congeners, out.compared, out.identity = sites.congener, sites.congeners, sites.compared, sites.identity
+        for p, b in zip(sites.positions, sites.bases):
+            if p not in poly.index:
+                out.positions.append(p)
+                out.bases.append(b)
+        for indel in sites.indels:
+            lo = bisect.bisect_left(indels, indel[0] - INDEL_TOLERANCE if indel[0] > INDEL_TOLERANCE else 0)
+            if not (lo < len(indels) and indels[lo] <= indel[0] + INDEL_TOLERANCE):
+                out.indels.append(indel)
+        out.covered = sites.covered
+        self._sites[key] = out
+        return out
+
 
 class Evidence:
     """A taxon's counts (Profiler.h RecordEvidence's ancestry, allele and polymorphic fields)."""
@@ -876,7 +903,7 @@ def note_record(e, db, taxid, gene, cigar, pos, seq, mapq, kept):
     """Profiler.h NoteRecord (the ancestry counts) and NoteAlleles."""
     e.records += 1
     e.kept += kept
-    sites = db.sites(taxid, gene)
+    sites = db.species_sites(taxid, gene)  # the ancestry counts: the sites the species' alleles share
     if not sites.empty():
         c = count(sites, cigar, pos, seq)
         e.ancestry_sites += c.sites
@@ -918,7 +945,7 @@ def note_record(e, db, taxid, gene, cigar, pos, seq, mapq, kept):
     e.poly_sites += n
     e.poly_known += known
     e.poly_novel += novel
-    for p, outcome in for_each_site(sites, cigar, pos, seq):
+    for p, outcome in for_each_site(db.sites(taxid, gene), cigar, pos, seq):  # all the sites (NoteAlleles)
         w = fixed_weight(poly.cover(p))
         if w == 0:
             continue

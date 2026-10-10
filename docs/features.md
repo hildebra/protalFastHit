@@ -367,6 +367,15 @@ were compared (a small genus, or a stretch past an indel in the others' copies),
 differs, as 0.7.9 had everywhere. It keeps the sites with the congeners' base and reads each best record's
 base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
 
+Since the evening of 2026-10-10 the ancestry features (and `ancestry_agreement_weighted`) count only the sites the
+species' known genomes share: a site where one of the copy's strain alleles (`strain_alleles.tsv`, the species'
+other genomes) carries another base, or an indel near, is left out (`SharedBySpecies`); a copy without alleles keeps
+all its sites. The representative's copy alone made a site of each of its own recent mutations, which a real strain
+that branched off before them lacks: on six real GTDB families a quarter of the real strains carried the species'
+base at under 88.5% of the sites, and on the hard rows the agreement separated strains from novel congeners the wrong
+way round ([report](claude/2026-10-10-real-small-world/README.md)). The fixed-site features
+(`ancestry_fixed_*`) still take all the sites and weigh them by the alleles themselves.
+
 0.7.9 compared the nearest congener alone. At r226 v17 that worked on the bulk (agreement 0.98-0.996 for
 present taxa against 0.68 for novel congeners) but not at the errors that remained: half of the differences
 between two species are the congener's own derived states, where any third species agrees with the species,

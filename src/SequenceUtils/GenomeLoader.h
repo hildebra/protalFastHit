@@ -861,6 +861,9 @@ namespace protal {
         column_weights::Table m_column_weights;  // empty: no column's conservation known (ColumnWeights.h)
         column_weights::Cache m_column_weights_cache;  // the columns of every copy a run touched, expanded
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
+        // Of those, the ones the species' alleles share (SpeciesAncestrySitesOf), for copies with alleles.
+        std::mutex m_species_sites_mutex;
+        std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_species_sites;
 
         int m_threads = 1;  // for reading reference.map
         gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
@@ -1200,6 +1203,7 @@ namespace protal {
         void SetSpeciesNeighbours(species_neighbours::Table table) {
             m_species_neighbours = std::move(table);
             m_ancestry_sites.Clear();
+            ClearSpeciesSites();
         }
 
         // Where taxid's copy of a gene differs from its nearest congener's copy (AncestrySites.h), computed once per run
@@ -1210,6 +1214,29 @@ namespace protal {
             auto const columns = ColumnWeightsOf(taxid, geneid);  // the family's consensus polarises a small genus's sites
             return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps,
                                         columns ? &columns->consensus : nullptr);
+        }
+
+        // Those of AncestrySitesOf's sites that the species' known genomes share (ancestry::SharedBySpecies): without the
+        // ones where an allele of the copy (strain_alleles.tsv) carries another base or an indel, for the ancestry
+        // features; the same sites where the copy has no alleles. The fixed-site features take AncestrySitesOf's, all of
+        // them, and weigh them by the alleles themselves. Computed once per run.
+        std::shared_ptr<ancestry::Sites const> SpeciesAncestrySitesOf(uint32_t taxid, uint32_t geneid) {
+            auto sites = AncestrySitesOf(taxid, geneid);
+            if (sites->Empty() || m_strain_alleles.Empty()) return sites;
+            auto const alleles = m_strain_alleles.Of(taxid, geneid);
+            if (alleles.empty()) return sites;
+            uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
+            {
+                std::lock_guard<std::mutex> lock(m_species_sites_mutex);
+                if (auto const it = m_species_sites.find(key); it != m_species_sites.end()) return it->second;
+            }
+            strain_alleles::Polymorphism poly;
+            poly.Set(m_strain_alleles, alleles, 0, UINT16_MAX);
+            auto shared = std::make_shared<ancestry::Sites const>(ancestry::SharedBySpecies(
+                *sites, [&](uint32_t p) { return poly.Find(p) != nullptr; }, [&](uint32_t p) { return poly.IndelNear(p); }));
+            std::lock_guard<std::mutex> lock(m_species_sites_mutex);
+            if (m_species_sites.size() >= ancestry::kMaxCached) m_species_sites.clear();
+            return m_species_sites.try_emplace(key, std::move(shared)).first->second;
         }
 
         // Each gene copy's column weights (ColumnWeights.h: how conserved each column is in the species' family, and the
@@ -1228,6 +1255,7 @@ namespace protal {
             m_column_weights = std::move(table);
             m_column_weights_cache.Clear();
             m_ancestry_sites.Clear();  // their polarisation comes from the table
+            ClearSpeciesSites();
         }
 
         // Each gene copy's gap to its congeners' copies (CongenerGapsTable.h), for the "gaps" features; empty unless set (a
@@ -1239,6 +1267,7 @@ namespace protal {
         void SetCongenerGaps(congener_gaps::Table table) {
             m_congener_gaps = std::move(table);
             m_ancestry_sites.Clear();  // their congeners come from the table
+            ClearSpeciesSites();
         }
 
         // Each gene copy's reads of a tiled scan of genomes and their foreign share (ForeignRatesTable.h), for the
@@ -1259,6 +1288,12 @@ namespace protal {
 
         void SetStrainAlleles(strain_alleles::Table table) {
             m_strain_alleles = std::move(table);
+            ClearSpeciesSites();  // SpeciesAncestrySitesOf filters by them
+        }
+
+        void ClearSpeciesSites() {
+            std::lock_guard<std::mutex> lock(m_species_sites_mutex);
+            m_species_sites.clear();
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

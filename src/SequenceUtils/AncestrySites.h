@@ -543,6 +543,33 @@ namespace protal::ancestry {
         }
     }
 
+    // The sites of a copy that the species' known genomes share (since 2026-10-10): the representative's copy alone
+    // makes a site of each of its own recent mutations too, a difference of one genome, not of the species, and a real
+    // strain that branched off before it carries the congeners' base there. On six real GTDB families a quarter of the
+    // species' real strains carried the species' base at under 88.5% of its sites, and the agreement separated strains
+    // from novel congeners the wrong way round where it mattered (AUC 0.34-0.43 on the hard rows;
+    // docs/claude/2026-10-10-real-ancestry, 2026-10-10-real-small-world). Kept: a base site where `varies(p)` is false
+    // (no other genome of the species, an allele of strain_alleles.tsv, carries another base or an indel there), an
+    // indel site where `indel_near(p)` is false. Where no genome covers a site the species' state is unknown and the site
+    // stays, so a copy without alleles keeps all of its sites.
+    template<typename Varies, typename IndelNear>
+    inline Sites SharedBySpecies(Sites const& sites, Varies&& varies, IndelNear&& indel_near) {
+        Sites out;
+        out.congener = sites.congener;
+        out.congeners = sites.congeners;
+        out.compared = sites.compared;
+        out.identity = sites.identity;
+        for (size_t i = 0; i < sites.positions.size(); i++) {
+            if (varies(static_cast<uint32_t>(sites.positions[i]))) continue;
+            out.positions.push_back(sites.positions[i]);
+            out.bases.push_back(sites.bases[i]);
+        }
+        for (auto const& indel : sites.indels) {
+            if (!indel_near(static_cast<uint32_t>(indel.position))) out.indels.push_back(indel);
+        }
+        return out;
+    }
+
     // The sites of every (species, gene) a run touches, computed once: the consensus (Consensus) over the congeners
     // that have the gene and whose copy pairs with the species' (CompareCopies): the gene's nearest congener by
     // alignment (congener_gaps.tsv) and the species' nearest congeners (species_neighbours.tsv, nearest first), up to

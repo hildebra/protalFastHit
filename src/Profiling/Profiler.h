@@ -3182,10 +3182,15 @@ namespace protal {
                 e.third_mismatches += third;
                 // The sites of the taxon's copy of the gene, from the run's cache once per collector (a chunk's records
                 // hit the same taxa and genes over and over; the shared cache takes a lock per lookup).
-                auto& sites = m_ancestry_sites[(static_cast<uint64_t>(taxid) << 32) | geneid];
+                // The ancestry features count the sites the species' known genomes share (SpeciesAncestrySitesOf); the
+                // fixed-site features (NoteAlleles) all of them, weighed by the alleles.
+                uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
+                auto& sites = m_ancestry_sites[key];
                 if (!sites) sites = m_genome_loader->AncestrySitesOf(taxid, geneid);
-                if (!sites->Empty()) {
-                    auto const c = ancestry::Count(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq);
+                auto& shared = m_species_sites[key];
+                if (!shared) shared = m_genome_loader->SpeciesAncestrySitesOf(taxid, geneid);
+                if (!shared->Empty()) {
+                    auto const c = ancestry::Count(*shared, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq);
                     e.ancestry_sites += c.sites;
                     e.ancestry_agree += c.agree;
                     e.ancestry_congener += c.congener;
@@ -3225,9 +3230,9 @@ namespace protal {
                         e.cw_synonymous += c.synonymous;
                         e.cw_nonsynonymous += c.nonsynonymous;
                         e.cw_nonsynonymous_conserved += c.nonsynonymous_conserved;
-                        if (!sites->Empty()) {
+                        if (!shared->Empty()) {  // the weighted agreement: the species' shared sites, as the plain one
                             auto const& among = columns.second->among;
-                            ancestry::ForEachSite(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, [&](size_t p, int outcome) {
+                            ancestry::ForEachSite(*shared, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, [&](size_t p, int outcome) {
                                 uint64_t const w = p < among.size() ? std::max<uint64_t>(1, among[p]) : 1;
                                 e.cw_sites_weight += w;
                                 if (outcome == ancestry::kSpeciesBase) e.cw_agree_weight += w;
@@ -3598,6 +3603,9 @@ namespace protal {
             // The ancestry sites of the (taxon, gene) pairs this collector's records touched (NoteRecord), from the
             // run's cache (GenomeLoader::AncestrySitesOf) once each.
             std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
+            // Of them, those the species' known genomes share (GenomeLoader::SpeciesAncestrySitesOf), for the ancestry
+            // features.
+            std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_species_sites;
             // The column weights of every copy this collector saw (looked up: nullptr for a copy without a row).
             std::unordered_map<uint64_t, std::pair<bool, std::shared_ptr<column_weights::Columns const>>> m_column_weights;
             strain_alleles::ReadDiffs m_allele_diffs;  // NoteAlleles' scratch
