@@ -20,6 +20,7 @@
 // the ancestry report takes its alleles from the same genomes (docs/claude/2026-10-08-r226-v18, section 5).
 #pragma once
 
+#include "BinaryTable.h"
 #include "ColumnWeights.h"
 
 #include <algorithm>
@@ -27,17 +28,20 @@
 #include <cstdint>
 #include <cstdlib>
 #include <istream>
+#include <iterator>
 #include <ostream>
 #include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace protal::strain_alleles {
     inline const std::string kFileName = "strain_alleles.tsv";
+    inline const std::string kBinaryFileName = "strain_alleles.bin";  // the binary form a single-file database holds beside it
     inline constexpr double kUnknown = -1;          // features without the table, or without a record on a copy with alleles
     inline constexpr uint32_t kIndelTolerance = 4;  // a read's indel within this many bases of an allele's, of its kind and
                                                     // length, is the allele's (aligners place an indel in a repeat apart)
@@ -126,7 +130,9 @@ namespace protal::strain_alleles {
 
     // One allele of WriteAllele's text; false if it is not one.
     inline bool ParseAllele(std::string_view text, Allele& allele) {
-        allele = Allele{};
+        allele.begin = 0;  // the edits keep their capacity: Read parses every allele into the one it reuses
+        allele.end = 0;
+        allele.edits.clear();
         auto number = [](std::string_view& s, uint32_t& value) {
             auto const [p, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
             if (ec != std::errc()) return false;
@@ -163,7 +169,10 @@ namespace protal::strain_alleles {
         return std::is_sorted(allele.edits.begin(), allele.edits.end());
     }
 
-    // The table of every copy's alleles, by taxid and gene.
+    // The table of every copy's alleles, by taxid and gene: four flat arrays, which a single-file database also holds as
+    // strain_alleles.bin (BinaryTable.h) and a run reads straight into place (ReadBinary). Parsing the text took ~4,500
+    // instructions an allele, ~5-7 s of one core before the first read at 0.8.1's ~11M r226 alleles, and three times the
+    // table's memory while it was read (docs/claude/2026-10-11-performance-audit).
     class Table {
     public:
         struct Stored {
@@ -171,6 +180,7 @@ namespace protal::strain_alleles {
             uint16_t edits = 0;
             uint16_t begin = 0;
             uint16_t end = 0;
+            uint16_t unused = 0;  // explicit, so that strain_alleles.bin has no padding bytes
         };
         // One allele as the table holds it: its range and a view of its edits.
         struct View {
@@ -246,8 +256,109 @@ namespace protal::strain_alleles {
             }
         }
 
+        inline static constexpr char kMagic[8] = {'P', 'R', 'A', 'L', 'L', 'E', 'L', '1'};
+        static constexpr uint64_t kBinaryVersion = 1;
+
+        // strain_alleles.bin (BinaryTable.h): this table's arrays, made from a strain_alleles.tsv of `text_size` bytes. False
+        // on a write error.
+        bool WriteBinary(std::ostream& os, uint64_t text_size) const {
+            using binary_table::Of;
+            return binary_table::Write(os, kMagic, kBinaryVersion, text_size, { Of(m_begin), Of(m_entries), Of(m_alleles), Of(m_edits) });
+        }
+
+        // Reads strain_alleles.bin `file`, whose header is `header` (binary_table::ReadHeader), into this table with up to
+        // `threads` threads; "" or what is wrong (and the table unchanged).
+        std::string ReadBinary(db::DbFile const& file, binary_table::Header const& header, int threads) {
+            if (header.version != kBinaryVersion) {
+                return "version " + std::to_string(header.version) + " (this protal reads version " + std::to_string(kBinaryVersion) + ")";
+            }
+            if (header.sizes.size() != 4) return "it holds " + std::to_string(header.sizes.size()) + " arrays, not 4";
+            size_t const units[4] = { sizeof(uint32_t), sizeof(Entry), sizeof(Stored), sizeof(Edit) };
+            for (size_t i = 0; i < 4; i++) {
+                if (header.sizes[i] % units[i] != 0) return "array " + std::to_string(i) + " is not a whole number of records";
+            }
+            Table t;
+            t.m_begin.resize(header.sizes[0] / sizeof(uint32_t));
+            t.m_entries.resize(header.sizes[1] / sizeof(Entry));
+            t.m_alleles.resize(header.sizes[2] / sizeof(Stored));
+            t.m_edits.resize(header.sizes[3] / sizeof(Edit));
+            using binary_table::Into;
+            auto const error = binary_table::ReadArrays(file, header, { Into(t.m_begin), Into(t.m_entries), Into(t.m_alleles), Into(t.m_edits) },
+                                                        threads);
+            if (!error.empty()) return error;
+            if (auto const invalid = t.Invalid(); !invalid.empty()) return invalid;
+            *this = std::move(t);
+            return "";
+        }
+
+        // Reads what Write writes from text, without a copy of it, straight into the arrays (Write's rows come by taxid and
+        // gene; other text goes through ReadRows, which sorts and lets a later row of a copy replace an earlier one); lines
+        // starting with '#' or "taxid" skipped. Returns an error text, or "" (the table unchanged on an error).
+        std::string Read(std::string_view text) {
+            Table t;
+            std::vector<uint32_t> taxa;  // each entry's taxid
+            bool in_order = true;
+            Allele allele;
+            size_t number = 0;
+            auto parse = [](std::string_view s, uint32_t& v) {
+                auto const [p, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+                return ec == std::errc() && p == s.data() + s.size();
+            };
+            for (size_t pos = 0; pos < text.size();) {
+                size_t const eol = text.find('\n', pos);
+                std::string_view view = text.substr(pos, eol == std::string_view::npos ? std::string_view::npos : eol - pos);
+                pos = eol == std::string_view::npos ? text.size() : eol + 1;
+                number++;
+                if (!view.empty() && view.back() == '\r') view.remove_suffix(1);
+                if (view.empty() || view[0] == '#' || view.starts_with("taxid")) continue;
+                size_t const tab1 = view.find('\t');
+                size_t const tab2 = tab1 == std::string_view::npos ? tab1 : view.find('\t', tab1 + 1);
+                uint32_t taxid = 0, gene = 0;
+                if (tab2 == std::string_view::npos || !parse(view.substr(0, tab1), taxid) ||
+                    !parse(view.substr(tab1 + 1, tab2 - tab1 - 1), gene) || gene > UINT16_MAX) {
+                    return "line " + std::to_string(number) + ": no taxid, gene and alleles";
+                }
+                uint32_t const first = static_cast<uint32_t>(t.m_alleles.size());
+                size_t count = 0;
+                std::string_view rest = view.substr(tab2 + 1);
+                while (!rest.empty()) {
+                    size_t const semi = rest.find(';');
+                    std::string_view const one = rest.substr(0, semi);
+                    rest = semi == std::string_view::npos ? std::string_view() : rest.substr(semi + 1);
+                    if (!ParseAllele(one, allele)) {
+                        return "line " + std::to_string(number) + ": '" + std::string(one) + "' is not begin-end:edits";
+                    }
+                    size_t const edits = std::min<size_t>(allele.edits.size(), UINT16_MAX);
+                    t.m_alleles.push_back({ static_cast<uint32_t>(t.m_edits.size()), static_cast<uint16_t>(edits), allele.begin, allele.end });
+                    t.m_edits.insert(t.m_edits.end(), allele.edits.begin(), allele.edits.begin() + static_cast<std::ptrdiff_t>(edits));
+                    count++;
+                }
+                if (count == 0) return "line " + std::to_string(number) + ": no allele";
+                if (!taxa.empty() && (taxa.back() > taxid || (taxa.back() == taxid && t.m_entries.back().gene >= gene))) in_order = false;
+                t.m_entries.push_back({ static_cast<uint16_t>(gene), static_cast<uint16_t>(std::min<size_t>(count, UINT16_MAX)), first });
+                taxa.push_back(taxid);
+            }
+            if (!in_order) {
+                db::TextStream is(text);
+                return ReadRows(is);
+            }
+            uint32_t const max_taxid = taxa.empty() ? 0 : taxa.back();
+            t.m_begin.assign(taxa.empty() ? 0 : static_cast<size_t>(max_taxid) + 2, 0);
+            for (uint32_t const taxid : taxa) t.m_begin[taxid + 1]++;
+            for (size_t i = 1; i < t.m_begin.size(); i++) t.m_begin[i] += t.m_begin[i - 1];
+            *this = std::move(t);
+            return "";
+        }
+
         // Reads what Write writes; lines starting with '#' or "taxid" skipped. Returns an error text, or "".
         std::string Read(std::istream& is) {
+            std::string const text{ std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>() };
+            return Read(std::string_view(text));
+        }
+
+    private:
+        // Read's general path: rows in any order, sorted by FromRows (a later row of the same copy replacing an earlier one).
+        std::string ReadRows(std::istream& is) {
             std::vector<std::tuple<uint32_t, uint32_t, std::vector<Allele>>> rows;
             std::string line;
             size_t number = 0;
@@ -286,17 +397,39 @@ namespace protal::strain_alleles {
             return "";
         }
 
-    private:
+        // What makes the arrays unusable (a damaged binary table), or "".
+        std::string Invalid() const {
+            if (m_begin.empty()) return m_entries.empty() ? "" : "the copies' index does not cover them";
+            if (m_begin.front() != 0 || m_begin.back() != m_entries.size()) return "the copies' index does not cover them";
+            for (size_t t = 0; t + 1 < m_begin.size(); t++) {
+                if (m_begin[t + 1] < m_begin[t]) return "the copies' index is not sorted";
+                for (uint32_t i = m_begin[t]; i < m_begin[t + 1]; i++) {
+                    if (i > m_begin[t] && m_entries[i - 1].gene >= m_entries[i].gene) return "a species' copies are not sorted by gene";
+                    if (uint64_t{ m_entries[i].first_allele } + m_entries[i].alleles > m_alleles.size()) return "a copy's alleles lie outside the table";
+                }
+            }
+            for (Stored const& s : m_alleles) {
+                if (uint64_t{ s.first_edit } + s.edits > m_edits.size()) return "an allele's edits lie outside the table";
+            }
+            return "";
+        }
+
+    public:
         struct Entry {
             uint16_t gene = 0;
             uint16_t alleles = 0;
             uint32_t first_allele = 0;
         };
+
+    private:
         std::vector<uint32_t> m_begin;  // by taxid: its entries are [m_begin[taxid], m_begin[taxid + 1])
         std::vector<Entry> m_entries;   // by taxid, then gene
         std::vector<Stored> m_alleles;
         std::vector<Edit> m_edits;
     };
+    static_assert(sizeof(Table::Stored) == 12 && sizeof(Table::Entry) == 8 && sizeof(Edit) == 4, "strain_alleles.bin record sizes");
+    static_assert(std::is_trivially_copyable_v<Table::Stored> && std::is_trivially_copyable_v<Table::Entry> &&
+                  std::is_trivially_copyable_v<Edit>);
 
     // A read's differences from the representative where it is aligned: substitutions (with the read's base), and its
     // insertions and deletions, by position on the representative; the aligned span [begin, end) and its columns.

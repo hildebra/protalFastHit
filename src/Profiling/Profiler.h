@@ -3940,6 +3940,15 @@ namespace protal {
                 m_evidence = m_evidence.Empty();
             }
 
+            // Drops the record evidence (what NoteRecord and NoteLinkedRecord collected, the taxa having taken their own
+            // counts by ApplyRecordEvidence) once the sample's outputs are written: nothing after reads it, and a cohort keeps
+            // every sample's profile to its end. Its per-taxon map has a ~1 KB entry for every taxon with a record or a
+            // failed candidate, which at GTDB r226 is nearly every taxon: ~140 MB per sample (the r226 builds' run of 1,032
+            // samples held +61 GB; docs/claude/2026-10-11-performance-audit).
+            void ReleaseEvidence() {
+                m_evidence = m_evidence.Empty();
+            }
+
             // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
             void SetDepthIdentityMargin(double margin) {
                 m_depth_identity_margin = margin;

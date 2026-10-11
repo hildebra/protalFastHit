@@ -1,0 +1,100 @@
+== alignment A/B (medians over reps): sample variant n wall_s user_s max_rss_mb aligning_s
+ont	v078	3	57.74	168.59	3895	54.910
+ont	v081	3	9.26	17.00	3845	6.159
+ont	v081_nobound	3	68.22	142.94	3929	65.749
+pb	v078	3	7.01	21.36	3758	4.209
+pb	v081	3	6.68	21.72	3793	4.430
+pe	v078	3	8.84	14.70	3601	6.206
+pe	v081	3	9.19	18.13	3636	6.437
+pe	v081_noadapt	3	8.95	18.11	3648	6.171
+pe	v081_noalleles	3	8.36	14.68	3638	3.751
+pe	v081_nonb	3	4.71	16.16	3630	3.344
+se	v078	3	5.67	11.02	3597	3.037
+se	v081	3	7.27	11.56	3625	4.017
+== counts lines (rep 1)
+pe	v078	1000000 read pairs, 631073 mates with an anchor; 880077 candidate alignments tried: 760672 refused by the k-mer screen, 119223 aligned from the anchor's exact matches and 182 as whole windows; 83966 alignments made, 35692 records written
+pe	v081	1000000 read pairs, 631073 mates with an anchor; 880212 candidate alignments tried: 760673 refused by the k-mer screen, 0 by the indel bound, 119357 aligned from the anchor's exact matches and 182 as whole windows; 84089 alignments made, 35692 records written
+pe	v081_noadapt	1000000 read pairs, 631073 mates with an anchor; 880077 candidate alignments tried: 760672 refused by the k-mer screen, 0 by the indel bound, 119223 aligned from the anchor's exact matches and 182 as whole windows; 83966 alignments made, 35692 records written
+pe	v081_noalleles	1000000 read pairs, 631073 mates with an anchor; 880212 candidate alignments tried: 760673 refused by the k-mer screen, 0 by the indel bound, 119357 aligned from the anchor's exact matches and 182 as whole windows; 84089 alignments made, 35692 records written
+pe	v081_nonb	1000000 read pairs, 631073 mates with an anchor; 880163 candidate alignments tried: 760663 refused by the k-mer screen, 0 by the indel bound, 119318 aligned from the anchor's exact matches and 182 as whole windows; 84089 alignments made, 35692 records written
+se	v078	1000000 reads, 315784 with an anchor; 438346 candidate alignments tried: 380205 refused by the k-mer screen, 58048 aligned from the anchor's exact matches and 93 as whole windows; 41365 alignments made, 30496 records written
+se	v081	1000000 reads, 315784 with an anchor; 438381 candidate alignments tried: 380206 refused by the k-mer screen, 0 by the indel bound, 58082 aligned from the anchor's exact matches and 93 as whole windows; 41392 alignments made, 30496 records written
+pb	v078	6668 reads, 6668 with an anchor; 250292 candidate alignments tried: 234713 refused by the k-mer screen, 15548 aligned from the anchor's exact matches and 31 as whole windows; 5485 alignments made, 4003 records written
+pb	v081	6668 reads, 6668 with an anchor; 250292 candidate alignments tried: 234713 refused by the k-mer screen, 0 by the indel bound, 15548 aligned from the anchor's exact matches and 31 as whole windows; 5485 alignments made, 4003 records written
+ont	v078	12451 reads, 12314 with an anchor; 239459 candidate alignments tried: 5 refused by the k-mer screen, 238775 aligned from the anchor's exact matches and 679 as whole windows; 4945 alignments made, 3623 records written
+ont	v081	12451 reads, 12314 with an anchor; 239459 candidate alignments tried: 0 refused by the k-mer screen, 227422 by the indel bound, 11435 aligned from the anchor's exact matches and 602 as whole windows; 4945 alignments made, 3623 records written
+ont	v081_nobound	12451 reads, 12314 with an anchor; 239459 candidate alignments tried: 5 refused by the k-mer screen, 0 by the indel bound, 238775 aligned from the anchor's exact matches and 679 as whole windows; 4945 alignments made, 3623 records written
+== start-up tables (tim, sequential; medians): table seconds rss_after-rss_before peak-rss_before
+strain_alleles	0.0817	27.2	27.2
+taxonomy	0.0612	0.1	0.1
+models	0.1492	16	16
+gene_conservation	0.0003	0	0
+suspect_copies	0.0004	0	0
+species_priors	0.0040	0	0
+species_neighbours	0.0024	0	0
+congener_gaps	0.0463	9.6	9.6
+foreign_rates	0.0000	0	0
+column_weights	0.6796	90.4	273.6
+ancestry_sites	0.1146	44.1	64.1
+gene_neighbours_read	0.0184	0	0
+gene_neighbours_bind	0.0088	0	0
+== start-up brackets
+rep	variant	wall_s	max_rss_mb	gene_tables_s	preload_s	tables_s	index_s
+1	tim_sequential	7.34	3771	0.107	0.481	1.389	4.678
+1	v081_concurrent	3.50	3863	0.054	1.232	2.656	2.731
+1	v081_sequential	3.94	3765	0.035	0.267	1.449	1.785
+2	tim_sequential	4.58	3767	0.025	0.277	0.901	2.668
+2	v081_concurrent	3.38	3863	0.036	1.102	1.827	2.483
+2	v081_sequential	4.54	3784	0.080	0.350	0.955	2.496
+3	tim_sequential	4.60	3762	0.043	0.615	1.261	2.156
+3	v081_concurrent	5.23	3864	0.040	0.827	3.211	3.914
+3	v081_sequential	4.57	3762	0.109	0.768	1.582	1.422
+Strain alleles: 131236 alleles of 57458 gene copies of 2213 species (strain_alleles.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Gene conservation: factors 0.58-1.63 for 53 genes (gene_conservation.tsv in /home/falk/perf9/arc/protal_db/database.protal), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 128 gene copies of 60 species near-identical to another genus's copy (suspect_copies.tsv in /home/falk/perf9/arc/protal_db/database.protal), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 6968 species (species_priors.tsv in /home/falk/perf9/arc/protal_db/database.protal), 6968 with a duplicated marker, CheckM quality or a species cluster known, 6968 with a genome size
+Species neighbours: 6968 species with 19604 congeners within 0.1 (species_neighbours.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Congener gaps: 254610 gene copies of 5899 species (congener_gaps.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Column weights: 28225 family-gene rows of 21660549 columns, 303767 gene copies of 6968 species mapped (column_weights.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Ancestry sites: 231206 gene copies of 5897 species with sites (ancestry_sites.bin in /home/falk/perf9/arc/protal_db/database.protal)
+Gene neighbours: 61767 rules of 1273 clades from 2296 genomes (gene_neighbours.tsv in /home/falk/perf9/arc/protal_db/database.protal), for 6968 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring
+Gene neighbours: 95 fragments paired across two neighbouring genes; 0 guided mates found on the gene next to their guiding mate's
+== profiling (--profile_only; medians): sample variant wall_s max_rss_mb, and rep 1's line
+pe	default	2.55	734	took 0.7s: reading the SAM 0.4s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.1s, writing the profile 0.0s
+pe	no_site_weights	2.35	529	took 1.6s: reading the SAM 1.4s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.1s, writing the profile 0.0s
+pe	no_gene_neighbours	2.58	710	took 0.8s: reading the SAM 0.5s, record evidence and sample context 0.2s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.1s, writing the profile 0.0s
+pe	no_allele_scores	2.61	733	took 0.6s: reading the SAM 0.4s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.1s, writing the profile 0.0s
+se	default	2.21	719	took 0.5s: reading the SAM 0.3s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+se	no_site_weights	1.89	530	took 1.0s: reading the SAM 0.8s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+se	no_gene_neighbours	2.42	707	took 0.4s: reading the SAM 0.2s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+se	no_allele_scores	2.40	728	took 0.5s: reading the SAM 0.2s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.1s, writing the profile 0.0s
+pb	default	2.11	704	took 0.2s: reading the SAM 0.1s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+pb	no_site_weights	1.21	504	took 0.5s: reading the SAM 0.4s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+pb	no_gene_neighbours	2.05	695	took 0.2s: reading the SAM 0.1s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+pb	no_allele_scores	2.31	760	took 0.2s: reading the SAM 0.1s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+ont	default	2.10	739	took 0.3s: reading the SAM 0.2s, record evidence and sample context 0.0s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+ont	no_site_weights	1.53	505	took 0.5s: reading the SAM 0.4s, record evidence and sample context 0.0s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+ont	no_gene_neighbours	2.24	698	took 0.3s: reading the SAM 0.2s, record evidence and sample context 0.0s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+ont	no_allele_scores	2.12	697	took 0.3s: reading the SAM 0.2s, record evidence and sample context 0.0s, read EM 0.0s, congener distances 0.0s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+== SAM finishing
+sample	format	rep	finish	line
+pe	gz	1	32ms	SAM header: 4019 genes, 147112 bytes, written as 47857 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; the records (7655034 bytes) were copied behind 
+pe	zst	1	6ms	SAM header: 4019 genes, 147112 bytes, written as 44914 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; placed in its room of 1077248 bytes before the 
+ont	gz	1	2ms	SAM header: 1359 genes, 84365 bytes, written as 30722 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; the records (3695012 bytes) were copied behind i
+ont	zst	1	1ms	SAM header: 1359 genes, 84365 bytes, written as 29374 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; placed in its room of 1077248 bytes before the r
+pe	gz	2	11ms	SAM header: 4019 genes, 147112 bytes, written as 47857 (text built in 0.01 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; the records (7654058 bytes) were copied behind 
+pe	zst	2	1ms	SAM header: 4019 genes, 147112 bytes, written as 44914 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; placed in its room of 1077248 bytes before the 
+ont	gz	2	6ms	SAM header: 1359 genes, 84365 bytes, written as 30722 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; the records (3694723 bytes) were copied behind i
+ont	zst	2	1ms	SAM header: 1359 genes, 84365 bytes, written as 29374 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; placed in its room of 1077248 bytes before the r
+== cohort
+variant	samples	wall_s	max_rss_mb	after_index	after_aligning	after_profiling
+default	1	3.59	3864	3.73/3.77	3.75/3.77	0.28/3.77
+profile_ahead	1	3.00	3884	3.73/3.79	3.75/3.79	0.28/3.79
+no_strains	1	3.45	3873	3.74/3.78	3.75/3.78	0.28/3.78
+default	6	5.65	3870	3.73/3.78	3.75/3.78	0.36/3.78
+profile_ahead	6	5.55	3886	3.74/3.80	3.70/3.80	0.34/3.80
+no_strains	6	5.27	3860	3.74/3.77	3.75/3.77	0.37/3.77
+default	24	15.49	3871	3.73/3.78	3.75/3.78	0.57/3.78
+profile_ahead	24	14.41	4041	3.74/3.78	3.93/3.95	0.57/3.95
+no_strains	24	14.48	3887	3.74/3.80	3.76/3.80	0.54/3.80

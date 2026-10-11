@@ -856,6 +856,60 @@ namespace protal::zstd {
         return "";
     }
 
+    // The first `size` bytes of the content of the frames `table` lists in a file (all of it if it is shorter), decoded
+    // only as far as they reach: a binary member's header costs a block of its frame, not the whole frame (ReadFrame).
+    // On failure sets error.
+    inline std::string ReadFramesPrefix(std::string const& path, SeekTable const& table, size_t size, std::string& error) {
+        std::string out(static_cast<size_t>(std::min<uint64_t>(size, table.DecompressedSize())), '\0');
+        int const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (fd < 0) {
+            error = std::string("cannot open the file: ") + std::strerror(errno);
+            return {};
+        }
+        ZSTD_DCtx* dctx = ZSTD_createDCtx();
+        if (!dctx) {
+            ::close(fd);
+            error = "cannot allocate a zstd decompression context";
+            return {};
+        }
+        ZSTD_DCtx_setParameter(dctx, ZSTD_d_windowLogMax, ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound);
+        std::vector<char> input(size_t{1} << 17);
+        ZSTD_outBuffer o{ out.data(), out.size(), 0 };
+        for (size_t f = 0; f < table.frames.size() && o.pos < o.size && error.empty(); f++) {
+            auto const& frame = table.frames[f];
+            std::string const where = "frame " + std::to_string(f + 1) + " of " + std::to_string(table.frames.size());
+            ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+            uint64_t read = 0;
+            size_t left = 1;  // 0 once the frame is complete
+            while (o.pos < o.size && left != 0 && error.empty()) {
+                size_t const n = static_cast<size_t>(std::min<uint64_t>(input.size(), frame.compressed_size - read));
+                if (n == 0) {
+                    error = where + ": ends inside the frame (corrupt file?)";
+                } else if (!PreadAll(fd, input.data(), n, frame.compressed_offset + read)) {
+                    error = where + ": read error";
+                } else {
+                    read += n;
+                    ZSTD_inBuffer in{ input.data(), n, 0 };
+                    while (in.pos < in.size && o.pos < o.size && left != 0) {
+                        left = ZSTD_decompressStream(dctx, &o, &in);
+                        if (ZSTD_isError(left)) {
+                            error = where + ": " + ZSTD_getErrorName(left) + " (corrupt file?)";
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        ZSTD_freeDCtx(dctx);
+        ::close(fd);
+        if (!error.empty()) return {};
+        if (o.pos != out.size()) {
+            error = "the frames hold " + std::to_string(o.pos) + " bytes, not " + std::to_string(out.size()) + " (corrupt file?)";
+            return {};
+        }
+        return out;
+    }
+
     // What the frames of a load write into memory that becomes resident only as it is written (calloc'd arrays: the
     // index's key map and values), for ForEachFrame to stop workers near the end: output[i] is the bytes frame
     // first + i writes. Without it, the workers' buffers sit on top of an output that is nearly all resident when the

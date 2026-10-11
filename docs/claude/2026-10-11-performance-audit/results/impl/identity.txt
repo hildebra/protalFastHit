@@ -1,0 +1,26 @@
+Wrote /home/falk/impl/id/db_bin/database.protal.column_weights.bin: the binary form of column_weights.tsv in /home/falk/impl/id/db_bin/database.protal (3.07 MB), which a run from database.protal reads without parsing it
+Wrote /home/falk/impl/id/db_bin/database.protal.strain_alleles.bin: the binary form of strain_alleles.tsv in /home/falk/impl/id/db_bin/database.protal (473867 bytes), which a run from database.protal reads without parsing it
+Rewrite /home/falk/impl/id/db_bin/database.protal with column_weights.bin, strain_alleles.bin (the other members' frames copied as they are, the tables compressed at zstd level 19; verified)
+Rewrite database.protal took 755ms
+same: ref_text_pe vs work_text_pe (7 files)
+same: ref_text_pe vs work_bin_pe (7 files)
+same: ref_text_pe vs work_bin_seq_pe (7 files)
+same: ref_text_se vs work_text_se (7 files)
+same: ref_text_se vs work_bin_se (7 files)
+same: ref_text_se vs work_bin_seq_se (7 files)
+same: ref_text_pb vs work_text_pb (7 files)
+same: ref_text_pb vs work_bin_pb (7 files)
+same: ref_text_pb vs work_bin_seq_pb (7 files)
+same: ref_text_ont vs work_text_ont (7 files)
+same: ref_text_ont vs work_bin_ont (7 files)
+same: ref_text_ont vs work_bin_seq_ont (7 files)
+same: cohort_ref_text vs cohort_work_bin (205 files)
+same: cohort_ref_text vs cohort_work_bin_ahead (205 files)
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.bin in /home/falk/impl/id/db_bin/database.protal; 1.66 MB in memory)
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.bin in /home/falk/impl/id/db_bin/database.protal)
+Loading the taxonomy, models and tables took 181ms
+Loading the profiling's tables beside the alignment took 0.64 s; the profiling waited 0.00 s for them
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in /home/falk/impl/id/db_text/database.protal; 1.66 MB in memory)
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in /home/falk/impl/id/db_text/database.protal)
+Loading the taxonomy, models and tables took 235ms
+Loading the profiling's tables beside the alignment took 0.76 s; the profiling waited 0.00 s for them

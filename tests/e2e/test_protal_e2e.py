@@ -2347,12 +2347,13 @@ class CompressedDatabaseTest(DbTest):
                 self.assertFalse(os.path.lexists(os.path.join(self.dbs["bundle"], variant)), f"{variant} is packed")
         head = subprocess.run(["zstd", "-dc", self.bundle], stdout=subprocess.PIPE).stdout[:8]
         self.assertEqual(head, b"PROTALDB", "the file starts with its directory")
-        # A single file with a current gene table (--compress_db packs one in) is left as it is.
+        # A single file with a current gene table and binary tables (--compress_db packs them in) is left as it is.
         with open(self.bundle, "rb") as fh:
             before = fh.read()
         rc, log = run(self.work, "--compress_db", "--db", self.dbs["bundle"], "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("is a single-file database with a current gene_table.bin; kept", log)
+        self.assertIn("is a single-file database with a current gene_table.bin and binary forms of its column weights and "
+                      "strain alleles (where it has them); kept", log)
         with open(self.bundle, "rb") as fh:
             self.assertEqual(fh.read(), before)
         rc, log = run(self.work, "--unpack_db", "--db", self.dbs["seekable"])

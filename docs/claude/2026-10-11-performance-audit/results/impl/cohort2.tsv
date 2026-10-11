@@ -1,0 +1,3 @@
+variant	wall_s	max_rss_mb	after_aligning	after_profiling	load
+ref_text	5.02	3934	3.84/3.84	0.61/3.84	3.07
+work_bin	5.21	3842	3.75/3.75	0.41/3.75	3.87

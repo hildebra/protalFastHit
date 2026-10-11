@@ -78,7 +78,14 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   seeds, the seeds that share their taxon and gene with another seed of their read (the only ones
   anchors are made of), the lookups dropped as too ubiquitous (more tied entries than
   `--max_key_ubiquity`) and the anchors. At the end it times loading, freeing memory and every
-  stage, so that a run's wall time adds up.
+  stage, so that a run's wall time adds up. Since 2026-10-11 a run that aligns loads the tables only profiling
+  reads (gene conservation, suspect copies, species priors and neighbours, congener gaps, foreign rates, ancestry
+  sites, and the column weights unless the weighted site shift of short reads needs them) beside the alignment:
+  "Loading the taxonomy, models and tables" times what the alignment waits for, and the line "Loading the
+  profiling's tables beside the alignment took ... s; the profiling waited ... s for them" (from the start-up to
+  the last of them loaded, and the profiling's wait) comes with their messages when the first sample is
+  profiled (at r226 the column weights alone had held every run back by 12 s;
+  [report](claude/2026-10-11-performance-audit/README.md)).
 - `misc/<taxon>.statistics.tsv` (a taxon's coverage, reads, ANI and MAPQ in each sample) is written
   only with `--taxon_statistics` since 0.7.6: on a GTDB-sized database a sample has reads on
   thousands of taxa, and that many small files took 15 s of a run on a network file system. The
@@ -416,7 +423,10 @@ each candidate alignment of a short read gets a site shift against its species' 
   dropped it ([report](claude/2026-10-11-r226-v23/README.md), section 6). Fixed, it was neutral to +0.003 of F1 on a
   small real world (section 8 there) at ~1% of the alignment's instructions, and it has been on by default since
   2026-10-11; databases built since train their models with it. `--no_weighted_site_shift` turns it off, for a
-  database built before (such as r226 v23) or with `build_gtdb_database.py --no-weighted-site-shift`.
+  database built before (such as r226 v23) or with `build_gtdb_database.py --no-weighted-site-shift`. Until the
+  evening of 2026-10-11 a run with `--no_profile` left the column weights unread, so its short reads were aligned
+  without this part of the shift and its SAM differed from a profiled run's; now it reads them too, and the two
+  write the same records ([report](claude/2026-10-11-performance-audit/README.md), follow-up).
 
 Since 2026-10-09 the shifts decide only the reads protal is unsure about: a candidate of another species within 3
 mismatches of the best by the references alone. Then a read of a known strain scores on its species as on the strain's
@@ -440,7 +450,8 @@ congeners by their references, from a folder of separate files, without building
 gene in the SAM header, see above), `--write_unmapped_reads` (an unmapped record for each read that
 aligned nowhere, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below),
 `--sequential_load` (load the database's parts one after another, as before 0.7.6, instead of the
-index beside the genome preload and the small tables each on a thread; the run is the same either way).
+index beside the genome preload and the small tables each on a thread, the profiling's tables beside the
+alignment; the run is the same either way).
 
 Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
 them (and between them), each part anchored at a match, instead of the whole read into the gene
@@ -489,7 +500,9 @@ It prints the machine's total memory at start and, after loading the index, the 
 so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
 `/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.
 With THP set to `never` protal uses normal pages. The profiling stage streams each SAM and, once a
-sample's outputs are written, keeps only what its strain MSA rows need, packed: the alleles and
+sample's outputs are written, drops its record evidence (since 2026-10-11: a per-taxon entry for every
+taxon with a record or a failed candidate, ~140 MB per sample at r226, which a run of many samples kept to
+its end) and keeps only what its strain MSA rows need, packed: the alleles and
 coverage of the genes of the species that enter MSAs (nothing with `--no_strains`; every taxon's
 numbers with `--taxon_statistics`), 37 MB for a dense sample of 1M pairs from 60 species, 159 MB up
 to 0.7.8; with `--strain_spill DIR` it goes to a file there and the strain stage reads it back per

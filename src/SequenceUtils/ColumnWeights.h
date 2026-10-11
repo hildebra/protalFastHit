@@ -30,24 +30,29 @@
 // copy once per run (Cache, as the ancestry sites are).
 #pragma once
 
+#include "BinaryTable.h"
+
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <istream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace protal::column_weights {
     inline const std::string kFileName = "column_weights.tsv";
+    inline const std::string kBinaryFileName = "column_weights.bin";  // the binary form a single-file database holds beside it
     inline constexpr double kUnknown = -1;        // the features without the table
     inline constexpr uint8_t kNoCode = 0;         // a column without an estimate
     inline constexpr uint8_t kMaxCode = 15;       // 7.5 nats: 99.94% conserved, all the sample sizes support
@@ -126,6 +131,7 @@ namespace protal::column_weights {
         std::vector<uint8_t> aa;         // per codon column (column / 3), a Code
         std::vector<uint8_t> consensus;  // per column, the family's consensus base (BaseCode), kNoBase without one
         size_t Length() const { return within.size(); }
+        bool operator==(Family const&) const = default;
     };
 
     // A copy's columns expanded along the copy (per position): the codes of its column, kNoCode / kNoBase where the
@@ -164,44 +170,98 @@ namespace protal::column_weights {
         return out;
     }
 
-    // The table: per (family, gene) its Family, per copy (taxid, gene) its family and runs.
+    // The table: per family-gene row its columns' codes, per copy (taxid, gene) its row and runs.
+    //
+    // The codes are packed (since 2026-10-11): within and among in one byte per column, the consensus base in 2 bits per
+    // column with a bit for none, the amino acid's code in 4 bits per codon column: ~1.54 bytes a column, where a
+    // Family's four vectors took 3.33 (2.0 GB at GTDB r226's 602M columns). A run reads them from column_weights.bin
+    // straight into these arrays (ReadBinary) and decodes a row only for the copies its records touch (Expand, cached by
+    // Cache); the text (Read) is parsed into the same arrays, without a vector per line or per copy
+    // (docs/claude/2026-10-11-performance-audit).
     class Table {
     public:
         struct Copy {
             uint32_t gene = 0;
-            uint32_t row = 0;     // index into the families
+            uint32_t row = 0;     // index into the rows
             uint32_t first = 0;   // its runs: [first, first + runs) in m_runs
             uint32_t runs = 0;
         };
+        // A family-gene row: whose columns, how many, and where its codes start in the packed arrays.
+        struct Row {
+            uint32_t family = 0;
+            uint32_t gene = 0;
+            uint32_t reference = 0;  // the species whose copy gives the columns
+            uint16_t genera = 0;     // genera that voted in among
+            uint16_t unused = 0;
+            uint32_t length = 0;     // columns
+            uint32_t unused2 = 0;
+            uint64_t column = 0;     // its first column in m_codes, m_bases and m_no_base
+            uint64_t codon = 0;      // its first codon column in m_aa
+        };
         struct View {
-            Family const* family = nullptr;
+            Row const* row = nullptr;
+            size_t row_index = 0;
             Run const* runs = nullptr;
             size_t n_runs = 0;
         };
 
-        bool Empty() const { return m_families.empty(); }
+        bool Empty() const { return m_rows.empty(); }
         size_t Copies() const { return m_copies.size(); }
-        size_t Families() const { return m_families.size(); }
+        size_t Families() const { return m_rows.size(); }
         size_t Species() const {
             size_t n = 0;
             for (size_t t = 0; t + 1 < m_begin.size(); t++) n += m_begin[t + 1] > m_begin[t];
             return n;
         }
-        size_t ColumnCount() const {
-            size_t n = 0;
-            for (auto const& f : m_families) n += f.Length();
-            return n;
+        size_t ColumnCount() const { return m_columns; }
+        // The bytes the table holds (its arrays), for the log.
+        uint64_t Bytes() const {
+            return m_rows.size() * sizeof(Row) + m_codes.size() + m_bases.size() + m_no_base.size() + m_aa.size() +
+                   m_copies.size() * sizeof(Copy) + m_runs.size() * sizeof(Run) + m_begin.size() * sizeof(uint32_t);
         }
-        std::vector<Family> const& AllFamilies() const { return m_families; }
 
-        // Copy (taxid, gene)'s family and runs, or nullopt.
+        // A row's codes at its column c (codon column k).
+        uint8_t Within(Row const& r, size_t c) const { return m_codes[r.column + c] & 15; }
+        uint8_t Among(Row const& r, size_t c) const { return m_codes[r.column + c] >> 4; }
+        uint8_t Consensus(Row const& r, size_t c) const {
+            size_t const i = r.column + c;
+            return (m_no_base[i >> 3] >> (i & 7) & 1) ? kNoBase : static_cast<uint8_t>(m_bases[i >> 2] >> (2 * (i & 3)) & 3);
+        }
+        uint8_t Aa(Row const& r, size_t k) const {
+            size_t const i = r.codon + k;
+            return static_cast<uint8_t>(m_aa[i >> 1] >> (4 * (i & 1)) & 15);
+        }
+        static size_t Codons(size_t length) { return (length + 2) / 3; }
+
+        // Row `index` as a Family (its codes unpacked).
+        Family FamilyAt(size_t index) const {
+            Row const& r = m_rows[index];
+            Family f;
+            f.family = r.family;
+            f.gene = r.gene;
+            f.reference = r.reference;
+            f.genera = r.genera;
+            f.within.resize(r.length);
+            f.among.resize(r.length);
+            f.consensus.resize(r.length);
+            for (size_t c = 0; c < r.length; c++) {
+                f.within[c] = Within(r, c);
+                f.among[c] = Among(r, c);
+                f.consensus[c] = Consensus(r, c);
+            }
+            f.aa.resize(Codons(r.length));
+            for (size_t k = 0; k < f.aa.size(); k++) f.aa[k] = Aa(r, k);
+            return f;
+        }
+
+        // Copy (taxid, gene)'s row and runs, or nullopt.
         std::optional<View> Find(uint32_t taxid, uint32_t gene) const {
             if (static_cast<size_t>(taxid) + 1 >= m_begin.size()) return std::nullopt;
             auto const first = m_copies.begin() + m_begin[taxid];
             auto const last = m_copies.begin() + m_begin[taxid + 1];
             auto const it = std::lower_bound(first, last, gene, [](Copy const& c, uint32_t g) { return c.gene < g; });
             if (it == last || it->gene != gene) return std::nullopt;
-            return View{ &m_families[it->row], m_runs.data() + it->first, it->runs };
+            return View{ &m_rows[it->row], it->row, m_runs.data() + it->first, it->runs };
         }
 
         // The copy's columns expanded along a copy of `length` positions.
@@ -213,16 +273,18 @@ namespace protal::column_weights {
             out->among.assign(length, kNoCode);
             out->aa.assign(length, kNoCode);
             out->consensus.assign(length, kNoBase);
-            Family const& f = *view->family;
-            for (size_t r = 0; r < view->n_runs; r++) {
-                Run const& run = view->runs[r];
+            Row const& r = *view->row;
+            size_t const codons = Codons(r.length);
+            for (size_t k = 0; k < view->n_runs; k++) {
+                Run const& run = view->runs[k];
                 for (size_t i = 0; i < run.length; i++) {
                     size_t const p = static_cast<size_t>(run.begin) + i, c = static_cast<size_t>(run.column) + i;
-                    if (p >= length || c >= f.Length()) break;
-                    out->within[p] = f.within[c];
-                    out->among[p] = f.among[c];
-                    out->aa[p] = c / 3 < f.aa.size() ? f.aa[c / 3] : kNoCode;
-                    out->consensus[p] = f.consensus[c];
+                    if (p >= length || c >= r.length) break;
+                    uint8_t const code = m_codes[r.column + c];
+                    out->within[p] = code & 15;
+                    out->among[p] = code >> 4;
+                    out->aa[p] = c / 3 < codons ? Aa(r, c / 3) : kNoCode;
+                    out->consensus[p] = Consensus(r, c);
                 }
             }
             return out;
@@ -235,13 +297,22 @@ namespace protal::column_weights {
                 return std::get<0>(a) != std::get<0>(b) ? std::get<0>(a) < std::get<0>(b) : std::get<1>(a) < std::get<1>(b);
             });
             Table t;
-            t.m_families = std::move(families);
+            for (auto const& f : families) {
+                size_t const n = f.Length();
+                t.AppendRow(f.family, f.gene, f.reference, f.genera, n);
+                Row const& r = t.m_rows.back();
+                for (size_t c = 0; c < n; c++) {
+                    t.SetCodes(r, c, f.within[c], c < f.among.size() ? f.among[c] : kNoCode);
+                    t.SetConsensus(r, c, c < f.consensus.size() ? f.consensus[c] : kNoBase);
+                }
+                for (size_t k = 0; k < Codons(n); k++) t.SetAa(r, k, k < f.aa.size() ? f.aa[k] : kNoCode);
+            }
             uint32_t max_taxid = 0;
             for (auto const& c : copies) max_taxid = std::max(max_taxid, std::get<0>(c));
             t.m_begin.assign(copies.empty() ? 1 : static_cast<size_t>(max_taxid) + 2, 0);
             for (size_t i = 0; i < copies.size(); i++) {
                 auto const& [taxid, gene, row, runs] = copies[i];
-                if (row >= t.m_families.size()) continue;
+                if (row >= t.m_rows.size()) continue;
                 if (!t.m_copies.empty() && i > 0 && std::get<0>(copies[i - 1]) == taxid && std::get<1>(copies[i - 1]) == gene) {
                     t.m_copies.back() = Copy{ gene, row, static_cast<uint32_t>(t.m_runs.size()), static_cast<uint32_t>(runs.size()) };
                 } else {
@@ -260,15 +331,28 @@ namespace protal::column_weights {
         //   C <taxid> <gene> <family> <runs: begin:column:length,...>
         // (tab-separated; the families before the copies that use them).
         void Write(std::ostream& os) const {
+            static constexpr char kDigits[] = "0123456789abcdef";
             os << "#column_weights\tv1\tF: family gene reference genera within among aa consensus; C: taxid gene family runs\n";
-            for (auto const& f : m_families) {
-                os << "F\t" << f.family << '\t' << f.gene << '\t' << f.reference << '\t' << f.genera << '\t' << HexOf(f.within) << '\t'
-                   << HexOf(f.among) << '\t' << HexOf(f.aa) << '\t' << BasesOf(f.consensus) << '\n';
+            std::string within, among, aa, consensus;
+            for (Row const& r : m_rows) {
+                within.resize(r.length);
+                among.resize(r.length);
+                consensus.resize(r.length);
+                for (size_t c = 0; c < r.length; c++) {
+                    within[c] = kDigits[Within(r, c)];
+                    among[c] = kDigits[Among(r, c)];
+                    uint8_t const base = Consensus(r, c);
+                    consensus[c] = base < 4 ? "ACGT"[base] : 'N';
+                }
+                aa.resize(Codons(r.length));
+                for (size_t k = 0; k < aa.size(); k++) aa[k] = kDigits[Aa(r, k)];
+                os << "F\t" << r.family << '\t' << r.gene << '\t' << r.reference << '\t' << r.genera << '\t' << within << '\t'
+                   << among << '\t' << aa << '\t' << consensus << '\n';
             }
             for (size_t t = 0; t + 1 < m_begin.size(); t++) {
                 for (uint32_t i = m_begin[t]; i < m_begin[t + 1]; i++) {
                     Copy const& c = m_copies[i];
-                    os << "C\t" << t << '\t' << c.gene << '\t' << m_families[c.row].family << '\t';
+                    os << "C\t" << t << '\t' << c.gene << '\t' << m_rows[c.row].family << '\t';
                     for (uint32_t r = 0; r < c.runs; r++) {
                         Run const& run = m_runs[c.first + r];
                         os << (r ? "," : "") << run.begin << ':' << run.column << ':' << run.length;
@@ -280,49 +364,78 @@ namespace protal::column_weights {
 
         // Reads what Write wrote; "" or what is wrong.
         std::string Read(std::istream& is) {
-            std::vector<Family> families;
+            std::string const text{ std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>() };
+            return Read(std::string_view(text));
+        }
+
+        // Reads what Write wrote, line by line into the packed arrays; "" or what is wrong (and the table unchanged). The
+        // copies come sorted from Write and go straight into place; others (a hand-made table) are sorted after, a later
+        // line of the same copy replacing an earlier one.
+        std::string Read(std::string_view text) {
+            Table t;
             std::unordered_map<uint64_t, uint32_t> row_of;  // (family << 32 | gene) -> row
-            std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<Run>>> copies;
-            std::string line;
+            std::vector<uint32_t> taxa;                     // each copy's taxid, in the order read
+            bool in_order = true;
             size_t n = 0;
             auto number = [](std::string_view s, auto& out) {
                 auto const r = std::from_chars(s.data(), s.data() + s.size(), out);
                 return r.ec == std::errc() && r.ptr == s.data() + s.size();
             };
-            while (std::getline(is, line)) {
+            auto hex = [](char ch) -> int {
+                if (ch >= '0' && ch <= '9') return ch - '0';
+                if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+                return -1;
+            };
+            std::array<std::string_view, 10> f;
+            for (size_t pos = 0; pos < text.size();) {
+                size_t const eol = text.find('\n', pos);
+                std::string_view const line = text.substr(pos, eol == std::string_view::npos ? std::string_view::npos : eol - pos);
+                pos = eol == std::string_view::npos ? text.size() : eol + 1;
                 n++;
                 if (line.empty() || line[0] == '#') continue;
-                std::vector<std::string_view> f;
-                std::string_view const v = line;
-                size_t start = 0;
-                for (size_t tab; (tab = v.find('\t', start)) != std::string_view::npos; start = tab + 1) f.push_back(v.substr(start, tab - start));
-                f.push_back(v.substr(start));
+                size_t fields = 0, start = 0;
+                while (true) {
+                    size_t const tab = line.find('\t', start);
+                    if (fields < f.size()) f[fields] = line.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start);
+                    fields++;
+                    if (tab == std::string_view::npos) break;
+                    start = tab + 1;
+                }
                 if (f[0] == "F") {
-                    if (f.size() != 9) return "line " + std::to_string(n) + ": an F line has 9 fields";
-                    Family fam;
-                    if (!number(f[1], fam.family) || !number(f[2], fam.gene) || !number(f[3], fam.reference) || !number(f[4], fam.genera)) {
+                    if (fields != 9) return "line " + std::to_string(n) + ": an F line has 9 fields";
+                    uint32_t family = 0, gene = 0, reference = 0;
+                    uint16_t genera = 0;
+                    if (!number(f[1], family) || !number(f[2], gene) || !number(f[3], reference) || !number(f[4], genera)) {
                         return "line " + std::to_string(n) + ": family, gene, reference and genera are numbers";
                     }
-                    if (!HexInto(f[5], fam.within) || !HexInto(f[6], fam.among) || !HexInto(f[7], fam.aa)) {
-                        return "line " + std::to_string(n) + ": the weights are hex digits";
-                    }
-                    if (fam.among.size() != fam.within.size() || fam.aa.size() != (fam.within.size() + 2) / 3 || f[8].size() != fam.within.size()) {
+                    size_t const length = f[5].size();
+                    if (f[6].size() != length || f[7].size() != Codons(length) || f[8].size() != length) {
                         return "line " + std::to_string(n) + ": the columns' lengths differ";
                     }
-                    if (fam.within.size() > kMaxLength) return "line " + std::to_string(n) + ": more than 65535 columns";
-                    fam.consensus.resize(f[8].size());
-                    for (size_t i = 0; i < f[8].size(); i++) fam.consensus[i] = BaseCode(f[8][i]);
-                    row_of[static_cast<uint64_t>(fam.family) << 32 | fam.gene] = static_cast<uint32_t>(families.size());
-                    families.push_back(std::move(fam));
+                    if (length > kMaxLength) return "line " + std::to_string(n) + ": more than 65535 columns";
+                    t.AppendRow(family, gene, reference, genera, length);
+                    Row const& r = t.m_rows.back();
+                    for (size_t c = 0; c < length; c++) {
+                        int const w = hex(f[5][c]), a = hex(f[6][c]);
+                        if (w < 0 || a < 0) return "line " + std::to_string(n) + ": the weights are hex digits";
+                        t.SetCodes(r, c, static_cast<uint8_t>(w), static_cast<uint8_t>(a));
+                        t.SetConsensus(r, c, BaseCode(f[8][c]));
+                    }
+                    for (size_t k = 0; k < f[7].size(); k++) {
+                        int const code = hex(f[7][k]);
+                        if (code < 0) return "line " + std::to_string(n) + ": the weights are hex digits";
+                        t.SetAa(r, k, static_cast<uint8_t>(code));
+                    }
+                    row_of[static_cast<uint64_t>(family) << 32 | gene] = static_cast<uint32_t>(t.m_rows.size() - 1);
                 } else if (f[0] == "C") {
-                    if (f.size() != 5) return "line " + std::to_string(n) + ": a C line has 5 fields";
+                    if (fields != 5) return "line " + std::to_string(n) + ": a C line has 5 fields";
                     uint32_t taxid = 0, gene = 0, family = 0;
                     if (!number(f[1], taxid) || !number(f[2], gene) || !number(f[3], family)) {
                         return "line " + std::to_string(n) + ": taxid, gene and family are numbers";
                     }
                     auto const it = row_of.find(static_cast<uint64_t>(family) << 32 | gene);
                     if (it == row_of.end()) return "line " + std::to_string(n) + ": the family's F line comes first";
-                    std::vector<Run> runs;
+                    uint32_t const first = static_cast<uint32_t>(t.m_runs.size());
                     std::string_view rest = f[4];
                     while (!rest.empty()) {
                         size_t const comma = rest.find(',');
@@ -334,23 +447,162 @@ namespace protal::column_weights {
                             !number(item.substr(a + 1, b - a - 1), run.column) || !number(item.substr(b + 1), run.length)) {
                             return "line " + std::to_string(n) + ": a run is begin:column:length";
                         }
-                        runs.push_back(run);
+                        t.m_runs.push_back(run);
                     }
-                    copies.emplace_back(taxid, gene, it->second, std::move(runs));
+                    if (!taxa.empty() && (taxa.back() > taxid || (taxa.back() == taxid && t.m_copies.back().gene >= gene))) in_order = false;
+                    t.m_copies.push_back(Copy{ gene, it->second, first, static_cast<uint32_t>(t.m_runs.size()) - first });
+                    taxa.push_back(taxid);
                 } else {
                     return "line " + std::to_string(n) + ": a line starts with F or C";
                 }
             }
-            *this = FromRows(std::move(families), std::move(copies));
+            if (!in_order) t.SortCopies(taxa);
+            t.BeginFrom(taxa);
+            *this = std::move(t);
             return {};
         }
 
+        inline static constexpr char kMagic[8] = {'P', 'R', 'C', 'O', 'L', 'W', 'T', '1'};
+        static constexpr uint64_t kBinaryVersion = 1;
+
+        // column_weights.bin (BinaryTable.h): this table's arrays, made from a column_weights.tsv of `text_size` bytes.
+        // False on a write error.
+        bool WriteBinary(std::ostream& os, uint64_t text_size) const {
+            using binary_table::Of;
+            return binary_table::Write(os, kMagic, kBinaryVersion, text_size, { Of(m_rows), Of(m_codes), Of(m_bases), Of(m_no_base),
+                                                                                Of(m_aa), Of(m_copies), Of(m_runs), Of(m_begin) });
+        }
+
+        // Reads column_weights.bin `file`, whose header is `header` (binary_table::ReadHeader), into this table with up to
+        // `threads` threads; "" or what is wrong (and the table unchanged).
+        std::string ReadBinary(db::DbFile const& file, binary_table::Header const& header, int threads) {
+            if (header.version != kBinaryVersion) {
+                return "version " + std::to_string(header.version) + " (this protal reads version " + std::to_string(kBinaryVersion) + ")";
+            }
+            if (header.sizes.size() != 8) return "it holds " + std::to_string(header.sizes.size()) + " arrays, not 8";
+            size_t const units[8] = { sizeof(Row), 1, 1, 1, 1, sizeof(Copy), sizeof(Run), sizeof(uint32_t) };
+            for (size_t i = 0; i < 8; i++) {
+                if (header.sizes[i] % units[i] != 0) return "array " + std::to_string(i) + " is not a whole number of records";
+            }
+            Table t;
+            t.m_rows.resize(header.sizes[0] / sizeof(Row));
+            t.m_codes.resize(header.sizes[1]);
+            t.m_bases.resize(header.sizes[2]);
+            t.m_no_base.resize(header.sizes[3]);
+            t.m_aa.resize(header.sizes[4]);
+            t.m_copies.resize(header.sizes[5] / sizeof(Copy));
+            t.m_runs.resize(header.sizes[6] / sizeof(Run));
+            t.m_begin.resize(header.sizes[7] / sizeof(uint32_t));
+            using binary_table::Into;
+            auto const error = binary_table::ReadArrays(file, header, { Into(t.m_rows), Into(t.m_codes), Into(t.m_bases), Into(t.m_no_base),
+                                                                         Into(t.m_aa), Into(t.m_copies), Into(t.m_runs), Into(t.m_begin) },
+                                                        threads);
+            if (!error.empty()) return error;
+            t.m_columns = t.m_codes.size();
+            for (Row const& r : t.m_rows) t.m_codons = std::max<size_t>(t.m_codons, r.codon + Codons(r.length));
+            if (auto const invalid = t.Invalid(); !invalid.empty()) return invalid;
+            *this = std::move(t);
+            return "";
+        }
+
     private:
-        std::vector<Family> m_families;
-        std::vector<Copy> m_copies;    // by taxid, then gene
-        std::vector<uint32_t> m_begin; // taxid -> first copy; size max taxid + 2
+        // Appends a row of `length` columns without estimates or consensus bases, which SetCodes, SetConsensus and SetAa set.
+        void AppendRow(uint32_t family, uint32_t gene, uint32_t reference, uint16_t genera, size_t length) {
+            Row r;
+            r.family = family;
+            r.gene = gene;
+            r.reference = reference;
+            r.genera = genera;
+            r.length = static_cast<uint32_t>(length);
+            r.column = m_columns;
+            r.codon = m_codons;
+            m_columns += length;
+            m_codons += Codons(length);
+            m_codes.resize(m_columns, 0);
+            m_bases.resize((m_columns + 3) / 4, 0);
+            m_no_base.resize((m_columns + 7) / 8, 0);
+            m_aa.resize((m_codons + 1) / 2, 0);
+            m_rows.push_back(r);
+        }
+
+        // Each set once per column of a row AppendRow added.
+        void SetCodes(Row const& r, size_t c, uint8_t within, uint8_t among) {
+            m_codes[r.column + c] = static_cast<uint8_t>((within & 15) | (among & 15) << 4);
+        }
+        void SetConsensus(Row const& r, size_t c, uint8_t base) {
+            size_t const i = r.column + c;
+            if (base > 3) m_no_base[i >> 3] |= static_cast<uint8_t>(1 << (i & 7));
+            else m_bases[i >> 2] |= static_cast<uint8_t>(base << (2 * (i & 3)));
+        }
+        void SetAa(Row const& r, size_t k, uint8_t code) {
+            size_t const i = r.codon + k;
+            m_aa[i >> 1] |= static_cast<uint8_t>((code & 15) << (4 * (i & 1)));
+        }
+
+        // The copies (each of taxa[i]) sorted by taxid and gene, of copies read twice the last; taxa sorted alike.
+        void SortCopies(std::vector<uint32_t>& taxa) {
+            std::vector<uint32_t> order(m_copies.size());
+            for (size_t i = 0; i < order.size(); i++) order[i] = static_cast<uint32_t>(i);
+            std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+                return taxa[a] != taxa[b] ? taxa[a] < taxa[b] : m_copies[a].gene < m_copies[b].gene;
+            });
+            std::vector<Copy> copies;
+            std::vector<Run> runs;
+            std::vector<uint32_t> sorted_taxa;
+            for (size_t k = 0; k < order.size(); k++) {
+                Copy const& c = m_copies[order[k]];
+                uint32_t const taxid = taxa[order[k]];
+                if (k + 1 < order.size() && taxa[order[k + 1]] == taxid && m_copies[order[k + 1]].gene == c.gene) continue;  // a later one
+                copies.push_back(Copy{ c.gene, c.row, static_cast<uint32_t>(runs.size()), c.runs });
+                runs.insert(runs.end(), m_runs.begin() + c.first, m_runs.begin() + c.first + c.runs);
+                sorted_taxa.push_back(taxid);
+            }
+            m_copies = std::move(copies);
+            m_runs = std::move(runs);
+            taxa = std::move(sorted_taxa);
+        }
+
+        // m_begin from the (sorted) copies' taxids.
+        void BeginFrom(std::vector<uint32_t> const& taxa) {
+            uint32_t const max_taxid = taxa.empty() ? 0 : taxa.back();
+            m_begin.assign(taxa.empty() ? 1 : static_cast<size_t>(max_taxid) + 2, 0);
+            for (uint32_t const taxid : taxa) m_begin[taxid + 1]++;
+            for (size_t i = 1; i < m_begin.size(); i++) m_begin[i] += m_begin[i - 1];
+        }
+
+        // What makes the arrays unusable (a damaged binary table), or "".
+        std::string Invalid() const {
+            for (Row const& r : m_rows) {
+                if (r.length > kMaxLength || r.column + r.length > m_codes.size() || (r.column + r.length + 3) / 4 > m_bases.size() ||
+                    (r.column + r.length + 7) / 8 > m_no_base.size() || (r.codon + Codons(r.length) + 1) / 2 > m_aa.size()) {
+                    return "a row's columns lie outside the codes";
+                }
+            }
+            if (m_begin.empty() || m_begin.front() != 0 || m_begin.back() != m_copies.size()) return "the copies' index does not cover them";
+            for (size_t t = 0; t + 1 < m_begin.size(); t++) {
+                if (m_begin[t + 1] < m_begin[t]) return "the copies' index is not sorted";
+                for (uint32_t i = m_begin[t]; i < m_begin[t + 1]; i++) {
+                    Copy const& c = m_copies[i];
+                    if (c.row >= m_rows.size() || uint64_t{ c.first } + c.runs > m_runs.size()) return "a copy's row or runs lie outside the table";
+                    if (i > m_begin[t] && m_copies[i - 1].gene >= c.gene) return "a species' copies are not sorted by gene";
+                }
+            }
+            return "";
+        }
+
+        std::vector<Row> m_rows;
+        std::vector<uint8_t> m_codes;    // per column: within | among << 4
+        std::vector<uint8_t> m_bases;    // per column 2 bits, four to a byte: the consensus base (BaseCode 0-3)
+        std::vector<uint8_t> m_no_base;  // per column 1 bit, eight to a byte: no consensus base (kNoBase)
+        std::vector<uint8_t> m_aa;       // per codon column 4 bits, two to a byte: the amino acid's code
+        size_t m_columns = 0, m_codons = 0;
+        std::vector<Copy> m_copies;      // by taxid, then gene
+        std::vector<uint32_t> m_begin;   // taxid -> first copy; size max taxid + 2
         std::vector<Run> m_runs;
     };
+    static_assert(sizeof(Table::Row) == 40 && sizeof(Table::Copy) == 16 && sizeof(Run) == 6, "column_weights.bin record sizes");
+    static_assert(std::is_trivially_copyable_v<Table::Row> && std::is_trivially_copyable_v<Table::Copy> &&
+                  std::is_trivially_copyable_v<Run>);
 
     // The expanded columns of every copy a run touched, computed once (thread-safe; nullptr for a copy without a row).
     class Cache {

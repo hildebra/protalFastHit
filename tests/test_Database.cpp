@@ -116,6 +116,60 @@ TEST(Database, MembersReadBackAsTheirSources) {
     EXPECT_FALSE(db::DbFile::InBundle(*bundle, "missing").ReadAll(error));
 }
 
+// ReadAll reads a member, a raw file and a seekable .zst file into one buffer of their size on any number of threads, and a
+// .zst file without a seek table as it streams; ReadSections puts parts of the content into memory of their own, across
+// frames, and refuses parts beyond the end or of a file of unknown size; ReadPrefix gives a header; TextStream reads lines
+// of text it does not copy.
+TEST(Database, ExactReadsSectionsAndTextStreams) {
+    ScratchDir tmp;
+    std::string const data = TestData(50000, 7);
+    std::string error;
+    Spit(tmp / "raw.txt", data);
+    ASSERT_TRUE(zstd::CompressFile(tmp / "raw.txt", tmp / "seekable.zst", SmallFrames(3000), false, error)) << error;
+    ASSERT_TRUE(zstd::CompressFile(tmp / "raw.txt", tmp / "single.zst", {3, 0, 1, 0}, false, error)) << error;
+    ASSERT_TRUE(db::Write(tmp / "database.protal", {{"data.txt", tmp / "raw.txt"}}, SmallFrames(4096), error)) << error;
+    auto const bundle = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(bundle) << error;
+    std::vector<db::DbFile> const files = {db::DbFile::InBundle(*bundle, "data.txt"), db::DbFile::OnDisk(tmp / "raw.txt"),
+                                           db::DbFile::OnDisk(tmp / "seekable.zst"), db::DbFile::OnDisk(tmp / "single.zst")};
+    for (size_t i = 0; i < files.size(); i++) {
+        auto const& file = files[i];
+        bool const known = i < 3;
+        EXPECT_EQ(file.KnownSize().has_value(), known) << file.Name();
+        if (known) EXPECT_EQ(*file.KnownSize(), data.size()) << file.Name();
+        for (int threads : {1, 4}) {
+            auto const content = file.ReadAll(error, threads);
+            ASSERT_TRUE(content) << file.Name() << ": " << error;
+            EXPECT_EQ(*content, data) << file.Name() << ", " << threads << " threads";
+        }
+        auto const prefix = file.ReadPrefix(100, error);
+        ASSERT_TRUE(prefix) << file.Name() << ": " << error;
+        EXPECT_EQ(*prefix, data.substr(0, 100)) << file.Name();
+        // across frames (the member's are 4096 bytes), and beyond the end: all of it
+        auto const across = file.ReadPrefix(10000, error);
+        ASSERT_TRUE(across) << file.Name() << ": " << error;
+        EXPECT_EQ(*across, data.substr(0, 10000)) << file.Name();
+        auto const whole = file.ReadPrefix(data.size() + 100, error);
+        ASSERT_TRUE(whole) << file.Name() << ": " << error;
+        EXPECT_EQ(*whole, data) << file.Name();
+        std::string a(5000, '\0'), b(20000, '\0'), c(10, '\0');
+        if (known) {
+            EXPECT_EQ(file.ReadSections({{1000, 5000, a.data()}, {12000, 20000, b.data()}}, 3), "") << file.Name();
+            EXPECT_EQ(a, data.substr(1000, 5000)) << file.Name();
+            EXPECT_EQ(b, data.substr(12000, 20000)) << file.Name();
+            EXPECT_NE(file.ReadSections({{data.size() - 5, 10, c.data()}}, 2), "") << file.Name();  // beyond the end
+        } else {
+            EXPECT_NE(file.ReadSections({{0, 10, c.data()}}, 2), "") << file.Name();  // its size unknown
+        }
+    }
+    EXPECT_EQ(db::DbFile::OnDisk(tmp / "short.txt").ReadPrefix(4, error), std::nullopt);  // missing
+    std::string const lines = "first\nsecond line\n\nlast";
+    db::TextStream is(lines);
+    std::vector<std::string> got;
+    for (std::string line; std::getline(is, line);) got.push_back(line);
+    EXPECT_EQ(got, (std::vector<std::string>{"first", "second line", "", "last"}));
+}
+
 // A member whose frames are made in memory (db::Generated, as --build writes the index) gives the database a member of
 // the same frames copied from a file would: the same bytes. It is checked where it was written, then `done` runs; a
 // check that fails stops the write and leaves nothing behind.

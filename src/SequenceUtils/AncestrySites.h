@@ -807,11 +807,13 @@ namespace protal::ancestry {
         return in.empty();
     }
 
-    // The database's sites of every copy (ancestry_sites.bin): looked up by key, decoded on demand.
+    // The database's sites of every copy (ancestry_sites.bin): looked up by key, decoded on demand. The table keeps the
+    // file's bytes as they were read and looks its keys and offsets up there (no copy of the index, no shift of the
+    // payload: a ~1 GB file at GTDB r226 is held once; docs/claude/2026-10-11-performance-audit).
     class Table {
     public:
-        bool Empty() const { return m_keys.empty(); }
-        size_t Copies() const { return m_keys.size(); }
+        bool Empty() const { return m_n == 0; }
+        size_t Copies() const { return m_n; }
         size_t Species() const { return m_species; }
         size_t PayloadBytes() const { return m_payload_size; }
 
@@ -846,18 +848,18 @@ namespace protal::ancestry {
             uint64_t const n = codec::GetU64(content.data() + at), payload = codec::GetU64(content.data() + at + 8);
             at += 16;
             if (n > (content.size() - at) / 16 || content.size() - at - 16 * n != payload) return "sizes do not match the file's";
-            m_keys.resize(n);
-            m_offsets.resize(n);
-            for (uint64_t i = 0; i < n; i++) m_keys[i] = codec::GetU64(content.data() + at + 8 * i);
-            for (uint64_t i = 0; i < n; i++) m_offsets[i] = codec::GetU64(content.data() + at + 8 * (n + i));
+            char const* const keys = content.data() + at;
             for (uint64_t i = 0; i < n; i++) {
-                if ((i > 0 && m_keys[i] <= m_keys[i - 1]) || m_offsets[i] >= payload) {
+                uint64_t const k = codec::GetU64(keys + 8 * i), offset = codec::GetU64(keys + 8 * (n + i));
+                if ((i > 0 && k <= codec::GetU64(keys + 8 * (i - 1))) || offset >= payload) {
                     *this = Table();
                     return "keys out of order or an offset beyond the payload at entry " + std::to_string(i);
                 }
-                if (i == 0 || (m_keys[i] >> 32) != (m_keys[i - 1] >> 32)) m_species++;
+                if (i == 0 || (k >> 32) != (codec::GetU64(keys + 8 * (i - 1)) >> 32)) m_species++;
             }
-            content.erase(0, at + 16 * n);  // the index is in m_keys and m_offsets now
+            m_n = n;
+            m_keys_at = at;
+            m_payload_at = at + 16 * n;
             m_payload_size = payload;
             m_content = std::move(content);
             return "";
@@ -867,10 +869,15 @@ namespace protal::ancestry {
         // checks and the build's writer make impossible short of a damaged file).
         std::shared_ptr<Sites const> Get(uint32_t taxid, uint32_t geneid) const {
             uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
-            auto const it = std::lower_bound(m_keys.begin(), m_keys.end(), key);
-            if (it == m_keys.end() || *it != key) return NoSites();
-            std::string_view payload(m_content.data(), m_payload_size);
-            payload.remove_prefix(m_offsets[static_cast<size_t>(it - m_keys.begin())]);
+            size_t lo = 0, hi = m_n;  // the first entry whose key is not below key
+            while (lo < hi) {
+                size_t const mid = lo + (hi - lo) / 2;
+                if (Key(mid) < key) lo = mid + 1;
+                else hi = mid;
+            }
+            if (lo == m_n || Key(lo) != key) return NoSites();
+            std::string_view payload(m_content.data() + m_payload_at, m_payload_size);
+            payload.remove_prefix(codec::GetU64(m_content.data() + m_keys_at + 8 * (m_n + lo)));
             uint64_t length = 0;
             if (!codec::GetVarint(payload, length) || length > payload.size()) return NoSites();
             auto sites = std::make_shared<Sites>();
@@ -879,9 +886,12 @@ namespace protal::ancestry {
         }
 
     private:
-        std::vector<uint64_t> m_keys;
-        std::vector<uint64_t> m_offsets;
-        std::string m_content;  // the payload
+        uint64_t Key(size_t i) const { return codec::GetU64(m_content.data() + m_keys_at + 8 * i); }
+
+        std::string m_content;  // the file: the header, the keys, the offsets, the payload
+        size_t m_n = 0;
+        size_t m_keys_at = 0;     // where the keys start in m_content; the offsets follow them
+        size_t m_payload_at = 0;  // where the payload starts
         size_t m_payload_size = 0;
         size_t m_species = 0;
     };

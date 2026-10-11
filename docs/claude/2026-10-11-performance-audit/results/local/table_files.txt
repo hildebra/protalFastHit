@@ -1,0 +1,12 @@
+total 479724
+drwxr-xr-x  2 falk falk      4096 Oct 11 18:09 .
+drwxr-xr-x 11 falk falk      4096 Oct 11 18:09 ..
+-rw-r--r--  1 falk falk  21100464 Oct 11 18:01 ancestry_sites.bin
+-rw-r--r--  1 falk falk  90115151 Oct 11 18:01 column_weights.tsv
+-rw-r--r--  1 falk falk   4991003 Oct 11 18:01 congener_gaps.tsv
+-rw-r--r--  1 falk falk 366642540 Oct 11 18:09 database.protal
+-rw-r--r--  1 falk falk      2493 Oct 11 18:01 gene_congeners.tsv
+-rw-r--r--  1 falk falk    132922 Oct 11 18:01 gene_incongruence.tsv
+-rw-r--r--  1 falk falk    621462 Oct 11 18:01 ncbi_taxids.tsv
+-rw-r--r--  1 falk falk    352957 Oct 11 18:01 species_neighbours.tsv
+-rw-r--r--  1 falk falk   7247046 Oct 11 18:01 strain_alleles.tsv

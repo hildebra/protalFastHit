@@ -1,0 +1,108 @@
+diff --git a/src/RunProtal.h b/src/RunProtal.h
+index 952cbad..a2d0394 100644
+--- a/src/RunProtal.h
++++ b/src/RunProtal.h
+@@ -237,6 +237,30 @@ namespace protal {
+                std::filesystem::equivalent(zstd::Resolve(options.GetSequenceFilePath()), zstd::Resolve(options.GetSequenceFile()), ec);
+     }
+ 
++    // AUDIT (2026-10-11 performance audit, experiment build only): one start-up table's wall time, resident memory
++    // after it and its own peak (VmHWM reset through /proc/self/clear_refs before it), with --sequential_load.
++    static std::pair<double, double> AuditMemoryMb() {  // VmRSS, VmHWM in MB
++        std::ifstream status("/proc/self/status");
++        std::string line;
++        double rss = -1, hwm = -1;
++        while (std::getline(status, line)) {
++            if (line.rfind("VmRSS:", 0) == 0) rss = std::stod(line.substr(6)) / 1024.0;
++            else if (line.rfind("VmHWM:", 0) == 0) hwm = std::stod(line.substr(6)) / 1024.0;
++        }
++        return { rss, hwm };
++    }
++    template<typename Load>
++    static void AuditTimed(char const* name, Load&& load) {
++        { std::ofstream reset("/proc/self/clear_refs"); reset << "5"; }
++        auto const before = AuditMemoryMb();
++        auto const start = std::chrono::steady_clock::now();
++        load();
++        double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
++        auto const after = AuditMemoryMb();
++        std::cout << "AUDIT table\t" << name << "\t" << std::fixed << std::setprecision(4) << seconds << "\ts\trss_before_mb\t"
++                  << std::setprecision(1) << before.first << "\trss_after_mb\t" << after.first << "\tpeak_mb\t" << after.second << std::endl;
++    }
++
+     // The genes' conservation factors (Options::GeneConservationDbFile, GeneConservation.h: the database's
+     // gene_conservation.tsv, or --gene_conservation's file). They give the model's conservation features
+     // (conserved_fast_depth_ratio, conserved_hit_share) always, and scale the depth identity margin per gene with
+@@ -1523,6 +1547,7 @@ namespace protal {
+             std::optional<profiler::MSAReleaseParameters> msa;
+             if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
+             profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
++            if (std::getenv("PROTAL_AUDIT_DROP_EVIDENCE")) profile.AuditDropEvidence();  // AUDIT: experiment build only
+             // --strain_spill: what it keeps goes to a file of its own until the strain stage reads it back per species.
+             if (msa && !options.StrainSpill().empty()) {
+                 auto const path = std::filesystem::path(options.StrainSpill()) /
+@@ -3284,10 +3309,10 @@ namespace protal {
+         } else {
+             preload();
+             bm_tables.Start();
+-            if (need_alleles) LoadStrainAlleles(options, db.GetGenomes());
++            if (need_alleles) AuditTimed("strain_alleles", [&]() { LoadStrainAlleles(options, db.GetGenomes()); });
+             if (run_profiling) {
+-                db.LoadTaxonomy(options.TaxonomyDbFile());
+-                loaded_models = load_models();
++                AuditTimed("taxonomy", [&]() { db.LoadTaxonomy(options.TaxonomyDbFile()); });
++                AuditTimed("models", [&]() { loaded_models = load_models(); });
+             }
+         }
+ 
+@@ -3340,22 +3365,22 @@ namespace protal {
+                 std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << ncbi_log.str() << species_neighbours_log.str()
+                           << gaps_log.str() << foreign_log.str() << weights_log.str() << sites_log.str();
+             } else {
+-                LoadGeneConservation(options, db.GetGenomes());
+-                LoadSuspectCopies(options, db.GetGenomes());
+-                LoadSpeciesPriors(options, db.GetGenomes());
+-                if (options.NcbiTaxids()) LoadNcbiTaxids(options, db.GetGenomes());
+-                LoadSpeciesNeighbours(options, db.GetGenomes());
+-                LoadCongenerGaps(options, db.GetGenomes());
+-                LoadForeignRates(options, db.GetGenomes());
+-                LoadColumnWeights(options, db.GetGenomes());
+-                LoadAncestrySites(options, db.GetGenomes());
++                AuditTimed("gene_conservation", [&]() { LoadGeneConservation(options, db.GetGenomes()); });
++                AuditTimed("suspect_copies", [&]() { LoadSuspectCopies(options, db.GetGenomes()); });
++                AuditTimed("species_priors", [&]() { LoadSpeciesPriors(options, db.GetGenomes()); });
++                if (options.NcbiTaxids()) AuditTimed("ncbi_taxids", [&]() { LoadNcbiTaxids(options, db.GetGenomes()); });
++                AuditTimed("species_neighbours", [&]() { LoadSpeciesNeighbours(options, db.GetGenomes()); });
++                AuditTimed("congener_gaps", [&]() { LoadCongenerGaps(options, db.GetGenomes()); });
++                AuditTimed("foreign_rates", [&]() { LoadForeignRates(options, db.GetGenomes()); });
++                AuditTimed("column_weights", [&]() { LoadColumnWeights(options, db.GetGenomes()); });
++                AuditTimed("ancestry_sites", [&]() { LoadAncestrySites(options, db.GetGenomes()); });
+             }
+         }
+         if (concurrent && need_alleles) std::cout << alleles_log.str();
+         if (need_neighbours) {
+-            if (!concurrent) neighbours = ReadGeneNeighbours(options);
++            if (!concurrent) AuditTimed("gene_neighbours_read", [&]() { neighbours = ReadGeneNeighbours(options); });
+             std::cout << neighbours_log.str();
+-            if (neighbours) BindGeneNeighbours(options, db, std::move(*neighbours));
++            if (neighbours) AuditTimed("gene_neighbours_bind", [&]() { BindGeneNeighbours(options, db, std::move(*neighbours)); });
+         }
+         bm_tables.Stop();
+         bm_tables.PrintResults();
+diff --git a/src/Profiling/Profiler.h b/src/Profiling/Profiler.h
+index a5829df..82bef1c 100644
+--- a/src/Profiling/Profiler.h
++++ b/src/Profiling/Profiler.h
+@@ -3940,6 +3940,12 @@ namespace protal {
+                 m_evidence = m_evidence.Empty();
+             }
+ 
++            // AUDIT (2026-10-11 performance audit, experiment build only): the record evidence dropped once the
++            // sample's outputs are written (PROTAL_AUDIT_DROP_EVIDENCE), to see what a cohort's slots keep of it.
++            void AuditDropEvidence() {
++                m_evidence = m_evidence.Empty();
++            }
++
+             // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
+             void SetDepthIdentityMargin(double margin) {
+                 m_depth_identity_margin = margin;

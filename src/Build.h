@@ -364,6 +364,68 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // The binary tables (BinaryTable.h) a single-file database holds beside their text tables: the binary form's member name
+    // by the text's.
+    inline std::optional<std::string> BinaryTableOf(std::string const& text_name) {
+        if (text_name == Options::PROTAL_COLUMN_WEIGHTS_FILE) return Options::PROTAL_COLUMN_WEIGHTS_BIN_FILE;
+        if (text_name == Options::PROTAL_STRAIN_ALLELES_FILE) return Options::PROTAL_STRAIN_ALLELES_BIN_FILE;
+        return std::nullopt;
+    }
+
+    inline bool IsBinaryTable(std::string const& name) {
+        return name == Options::PROTAL_COLUMN_WEIGHTS_BIN_FILE || name == Options::PROTAL_STRAIN_ALLELES_BIN_FILE;
+    }
+
+    // Writes the binary form (BinaryTable.h) of the text table `text` (member or file `text_name`) at target: read as a run
+    // reads it, with the text's size recorded. Exits 8 on failure.
+    template<typename Table>
+    static void WriteBinaryTableOf(db::DbFile const& text, std::string const& target, int threads) {
+        Benchmark bm("Write " + std::filesystem::path(target).filename().string());
+        bm.Start();
+        std::string error;
+        auto const content = text.ReadAll(error, threads);
+        Table table;
+        if (content) error = table.Read(std::string_view(*content));
+        std::string const partial = target + ".partial";
+        if (error.empty()) {
+            std::ofstream os(partial, std::ios::binary | std::ios::trunc);
+            bool const written = table.WriteBinary(os, content->size());
+            os.close();
+            if (!written || os.fail()) error = "write error";
+        }
+        std::error_code ec;
+        if (error.empty()) std::filesystem::rename(partial, target, ec);
+        if (!error.empty() || ec) {
+            std::cerr << "Writing " << target << " from " << text.Name() << " failed: " << (error.empty() ? ec.message() : error) << std::endl;
+            std::filesystem::remove(partial, ec);
+            exit(8);
+        }
+        bm.Stop();
+        std::cout << "Wrote " << target << ": the binary form of " << text.Name() << " (" << HumanBytes(content->size()) << "), which a "
+                  << "run from " << db::kFileName << " reads without parsing it" << std::endl;
+        bm.PrintResults();
+    }
+
+    // The binary form of text table `text_name` (BinaryTableOf) from `text`, at target.
+    static void WriteBinaryTable(std::string const& text_name, db::DbFile const& text, std::string const& target, int threads) {
+        if (text_name == Options::PROTAL_COLUMN_WEIGHTS_FILE) WriteBinaryTableOf<column_weights::Table>(text, target, threads);
+        else WriteBinaryTableOf<strain_alleles::Table>(text, target, threads);
+    }
+
+    // Whether the single-file database's binary form of text table `text_name` is there and made from its text as it is.
+    static bool BinaryTableCurrent(db::Bundle const& bundle, std::string const& text_name) {
+        auto const binary_name = BinaryTableOf(text_name);
+        auto const text = db::DbFile::InBundle(bundle, text_name);
+        auto const binary = db::DbFile::InBundle(bundle, *binary_name);
+        if (!binary.Exists()) return false;
+        std::string error;
+        bool const weights = text_name == Options::PROTAL_COLUMN_WEIGHTS_FILE;
+        auto const header = weights ? binary_table::ReadHeader(binary, column_weights::Table::kMagic, error)
+                                    : binary_table::ReadHeader(binary, strain_alleles::Table::kMagic, error);
+        uint64_t const version = weights ? column_weights::Table::kBinaryVersion : strain_alleles::Table::kBinaryVersion;
+        return header && header->version == version && header->text_size == text.KnownSize();
+    }
+
     // The index of --build as the first member of database.protal, written from memory (db::Generated): its frames
     // straight into the database file, read back from it and compared with the index, which is then freed, before the
     // other members are compressed. Before, the index was written as index.prx.zst and read back, then copied into the
@@ -433,6 +495,17 @@ namespace protal::build {
             WriteGeneTableFile(db::DbFile::OnDisk(options.ResolvedSequenceFile()), db::DbFile::OnDisk(options.GetSequenceMapFile()),
                                unique, gene_table, static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
             sources.push_back({ gene_table_file::kFileName, gene_table });
+            // The binary forms of the column weights and the strain alleles (BinaryTable.h), from the text tables packed with
+            // them; removed with them below.
+            std::vector<db::Source> binaries;
+            for (auto const& source : sources) {
+                if (auto const name = BinaryTableOf(source.name)) {
+                    std::string const target = (fs::path(options.GetLocation().dir) / *name).string();
+                    WriteBinaryTable(source.name, db::DbFile::OnDisk(source.path), target, static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
+                    binaries.push_back({ *name, target });
+                }
+            }
+            sources.insert(sources.end(), binaries.begin(), binaries.end());
             ModelsLast(sources);
         }
         {
@@ -560,6 +633,11 @@ namespace protal::build {
             if (member.name == gene_table_file::kFileName) {
                 std::cout << "Skip " << member.name << " (the binary form of reference.map and unique_kmers.tsv, which a folder "
                           << "does not use; --compress_db writes it again)" << std::endl;
+                continue;
+            }
+            if (IsBinaryTable(member.name)) {
+                std::cout << "Skip " << member.name << " (the binary form of a text table written beside it, which a folder does not "
+                          << "use; --compress_db writes it again)" << std::endl;
                 continue;
             }
             bool const index = member.name == Options::PROTAL_INDEX_FILE;
@@ -781,11 +859,29 @@ namespace protal::build {
             }
             tables.emplace_back(file, name);
         }
+        // A single-file database takes the binary form of a column weights or strain alleles table too (BinaryTable.h),
+        // written beside it and removed once stored; a folder uses the text.
+        std::vector<std::string> binaries;
+        if (options.IsBundle()) {
+            int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+            size_t const n = tables.size();
+            for (size_t i = 0; i < n; i++) {
+                auto const binary = BinaryTableOf(tables[i].second);
+                if (!binary) continue;
+                std::string const target = options.GetBundle()->Path() + "." + *binary;
+                WriteBinaryTable(tables[i].second, db::DbFile::OnDisk(tables[i].first), target, threads);
+                tables.emplace_back(target, *binary);
+                binaries.push_back(target);
+            }
+        }
         AddModel(options, tables, "tables");
+        std::error_code ec;
+        for (auto const& path : binaries) fs::remove(path, ec);
     }
 
-    // --compress_db on a single-file database: gives it the binary gene table (GeneTableFile.h) if it has none, or one made from
-    // other tables, rewriting database.protal once with its other members' frames copied as they are (as AddModel).
+    // --compress_db on a single-file database: gives it the binary gene table (GeneTableFile.h) and the binary forms of its
+    // column weights and strain alleles (BinaryTable.h) where it has none or ones made from other tables, rewriting
+    // database.protal once with its other members' frames copied as they are (as AddModel).
     static void AddGeneTable(protal::Options const& options) {
         namespace fs = std::filesystem;
         auto const& bundle = *options.GetBundle();
@@ -794,30 +890,49 @@ namespace protal::build {
         auto const map = db::DbFile::InBundle(bundle, Options::PROTAL_SEQUENCE_MAP_FILE);
         auto const unique_file = db::DbFile::InBundle(bundle, Options::PROTAL_UNIQUE_KMER_FILE);
         auto const unique = unique_file.Exists() ? std::optional(unique_file) : std::nullopt;
+        std::vector<std::pair<std::string, std::string>> fresh;  // member, the file written beside the database (removed below)
+        bool gene_table_current = false;
         if (auto const current = db::DbFile::InBundle(bundle, gene_table_file::kFileName); current.Exists()) {
             GenomeLoader check(fna, map, threads, current, unique ? unique->Size() : std::nullopt);
-            if (check.FromGeneTable()) {
-                std::cout << bundle.Path() << " is a single-file database with a current " << gene_table_file::kFileName << "; kept" << std::endl;
-                return;
-            }
+            gene_table_current = check.FromGeneTable();
         }
-        std::string const table = bundle.Path() + "." + gene_table_file::kFileName;  // beside it, removed below
-        WriteGeneTableFile(fna, map, unique, table, threads);
+        if (!gene_table_current) {
+            std::string const table = bundle.Path() + "." + gene_table_file::kFileName;
+            WriteGeneTableFile(fna, map, unique, table, threads);
+            fresh.emplace_back(gene_table_file::kFileName, table);
+        }
+        for (std::string const& text : { Options::PROTAL_COLUMN_WEIGHTS_FILE, Options::PROTAL_STRAIN_ALLELES_FILE }) {
+            if (!db::DbFile::InBundle(bundle, text).Exists() || BinaryTableCurrent(bundle, text)) continue;
+            std::string const name = *BinaryTableOf(text);
+            std::string const table = bundle.Path() + "." + name;
+            WriteBinaryTable(text, db::DbFile::InBundle(bundle, text), table, threads);
+            fresh.emplace_back(name, table);
+        }
+        if (fresh.empty()) {
+            std::cout << bundle.Path() << " is a single-file database with a current " << gene_table_file::kFileName
+                      << " and binary forms of its column weights and strain alleles (where it has them); kept" << std::endl;
+            return;
+        }
         std::vector<db::Source> sources;
+        std::string names;
         for (auto const& member : bundle.Members()) {
-            if (member.name != gene_table_file::kFileName) sources.push_back({ member.name, bundle.Path(), member.frames });
+            bool const replaced = std::any_of(fresh.begin(), fresh.end(), [&member](auto const& f) { return f.first == member.name; });
+            if (!replaced) sources.push_back({ member.name, bundle.Path(), member.frames });
         }
-        sources.push_back({ gene_table_file::kFileName, table });
+        for (auto const& [name, path] : fresh) {
+            sources.push_back({ name, path });
+            names += (names.empty() ? "" : ", ") + name;
+        }
         ModelsLast(sources);
         auto const params = options.CompressionParams();
-        std::cout << "Rewrite " << bundle.Path() << " with " << gene_table_file::kFileName << " (the other members' frames copied as "
-                  << "they are, the table compressed at zstd level " << params.level << "; verified)" << std::endl;
+        std::cout << "Rewrite " << bundle.Path() << " with " << names << " (the other members' frames copied as "
+                  << "they are, the tables compressed at zstd level " << params.level << "; verified)" << std::endl;
         Benchmark bm("Rewrite " + db::kFileName);
         bm.Start();
         std::string error;
         auto const written = db::Write(bundle.Path(), sources, params, error);
         std::error_code ec;
-        fs::remove(table, ec);
+        for (auto const& [name, path] : fresh) fs::remove(path, ec);
         if (!written) {
             std::cerr << "Writing " << bundle.Path() << " failed: " << error << " (the database is unchanged)" << std::endl;
             exit(8);

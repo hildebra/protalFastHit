@@ -1,0 +1,130 @@
+=== v19/protal0.7.9_r226_v19/logs/protal_runs_test.log
+--- start-up per run (gene tables, preload, tables bracket, index load), seconds
+gene_tables 0.5 preload 3.0 tables_bracket 3.4 index 2.6
+gene_tables 0.5 preload 2.2 tables_bracket 2.4 index 1.6
+--- SAM finishing: copied vs placed
+copied 216 (12.97 GB, 145.1 s, 89 MB/s), placed 96
+--- aligning, SAM writing, profiling: total seconds over samples
+aligning 2655 s over 312 samples; SAM writing 150 s; profiling 3923 s over 312 samples
+  profiling step read EM                                  45.1 s
+  profiling step record evidence and sample context       994.6 s
+  profiling step scoring                                  10.4 s
+  profiling step reading the SAM                          2750.8 s
+  profiling step writing the profile                      36.7 s
+  profiling step congener distances                       820.6 s
+  profiling step SNP post-processing                      73.7 s
+--- run totals
+Memory after loading the index: 32.21 GB resident, peak 38.55 GB
+Memory after aligning: 39.29 GB resident, peak 39.54 GB
+Memory after profiling: 12.50 GB resident, peak 39.54 GB
+Run protal took 29m 43s 95ms
+Memory after loading the index: 32.39 GB resident, peak 38.61 GB
+Memory after aligning: 39.00 GB resident, peak 39.46 GB
+Memory after profiling: 27.47 GB resident, peak 39.46 GB
+Run protal took 22m 24s 852ms
+=== v21/protal0.7.9_r226_v21/logs/protal_runs_test.log
+--- start-up per run (gene tables, preload, tables bracket, index load), seconds
+gene_tables 0.7 preload 2.6 tables_bracket 4.1 index 1.4
+gene_tables 0.6 preload 3.1 tables_bracket 5.2 index 3.2
+--- SAM finishing: copied vs placed
+copied 216 (13.21 GB, 147.1 s, 90 MB/s), placed 96
+--- aligning, SAM writing, profiling: total seconds over samples
+aligning 1831 s over 312 samples; SAM writing 153 s; profiling 4477 s over 312 samples
+  profiling step read EM                                  58.2 s
+  profiling step record evidence and sample context       1428.1 s
+  profiling step scoring                                  16.1 s
+  profiling step reading the SAM                          2852.6 s
+  profiling step writing the profile                      31.6 s
+  profiling step congener distances                       1175.1 s
+  profiling step SNP post-processing                      97.6 s
+--- run totals
+Memory after loading the index: 33.33 GB resident, peak 41.66 GB
+Memory after aligning: 43.14 GB resident, peak 43.53 GB
+Memory after profiling: 13.54 GB resident, peak 43.53 GB
+Run protal took 21m 41s 165ms
+Memory after loading the index: 33.48 GB resident, peak 42.81 GB
+Memory after aligning: 43.33 GB resident, peak 44.48 GB
+Memory after profiling: 30.36 GB resident, peak 44.48 GB
+Run protal took 16m 2s 650ms
+=== v22/protal0.7.9_r226_v22/logs/protal_runs_test.log
+--- start-up per run (gene tables, preload, tables bracket, index load), seconds
+gene_tables 0.5 preload 7.0 tables_bracket 17.4 index 7.0
+gene_tables 0.8 preload 15.4 tables_bracket 53.7 index 44.9
+gene_tables 0.8 preload 5.0 tables_bracket 18.6 index 9.5
+--- SAM finishing: copied vs placed
+copied 216 (13.01 GB, 207.7 s, 63 MB/s), placed 96
+--- aligning, SAM writing, profiling: total seconds over samples
+aligning 1230 s over 312 samples; SAM writing 213 s; profiling 512 s over 312 samples
+  profiling step read EM                                  19.2 s
+  profiling step record evidence and sample context       119.0 s
+  profiling step scoring                                  4.0 s
+  profiling step reading the SAM                          336.7 s
+  profiling step writing the profile                      9.2 s
+  profiling step congener distances                       61.3 s
+  profiling step SNP post-processing                      4.9 s
+--- run totals
+Memory after loading the index: 36.71 GB resident, peak 42.44 GB
+Memory after aligning: 46.80 GB resident, peak 50.66 GB
+Memory after profiling: 15.00 GB resident, peak 50.66 GB
+Run protal took 16m 36s 157ms
+Memory after loading the index: 36.95 GB resident, peak 42.68 GB
+Memory after aligning: 60.63 GB resident, peak 62.11 GB
+Memory after profiling: 31.58 GB resident, peak 62.11 GB
+Run protal took 7m 2s 214ms
+Memory after loading the index: 36.59 GB resident, peak 42.33 GB
+Memory after aligning: 41.31 GB resident, peak 43.25 GB
+Memory after profiling: 11.92 GB resident, peak 43.25 GB
+Run protal took 2m 24s 600ms
+=== v23/protal0.7.9_r226_v23/logs/protal_runs_test.log
+--- start-up per run (gene tables, preload, tables bracket, index load), seconds
+gene_tables 1.1 preload 5.8 tables_bracket 18.7 index 4.0
+gene_tables 0.8 preload 15.6 tables_bracket 62.3 index 44.8
+gene_tables 0.8 preload 7.0 tables_bracket 29.5 index 16.2
+--- SAM finishing: copied vs placed
+copied 216 (12.79 GB, 184.0 s, 70 MB/s), placed 96
+--- aligning, SAM writing, profiling: total seconds over samples
+aligning 1175 s over 312 samples; SAM writing 189 s; profiling 515 s over 312 samples
+  profiling step read EM                                  18.4 s
+  profiling step record evidence and sample context       140.4 s
+  profiling step scoring                                  3.9 s
+  profiling step reading the SAM                          317.1 s
+  profiling step writing the profile                      10.9 s
+  profiling step congener distances                       65.9 s
+  profiling step SNP post-processing                      3.5 s
+--- run totals
+Memory after loading the index: 36.88 GB resident, peak 42.75 GB
+Memory after aligning: 46.51 GB resident, peak 47.71 GB
+Memory after profiling: 14.79 GB resident, peak 47.71 GB
+Run protal took 15m 38s 128ms
+Memory after loading the index: 36.90 GB resident, peak 42.76 GB
+Memory after aligning: 55.98 GB resident, peak 57.65 GB
+Memory after profiling: 27.31 GB resident, peak 57.65 GB
+Run protal took 5m 44s 335ms
+Memory after loading the index: 36.90 GB resident, peak 42.78 GB
+Memory after aligning: 42.96 GB resident, peak 45.56 GB
+Memory after profiling: 14.05 GB resident, peak 45.56 GB
+Run protal took 4m 3s 215ms
+=== v23/protal0.7.9_r226_v23/logs/protal_runs_training.log
+--- start-up per run (gene tables, preload, tables bracket, index load), seconds
+gene_tables 0.8 preload 15.5 tables_bracket 60.4 index 44.9
+gene_tables 0.8 preload 7.0 tables_bracket 20.5 index 7.6
+--- SAM finishing: copied vs placed
+copied 813 (30.85 GB, 29.4 s, 1050 MB/s), placed 357
+--- aligning, SAM writing, profiling: total seconds over samples
+aligning 2526 s over 1170 samples; SAM writing 41 s; profiling 1832 s over 1170 samples
+  profiling step read EM                                  64.0 s
+  profiling step record evidence and sample context       514.7 s
+  profiling step scoring                                  10.9 s
+  profiling step reading the SAM                          1149.6 s
+  profiling step writing the profile                      20.9 s
+  profiling step congener distances                       244.0 s
+  profiling step SNP post-processing                      13.1 s
+--- run totals
+Memory after loading the index: 36.93 GB resident, peak 42.80 GB
+Memory after aligning: 97.97 GB resident, peak 100.95 GB
+Memory after profiling: 74.68 GB resident, peak 100.95 GB
+Run protal took 13m 43s 375ms
+Memory after loading the index: 36.88 GB resident, peak 42.75 GB
+Memory after aligning: 63.50 GB resident, peak 63.54 GB
+Memory after profiling: 32.64 GB resident, peak 63.54 GB
+Run protal took 31m 34s 964ms

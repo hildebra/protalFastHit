@@ -237,6 +237,12 @@ namespace protal {
                std::filesystem::equivalent(zstd::Resolve(options.GetSequenceFilePath()), zstd::Resolve(options.GetSequenceFile()), ec);
     }
 
+    // The threads a table's reading takes (DbFile::ReadAll, the binary tables' arrays): its frames inflate in parallel. The
+    // start-up's tables load at once, each on a thread of its own, so each takes a few.
+    static int TableThreads(Options const& options) {
+        return static_cast<int>(std::clamp<size_t>(options.GetThreads(), 1, 8));
+    }
+
     // The genes' conservation factors (Options::GeneConservationDbFile, GeneConservation.h: the database's
     // gene_conservation.tsv, or --gene_conservation's file). They give the model's conservation features
     // (conserved_fast_depth_ratio, conserved_hit_share) always, and scale the depth identity margin per gene with
@@ -253,10 +259,10 @@ namespace protal {
             return;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         gene_conservation::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -282,10 +288,10 @@ namespace protal {
             return;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         gene_incongruence::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -311,10 +317,10 @@ namespace protal {
             return;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         species_priors::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -326,6 +332,17 @@ namespace protal {
                   << " with a genome size" << (table.WithGenomeSize() > 0 ? "" : " (converted before 2026-10-08: the profiles have no unknown "
                   "share; gtdb_to_protal_db.py --priors_only and protal --add_tables add the sizes)") << std::endl;
         genomes.SetSpeciesPriors(std::move(table));
+    }
+
+    // --ncbi_taxids needs the database's ncbi_taxids.tsv: exits 2 without it. Run checks this before the start-up's loaders
+    // start: an exit from a loader's thread would race the others, which may still be reading the database.
+    static void RequireNcbiTaxids(Options const& options) {
+        if (options.NcbiTaxidsDbFile().Exists()) return;
+        std::cerr << "--ncbi_taxids: the database has no " << Options::PROTAL_NCBI_TAXIDS_FILE << " (converted before "
+                  << "2026-10-11): write it with scripts/mini_db/gtdb_to_protal_db.py --gtdb RELEASE --priors_only --outdir DIR "
+                  << "from the GTDB release the database was converted from, and store it with protal --add_tables DIR/"
+                  << Options::PROTAL_NCBI_TAXIDS_FILE << " --db DB" << std::endl;
+        exit(2);
     }
 
     // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
@@ -370,19 +387,13 @@ namespace protal {
     // The species' NCBI taxids (ncbi_taxids.tsv, NcbiTaxids.h) for the profiles' last columns, with --ncbi_taxids. Exits 2
     // if the database has none (before any read is aligned), 8 if the file cannot be read.
     static void LoadNcbiTaxids(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        RequireNcbiTaxids(options);
         auto const file = options.NcbiTaxidsDbFile();
-        if (!file.Exists()) {
-            std::cerr << "--ncbi_taxids: the database has no " << Options::PROTAL_NCBI_TAXIDS_FILE << " (converted before "
-                      << "2026-10-11): write it with scripts/mini_db/gtdb_to_protal_db.py --gtdb RELEASE --priors_only --outdir DIR "
-                      << "from the GTDB release the database was converted from, and store it with protal --add_tables DIR/"
-                      << Options::PROTAL_NCBI_TAXIDS_FILE << " --db DB" << std::endl;
-            exit(2);
-        }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         ncbi_taxids::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -404,10 +415,10 @@ namespace protal {
             return;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         species_neighbours::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -423,16 +434,16 @@ namespace protal {
     // without the file; exits 8 if it cannot be read. `what` names it in the log, `missing` says what goes unknown.
     template<typename Table>
     static std::optional<Table> ReadCopyTable(db::DbFile const& file, std::string const& what, std::string const& missing,
-                                              std::ostream& out) {
+                                              int threads, std::ostream& out) {
         if (!file.Exists()) {
             out << what << ": the database has none (" << missing << ")" << std::endl;
             return std::nullopt;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, threads);
         Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -447,7 +458,8 @@ namespace protal {
     // Each gene copy's gap to its congeners' copies (congener_gaps.tsv, CongenerGaps.h), for the "gaps" features.
     static void LoadCongenerGaps(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         if (auto table = ReadCopyTable<congener_gaps::Table>(options.CongenerGapsDbFile(), "Congener gaps",
-                                                             "built by an earlier protal: the gaps features are unknown (-1)", out)) {
+                                                             "built by an earlier protal: the gaps features are unknown (-1)",
+                                                             TableThreads(options), out)) {
             genomes.SetCongenerGaps(std::move(*table));
         }
     }
@@ -457,34 +469,55 @@ namespace protal {
     static void LoadForeignRates(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         if (auto table = ReadCopyTable<foreign_rates::Table>(options.ForeignRatesDbFile(), "Foreign rates",
                                                              "scripts/foreign_rates.py and --add_tables make it: the foreign "
-                                                             "features are unknown (-1)", out)) {
+                                                             "features are unknown (-1)", TableThreads(options), out)) {
             genomes.SetForeignRates(std::move(*table));
         }
     }
 
-    // Each gene copy's strain alleles (strain_alleles.tsv, StrainAlleles.h): for the alignment scores (--no_allele_scores) and
-    // the "alleles" features. Loaded for alignment too (the scores), not only for profiling.
+    // A text table read from the single-file database's binary form of it (BinaryTable.h: column_weights.bin,
+    // strain_alleles.bin) where it has a current one, else from the text; exits 8 if the text cannot be read. Returns the
+    // name of what it was read from; `note` says why a binary form there was not used. `what` names the table in messages.
+    template<typename Table>
+    static std::string ReadTextOrBinary(db::DbFile const& text, std::optional<db::DbFile> const& binary, int threads, std::string const& what,
+                                        Table& table, std::string& note) {
+        if (binary) {
+            std::string error;
+            auto const header = binary_table::ReadHeader(*binary, Table::kMagic, error);
+            if (header && text.Exists() && header->text_size != text.KnownSize()) {
+                error = "made from another " + text.Name() + " (of " + std::to_string(header->text_size) + " bytes): the text is read";
+            } else if (header) {
+                error = table.ReadBinary(*binary, *header, threads);
+                if (error.empty()) return binary->Name();
+            }
+            note = binary->Name() + " not used: " + error;
+        }
+        std::string error;
+        auto const content = text.ReadAll(error, threads);
+        if (content) error = table.Read(std::string_view(*content));
+        if (!error.empty()) {
+            std::cerr << "Invalid " << what << " " << text.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        return text.Name();
+    }
+
+    // Each gene copy's strain alleles (strain_alleles.tsv, StrainAlleles.h; from strain_alleles.bin in a single-file database
+    // that has it): for the alignment scores (--no_allele_scores) and the "alleles" features. Loaded before the alignment (the
+    // scores), not only for profiling.
     static void LoadStrainAlleles(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         auto const file = options.StrainAllelesDbFile();
-        if (!file.Exists()) {
+        auto const binary = options.StrainAllelesBinDbFile();
+        if (!file.Exists() && !binary) {
             out << "Strain alleles: the database has none (built without --full_reference, before 2026-10-08 or with "
                 << "--strain_alleles 0): alignments are scored against the references alone, the alleles features unknown (-1)" << std::endl;
             return;
         }
-        std::string error;
-        auto const content = file.ReadAll(error);
         strain_alleles::Table table;
-        if (content) {
-            std::istringstream is(*content);
-            error = table.Read(is);
-        }
-        if (!error.empty()) {
-            std::cerr << "Invalid strain alleles " << file.Name() << ": " << error << std::endl;
-            exit(8);
-        }
+        std::string note;
+        auto const from = ReadTextOrBinary(file, binary, TableThreads(options), "strain alleles", table, note);
         out << "Strain alleles: " << table.Alleles() << " alleles of " << table.Copies() << " gene copies of " << table.Species()
-            << " species (" << file.Name() << ")" << (options.NoAlleleScores() ? "; not in the alignment scores (--no_allele_scores)" : "")
-            << std::endl;
+            << " species (" << from << ")" << (options.NoAlleleScores() ? "; not in the alignment scores (--no_allele_scores)" : "")
+            << (note.empty() ? "" : "; " + note) << std::endl;
         genomes.SetStrainAlleles(std::move(table));
     }
 
@@ -496,24 +529,18 @@ namespace protal {
             return;
         }
         auto const file = options.ColumnWeightsDbFile();
-        if (!file.Exists()) {
+        auto const binary = options.ColumnWeightsBinDbFile();
+        if (!file.Exists() && !binary) {
             out << "Column weights: the database has none (built before 2026-10-10 or with --column_weights 0): the weights "
                 << "features are unknown (-1)" << std::endl;
             return;
         }
-        std::string error;
-        auto const content = file.ReadAll(error);
         column_weights::Table table;
-        if (content) {
-            std::istringstream is(*content);
-            error = table.Read(is);
-        }
-        if (!error.empty()) {
-            std::cerr << "Invalid column weights " << file.Name() << ": " << error << std::endl;
-            exit(8);
-        }
+        std::string note;
+        auto const from = ReadTextOrBinary(file, binary, TableThreads(options), "column weights", table, note);
         out << "Column weights: " << table.Families() << " family-gene rows of " << table.ColumnCount() << " columns, "
-            << table.Copies() << " gene copies of " << table.Species() << " species mapped (" << file.Name() << ")" << std::endl;
+            << table.Copies() << " gene copies of " << table.Species() << " species mapped (" << from << "; "
+            << protal::build::HumanBytes(table.Bytes()) << " in memory)" << (note.empty() ? "" : "; " + note) << std::endl;
         genomes.SetColumnWeights(std::move(table));
     }
 
@@ -534,7 +561,7 @@ namespace protal {
             return;
         }
         std::string error;
-        auto content = file.ReadAll(error);
+        auto content = file.ReadAll(error, TableThreads(options));
         ancestry::Table table;
         if (content) error = table.Read(std::move(*content));
         if (!error.empty()) {
@@ -567,10 +594,10 @@ namespace protal {
             return std::nullopt;
         }
         std::string error;
-        auto const content = file.ReadAll(error);
+        auto const content = file.ReadAll(error, TableThreads(options));
         gene_neighbours::Table table;
         if (content) {
-            std::istringstream is(*content);
+            db::TextStream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
@@ -1195,6 +1222,59 @@ namespace protal {
                   << " or more." << std::endl;
     }
 
+    // The tables only profiling reads (gene conservation, suspect copies, species priors, NCBI taxids, species neighbours,
+    // congener gaps, foreign rates, ancestry sites, and the column weights unless the alignment's weighted site shift needs
+    // them), loading on threads of their own beside the alignment (Run, a concurrent start-up that aligns): the first
+    // sample to be profiled waits for them (Wait), which prints their messages and how long the profiling waited. At GTDB
+    // r226 they held the alignment back by 12 s per run, the column weights alone (docs/claude/2026-10-11-performance-audit).
+    class DeferredTables {
+    public:
+        std::vector<std::future<void>> futures;
+        std::function<std::string()> messages;  // the tables' messages, once they are loaded
+
+        DeferredTables() = default;
+        DeferredTables(DeferredTables const&) = delete;
+        DeferredTables& operator=(DeferredTables const&) = delete;
+        ~DeferredTables() {
+            for (auto& f : futures) {
+                if (f.valid()) f.wait();
+            }
+        }
+
+        void Start() { m_start = std::chrono::steady_clock::now(); }
+
+        // A table's load as a task that notes when it finished: the last of these is when the tables were loaded.
+        template<typename F>
+        auto Timed(F load) {
+            return [this, load = std::move(load)]() mutable {
+                load();
+                int64_t const done = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_start).count();
+                int64_t last = m_last_done.load();
+                while (last < done && !m_last_done.compare_exchange_weak(last, done)) {}
+            };
+        }
+
+        // Waits for the tables, once (any thread; the others wait meanwhile).
+        void Wait() {
+            std::call_once(m_once, [this]() {
+                if (futures.empty()) return;
+                auto const waiting = std::chrono::steady_clock::now();
+                for (auto& f : futures) f.get();
+                double const waited = gene_table::SecondsSince(waiting), took = static_cast<double>(m_last_done.load()) / 1e9;
+                std::ostringstream text;
+                if (messages) text << messages();
+                text << std::fixed << std::setprecision(2) << "Loading the profiling's tables beside the alignment took " << took
+                     << " s; the profiling waited " << waited << " s for them" << std::endl;
+                std::cout << text.str() << std::flush;
+            });
+        }
+
+    private:
+        std::once_flag m_once;
+        std::chrono::steady_clock::time_point m_start = std::chrono::steady_clock::now();
+        std::atomic<int64_t> m_last_done{ 0 };  // ns after m_start
+    };
+
     // What profiling the samples of a run shares: the taxonomy, every taxid's genus and family (which of a read's
     // alternatives (ZA) are congeners of its taxon, and what the other taxa of a sample say of each:
     // MicrobialProfile::ApplySampleContext), the distances of the references (made as they are asked for, kept for
@@ -1212,6 +1292,7 @@ namespace protal {
         // MicrobialProfile holds a reference member so it is not assignable; a slot is filled in place.
         std::vector<std::optional<profiler::MicrobialProfile>> profile_slots;
         std::vector<std::vector<UnreportedTaxon>> unreported_slots;
+        DeferredTables* deferred = nullptr;  // the tables still loading beside the alignment, if any (ProfileSample waits)
 
         ProfilingContext(Options& options, ProtalDB& db, ReadTypeModels const& models) :
                 options(options), genomes(db.GetGenomes()), models(models), range(options.GetRange()),
@@ -1285,6 +1366,7 @@ namespace protal {
     }
 
     static void ProfileSample(ProfilingContext& ctx, size_t idx, ReadTypeModels& filters, size_t threads_per_sample) {
+        if (ctx.deferred) ctx.deferred->Wait();  // the profiling's tables, loaded beside the alignment
         Options& options = ctx.options;
         GenomeLoader& genomes = ctx.genomes;
         auto& taxonomy = *ctx.taxonomy;
@@ -1566,6 +1648,7 @@ namespace protal {
             std::optional<profiler::MSAReleaseParameters> msa;
             if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
             profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
+            profile.ReleaseEvidence();  // the record evidence: read by nothing after the outputs; a cohort keeps the profile
             // --strain_spill: what it keeps goes to a file of its own until the strain stage reads it back per species.
             if (msa && !options.StrainSpill().empty()) {
                 auto const path = std::filesystem::path(options.StrainSpill()) /
@@ -3246,6 +3329,8 @@ namespace protal {
         }
         bool const run_profiling = !options.BuildMode() && !options.NoProfile();
         bool const need_neighbours = !options.BuildMode() && (run_alignment || run_profiling);
+        // Before any thread reads the database (RequireNcbiTaxids).
+        if (run_profiling && options.NcbiTaxids()) RequireNcbiTaxids(options);
 
         // The rest of the database. By default the index loads on a thread of its own, beside the genome preload (all
         // threads each) and the single-threaded tables, each on a thread of its own: the taxonomy, the models, gene
@@ -3300,28 +3385,50 @@ namespace protal {
                 sites_log, neighbours_log;
         std::ostringstream alleles_log;
         bool const need_alleles = !options.BuildMode() && (run_alignment || run_profiling);
+        // The column weights are read before the alignment where it needs them, for short reads aligned with the weighted
+        // site shift (--weighted_site_shift, the default; ScoreAlleles), with or without profiling; else for profiling only.
+        bool const weights_for_alignment = run_alignment && !options.BuildMode() && options.WeightedSiteShift() && !options.NoSiteWeights() &&
+                                           (options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single));
         std::optional<gene_neighbours::Table> neighbours;
+        // In a concurrent start-up that aligns, the tables only profiling reads load beside the alignment, and the first
+        // sample to be profiled waits for them (DeferredTables); the alignment waits only for what it reads: the strain
+        // alleles, the gene neighbours, the taxonomy (genera of the adaptive candidates) and the models (checked first), and
+        // the column weights where weights_for_alignment. Declared after the logs, which its loads write to, so that it
+        // waits for them before the logs go.
+        DeferredTables deferred;
         if (concurrent) {
             bm_tables.Start();
             std::vector<std::future<void>> tables;
+            auto& later = run_alignment ? deferred.futures : tables;
             std::future<std::vector<profiler::TaxonFilterObj>> models_loading;
             std::future<std::optional<gene_neighbours::Table>> neighbours_loading;
+            deferred.Start();
+            auto load_later = [&](auto load) { later.push_back(std::async(std::launch::async, deferred.Timed(std::move(load)))); };
             if (run_profiling) {
                 tables.push_back(std::async(std::launch::async, [&]() { db.LoadTaxonomy(options.TaxonomyDbFile()); }));
                 models_loading = std::async(std::launch::async, load_models);
-                tables.push_back(std::async(std::launch::async, [&]() { LoadGeneConservation(options, db.GetGenomes(), conservation_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); }));
-                if (options.NcbiTaxids()) tables.push_back(std::async(std::launch::async, [&]() { LoadNcbiTaxids(options, db.GetGenomes(), ncbi_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesNeighbours(options, db.GetGenomes(), species_neighbours_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadCongenerGaps(options, db.GetGenomes(), gaps_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadColumnWeights(options, db.GetGenomes(), weights_log); }));
-                tables.push_back(std::async(std::launch::async, [&]() { LoadAncestrySites(options, db.GetGenomes(), sites_log); }));
+                load_later([&]() { LoadGeneConservation(options, db.GetGenomes(), conservation_log); });
+                load_later([&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); });
+                load_later([&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); });
+                if (options.NcbiTaxids()) load_later([&]() { LoadNcbiTaxids(options, db.GetGenomes(), ncbi_log); });
+                load_later([&]() { LoadSpeciesNeighbours(options, db.GetGenomes(), species_neighbours_log); });
+                load_later([&]() { LoadCongenerGaps(options, db.GetGenomes(), gaps_log); });
+                load_later([&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); });
+                load_later([&]() { LoadAncestrySites(options, db.GetGenomes(), sites_log); });
             }
+            auto load_weights = [&]() { LoadColumnWeights(options, db.GetGenomes(), weights_log); };
+            if (weights_for_alignment) tables.push_back(std::async(std::launch::async, load_weights));
+            else if (run_profiling) load_later(load_weights);
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
             if (need_alleles) tables.push_back(std::async(std::launch::async, [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); }));
-            // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile.
+            if (!deferred.futures.empty()) {
+                deferred.messages = [&, weights_later = !weights_for_alignment]() {
+                    return conservation_log.str() + suspect_log.str() + priors_log.str() + ncbi_log.str() + species_neighbours_log.str() +
+                           gaps_log.str() + foreign_log.str() + (weights_later ? weights_log.str() : std::string()) + sites_log.str();
+                };
+            }
+            // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile; those
+            // loading beside the alignment set parts the alignment does not read.
             preload();
             for (auto& t : tables) t.get();
             if (models_loading.valid()) loaded_models = models_loading.get();
@@ -3333,6 +3440,8 @@ namespace protal {
             if (run_profiling) {
                 db.LoadTaxonomy(options.TaxonomyDbFile());
                 loaded_models = load_models();
+            } else if (weights_for_alignment) {
+                LoadColumnWeights(options, db.GetGenomes());
             }
         }
 
@@ -3382,8 +3491,11 @@ namespace protal {
                 }
             }
             if (concurrent) {
-                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << ncbi_log.str() << species_neighbours_log.str()
-                          << gaps_log.str() << foreign_log.str() << weights_log.str() << sites_log.str();
+                // Tables loading beside the alignment report when the profiling waits for them (DeferredTables::Wait).
+                if (deferred.futures.empty()) {
+                    std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << ncbi_log.str() << species_neighbours_log.str()
+                              << gaps_log.str() << foreign_log.str() << weights_log.str() << sites_log.str();
+                }
             } else {
                 LoadGeneConservation(options, db.GetGenomes());
                 LoadSuspectCopies(options, db.GetGenomes());
@@ -3396,6 +3508,7 @@ namespace protal {
                 LoadAncestrySites(options, db.GetGenomes());
             }
         }
+        if (concurrent && weights_for_alignment && (!deferred.futures.empty() || !run_profiling)) std::cout << weights_log.str();
         if (concurrent && need_alleles) std::cout << alleles_log.str();
         if (need_neighbours) {
             if (!concurrent) neighbours = ReadGeneNeighbours(options);
@@ -3433,7 +3546,10 @@ namespace protal {
         // sample is profiled after the alignment of all, on all threads.
         std::optional<ProfilingContext> profiling;
         std::unique_ptr<ProfilingAhead> ahead;
-        if (run_profiling) profiling.emplace(options, db, models);
+        if (run_profiling) {
+            profiling.emplace(options, db, models);
+            if (!deferred.futures.empty()) profiling->deferred = &deferred;
+        }
         if (run_alignment && run_profiling && options.ProfileAhead() && !options.BenchmarkAlignment()) {
             ahead = std::make_unique<ProfilingAhead>(*profiling, std::max<size_t>(1, options.GetThreads() / 4));
         }

@@ -4,6 +4,7 @@
 // consensus.
 #include <gtest/gtest.h>
 #include <cmath>
+#include <fstream>
 #include <map>
 #include <random>
 #include <sstream>
@@ -468,8 +469,9 @@ TEST(ColumnWeights, TheTableRoundTripsAndExpands) {
     EXPECT_EQ(back.Copies(), 3u);
     auto const view = back.Find(12, 2);
     ASSERT_TRUE(view.has_value());
-    EXPECT_EQ(view->family->within, f.within);
-    EXPECT_EQ(view->family->consensus, f.consensus);
+    EXPECT_EQ(back.FamilyAt(view->row_index).within, f.within);
+    EXPECT_EQ(back.FamilyAt(view->row_index).consensus, f.consensus);
+    EXPECT_EQ(back.FamilyAt(view->row_index), f);
     EXPECT_EQ(view->n_runs, 2u);
     EXPECT_FALSE(back.Find(14, 2).has_value());
     EXPECT_FALSE(back.Find(12, 4).has_value());
@@ -487,6 +489,111 @@ TEST(ColumnWeights, TheTableRoundTripsAndExpands) {
     EXPECT_NE(bad.Read(bad_is).find("line 1"), std::string::npos);
     std::istringstream other_gene(os.str() + "C\t12\t3\t5\t0:0:6\n");
     EXPECT_NE(bad.Read(other_gene).find("line 6"), std::string::npos);
+}
+
+// The packed table holds every code as the Family gave it (odd lengths, the last codon short, every code value, the
+// consensus with and without a base); its binary form (column_weights.bin) reads back as the same table, also as a
+// member of a single-file database on several threads; damaged binary forms are refused; and text in any order reads
+// as FromRows makes the table, a later line of a copy replacing an earlier one.
+TEST(ColumnWeights, TheBinaryFormIsTheTableAsItIs) {
+    test::ScratchDir tmp;
+    std::mt19937 rng(7);
+    std::vector<cw::Family> families;
+    for (uint32_t r = 0; r < 5; r++) {
+        cw::Family f;
+        f.family = 100 + r;
+        f.gene = 1 + r % 2;
+        f.reference = 200 + r;
+        f.genera = static_cast<uint16_t>(r);
+        size_t const length = 7 + 3 * r + r % 2;
+        for (size_t c = 0; c < length; c++) {
+            f.within.push_back(static_cast<uint8_t>(rng() % 16));
+            f.among.push_back(static_cast<uint8_t>(rng() % 16));
+            f.consensus.push_back(static_cast<uint8_t>(rng() % 5));
+        }
+        for (size_t k = 0; k < (length + 2) / 3; k++) f.aa.push_back(static_cast<uint8_t>(rng() % 16));
+        families.push_back(f);
+    }
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t, std::vector<cw::Run>>> copies;
+    for (uint32_t taxid = 3; taxid < 40; taxid += 3) {
+        uint32_t const row = taxid % 5;
+        uint16_t const length = static_cast<uint16_t>(families[row].Length());
+        copies.emplace_back(taxid, families[row].gene, row, std::vector<cw::Run>{ cw::Run{ 0, 1, static_cast<uint16_t>(length - 2) },
+                                                                                  cw::Run{ static_cast<uint16_t>(length - 1), 0, 1 } });
+    }
+    auto const table = cw::Table::FromRows(families, copies);
+    for (size_t r = 0; r < families.size(); r++) EXPECT_EQ(table.FamilyAt(r), families[r]) << r;
+    std::ostringstream text;
+    table.Write(text);
+    cw::Table from_text;
+    ASSERT_EQ(from_text.Read(std::string_view(text.str())), "");
+    std::ostringstream text_again;
+    from_text.Write(text_again);
+    EXPECT_EQ(text_again.str(), text.str());
+
+    auto same_expansions = [&](cw::Table const& a, cw::Table const& b) {
+        for (auto const& [taxid, gene, row, runs] : copies) {
+            size_t const length = families[row].Length() + 2;
+            auto const x = a.Expand(taxid, gene, length), y = b.Expand(taxid, gene, length);
+            ASSERT_TRUE(x && y) << taxid;
+            EXPECT_EQ(x->within, y->within) << taxid;
+            EXPECT_EQ(x->among, y->among) << taxid;
+            EXPECT_EQ(x->aa, y->aa) << taxid;
+            EXPECT_EQ(x->consensus, y->consensus) << taxid;
+        }
+    };
+    same_expansions(table, from_text);
+
+    {
+        std::ofstream os(tmp / "column_weights.bin", std::ios::binary);
+        ASSERT_TRUE(table.WriteBinary(os, text.str().size()));
+    }
+    std::string error;
+    zstd::Params const params{ 3, 0, 2, 64 };  // small frames: the arrays cross them
+    ASSERT_TRUE(db::Write(tmp / "database.protal", { { cw::kBinaryFileName, tmp / "column_weights.bin" } }, params, error)) << error;
+    auto const bundle = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(bundle) << error;
+    for (auto const& file : { db::DbFile::OnDisk(tmp / "column_weights.bin"), db::DbFile::InBundle(*bundle, cw::kBinaryFileName) }) {
+        auto const header = binary_table::ReadHeader(file, cw::Table::kMagic, error);
+        ASSERT_TRUE(header) << file.Name() << ": " << error;
+        EXPECT_EQ(header->version, cw::Table::kBinaryVersion);
+        EXPECT_EQ(header->text_size, text.str().size());
+        cw::Table from_binary;
+        ASSERT_EQ(from_binary.ReadBinary(file, *header, 3), "") << file.Name();
+        std::ostringstream back;
+        from_binary.Write(back);
+        EXPECT_EQ(back.str(), text.str()) << file.Name();
+        EXPECT_EQ(from_binary.Bytes(), table.Bytes());
+        EXPECT_EQ(from_binary.ColumnCount(), table.ColumnCount());
+        same_expansions(table, from_binary);
+    }
+
+    // Damaged: cut short, another table's magic, a copy's row beyond the rows.
+    std::string const bytes = test::Slurp(tmp / "column_weights.bin");
+    test::Spit(tmp / "cut.bin", bytes.substr(0, bytes.size() - 8));
+    EXPECT_FALSE(binary_table::ReadHeader(db::DbFile::OnDisk(tmp / "cut.bin"), cw::Table::kMagic, error));
+    EXPECT_FALSE(binary_table::ReadHeader(db::DbFile::OnDisk(tmp / "column_weights.bin"), strain_alleles::Table::kMagic, error));
+    auto const header = binary_table::ReadHeader(db::DbFile::OnDisk(tmp / "column_weights.bin"), cw::Table::kMagic, error);
+    ASSERT_TRUE(header);
+    std::string damaged = bytes;
+    damaged[header->offsets[5] + 4] = '\xff';  // the first copy's row
+    test::Spit(tmp / "damaged.bin", damaged);
+    cw::Table refused;
+    EXPECT_NE(refused.ReadBinary(db::DbFile::OnDisk(tmp / "damaged.bin"), *header, 2).find("outside"), std::string::npos);
+    EXPECT_TRUE(refused.Empty());
+
+    // Copy lines out of order, one copy twice: the later one counts, as FromRows takes it.
+    std::string const head = text.str().substr(0, text.str().find("\nC\t") + 1);
+    std::string const unsorted = head + "C\t30\t1\t100\t0:0:3\nC\t6\t2\t101\t0:0:2\nC\t30\t1\t100\t1:1:4\n";
+    cw::Table read_unsorted;
+    ASSERT_EQ(read_unsorted.Read(std::string_view(unsorted)), "");
+    auto const expected = cw::Table::FromRows(families, { { 30, 1, 0, { cw::Run{ 0, 0, 3 } } }, { 6, 2, 1, { cw::Run{ 0, 0, 2 } } },
+                                                           { 30, 1, 0, { cw::Run{ 1, 1, 4 } } } });
+    std::ostringstream a, b;
+    read_unsorted.Write(a);
+    expected.Write(b);
+    EXPECT_EQ(a.str(), b.str());
+    EXPECT_EQ(read_unsorted.Copies(), 2u);
 }
 
 // What a record's mismatches weigh: the columns with an estimate, the mismatches' weights, the conserved ones, and

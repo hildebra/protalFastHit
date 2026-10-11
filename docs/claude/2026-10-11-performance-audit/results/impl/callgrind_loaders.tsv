@@ -1,0 +1,10 @@
+function	work_text	work_bin
+PROGRAM TOTALS	10,027,038,608	8,019,637,854
+protal::LoadStrainAlleles(	337,984,777	134,450,085
+LoadColumnWeights(	2,426,150,522	621,700,122
+binary_table::ReadHeader(		2,364,250
+binary_table::ReadArrays(		
+ReadFramesPrefix(		2,357,365
+ZSTD_decompressDCtx	4,679,902,191	4,530,861,858
+LoadAncestrySites(	350,978,675	350,977,356
+LoadCongenerGaps(	290,309,016	290,314,133

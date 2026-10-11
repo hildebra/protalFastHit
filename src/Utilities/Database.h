@@ -25,11 +25,14 @@
 #include "Zstd.h"
 
 #include <algorithm>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <istream>
 #include <iterator>
+#include <streambuf>
 #include <memory>
 #include <optional>
 #include <set>
@@ -220,6 +223,71 @@ namespace protal::db {
         return Bundle::Open(path, error).has_value();
     }
 
+    // A file's content into one buffer of its size (DbFile::ReadAll), frame by frame from any thread.
+    class BufferSink : public zstd::Sink {
+    public:
+        explicit BufferSink(std::string& out) : m_out(out) {}
+        char* Direct(uint64_t offset, size_t size) override {
+            return offset + size <= m_out.size() ? m_out.data() + offset : nullptr;
+        }
+        void Copy(uint64_t offset, char const* data, size_t size) override {
+            if (offset + size <= m_out.size()) std::memcpy(m_out.data() + offset, data, size);
+        }
+    private:
+        std::string& m_out;
+    };
+
+    // A part of a file's content and the memory it goes to (DbFile::ReadSections): content bytes [offset, offset + size).
+    struct Section {
+        uint64_t offset = 0;
+        uint64_t size = 0;
+        char* data = nullptr;
+    };
+
+    // The sections of a file's content into their memory, frame by frame from any thread; the bytes of no section
+    // (a header) are skipped. The sections are sorted by offset and do not overlap.
+    class SectionSink : public zstd::Sink {
+    public:
+        explicit SectionSink(std::vector<Section> sections) : m_sections(std::move(sections)) {}
+        char* Direct(uint64_t offset, size_t size) override {
+            auto const it = SectionOf(offset);
+            if (it == m_sections.end() || offset < it->offset || offset + size > it->offset + it->size) return nullptr;
+            return it->data + (offset - it->offset);
+        }
+        void Copy(uint64_t offset, char const* data, size_t size) override {
+            uint64_t const end = offset + size;
+            for (auto it = SectionOf(offset); it != m_sections.end() && it->offset < end; ++it) {
+                uint64_t const from = std::max(offset, it->offset), to = std::min(end, it->offset + it->size);
+                if (from < to) std::memcpy(it->data + (from - it->offset), data + (from - offset), to - from);
+            }
+        }
+    private:
+        // The first section that ends after offset.
+        std::vector<Section>::iterator SectionOf(uint64_t offset) {
+            return std::upper_bound(m_sections.begin(), m_sections.end(), offset,
+                                    [](uint64_t o, Section const& s) { return o < s.offset + s.size; });
+        }
+        std::vector<Section> m_sections;
+    };
+
+    // An input stream over text it does not own: a table's reader takes the content ReadAll gave it without a copy into
+    // a std::istringstream (a 2.4 GB column_weights.tsv was held twice at r226; docs/claude/2026-10-11-performance-audit).
+    class TextStream : public std::istream {
+    public:
+        explicit TextStream(std::string_view text) : std::istream(nullptr), m_buf(text) { rdbuf(&m_buf); }
+        TextStream(TextStream const&) = delete;
+        TextStream& operator=(TextStream const&) = delete;
+    private:
+        class Buf : public std::streambuf {
+        public:
+            explicit Buf(std::string_view text) {
+                char* p = const_cast<char*>(text.data());  // read only: the get area is never written
+                setg(p, p, p + text.size());
+            }
+        };
+        Buf m_buf;
+    };
+
     // A database file: a file on disk (raw or .zst, as in a database directory), or a member of a
     // single-file database.
     class DbFile {
@@ -276,12 +344,94 @@ namespace protal::db {
             return zstd::ParallelRead(m_path, threads, sink, error);
         }
 
-        // The whole content (for small files); nullopt with a message in error.
-        std::optional<std::string> ReadAll(std::string& error) const {
+        // The content's size where it is known without reading the content: a member's frames, a raw file's size, a
+        // seekable .zst file's seek table; nullopt for any other .zst file (Size() would decompress it to count).
+        std::optional<uint64_t> KnownSize() const {
+            if (!m_exists) return std::nullopt;
+            if (m_in_bundle) return m_frames.DecompressedSize();
+            std::error_code ec;
+            if (!zstd::IsCompressed(m_path)) {
+                uint64_t const size = std::filesystem::file_size(m_path, ec);
+                return ec ? std::nullopt : std::optional<uint64_t>(size);
+            }
+            std::string error;
+            auto const table = zstd::ReadSeekTable(m_path, error);
+            return table ? std::optional<uint64_t>(table->DecompressedSize()) : std::nullopt;
+        }
+
+        // The whole content; nullopt with a message in error. Where its size is known (KnownSize) it is read into one
+        // buffer of that size, frame by frame on up to `threads` threads; else sequentially, as it grows.
+        std::optional<std::string> ReadAll(std::string& error, int threads = 1) const {
             if (!m_exists) {
                 error = "does not exist";
                 return std::nullopt;
             }
+            if (auto const size = KnownSize()) {
+                std::string content(*size, '\0');
+                BufferSink sink(content);
+                uint64_t const read = ParallelRead(threads, sink, error);
+                if (!error.empty()) return std::nullopt;
+                if (read != *size) {
+                    error = "read " + std::to_string(read) + " bytes of " + std::to_string(*size) + " (truncated or corrupt file?)";
+                    return std::nullopt;
+                }
+                return content;
+            }
+            return ReadStream(error);
+        }
+
+        // The first `size` bytes of the content, or all of it if it is shorter (a binary member's header); nullopt with a
+        // message in error. A member's frames are decoded only as far as the prefix reaches (zstd::ReadFramesPrefix).
+        std::optional<std::string> ReadPrefix(size_t size, std::string& error) const {
+            if (!m_exists) {
+                error = "does not exist";
+                return std::nullopt;
+            }
+            if (m_in_bundle) {
+                auto prefix = zstd::ReadFramesPrefix(m_path, m_frames, size, error);
+                if (!error.empty()) return std::nullopt;
+                return prefix;
+            }
+            auto input = Open();
+            if (!input->IsOpen()) {
+                error = "cannot open the file";
+                return std::nullopt;
+            }
+            std::string prefix(size, '\0');
+            try {
+                input->Stream().read(prefix.data(), static_cast<std::streamsize>(size));
+            } catch (std::exception const& e) {
+                error = e.what();
+                return std::nullopt;
+            }
+            if (input->Stream().bad()) {
+                error = "the file cannot be read or decompressed (truncated or corrupt file?)";
+                return std::nullopt;
+            }
+            prefix.resize(static_cast<size_t>(input->Stream().gcount()));
+            return prefix;
+        }
+
+        // Reads `sections` of the content (sorted by offset, not overlapping) into their memory, frame by frame on up to
+        // `threads` threads (a binary member's arrays, without a copy of the whole). Returns "" or what failed.
+        std::string ReadSections(std::vector<Section> sections, int threads) const {
+            if (!m_exists) return "does not exist";
+            auto const size = KnownSize();
+            if (!size) return "its size is unknown (not a member or seekable file)";
+            for (auto const& s : sections) {
+                if (s.offset + s.size > *size) return "it is shorter than its header says (truncated or corrupt file?)";
+            }
+            SectionSink sink(std::move(sections));
+            std::string error;
+            uint64_t const read = ParallelRead(threads, sink, error);
+            if (!error.empty()) return error;
+            if (read != *size) return "read " + std::to_string(read) + " bytes of " + std::to_string(*size) + " (truncated or corrupt file?)";
+            return "";
+        }
+
+    private:
+        // The whole content, read sequentially (its size unknown before).
+        std::optional<std::string> ReadStream(std::string& error) const {
             auto input = Open();
             if (!input->IsOpen()) {
                 error = "cannot open the file";
@@ -305,7 +455,6 @@ namespace protal::db {
             return content;
         }
 
-    private:
         bool m_in_bundle = false;
         bool m_exists = false;
         std::string m_path, m_name;

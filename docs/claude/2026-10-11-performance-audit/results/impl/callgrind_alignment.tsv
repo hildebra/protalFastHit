@@ -1,0 +1,12 @@
+function	ref_text	work_bin
+PROGRAM TOTALS	31,881,508,922	33,488,198,146
+protal::LoadIndex(	21,204,902,057	21,204,902,233
+LoadAllGenomes(	3,835,547,303	3,835,547,506
+protal::LoadStrainAlleles(	594,415,314	391,813,205
+LoadColumnWeights(		1,765,348,156
+classify::RunPairedEnd<	4,179,933,003	4,226,485,204
+SimpleAlignmentHandler::operator()	553,188,788	600,377,688
+SimpleAlignmentHandler::ScoreAlleles	5,512,034	52,555,008
+ColumnWeightsOf		
+column_weights::Table::Expand		
+column_weights::Table::Find		

@@ -1,0 +1,76 @@
+41 391,672,144;42 388,210,880;43 370,308,696;44 370,233,872;45 395,388,728;46 443,920,000;47 424,749,120;48 435,680,096;49 419,328,376;50 427,061,584;51 481,496,016;52 486,150,808;53 495,605,800;54 463,711,640;55 473,725,632;56 510,544,296;57 504,533,208;58 486,971,744;59 538,799,864;60 543,860,704;61 533,347,592;62 536,141,488;63 535,960,376;64 554,294,192;65 555,590,696;66 558,103,856;67 566,350,320;68 549,291,944;69 547,344,696;70 324,336,560;
+== snapshot 69
+->30.57% (167,321,584B) 0x345F7D: std::__detail::_Map_base<unsigned int, std::pair<unsigned int const, protal::profiler::RecordEvidence>, std::allocator<std::pair<unsigned int const, protal::profiler::RecordEvidence> >, std::__det
+| ->30.57% (167,321,584B) 0x37047A: protal::profiler::RecordEvidenceCollector::FoldFailedCandidates() 
+|   ->30.57% (167,321,584B) 0x418E76: protal::profiler::MicrobialProfile::ApplyRecordEvidence(unsigned long) 
+->13.43% (73,533,720B) 0x2E12C8: std::vector<unsigned char, std::allocator<unsigned char> >::_M_fill_assign(unsigned long, unsigned char const&) 
+| ->03.36% (18,383,430B) 0x427ED0: std::shared_ptr<protal::column_weights::Columns const> protal::column_weights::Cache::Get<protal::GenomeLoader>(unsigned int, unsigned int, protal::GenomeLoader&, protal::column_weights::Table co
+| ->03.36% (18,383,430B) 0x427EE3: std::shared_ptr<protal::column_weights::Columns const> protal::column_weights::Cache::Get<protal::GenomeLoader>(unsigned int, unsigned int, protal::GenomeLoader&, protal::column_weights::Table co
+| ->03.36% (18,383,430B) 0x427EF6: std::shared_ptr<protal::column_weights::Columns const> protal::column_weights::Cache::Get<protal::GenomeLoader>(unsigned int, unsigned int, protal::GenomeLoader&, protal::column_weights::Table co
+| ->03.36% (18,383,430B) 0x427F09: std::shared_ptr<protal::column_weights::Columns const> protal::column_weights::Cache::Get<protal::GenomeLoader>(unsigned int, unsigned int, protal::GenomeLoader&, protal::column_weights::Table co
+|   ->03.36% (18,383,430B) 0x42AE34: protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool) 
+->13.33% (72,968,467B) 0x29F388: std::vector<unsigned char, std::allocator<unsigned char> >::resize(unsigned long) 
+| ->03.96% (21,660,549B) 0x3D20C3: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+| ->03.96% (21,660,549B) 0x3D2117: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+| ->03.96% (21,660,549B) 0x3D2224: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+| ->01.32% (7,220,183B) 0x3D216F: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+| ->00.14% (766,637B) in 1+ places, all below ms_print's threshold (00.20%)
+->12.31% (67,400,749B) 0x368516: protal::GenomeLoader::LoadAllGenomes(int) 
+| ->12.31% (67,400,749B) 0x19EB1C: protal::Run(int, char**)::{lambda()
+|   ->12.31% (67,400,749B) 0x2215CE: protal::Run(int, char**) 
+->06.13% (33,555,182B) 0x277316: string::_M_mutate(unsigned long, unsigned long, char const*, unsigned long) 
+| ->06.13% (33,554,693B) 0x279B1A: string::append(char const*, unsigned long) 
+| ->00.00% (489B) in 1+ places, all below ms_print's threshold (00.20%)
+->03.17% (17,355,044B) in 483 places, all below massif's threshold (0.20%)
+->02.45% (13,385,760B) 0x3D0DF4: protal::column_weights::Table::FromRows(std::vector<protal::column_weights::Family, std::allocator<protal::column_weights::Family> >, std::vector<std::tuple<unsigned int, unsigned int, unsigned int
+| ->02.45% (13,385,760B) 0x3D1AA2: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+|   ->02.45% (13,385,760B) 0x1B2AE8: protal::LoadColumnWeights(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->02.15% (11,762,784B) 0x3337D8: protal::zstd::ParallelFor<protal::GenomeLoader::LoadGeneTable(protal::db::DbFile const&, std::optional<unsigned long>, int)::{lambda(unsigned long, unsigned long)
+| ->01.58% (8,644,256B) 0x4A58DB3: ??? 
+| ->00.57% (3,118,528B) 0x333B13: string protal::zstd::ParallelFor<protal::GenomeLoader::LoadGeneTable(protal::db::DbFile const&, std::optional<unsigned long>, int)::{lambda(unsigned long, unsigned long)
+|   ->00.57% (3,118,528B) 0x336A87: protal::GenomeLoader::LoadGeneTable(protal::db::DbFile const&, std::optional<unsigned long>, int) [clone .isra.0] 
+->01.88% (10,295,712B) 0x45435D: Node::Node(XmlNode const&, bool, PredicateBuilder const&, DataType const&) 
+| ->01.85% (10,127,712B) 0x452885: Node::Node(XmlNode const&, bool, PredicateBuilder const&, DataType const&) 
+| ->00.03% (168,000B) in 1+ places, all below ms_print's threshold (00.20%)
+->01.53% (8,388,608B) 0x3D106D: protal::column_weights::Table::FromRows(std::vector<protal::column_weights::Family, std::allocator<protal::column_weights::Family> >, std::vector<std::tuple<unsigned int, unsigned int, unsigned int,
+| ->01.53% (8,388,608B) 0x3D1AA2: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+|   ->01.53% (8,388,608B) 0x1B2AE8: protal::LoadColumnWeights(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->01.45% (7,918,848B) 0x2549D2: protal::gene_conservation::BottomSketch(std::basic_string_view<char, std::char_traits<char> >, unsigned long) 
+| ->01.45% (7,918,848B) 0x41305F: std::vector<std::pair<unsigned int, std::vector<unsigned int, std::allocator<unsigned int> > >, std::allocator<std::pair<unsigned int, std::vector<unsigned int, std::allocator<unsigned int> > > > 
+|   ->01.45% (7,918,848B) 0x41364C: protal::profiler::context::CongenerDistances::SketchOf(unsigned int) 
+->01.06% (5,822,416B) 0x3D3C6D: protal::strain_alleles::Table::FromRows(std::vector<std::tuple<unsigned int, unsigned int, std::vector<protal::strain_alleles::Allele, std::allocator<protal::strain_alleles::Allele> > >, std::alloca
+| ->01.06% (5,822,416B) 0x3D4C61: protal::strain_alleles::Table::Read[abi:cxx11](std::istream&) 
+|   ->01.06% (5,822,416B) 0x1B323B: protal::LoadStrainAlleles(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->00.75% (4,114,368B) 0x435412: MiningField::to_miningfields[abi:cxx11](std::vector<XmlNode, std::allocator<XmlNode> >, DataDictionary const&) 
+| ->00.75% (4,114,368B) 0x439000: MiningSchema::MiningSchema(XmlNode const&, DataDictionary const&) 
+|   ->00.74% (4,074,624B) 0x448158: InternalModel::InternalModel(XmlNode const&, DataDictionary const&, std::shared_ptr<Indexer> const&) [clone .lto_priv.0] 
+|   ->00.01% (39,744B) in 1+ places, all below ms_print's threshold (00.20%)
+->00.68% (3,699,488B) 0x2A2A10: std::vector<unsigned long, std::allocator<unsigned long> >::resize(unsigned long) 
+| ->00.34% (1,849,648B) 0x2C3DC4: protal::ancestry::Table::Read(string) 
+| ->00.34% (1,849,648B) 0x2C3DD2: protal::ancestry::Table::Read(string) 
+| ->00.00% (192B) in 1+ places, all below ms_print's threshold (00.20%)
+->00.67% (3,670,016B) 0x14FE92: protal::column_weights::Family& std::vector<protal::column_weights::Family, std::allocator<protal::column_weights::Family> >::emplace_back<protal::column_weights::Family>(protal::column_weights::Fam
+| ->00.67% (3,670,016B) 0x3D22D4: protal::column_weights::Table::Read[abi:cxx11](std::istream&) 
+|   ->00.67% (3,670,016B) 0x1B2AE8: protal::LoadColumnWeights(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->00.67% (3,657,216B) 0x43A041: MiningSchema::MiningSchema(XmlNode const&, DataDictionary const&) 
+| ->00.66% (3,621,888B) 0x448158: InternalModel::InternalModel(XmlNode const&, DataDictionary const&, std::shared_ptr<Indexer> const&) [clone .lto_priv.0] 
+| ->00.01% (35,328B) in 1+ places, all below ms_print's threshold (00.20%)
+->00.57% (3,145,728B) 0x364D3F: protal::congener_gaps::Table::FromRows(std::vector<std::tuple<unsigned int, unsigned int, protal::congener_gaps::Gap>, std::allocator<std::tuple<unsigned int, unsigned int, protal::congener_gaps::Ga
+| ->00.57% (3,145,728B) 0x365721: protal::congener_gaps::Table::Read[abi:cxx11](std::istream&) 
+|   ->00.57% (3,145,728B) 0x19E10F: protal::LoadCongenerGaps(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->00.57% (3,145,728B) 0x3D3E8A: protal::strain_alleles::Table::FromRows(std::vector<std::tuple<unsigned int, unsigned int, std::vector<protal::strain_alleles::Allele, std::allocator<protal::strain_alleles::Allele> > >, std::alloca
+| ->00.57% (3,145,728B) 0x3D4C61: protal::strain_alleles::Table::Read[abi:cxx11](std::istream&) 
+|   ->00.57% (3,145,728B) 0x1B323B: protal::LoadStrainAlleles(protal::Options const&, protal::GenomeLoader&, std::ostream&) 
+->00.51% (2,795,520B) 0x2B082A: std::pair<unsigned int, protal::profiler::Taxon>* tsl::detail_sparse_hash::sparse_array<std::pair<unsigned int, protal::profiler::Taxon>, std::allocator<std::pair<unsigned int, protal::profiler::Tax
+| ->00.51% (2,795,520B) 0x40D43A: protal::profiler::MicrobialProfile::TaxonOf(int) 
+|   ->00.51% (2,795,520B) 0x40D864: protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(string const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned 
+->00.50% (2,739,360B) 0x3854E8: tsl::detail_robin_hash::robin_hash<std::pair<unsigned int, protal::profiler::GeneRecords>, tsl::robin_map<unsigned int, protal::profiler::GeneRecords, std::hash<unsigned int>, std::equal_to<unsigned
+| ->00.50% (2,739,360B) 0x42A182: protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool) 
+|   ->00.50% (2,739,360B) 0x226260: protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, pro
+->00.44% (2,433,456B) 0x345C3D: std::__detail::_Map_base<unsigned int, std::pair<unsigned int const, protal::profiler::RecordEvidence>, std::allocator<std::pair<unsigned int const, protal::profiler::RecordEvidence> >, std::__detai
+| ->00.44% (2,433,456B) 0x429247: protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool) 
+|   ->00.44% (2,433,456B) 0x226260: protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, pro
+Memory after the genome preload: 0.42 GB resident, peak 0.74 GB
+Profiling took 27s 544ms
+Memory after profiling: 0.61 GB resident, peak 0.74 GB
+Run protal took 47s 746ms

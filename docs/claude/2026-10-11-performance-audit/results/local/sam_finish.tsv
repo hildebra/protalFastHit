@@ -1,0 +1,9 @@
+sample	format	rep	finish	line
+pe	gz	1	32ms	SAM header: 4019 genes, 147112 bytes, written as 47857 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; the records (7655034 bytes) were copied behind 
+pe	zst	1	6ms	SAM header: 4019 genes, 147112 bytes, written as 44914 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; placed in its room of 1077248 bytes before the 
+ont	gz	1	2ms	SAM header: 1359 genes, 84365 bytes, written as 30722 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; the records (3695012 bytes) were copied behind i
+ont	zst	1	1ms	SAM header: 1359 genes, 84365 bytes, written as 29374 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; placed in its room of 1077248 bytes before the r
+pe	gz	2	11ms	SAM header: 4019 genes, 147112 bytes, written as 47857 (text built in 0.01 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; the records (7654058 bytes) were copied behind 
+pe	zst	2	1ms	SAM header: 4019 genes, 147112 bytes, written as 44914 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 58349 bytes of it; placed in its room of 1077248 bytes before the 
+ont	gz	2	6ms	SAM header: 1359 genes, 84365 bytes, written as 30722 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; the records (3694723 bytes) were copied behind i
+ont	zst	2	1ms	SAM header: 1359 genes, 84365 bytes, written as 29374 (text built in 0.00 s); the unaligned reads' failed candidates of 6968 taxa in 54336 bytes of it; placed in its room of 1077248 bytes before the r

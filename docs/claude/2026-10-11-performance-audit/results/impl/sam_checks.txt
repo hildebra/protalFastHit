@@ -1,0 +1,4 @@
+same SAM records: ref_full vs work_full
+same SAM records: ref_full vs work_noprofile
+different SAM records: ref_full vs ref_noprofile (2258 lines differ)
+same SAM records: work_full vs work_noprofile

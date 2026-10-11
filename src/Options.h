@@ -187,7 +187,7 @@ namespace protal {
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
-                ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
+                ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, and the binary forms of its column weights and strain alleles (column_weights.bin, strain_alleles.bin), which a run reads without parsing the text, where it has no current ones.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, build_settings.tsv, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
@@ -519,7 +519,9 @@ namespace protal {
         static inline const std::string PROTAL_SPECIES_NEIGHBOURS_FILE = species_neighbours::kFileName;
         static inline const std::string PROTAL_CONGENER_GAPS_FILE = congener_gaps::kFileName;
         static inline const std::string PROTAL_STRAIN_ALLELES_FILE = strain_alleles::kFileName;
+        static inline const std::string PROTAL_STRAIN_ALLELES_BIN_FILE = strain_alleles::kBinaryFileName;
         static inline const std::string PROTAL_COLUMN_WEIGHTS_FILE = column_weights::kFileName;
+        static inline const std::string PROTAL_COLUMN_WEIGHTS_BIN_FILE = column_weights::kBinaryFileName;
         static inline const std::string PROTAL_ANCESTRY_SITES_FILE = ancestry::kFileName;
         static inline const std::string PROTAL_FOREIGN_RATES_FILE = foreign_rates::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
@@ -1251,6 +1253,20 @@ namespace protal {
         // The database's column_weights.tsv (--build's since 2026-10-10); Exists() is false if it has none.
         db::DbFile ColumnWeightsDbFile() const {
             return DbFileNamed(PROTAL_COLUMN_WEIGHTS_FILE, GetColumnWeightsFile());
+        }
+
+        // The single-file database's binary tables (BinaryTable.h: column_weights.bin, strain_alleles.bin), if it has them; a
+        // folder's text tables are read as they are.
+        std::optional<db::DbFile> ColumnWeightsBinDbFile() const {
+            return BundleMember(PROTAL_COLUMN_WEIGHTS_BIN_FILE);
+        }
+        std::optional<db::DbFile> StrainAllelesBinDbFile() const {
+            return BundleMember(PROTAL_STRAIN_ALLELES_BIN_FILE);
+        }
+        std::optional<db::DbFile> BundleMember(std::string const& name) const {
+            if (!m_bundle) return std::nullopt;
+            auto file = db::DbFile::InBundle(*m_bundle, name);
+            return file.Exists() ? std::optional<db::DbFile>(std::move(file)) : std::nullopt;
         }
 
         // The database's ancestry_sites.bin (--build's since 2026-10-11); Exists() is false if it has none.

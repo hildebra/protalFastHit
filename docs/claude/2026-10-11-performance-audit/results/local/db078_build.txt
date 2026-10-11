@@ -1,0 +1,6 @@
+518.94 1179.20 44.74 4395460
+Total alignments:   	0
+Output alignments:  	0
+Threads:            	9
+Run protal took 8m 38s 855ms
+Freeing memory took 0s 33ms

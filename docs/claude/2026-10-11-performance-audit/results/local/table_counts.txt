@@ -1,0 +1,11 @@
+Strain alleles: 131236 alleles of 57458 gene copies of 2213 species (strain_alleles.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Gene conservation: factors 0.58-1.63 for 53 genes (gene_conservation.tsv in /home/falk/perf9/arc/protal_db/database.protal), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 128 gene copies of 60 species near-identical to another genus's copy (suspect_copies.tsv in /home/falk/perf9/arc/protal_db/database.protal), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 6968 species (species_priors.tsv in /home/falk/perf9/arc/protal_db/database.protal), 6968 with a duplicated marker, CheckM quality or a species cluster known, 6968 with a genome size
+Species neighbours: 6968 species with 19604 congeners within 0.1 (species_neighbours.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Congener gaps: 254610 gene copies of 5899 species (congener_gaps.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Column weights: 28225 family-gene rows of 21660549 columns, 303767 gene copies of 6968 species mapped (column_weights.tsv in /home/falk/perf9/arc/protal_db/database.protal)
+Ancestry sites: 231206 gene copies of 5897 species with sites (ancestry_sites.bin in /home/falk/perf9/arc/protal_db/database.protal)
+Gene neighbours: 61767 rules of 1273 clades from 2296 genomes (gene_neighbours.tsv in /home/falk/perf9/arc/protal_db/database.protal), for 6968 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Gene neighbours: 95 fragments paired across two neighbouring genes; 0 guided mates found on the gene next to their guiding mate's

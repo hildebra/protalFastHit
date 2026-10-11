@@ -3,6 +3,7 @@
 // candidates (the ZF tag, on a read's first record or on an unmapped record, or the SAM header's line, read back and
 // counted per taxon), and the species' priors (species_priors.tsv) as features.
 #include <gtest/gtest.h>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -177,6 +178,36 @@ TEST(ReadEvidence, FragmentsBeforeTheFiltersTheEMsFragmentsAndTheFailedCandidate
             EXPECT_EQ(f2.at("fragments_all"), 1.0);
             EXPECT_NEAR(f2.at("failed_candidate_rate"), 3.0 / 4, 1e-12);
             EXPECT_EQ(f3.at("failed_candidate_rate"), 0.0);
+        }
+    }
+}
+
+// Once a sample's outputs are written its record evidence is dropped (MicrobialProfile::ReleaseEvidence: a cohort keeps
+// every sample's profile to its end): the taxa keep their own counts, so every feature stays as it was.
+TEST(ReadEvidence, ReleasingTheEvidenceLeavesTheTaxaAsTheyWere) {
+    std::mt19937 rng(22);
+    std::vector<std::string> one, two;
+    for (int g = 0; g < 2; g++) {
+        one.push_back(RandomSequence(500, rng));
+        two.push_back(RandomSequence(500, rng));
+    }
+    Reference ref({ { 1, one }, { 2, two } });
+    std::string const sam = ref.Header() + FailedCandidatesLine({ 0, 1, 2 }) + Record(ref, "a1", 0, 1, 1, 10, 100) +
+                            Record(ref, "a2", 0, 1, 2, 10, 100, 60, "\tZA:Z:*\tZF:Z:2") + Record(ref, "a3", 0, 1, 2, 60, 100, 0) +
+                            Record(ref, "b1", 0, 2, 1, 10, 100);
+    auto profile = Profile(ref, sam, 2);
+    std::map<uint32_t, std::map<std::string, double>> before;
+    for (uint32_t const taxid : { 1u, 2u }) before[taxid] = Features(profile.GetTaxa().at(taxid));
+    ASSERT_NE(profile.Evidence().Find(1), nullptr);
+    profile.ReleaseEvidence();
+    EXPECT_EQ(profile.Evidence().Find(1), nullptr);
+    EXPECT_TRUE(profile.Evidence().RecordCountsByTaxon().empty());
+    for (uint32_t const taxid : { 1u, 2u }) {
+        auto const after = Features(profile.GetTaxa().at(taxid));
+        ASSERT_EQ(after.size(), before.at(taxid).size());
+        for (auto const& [name, value] : after) {
+            double const was = before.at(taxid).at(name);
+            EXPECT_TRUE(value == was || (std::isnan(value) && std::isnan(was))) << taxid << " " << name << ": " << was << " -> " << value;
         }
     }
 }

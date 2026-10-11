@@ -1,0 +1,95 @@
+=== 13th cluster run (230bf64, r226 v11 database, 32 threads), pe run 2
+Loading the gene tables took 464ms
+Gene tables: gene_table.bin 14527738 genes with unique k-mer counts: reading 0.08 s, genomes 0.07 s, adding 0.31 s
+Preload genomes
+Preload genomes took 1s 683ms
+Preload: 14527738 genes, 16.45 Gb, 4.12 GB packed, from 16.62 GB of reference: listing the genes 0.34 s (sorted), arena 0.49 s, reading and packing 0.85 s, marking the genomes 0.00 s
+Memory after the genome preload: 24.76 GB resident, peak 26.85 GB
+Loading the taxonomy, models and tables took 1s 722ms
+Index in memory: 2903557366 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 26.6 GB; key map 3.2 GB
+Load Index took 2s 683ms
+Index: its last 40 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 33.27 GB resident, peak 33.87 GB
+Memory after aligning: 34.23 GB resident, peak 34.23 GB
+Memory after profiling: 8.05 GB resident, peak 34.22 GB
+=== v19/protal0.7.9_r226_v19/logs/protal_runs_test.log (training database, 84 threads), first run
+Loading the gene tables took 492ms
+Gene tables: gene_table.bin 13424725 genes with unique k-mer counts: reading 0.08 s, genomes 0.07 s, adding 0.34 s
+Preload genomes
+Preload genomes took 3s 38ms
+Preload: 13424725 genes, 15.20 Gb, 3.81 GB packed, from 15.36 GB of reference: listing the genes 1.42 s (sorted), arena 0.65 s, reading and packing 0.97 s, marking the genomes 0.00 s
+Memory after the genome preload: 32.85 GB resident, peak 38.55 GB
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 4915 gene copies of 2558 species near-identical to another genus's copy (suspect_copies.tsv), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv), 143614 with a duplicated marker, CheckM quality or a species cluster known, 143614 with a genome size
+Species neighbours: 132993 species with 517690 congeners within 0.15 (species_neighbours.tsv)
+Congener gaps: 11941916 gene copies of 118647 species (congener_gaps.tsv)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Gene neighbours: 1117693 rules of 16498 clades from 33851 genomes (gene_neighbours.tsv), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 3s 360ms
+Index in memory: 2690979018 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 24.7 GB; key map 3.2 GB
+Load Index took 2s 561ms
+Index: its last 111 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 32.21 GB resident, peak 38.55 GB
+=== v21/protal0.7.9_r226_v21/logs/protal_runs_test.log (training database, 84 threads), first run
+Loading the gene tables took 668ms
+Gene tables: gene_table.bin 13423190 genes with unique k-mer counts: reading 0.08 s, genomes 0.08 s, adding 0.50 s
+Preload genomes
+Preload genomes took 2s 599ms
+Preload: 13423190 genes, 15.20 Gb, 3.81 GB packed, from 15.36 GB of reference: listing the genes 1.21 s (sorted), arena 0.52 s, reading and packing 0.86 s, marking the genomes 0.02 s
+Memory after the genome preload: 33.46 GB resident, peak 41.66 GB
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 4896 gene copies of 2577 species near-identical to another genus's copy (suspect_copies.tsv), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv), 143614 with a duplicated marker, CheckM quality or a species cluster known, 143614 with a genome size
+Species neighbours: 132994 species with 516871 congeners within 0.15 (species_neighbours.tsv)
+Congener gaps: 11943396 gene copies of 118675 species (congener_gaps.tsv)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Strain alleles: 3666134 alleles of 1969331 gene copies of 29019 species (strain_alleles.tsv)
+Gene neighbours: 1110435 rules of 16061 clades from 25532 genomes (gene_neighbours.tsv), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 4s 142ms
+Index in memory: 2690653780 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 24.7 GB; key map 3.2 GB
+Load Index took 1s 425ms
+Index: its last 160 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 33.33 GB resident, peak 41.66 GB
+=== v22/protal0.7.9_r226_v22/logs/protal_runs_test.log (training database, 84 threads), first run
+Loading the gene tables took 501ms
+Gene tables: gene_table.bin 13423190 genes with unique k-mer counts: reading 0.08 s, genomes 0.07 s, adding 0.34 s
+Preload genomes
+Preload genomes took 7s 24ms
+Preload: 13423190 genes, 15.20 Gb, 3.81 GB packed, from 15.36 GB of reference: listing the genes 1.77 s (sorted), arena 0.76 s, reading and packing 4.49 s, marking the genomes 0.00 s
+Memory after the genome preload: 35.49 GB resident, peak 41.76 GB
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 4896 gene copies of 2577 species near-identical to another genus's copy (suspect_copies.tsv), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv), 143614 with a duplicated marker, CheckM quality or a species cluster known, 143614 with a genome size
+Species neighbours: 132994 species with 516871 congeners within 0.15 (species_neighbours.tsv)
+Congener gaps: 11943396 gene copies of 118675 species (congener_gaps.tsv)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Column weights: 584028 family-gene rows of 649579131 columns, 6666905 gene copies of 129893 species mapped (column_weights.tsv)
+Strain alleles: 3666134 alleles of 1969331 gene copies of 29019 species (strain_alleles.tsv)
+Gene neighbours: 1110435 rules of 16061 clades from 25532 genomes (gene_neighbours.tsv), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 17s 382ms
+Index in memory: 2787601920 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 25.6 GB; key map 3.2 GB
+Load Index took 6s 980ms
+Index: its last 110 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 36.71 GB resident, peak 42.44 GB
+=== v23/protal0.7.9_r226_v23/logs/protal_runs_test.log (training database, 84 threads), first run
+Loading the gene tables took 1s 123ms
+Gene tables: gene_table.bin 13317012 genes with unique k-mer counts: reading 0.09 s, genomes 0.07 s, adding 0.96 s
+Preload genomes
+Preload genomes took 5s 845ms
+Preload: 13317012 genes, 15.09 Gb, 3.78 GB packed, from 15.24 GB of reference: listing the genes 3.58 s (sorted), arena 0.58 s, reading and packing 1.68 s, marking the genomes 0.00 s
+Memory after the genome preload: 34.91 GB resident, peak 41.08 GB
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 4849 gene copies of 2518 species near-identical to another genus's copy (suspect_copies.tsv), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv), 143614 with a duplicated marker, CheckM quality or a species cluster known, 143614 with a genome size
+Species neighbours: 131472 species with 507287 congeners within 0.15 (species_neighbours.tsv)
+Congener gaps: 11828833 gene copies of 117146 species (congener_gaps.tsv)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Column weights: 566554 family-gene rows of 582283098 columns, 12781716 gene copies of 131472 species mapped (column_weights.tsv)
+Strain alleles: 3704529 alleles of 1987802 gene copies of 29170 species (strain_alleles.tsv)
+Gene neighbours: 1369489 rules of 22181 clades from 32747 genomes (gene_neighbours.tsv), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 18s 712ms
+Index in memory: 2770747496 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 25.4 GB; key map 3.2 GB
+Load Index took 3s 994ms
+Index: its last 111 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 36.88 GB resident, peak 42.75 GB

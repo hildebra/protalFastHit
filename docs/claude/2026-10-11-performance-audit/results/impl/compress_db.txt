@@ -1,0 +1,4 @@
+Wrote /home/falk/impl/perf/db_bin/database.protal.column_weights.bin: the binary form of column_weights.tsv in /home/falk/impl/perf/db_bin/database.protal (85.94 MB), which a run from database.protal reads without parsing it
+Wrote /home/falk/impl/perf/db_bin/database.protal.strain_alleles.bin: the binary form of strain_alleles.tsv in /home/falk/impl/perf/db_bin/database.protal (6.91 MB), which a run from database.protal reads without parsing it
+Rewrite /home/falk/impl/perf/db_bin/database.protal with column_weights.bin, strain_alleles.bin (the other members' frames copied as they are, the tables compressed at zstd level 19; verified)
+Rewrite database.protal took 14s 75ms

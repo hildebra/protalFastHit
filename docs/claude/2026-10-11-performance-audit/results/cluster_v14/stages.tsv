@@ -1,0 +1,143 @@
+sample	rep	stage	seconds	threads	seconds_per_thread
+pe1	1	Seeding	375.080443	32	11.721264
+pe1	1	Sorting Seeds	36.214477	32	1.131702
+pe1	1	Pairing	18.206162	32	0.568943
+pe1	1	Sorting Anchors	5.045033	32	0.157657
+pe1	1	Extending Anchors	63.464936	32	1.983279
+pe1	1	Sequence reader	44.472110	32	1.389753
+pe1	1	Retrieve k-mers	47.450652	32	1.482833
+pe1	1	Seed- and Anchor-finding	517.179767	32	16.161868
+pe1	1	Anchor recovery	15.970814	32	0.499088
+pe1	1	Alignment handler	104.449171	32	3.264037
+pe1	1	K-mer screen	43.664211	32	1.364507
+pe1	1	Joining alignment pairs and sorting	19.839465	32	0.619983
+pe1	1	Output handler	17.690610	32	0.552832
+pe1	1	Profiling: sample	8.841660	1	8.841660
+pe1	1	Profiling: reading the SAM	7.152968	1	7.152968
+pe1	1	Profiling: record evidence and sample context	1.366199	1	1.366199
+pe1	1	Profiling: read EM	0.625373	1	0.625373
+pe1	1	Profiling: congener distances	0.228723	1	0.228723
+pe1	1	Profiling: SNP post-processing	0.066682	1	0.066682
+pe1	1	Profiling: scoring	0.043991	1	0.043991
+pe1	1	Profiling: writing the profile	0.199070	1	0.199070
+pe1	2	Seeding	375.211967	32	11.725374
+pe1	2	Sorting Seeds	36.582774	32	1.143212
+pe1	2	Pairing	18.401221	32	0.575038
+pe1	2	Sorting Anchors	5.158463	32	0.161202
+pe1	2	Extending Anchors	65.218150	32	2.038067
+pe1	2	Sequence reader	37.586888	32	1.174590
+pe1	2	Retrieve k-mers	47.744196	32	1.492006
+pe1	2	Seed- and Anchor-finding	518.879572	32	16.214987
+pe1	2	Anchor recovery	16.778427	32	0.524326
+pe1	2	Alignment handler	104.034370	32	3.251074
+pe1	2	K-mer screen	43.711540	32	1.365986
+pe1	2	Joining alignment pairs and sorting	20.635018	32	0.644844
+pe1	2	Output handler	21.317978	32	0.666187
+pe1	2	Profiling: sample	8.612867	1	8.612867
+pe1	2	Profiling: reading the SAM	6.933728	1	6.933728
+pe1	2	Profiling: record evidence and sample context	1.355386	1	1.355386
+pe1	2	Profiling: read EM	0.617796	1	0.617796
+pe1	2	Profiling: congener distances	0.228850	1	0.228850
+pe1	2	Profiling: SNP post-processing	0.067760	1	0.067760
+pe1	2	Profiling: scoring	0.043239	1	0.043239
+pe1	2	Profiling: writing the profile	0.200119	1	0.200119
+pe1	3	Seeding	375.347902	32	11.729622
+pe1	3	Sorting Seeds	36.002558	32	1.125080
+pe1	3	Pairing	18.147645	32	0.567114
+pe1	3	Sorting Anchors	5.015881	32	0.156746
+pe1	3	Extending Anchors	65.469350	32	2.045917
+pe1	3	Sequence reader	37.628264	32	1.175883
+pe1	3	Retrieve k-mers	47.803002	32	1.493844
+pe1	3	Seed- and Anchor-finding	519.451947	32	16.232873
+pe1	3	Anchor recovery	15.887899	32	0.496497
+pe1	3	Alignment handler	104.095663	32	3.252989
+pe1	3	K-mer screen	43.981900	32	1.374434
+pe1	3	Joining alignment pairs and sorting	20.291478	32	0.634109
+pe1	3	Output handler	21.351101	32	0.667222
+pe1	3	Profiling: sample	8.545996	1	8.545996
+pe1	3	Profiling: reading the SAM	6.823292	1	6.823292
+pe1	3	Profiling: record evidence and sample context	1.366405	1	1.366405
+pe1	3	Profiling: read EM	0.627460	1	0.627460
+pe1	3	Profiling: congener distances	0.225400	1	0.225400
+pe1	3	Profiling: SNP post-processing	0.068524	1	0.068524
+pe1	3	Profiling: scoring	0.044154	1	0.044154
+pe1	3	Profiling: writing the profile	0.230376	1	0.230376
+pb2	1	Seeding	83.354818	32	2.604838
+pb2	1	Sorting Seeds	11.536560	32	0.360517
+pb2	1	Pairing	4.164979	32	0.130156
+pb2	1	Sorting Anchors	1.127546	32	0.035236
+pb2	1	Extending Anchors	17.809717	32	0.556554
+pb2	1	Sequence reader	15.740555	32	0.491892
+pb2	1	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	1	Anchor recovery	0.000000	0	0.000000
+pb2	1	Alignment handler	244.346728	32	7.635835
+pb2	1	K-mer screen	14.301464	32	0.446921
+pb2	1	Indel bound	0.000000	0	0.000000
+pb2	1	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	1	Output handler	3.580811	32	0.111900
+pb2	1	Profiling: sample	0.838450	1	0.838450
+pb2	1	Profiling: reading the SAM	0.577827	1	0.577827
+pb2	1	Profiling: record evidence and sample context	0.199526	1	0.199526
+pb2	1	Profiling: read EM	0.045028	1	0.045028
+pb2	1	Profiling: congener distances	0.029310	1	0.029310
+pb2	1	Profiling: SNP post-processing	0.005795	1	0.005795
+pb2	1	Profiling: scoring	0.006891	1	0.006891
+pb2	1	Profiling: writing the profile	0.044668	1	0.044668
+pb2	2	Seeding	82.947046	32	2.592095
+pb2	2	Sorting Seeds	10.845734	32	0.338929
+pb2	2	Pairing	4.022121	32	0.125691
+pb2	2	Sorting Anchors	1.094688	32	0.034209
+pb2	2	Extending Anchors	17.662987	32	0.551968
+pb2	2	Sequence reader	15.996688	32	0.499896
+pb2	2	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	2	Anchor recovery	0.000000	0	0.000000
+pb2	2	Alignment handler	245.263905	32	7.664497
+pb2	2	K-mer screen	14.268408	32	0.445888
+pb2	2	Indel bound	0.000000	0	0.000000
+pb2	2	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	2	Output handler	3.083317	32	0.096354
+pb2	2	Profiling: sample	0.841712	1	0.841712
+pb2	2	Profiling: reading the SAM	0.579364	1	0.579364
+pb2	2	Profiling: record evidence and sample context	0.198083	1	0.198083
+pb2	2	Profiling: read EM	0.043378	1	0.043378
+pb2	2	Profiling: congener distances	0.029153	1	0.029153
+pb2	2	Profiling: SNP post-processing	0.006414	1	0.006414
+pb2	2	Profiling: scoring	0.006984	1	0.006984
+pb2	2	Profiling: writing the profile	0.046282	1	0.046282
+pb2	3	Seeding	83.289457	32	2.602796
+pb2	3	Sorting Seeds	11.501988	32	0.359437
+pb2	3	Pairing	4.130829	32	0.129088
+pb2	3	Sorting Anchors	1.127140	32	0.035223
+pb2	3	Extending Anchors	17.824538	32	0.557017
+pb2	3	Sequence reader	15.278188	32	0.477443
+pb2	3	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	3	Anchor recovery	0.000000	0	0.000000
+pb2	3	Alignment handler	249.844236	32	7.807632
+pb2	3	K-mer screen	14.248690	32	0.445272
+pb2	3	Indel bound	0.000000	0	0.000000
+pb2	3	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	3	Output handler	3.416315	32	0.106760
+pb2	3	Profiling: sample	0.837841	1	0.837841
+pb2	3	Profiling: reading the SAM	0.570651	1	0.570651
+pb2	3	Profiling: record evidence and sample context	0.202996	1	0.202996
+pb2	3	Profiling: read EM	0.043828	1	0.043828
+pb2	3	Profiling: congener distances	0.029441	1	0.029441
+pb2	3	Profiling: SNP post-processing	0.006390	1	0.006390
+pb2	3	Profiling: scoring	0.007238	1	0.007238
+pb2	3	Profiling: writing the profile	0.046758	1	0.046758
+cohort:pb2	1	Profiling: sample	3.120372	1	3.120372
+cohort:pb2	1	Profiling: reading the SAM	2.613836	1	2.613836
+cohort:pb2	1	Profiling: record evidence and sample context	0.357391	1	0.357391
+cohort:pb2	1	Profiling: read EM	0.080229	1	0.080229
+cohort:pb2	1	Profiling: congener distances	0.172899	1	0.172899
+cohort:pb2	1	Profiling: SNP post-processing	0.022224	1	0.022224
+cohort:pb2	1	Profiling: scoring	0.038187	1	0.038187
+cohort:pb2	1	Profiling: writing the profile	0.083338	1	0.083338
+cohort:pe1	1	Profiling: sample	9.473927	1	9.473927
+cohort:pe1	1	Profiling: reading the SAM	7.599677	1	7.599677
+cohort:pe1	1	Profiling: record evidence and sample context	1.367099	1	1.367099
+cohort:pe1	1	Profiling: read EM	0.621331	1	0.621331
+cohort:pe1	1	Profiling: congener distances	0.234967	1	0.234967
+cohort:pe1	1	Profiling: SNP post-processing	0.072290	1	0.072290
+cohort:pe1	1	Profiling: scoring	0.049447	1	0.049447
+cohort:pe1	1	Profiling: writing the profile	0.371874	1	0.371874

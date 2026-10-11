@@ -36,6 +36,7 @@ databases are in [development.md](development.md).
 | `ncbi_taxids.tsv` | optional (since 2026-10-11): each species' NCBI species taxid, the one most of its GTDB genomes have, NCBI's name of it and whether that is a named species or one of NCBI's placeholders ([below](#ncbi-taxids)); read only by runs with `--ncbi_taxids` |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
+| `column_weights.bin`, `strain_alleles.bin` | only in `database.protal` (since 2026-10-11), beside the text tables they are made from: the same tables as a run holds them (the column weights' codes packed, ~1.5 bytes a column), read straight into memory on several threads without parsing. At r226 the column weights' text took 12 s of every run on one thread and ~7.6 GB more while it was read ([report](claude/2026-10-11-performance-audit/README.md)). Each records the size of its text table; one made from another text (`--add_tables` of the text alone, by an older protal) is not used, and the text is read |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
 
 A database without an optional table works; the features that need it are then fixed values (0, or
@@ -96,9 +97,12 @@ protal --decompress_db --db /path/to/protal-db -t 16    # -> separate raw files
 ```
 
 - `--unpack_db` writes `index.prx.zst`, an uncompressed `reference.fna` and the other files but
-  `gene_table.bin` (beside `database.protal`, or into `--unpack_dir`).
-- `--compress_db` on a `database.protal` without a current `gene_table.bin` (packed before 0.7.6)
-  adds it, rewriting the file once with the other parts' frames copied.
+  `gene_table.bin`, `column_weights.bin` and `strain_alleles.bin` (beside `database.protal`, or into
+  `--unpack_dir`); a folder reads the text tables.
+- `--compress_db` on a `database.protal` without a current `gene_table.bin` (packed before 0.7.6), or
+  without current binary forms of its column weights and strain alleles (packed before 2026-10-11, such as
+  r226 v23), adds them, rewriting the file once with the other parts' frames copied. `--add_tables` of a
+  `column_weights.tsv` or `strain_alleles.tsv` stores its binary form with it.
 - `--compress_db` on a folder of raw files writes the same `database.protal` that `--build` would.
 
 **Models.** `protal --add_model MODEL --read_type pe --db DB` (or `se`, `pb`, `ont`) checks a model
@@ -1199,7 +1203,8 @@ then the index:
    only through a congener, so the allele's k-mers go in under the species as non-unique entries (about three per
    edit; the read is then aligned and scored against the representative as before). They are left out of
    `unique_kmers.tsv`'s totals, so a species' unique shares are the representative's alone.
-6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load: the index straight
+6. Packs everything into `database.protal`, with `gene_table.bin`, `column_weights.bin` and
+   `strain_alleles.bin` for a fast load: the index straight
    from memory, the other files compressed or copied; it reads each member back, compares, and
    removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay
    beside it.

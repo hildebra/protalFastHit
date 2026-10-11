@@ -5,6 +5,7 @@
 // docs/claude/2026-10-09-polymorphic-sites): a copy's sites, a read at them, the site shift, the unsure reads the
 // handler settles with it, and the profiler's polymorphic features.
 #include <gtest/gtest.h>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <random>
@@ -104,6 +105,67 @@ TEST(StrainAlleles, TheTableWritesAndReadsBack) {
         std::istringstream bad_is(bad + std::string("\n"));
         EXPECT_NE(t.Read(bad_is), "") << bad;
     }
+}
+
+// The binary form (strain_alleles.bin) reads back as the same table, also as a member of a single-file database on several
+// threads, and a damaged one is refused; text whose rows come out of order, or with a copy twice, reads as FromRows makes
+// the table (the later row of a copy replacing the earlier), the same as text in Write's order.
+TEST(StrainAlleles, TheBinaryFormAndTheTextInAnyOrder) {
+    test::ScratchDir tmp;
+    sa::Allele a{ 0, 900, { sa::Edit::Substitution(12, 2), sa::Edit::Indel(sa::kInsertion, 300, 3), sa::Edit::Indel(sa::kDeletion, 450, 6) } };
+    sa::Allele b{ 20, 880, { sa::Edit::Substitution(25, 3) } };
+    sa::Allele c{ 0, 1000, { sa::Edit::Substitution(999, 0) } };
+    sa::Allele d{ 5, 600, {} };
+    auto const table = sa::Table::FromRows({ { 5, 2, { a, b } }, { 3, 7, { c } }, { 5, 1, { b, d } }, { 41, 3, { d, a, c } } });
+    std::ostringstream os;
+    table.Write(os);
+    std::string const text = os.str();
+
+    {
+        std::ofstream out(tmp / "strain_alleles.bin", std::ios::binary);
+        ASSERT_TRUE(table.WriteBinary(out, text.size()));
+    }
+    std::string error;
+    zstd::Params const params{ 3, 0, 2, 32 };  // small frames: the arrays cross them
+    ASSERT_TRUE(db::Write(tmp / "database.protal", { { sa::kBinaryFileName, tmp / "strain_alleles.bin" } }, params, error)) << error;
+    auto const bundle = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(bundle) << error;
+    for (auto const& file : { db::DbFile::OnDisk(tmp / "strain_alleles.bin"), db::DbFile::InBundle(*bundle, sa::kBinaryFileName) }) {
+        auto const header = binary_table::ReadHeader(file, sa::Table::kMagic, error);
+        ASSERT_TRUE(header) << file.Name() << ": " << error;
+        EXPECT_EQ(header->text_size, text.size());
+        sa::Table back;
+        ASSERT_EQ(back.ReadBinary(file, *header, 3), "") << file.Name();
+        std::ostringstream again;
+        back.Write(again);
+        EXPECT_EQ(again.str(), text) << file.Name();
+        EXPECT_EQ(back.Alleles(), table.Alleles());
+        EXPECT_EQ(back.Edits(), table.Edits());
+    }
+    std::string const bytes = test::Slurp(tmp / "strain_alleles.bin");
+    auto const header = binary_table::ReadHeader(db::DbFile::OnDisk(tmp / "strain_alleles.bin"), sa::Table::kMagic, error);
+    ASSERT_TRUE(header);
+    std::string damaged = bytes;
+    damaged[header->offsets[2] + 5] = '\x7f';  // the first allele's edit count
+    test::Spit(tmp / "damaged.bin", damaged);
+    sa::Table refused;
+    EXPECT_NE(refused.ReadBinary(db::DbFile::OnDisk(tmp / "damaged.bin"), *header, 2), "");
+    EXPECT_TRUE(refused.Empty());
+
+    // Out of order, and copy (5, 2) twice: the later row counts.
+    std::string const unsorted = "taxid\tgene\talleles\n41\t3\t5-600:;0-900:12G,300i3,450d6;0-1000:999A\n5\t2\t0-1000:999A\n"
+                                 "3\t7\t0-1000:999A\n5\t1\t20-880:25T;5-600:\n5\t2\t0-900:12G,300i3,450d6;20-880:25T\n";
+    sa::Table read_unsorted;
+    ASSERT_EQ(read_unsorted.Read(std::string_view(unsorted)), "");
+    std::ostringstream unsorted_text;
+    read_unsorted.Write(unsorted_text);
+    EXPECT_EQ(unsorted_text.str(), text);
+    sa::Table read_sorted;
+    ASSERT_EQ(read_sorted.Read(std::string_view(text)), "");
+    std::ostringstream sorted_text;
+    read_sorted.Write(sorted_text);
+    EXPECT_EQ(sorted_text.str(), text);
+    EXPECT_EQ(read_sorted.Alleles(), table.Alleles());
 }
 
 // A copy's allele against the representative's copy: a substitution, an insertion and a deletion where the copy covers

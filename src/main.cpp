@@ -109,6 +109,16 @@
 //   database's from half (--final-allele-genome-share); --insilico-strains auto; more real strains downloaded.
 // After 0.8.1: the weighted site shift on by default (--no_weighted_site_shift; builds train with it, ~1% of the
 //   alignment's instructions), each alignment thread holding at most 1,024 copies' column weights.
+//   Start-up and memory (docs/claude/2026-10-11-performance-audit; at r226 0.8.1 took 51 s for the pe sample 0.7.8 took
+//   33 s in, 12 s of it reading column_weights.tsv): the tables only profiling reads load beside the alignment; the
+//   column weights and strain alleles also as binary members of database.protal (column_weights.bin,
+//   strain_alleles.bin; BinaryTable.h), read without parsing, the column weights' codes packed (~1.5 bytes a column, 3.33
+//   before) and their text parsed without a vector per line; every table read once into a buffer of its size, on
+//   several threads, without a copy into a stream; the ancestry sites held without a copy of their index; a sample's
+//   record evidence dropped once its outputs are written (a cohort kept ~140 MB per r226 sample); and a run without
+//   profiling reads the column weights where the weighted site shift needs them (it did not, so a --no_profile SAM
+//   differed from a profiled run's). --ncbi_taxids without the table stops the run before any loader thread starts
+//   (its exit had raced the other loaders).
 #include <iostream>
 #include "RunProtal.h"
 
