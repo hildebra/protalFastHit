@@ -69,6 +69,18 @@
    - The two fork bugs are worth reporting to `tmokveld/WFA2-lib` (the reproducers are in `scripts/`); that is for you
      to decide.
 
+**Follow-up, the same evening.** Merged into `audit-fixes` (`0dea1ff`, on `710022f`).
+- The merge was built from `git archive` and tested: 507 unit tests, 154 end-to-end tests on a fresh mini database,
+  and the build script's option tests.
+- The two fork bugs are drafted as issues in [upstream-issues.md](upstream-issues.md), not sent. Their reproducer is
+  `scripts/repro_endsfree.c`: 45 lines of C against the WFA2-lib C API, the default attributes, a 152 × 218 bp pair.
+- Built with the fork's own `make clean all` at `85d063f`:
+  - Singletrack ends the process with exit status 255;
+  - the high-memory traceback returns score 322 with an `M` on C against A.
+- smarco/WFA2-lib v2.3.6 and `main` (`3282f83`) give a valid CIGAR of the same score, and so does protal's patched copy.
+- With `wf_heuristic_none`, both modes of the fork are valid (score 298).
+- The invalid classic CIGAR comes from the fork-only commit `caecb60`.
+
 ## 1. What protal does now
 
 | Piece | Where | What |
