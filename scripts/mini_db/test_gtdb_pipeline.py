@@ -242,17 +242,21 @@ class GtdbBuildTest(unittest.TestCase):
         # full reference, which lacks the held-out species; the finished database's before its models went in; every copy
         # listed; the full references gone after.
         self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
-        # The strain alleles (--strain-alleles 16, --allele-genome-share 0.5): both builds took them from the genomes of the
-        # allele share, which the genome table lost (none of them simulated), and indexed none of their k-mers
-        # (--index-alleles, off by default since r226 v22).
-        for log in ("index_and_package.log", "training_db_index.log"):
+        # The strain alleles (--strain-alleles 16): the training database took them from the genomes of the allele share
+        # (--allele-genome-share 0.5), which the genome table lost (none of them simulated), the finished database from
+        # every genome (--final-allele-genome-share 1); neither indexed any of their k-mers (--index-alleles, off by
+        # default since r226 v22).
+        for log, outside in (("index_and_package.log", "0 of genomes outside --allele_genome_share 1,"),
+                             ("training_db_index.log", "outside --allele_genome_share 0.5,")):
             self.assertRegex(self.text("out", "logs", log), r"Strain alleles: (\d+ alleles \(\d+ edits\) of \d+ gene copies of \d+ "
                                                             r"species, up to 16 each|none) \(of \d+ full-reference copies")
-            self.assertIn("outside --allele_genome_share 0.5", self.text("out", "logs", log))
+            self.assertIn(outside, self.text("out", "logs", log))
             if "Strain alleles: none" not in self.text("out", "logs", log):
                 self.assertIn("Index alleles: none (--index_alleles 1)", self.text("out", "logs", log))
         self.assertRegex(first.stdout, r"genome table \(genomes\.tsv, genome_table\.txt\): .*; \d+ genomes left to the strain "
                                        r"alleles, not simulated \(--allele-genome-share 0\.5\)")
+        self.assertEqual(metadata["strain_alleles"], "up to 16 per species and gene, from 1 of each species' genomes (the "
+                                                     "training database's from 0.5)")
         alleles = re.search(r"Strain alleles: (\d+) alleles", self.text("out", "logs", "training_db_index.log"))
         for stage, folder in (("foreign_rates_training", os.path.join(self.tmp.name, "scratch", "training_db")),
                               ("foreign_rates", os.path.join(out, "work", "foreign_rates"))):
@@ -942,6 +946,32 @@ class GtdbBuildTest(unittest.TestCase):
                               r"samples, read from named pipes")
         self.assertRegex(log, r"every design point is profiled, in 1 protal run\b")
         self.assertIn("--stream-above 1e-09: 3 of the 3 simulations streamed into protal", result.stdout)
+
+    def test_i_no_species_held_out(self):
+        # No species held out, but the finished database's strain alleles come from every genome
+        # (--final-allele-genome-share 1) and the training database's from half (--allele-genome-share 0.5): the models
+        # are trained on a training database of its own, never on the finished one, whose alleles include the strains
+        # the samples are simulated from.
+        result = self.build("noheld", "--holdout", "0", "--holdout-clades", "none", "--read-types", "pe",
+                            "--test-samples", "0", "--evaluation", "none", "--insilico-strains", "0")
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertIn("training database (training_db, training_db_index.log): no species left out, its strain alleles "
+                      "from 0.5 of the genomes (the finished database's from 1, --final-allele-genome-share)", result.stdout)
+        self.assertNotIn("database (protal_db, index_and_package.log): no species left out", result.stdout)
+        self.assertIn("outside --allele_genome_share 0.5,", self.text("noheld", "logs", "training_db_index.log"))
+        self.assertIn("0 of genomes outside --allele_genome_share 1,", self.text("noheld", "logs", "index_and_package.log"))
+        # Every protal run of the collection profiled against the training database (protal's log names it).
+        training_db = os.path.join(self.tmp.name, "noheld", "work", "training_db")
+        self.assertTrue(os.path.isfile(os.path.join(training_db, "database.protal")))
+        runs = glob.glob(os.path.join(self.tmp.name, "noheld", "work", "training", "**", "protal.log"), recursive=True)
+        self.assertTrue(runs)
+        for path in runs:
+            with open(path) as fh:
+                paths = re.findall(r"^db path:\s+(\S+)", fh.read(), re.M)
+            self.assertTrue(paths, path)
+            self.assertEqual({os.path.normpath(p if os.path.isdir(p) else os.path.dirname(p)) for p in paths}, {training_db},
+                             path)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "noheld", "model_logs", "holdout.txt")))
 
 
 if __name__ == "__main__":

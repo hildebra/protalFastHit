@@ -1774,6 +1774,9 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
                                                        "Gene positions:")),
             ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("suspect_copies", suspect_copies_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
+            ("strain_alleles", f"up to {args.strain_alleles} per species and gene, from {args.final_allele_genome_share:g} "
+                               f"of each species' genomes (the training database's from {args.allele_genome_share:g})"
+             if args.strain_alleles > 0 else "none"),
             ("classifier_features", args.features), ("classifier_model", args.model),
             ("classifier_trees", args.ntree if args.model == "forest" else f"{args.rounds or TRAINER_ROUNDS} rounds"),
             ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
@@ -2008,19 +2011,25 @@ def full_reference_fate(folder, keep, why="the ancestry report"):
     return f"; {os.path.basename(path)} kept for {why} ({gigabytes(os.path.getsize(path))})" if path else ""
 
 
-# The strain alleles' options of every protal --build of the run (--strain-alleles, --allele-genome-share,
-# --index-alleles, off by default), set by main():
-# both databases take their alleles from the same genomes, none the simulations draw strains from.
+# The strain alleles' options of the protal --build runs (--strain-alleles, --index-alleles, off by default), set by
+# main(). The training database (and the gene ranking's build of it) takes its alleles from the genomes none of the
+# simulations draws strains from (--allele-genome-share): ALLELE_ARGS. The finished database takes them from all of a
+# species' genomes (--final-allele-genome-share 1): FINAL_ALLELE_ARGS. It is never profiled for training or
+# evaluation, so its strains may be its alleles; a run with no species held out builds a training database of its own
+# when the two shares differ.
 ALLELE_ARGS = []
-# The share of the genomes the strain alleles come from (1: all), for the ancestry report's alleles (ancestry_reports).
+FINAL_ALLELE_ARGS = []
+# The share of the genomes the training database's alleles come from (1: all), for the ancestry report's alleles
+# (ancestry_reports), which reads the training database.
 ALLELE_SHARE = 1.0
 
 
-def build_command(protal, db, threads, *extra):
+def build_command(protal, db, threads, *extra, alleles=None):
+    """protal --build of `db`, with the training database's allele options unless `alleles` (FINAL_ALLELE_ARGS)."""
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *extra]
     if full_reference_path(db):
-        command += ["--full_reference", full_reference_path(db), *ALLELE_ARGS]
+        command += ["--full_reference", full_reference_path(db), *(ALLELE_ARGS if alleles is None else alleles)]
     return command
 
 
@@ -2321,9 +2330,16 @@ def main():
                    help="up to this many strain alleles per species and gene in both databases (protal --build --strain_alleles: "
                         "the other genomes' copies in the full reference as edits of the representative's, for the alignment "
                         "scores and the 'alleles' features; default 16 since 2026-10-11, 4 before; 0: none)")
+    p.add_argument("--final-allele-genome-share", type=float, default=1,
+                   help="the share of each species' genomes that give the finished database's strain alleles (protal "
+                        "--allele_genome_share; default 1: all, since 2026-10-11; --allele-genome-share before). No model "
+                        "is trained or evaluated on the finished database: the training database takes "
+                        "--allele-genome-share, and a run with no species held out builds one of its own when the shares "
+                        "differ")
     p.add_argument("--allele-genome-share", type=float, default=0.5,
-                   help="the share of each species' genomes that give strain alleles, by a hash of the accession "
-                        "(protal --allele_genome_share); the genome table loses those but the representatives, so that no "
+                   help="the share of each species' genomes that give the training database's strain alleles, by a hash "
+                        "of the accession (protal --allele_genome_share; the finished database takes "
+                        "--final-allele-genome-share); the genome table loses those but the representatives, so that no "
                         "simulated strain is its species' own allele, and the ancestry report takes its alleles from the "
                         "same genomes (default 0.5)")
     p.add_argument("--index-alleles", type=float, default=1, metavar="DIVERGENCE",
@@ -2695,11 +2711,14 @@ def main():
         p.error("--min-real-strains is a share above 0 and at most 1, --insilico-multi a share from 0 to 1")
     # Whether there will be in-silico strains: auto decides how many once the genome table is made (step 2).
     insilico_wanted = args.insilico_strains == "auto" or args.insilico_strains > 0
-    if args.strain_alleles < 0 or not 0 <= args.allele_genome_share <= 1 or args.index_alleles < 0:
-        p.error("--strain-alleles is a count (0: none), --allele-genome-share a share from 0 to 1, --index-alleles a "
-                "divergence of 0 or more (1 or more: none)")
+    if args.strain_alleles < 0 or not 0 <= args.allele_genome_share <= 1 or not 0 <= args.final_allele_genome_share <= 1 \
+            or args.index_alleles < 0:
+        p.error("--strain-alleles is a count (0: none), --allele-genome-share and --final-allele-genome-share shares from "
+                "0 to 1, --index-alleles a divergence of 0 or more (1 or more: none)")
     ALLELE_ARGS[:] = ["--strain_alleles", str(args.strain_alleles), "--allele_genome_share", f"{args.allele_genome_share:g}",
                       "--index_alleles", f"{args.index_alleles:g}"]
+    FINAL_ALLELE_ARGS[:] = ["--strain_alleles", str(args.strain_alleles), "--allele_genome_share",
+                            f"{args.final_allele_genome_share:g}", "--index_alleles", f"{args.index_alleles:g}"]
     global ALLELE_SHARE
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
@@ -2854,7 +2873,8 @@ def main():
     stages = Stages(os.path.join(work, "stages"))
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
                    "placeholders": not args.no_placeholder_models}
-    final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level, "alleles": ALLELE_ARGS}
+    final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level,
+                  "alleles": FINAL_ALLELE_ARGS}
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(work, "internal_taxonomy.dmp")
@@ -3317,22 +3337,30 @@ def main():
     training_db, training_done = db, False
     n_heldout, files_took = 0, ""
     keep_full = False  # the training database's full reference kept for the ancestry report (reports)
-    if os.path.exists(heldout):
-        chosen = read_holdout(heldout)
+    # The finished database's alleles may come from more genomes than the training database's (FINAL_ALLELE_ARGS): then
+    # the models are trained on a database of their own even with no species held out.
+    held_out = os.path.exists(heldout)
+    alleles_differ = args.strain_alleles > 0 and args.final_allele_genome_share != args.allele_genome_share
+    if held_out or alleles_differ:
+        chosen = read_holdout(heldout) if held_out else {}
         n_heldout = len(chosen)
-        with open(os.path.join(logs, "holdout.txt"), "w") as fh:
-            fh.write("\n".join([f"training database: {n_heldout} species left out ({heldout})"] +
-                               describe_holdout(chosen, pool_species(genome_table), read_holdout_details(heldout),
-                                                args.holdout_complex_distance if clouds else 0)) + "\n")
+        if held_out:
+            with open(os.path.join(logs, "holdout.txt"), "w") as fh:
+                fh.write("\n".join([f"training database: {n_heldout} species left out ({heldout})"] +
+                                   describe_holdout(chosen, pool_species(genome_table), read_holdout_details(heldout),
+                                                    args.holdout_complex_distance if clouds else 0)) + "\n")
         # Read only by the collections and the parity check: on --scratch, its build writes and they load it from
         # the node's disk (writing database.protal to a network file system was 6 of the 15 min of an r226 build).
         training_db = os.path.join(samples_root, "training_db")
         # Its full reference stays for the foreign scan right after its build (foreign_rates) and, with --share-logs, for
         # the ancestry report (ancestry_sites.py reads the species' other genomes from it, after the error reads).
         keep_full = args.share_logs or not args.no_foreign_rates
-        Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
-                    f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
-        training_key = {"convert": convert_key, "gene_neighbours": neighbours_key, "heldout": content_hash(heldout),
+        Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): " +
+                    (f"{n_heldout} species left out, {holdout_brief(chosen)} (model_logs/holdout.txt)" if held_out else
+                     f"no species left out, its strain alleles from {args.allele_genome_share:g} of the genomes (the "
+                     f"finished database's from {args.final_allele_genome_share:g}, --final-allele-genome-share)"))
+        training_key = {"convert": convert_key, "gene_neighbours": neighbours_key,
+                        "heldout": content_hash(heldout) if held_out else "none",
                         "protal": final_key["protal"], "level": args.training_db_level, "alleles": ALLELE_ARGS}
         if subset:
             training_key["genes"] = final_key["genes"]
@@ -3352,10 +3380,11 @@ def main():
             elif converted is None:  # the finished database's build consumed them
                 converted = full
                 Steps.done("the release again (the finished database's build took its files): " + convert(converted))
-            job = run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir",
-                       training_db, "-t", str(args.threads)] + (["--genes", subset_file] if subset else []),
-                      step_log("training_db.log"),
-                      label="leaving the species out")
+            derive = [sys.executable, CONVERTER, "--from_db", converted, "--outdir", training_db, "-t", str(args.threads)]
+            derive += ["--exclude_species", heldout] if held_out else []
+            derive += ["--genes", subset_file] if subset else []
+            job = run(derive, step_log("training_db.log"),
+                      label="leaving the species out" if held_out else "copying the release's files")
             files_took = f"; its files written in {job.took()} (training_db.log)"
             if args.share_logs:
                 # The ancestry report (--share-logs) reads the training database's reference.fna, which its build packs
@@ -3529,8 +3558,8 @@ def main():
     if final_done:
         pass
     elif training_db == db:
-        job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
-                  f"building {os.path.basename(db)}")
+        job = run(build_command(args.protal, db, args.threads, *final_level, alleles=FINAL_ALLELE_ARGS), final_log,
+                  built_final, f"building {os.path.basename(db)}")
         Steps.done(built(db, job, full_reference_fate(db, scan, "the foreign scan")))
         if scan:
             removed = scanned(db)
@@ -3553,9 +3582,9 @@ def main():
         if args.one_build_at_a_time:
             Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")
         else:
-            final_build = Job(build_command(args.protal, db, args.threads, *final_level), final_log,
-                              built_final_in_background, label=f"building {os.path.basename(db)} in the background",
-                              idle=True)
+            final_build = Job(build_command(args.protal, db, args.threads, *final_level, alleles=FINAL_ALLELE_ARGS),
+                              final_log, built_final_in_background,
+                              label=f"building {os.path.basename(db)} in the background", idle=True)
             Steps.done(f"building {os.path.basename(db)} meanwhile, in the background at the idle scheduling class: on "
                        "the cores the profiling leaves (index_and_package.log)")
 
@@ -3795,7 +3824,7 @@ def main():
         try:
             reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, steps,
                     args.threads, os.path.join(samples_root, CONTIG_CACHE), args.share_logs,
-                    heldout if training_db != db else None, args.protal, taxonomy, samples_root)
+                    heldout if held_out else None, args.protal, taxonomy, samples_root)
         except Exception as e:  # noqa: BLE001: the database is ready either way
             say(f"    the reports failed ({e}); the database is ready either way")
     reporting = threading.Thread(target=report_all, name="reports", daemon=True)
@@ -3828,7 +3857,7 @@ def main():
     Steps.start("checking the samples' composition against the truth (model_logs/composition_accuracy*.tsv)")
     began = time.time()
     composition_briefs, composition_text = composition_report(read_types, prefixes, training, test if has_test else None,
-                                                              heldout if training_db != db else None, logs, args.threads)
+                                                              heldout if held_out else None, logs, args.threads)
     for t, line in composition_briefs.items():
         Steps.done(f"{t}: {line}")
     Steps.done(f"checked in {clock(time.time() - began)}; details: model_logs/composition_accuracy.txt")
@@ -3840,8 +3869,8 @@ def main():
         final_build.finish()  # its line comes from built_final_in_background
     elif training_db != db and not final_done:
         Steps.done(f"building {os.path.basename(db)} first (index_and_package.log)")
-        job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
-                  f"building {os.path.basename(db)}")
+        job = run(build_command(args.protal, db, args.threads, *final_level, alleles=FINAL_ALLELE_ARGS), final_log,
+                  built_final, f"building {os.path.basename(db)}")
         Steps.done(built(db, job, full_reference_fate(db, scan, "the foreign scan")))
     if scan and training_db != db:
         # The finished database's own scan (every species, from its full reference), before the models go in: --add_model

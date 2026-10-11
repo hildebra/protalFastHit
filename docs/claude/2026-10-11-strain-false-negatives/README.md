@@ -308,9 +308,11 @@ The build-time peak grows faster than the profiling memory: v22 needed about 24 
 
 **Follow-up (same day, the user's decision).** The default became 16 alleles per species and gene (`protal --build
 --strain_alleles 16`, `build_gtdb_database.py --strain-alleles 16`; 4 before). Indexing stays off by default
-(`--index_alleles 1`, `--index-alleles 1`, unchanged since `84af9a4`). The allele-genome share was not changed:
-`build_gtdb_database.py` keeps 0.5 for both databases. `scripts/ancestry_truth_test.py` still passes its own
-`--strain-alleles 4`, so its documented runs stay comparable.
+(`--index_alleles 1`, `--index-alleles 1`, unchanged since `84af9a4`). `scripts/ancestry_truth_test.py` still passes
+its own `--strain-alleles 4`, so its documented runs stay comparable. Then the finished database's alleles came from
+every genome: `build_gtdb_database.py --final-allele-genome-share 1` (new). The training database keeps
+`--allele-genome-share 0.5`, and no model is trained or evaluated on the finished database. A run with no species held
+out now builds a training database of its own when the shares differ; before, it trained on the finished one.
 
 **Limits.**
 - Reads from marker genes only: no off-target reads, so the samples' sizes and some sample-level features differ

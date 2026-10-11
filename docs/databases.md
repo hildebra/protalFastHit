@@ -282,7 +282,11 @@ numbered line when it starts and indented lines when it ends.
    `reference.fna` in pieces of whole records, the full reference frame by frame through its seek table,
    and the gene neighbours beside them. Once it is built, the
    finished database's build starts in the background at idle priority, and the samples' simulations
-   (what to stream into protal chosen from the room on the samples' disk).
+   (what to stream into protal chosen from the room on the samples' disk). The two databases' strain
+   alleles differ: the training database's come from half of each species' genomes, those no sample
+   is simulated from (`--allele-genome-share 0.5`), the finished database's from all of them
+   (`--final-allele-genome-share 1`, since 2026-10-11). No model is trained or evaluated on the
+   finished database; with no species held out the build still makes a training database for that.
 5. **Training data** (`training_data.log`): 309 paired-end samples of 20-200 species each (3 read setups x 103), profiled
    as paired-end and as single-end reads, and 186 PacBio and 186 Nanopore samples of the same
    communities, and the hold-in samples of four scenarios of real studies (gut, soil, shallow soil,
@@ -881,7 +885,8 @@ keeps the finished database.
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
 | `--strain-alleles` | 16 | strain alleles per species and gene in both databases (`protal --build --strain_alleles`; 0: none; 4 until 2026-10-11, [report](claude/2026-10-11-strain-false-negatives/README.md)) |
-| `--allele-genome-share` | 0.5 | the share of each species' genomes that give the strain alleles, by a hash of the accession (`protal --allele_genome_share`). The genome table loses those (but the representatives), so that no simulated strain is its species' own allele, a gain no real sample would see; the in-silico strains are made after it, for the species left with one genome. The ancestry report takes its alleles from the same genomes |
+| `--allele-genome-share` | 0.5 | the share of each species' genomes that give the **training database's** strain alleles, by a hash of the accession (`protal --allele_genome_share`). The genome table loses those (but the representatives), so that no simulated strain is its species' own allele, a gain no real sample would see; the in-silico strains are made after it, for the species left with one genome. The ancestry report takes its alleles from the same genomes |
+| `--final-allele-genome-share` | 1 | the share of each species' genomes that give the **finished database's** strain alleles (since 2026-10-11; `--allele-genome-share` before): all of them, so that the database knows every strain GTDB has. No model is trained or evaluated on the finished database, whose alleles include the strains the samples are simulated from: the collections, the parity check and the reports read the training database, and a run with no species held out (`--holdout 0 --holdout-clades none`) builds a training database of its own when the two shares differ |
 | `--index-alleles` | 1 (off) | the k-mers of the strain alleles at least this far from the representative's copy (edits per base) go into both databases' indexes under the species as non-unique entries, so that a read of a deep strain finds its species (`protal --build --index_alleles`, [below](#2-build-the-index); 1 or more: none, the default since the r226 v22 build; 0.01 was the default before) |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
@@ -1105,7 +1110,8 @@ alone (before the index takes its memory), then the index:
    where in that gap a taxon's reads lie tells a strain from a congener the database lacks (the `gaps` features).
    Then takes the species' strain alleles from the full reference (since 2026-10-08): every other genome's copy of a
    gene (of `--allele_genome_share` of the genomes, by a hash of the accession the converter writes after each record's
-   name) aligned against the representative's, its differences kept as edits; per copy up to `--strain_alleles` (16;
+   name; `build_gtdb_database.py` gives the training database 0.5 and the finished database 1, all genomes, since
+   2026-10-11) aligned against the representative's, its differences kept as edits; per copy up to `--strain_alleles` (16;
    4 until 2026-10-11) of the distinct alleles, chosen among 16 sampled by hash for the sample's coverage (greedily:
    each sampled allele stands for the strains near it, and the chosen ones together explain as much of each as a read
    of it would be scored with; farthest first until 2026-10-09, which kept the deep lineages and dropped a strain's
