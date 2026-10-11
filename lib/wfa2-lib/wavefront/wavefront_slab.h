@@ -52,6 +52,13 @@ typedef struct {
   int current_wf_length;           // Current wf-elements allocated
   vector_t* wavefronts;            // All wavefronts (wavefront_t*)
   vector_t* wavefronts_free;       // Free wavefronts (wavefront_t*)
+  // protal (2026-10-11): what a tight-mode clear needs to know to skip walking every wavefront
+  // (wavefront_slab_clear): the wavefronts handed out since the last repurpose or clear, how many
+  // wavefronts a repurpose would discard (not of the initial length, or deallocated), and how many of
+  // the free stack's first entries are still the wavefronts' (only pops go below the stack's top).
+  vector_t* wavefronts_busy;       // Handed out since the last clear (wavefront_t*; may repeat)
+  int num_discard;                 // Wavefronts a tight-mode repurpose would discard (0: none)
+  int free_intact;                 // wavefronts_free[i] == wavefronts[i] for every i < free_intact
   // Stats
   uint64_t memory_used;            // Memory used (Bytes)
   // MM

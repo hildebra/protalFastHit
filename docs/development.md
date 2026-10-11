@@ -35,8 +35,8 @@ ctest --test-dir build --output-on-failure -j4
 
 Under AddressSanitizer and UndefinedBehaviorSanitizer, as CI runs them (a Debug build, so `assert()`
 is on, about 3 minutes on 4 cores). `-DPROTAL_NO_CLONES` compiles the hot functions once, for plain
-x86-64 (`src/Utilities/TargetClones.h`), so that this run tests the copies a CPU without AVX2 runs;
-the Release build on a machine with AVX2 runs the others:
+x86-64 (`src/Utilities/TargetClones.h`, and WFA2-lib's, `lib/wfa2-lib.cmake`), so that this run tests
+the copies a CPU without AVX2 runs; the Release build on a machine with AVX2 runs the others:
 
 ```bash
 FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"

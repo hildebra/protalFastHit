@@ -24,6 +24,20 @@
 # (Singletrack). Keep them when updating the library, unless upstream has the fixes (tests
 # WfaTraceback.*, scripts in docs/claude/2026-10-11-singletrack).
 #
+# Speed changes (2026-10-11, docs/claude/2026-10-11-wfa2-singletrack-speed), none changing a result:
+#  4. wavefront_heuristic.c: the loops read lo/hi into locals, so GCC can compute their trip count and
+#     vectorize them (wf-adaptive's distances were 9-20% of WFA2's instructions, all scalar).
+#  5. wavefront_extend_kernels.c: the ends-free extend kernel calls wavefront_termination_endsfree only
+#     for a diagonal at the end of the text or the pattern (it was called for every diagonal).
+#  6. utils/commons.h WFA_CLONE_V3 on wf-adaptive's distance loops and wavefront_compute_affine_idm: a
+#     second copy for x86-64-v3, chosen at run time (not -march: WFA2's AVX2 kernels change ends-free ties).
+#  7. wavefront_slab.c, .h: the reset at each alignment frees only the wavefronts handed out since the
+#     last one, when the slab holds nothing to discard (it walked every wavefront ever allocated), and
+#     rewrites only the part of the free stack the alignment changed.
+# WFA2Wrapper2 also aligns with the penalties divided by their greatest common divisor (4/6/2 -> 2/3/1).
+# The per-step bookkeeping (init_ends, trim_ends, allocation: ~45% of short reads' WFA2 instructions after
+# these) was profiled too; compiling the library with -flto did not help (+1-2%).
+#
 # Upstream's own CMakeLists.txt is not used: in Release builds it adds -march=native (the baseline
 # protal binary must run on any x86-64), and it needs pkg-config and builds shared libraries, a
 # benchmark tool and a test. The source list and include directories below are upstream's
@@ -82,6 +96,11 @@ list(TRANSFORM WFA2_SOURCES PREPEND ${WFA2_DIR}/)
 add_library(wfa_lib STATIC ${WFA2_SOURCES})
 target_include_directories(wfa_lib PUBLIC ${WFA2_DIR} ${WFA2_DIR}/wavefront ${WFA2_DIR}/utils)
 target_compile_definitions(wfa_lib PRIVATE _FILE_OFFSET_BITS=64)
+# -DPROTAL_NO_CLONES (given in CMAKE_CXX_FLAGS, as the sanitizer builds do) also compiles WFA2's cloned
+# loops once (WFA_CLONE_V3, patch 6 above).
+if(CMAKE_CXX_FLAGS MATCHES "PROTAL_NO_CLONES" OR CMAKE_C_FLAGS MATCHES "PROTAL_NO_CLONES")
+    target_compile_definitions(wfa_lib PRIVATE PROTAL_NO_CLONES)
+endif()
 # UBSan is off for WFA2 (ASan stays on): it compares sequences in unaligned 8-byte blocks and shifts
 # negative offsets left, idioms UBSan reports and that would stop a sanitizer run with
 # halt_on_error=1 as soon as a test aligns. They are not protal's code; the flag does nothing

@@ -1,0 +1,37 @@
+== build base (21:31:39)
+OK base build
+== build new (21:34:04)
+OK new build
+== unit tests, new (21:41:17)
+wfa tests exit 1
+[       OK ] WfaTraceback.SingletrackGivesTheClassicScoresOnShortReads (47 ms)
+[       OK ] WfaTraceback.SingletrackGivesTheClassicScoresOnLongReads (22 ms)
+[       OK ] WfaTraceback.SingletrackFollowsPathsThroughPrunedWavefronts (3 ms)
+[       OK ] WfaTraceback.SingletrackWithTheReadsEndFree (48 ms)
+[       OK ] WfaTraceback.SingletrackEndToEnd (11 ms)
+[       OK ] WfaTraceback.ACopyKeepsItsTraceback (0 ms)
+[       OK ] WfaTraceback.NamesAndResolution (0 ms)
+[       OK ] WFA2Wrapper.AnAlignmentXDropCutsShortFails (0 ms)
+[       OK ] WFA2Wrapper.AlignmentsItReportsCoverTheRead (44 ms)
+[       OK ] WFA2Wrapper.TheDefaultXDropChangesNoAlignment (7 ms)
+[  FAILED  ] WFA2Wrapper.HalvedPenaltiesGiveTheSameAlignments (949 ms)
+[       OK ] WFA2Wrapper.XDropAboveTheBoundPrunesNothing (95 ms)
+[  PASSED  ] 11 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] WFA2Wrapper.HalvedPenaltiesGiveTheSameAlignments
+ 1 FAILED TEST
+ctest exit 8
+The following tests FAILED:
+	260 - WFA2Wrapper.HalvedPenaltiesGiveTheSameAlignments (Failed)
+Errors while running CTest
+Output from these tests are in: /home/falk/wfaspeed/new/build/Testing/Temporary/LastTest.log
+Use "--rerun-failed --output-on-failure" to re-run the failed cases verbosely.
+== samples (21:41:28)
+pe sim exit 0
+pb sim exit 0
+ont sim exit 0
+== base runs with the calls dumped (21:41:31)
+pe: exit 0, TIME 8.89 s, max RSS 3282640 KB, 40026 WFA2 calls, 5.6M
+pb: exit 0, TIME 1.37 s, max RSS 3232368 KB, 10682 WFA2 calls, 1.7M
+ont: exit 0, TIME 1.72 s, max RSS 3216632 KB, 28069 WFA2 calls, 3.1M
+SETUPDONE 21:41:44

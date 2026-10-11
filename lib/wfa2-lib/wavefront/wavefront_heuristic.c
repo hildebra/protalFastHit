@@ -195,8 +195,13 @@ void wf_heuristic_equate(
 }
 /*
  * Heuristic Cut-off Wavefront-Adaptive
+ *
+ * protal (2026-10-11): the loops below read lo/hi into locals first. Read through `wavefront` in the loop
+ * condition, GCC could not prove that the stores into `distances` leave them alone, could not compute the
+ * trip count, and vectorized none of these loops at any target. The distance loops are cloned for
+ * x86-64-v3 (WFA_CLONE_V3): their min/max are single instructions there, not in plain x86-64.
  */
-int wf_compute_distance_end2end(
+WFA_CLONE_V3 int wf_compute_distance_end2end(
     wavefront_t* const wavefront,
     const int pattern_length,
     const int text_length,
@@ -204,8 +209,9 @@ int wf_compute_distance_end2end(
   // Compute min-distance
   const wf_offset_t* const offsets = wavefront->offsets;
   int k, min_distance = MAX(pattern_length,text_length);
+  const int k_lo = wavefront->lo, k_hi = wavefront->hi;
   PRAGMA_LOOP_VECTORIZE
-  for (k=wavefront->lo;k<=wavefront->hi;++k) {
+  for (k=k_lo;k<=k_hi;++k) {
     const int distance = wf_distance_end2end(
         offsets[k],k,pattern_length,text_length);
     distances[k] = distance;
@@ -223,8 +229,9 @@ int wf_compute_distance_end2end_weighted(
   // Compute min-distance
   const wf_offset_t* const offsets = wavefront->offsets;
   int k, min_distance = MAX(pattern_length,text_length);
+  const int k_lo = wavefront->lo, k_hi = wavefront->hi;
   PRAGMA_LOOP_VECTORIZE
-  for (k=wavefront->lo;k<=wavefront->hi;++k) {
+  for (k=k_lo;k<=k_hi;++k) {
     const int distance = wf_distance_end2end_weighted(
         offsets[k],k,pattern_length,text_length,mfactor);
     distances[k] = distance;
@@ -232,7 +239,7 @@ int wf_compute_distance_end2end_weighted(
   }
   return min_distance;
 }
-int wf_compute_distance_endsfree(
+WFA_CLONE_V3 int wf_compute_distance_endsfree(
     wavefront_t* const wavefront,
     const int pattern_length,
     const int text_length,
@@ -242,8 +249,9 @@ int wf_compute_distance_endsfree(
   // Compute min-distance
   const wf_offset_t* const offsets = wavefront->offsets;
   int k, min_distance = MAX(pattern_length,text_length);
+  const int k_lo = wavefront->lo, k_hi = wavefront->hi;
   PRAGMA_LOOP_VECTORIZE
-  for (k=wavefront->lo;k<=wavefront->hi;++k) {
+  for (k=k_lo;k<=k_hi;++k) {
     const int distance = wf_distance_endsfree(
         offsets[k],k,pattern_length,text_length,
         pattern_end_free,text_end_free);
@@ -331,8 +339,9 @@ void wf_heuristic_compute_sw_scores(
   // Compute min-distance
   const wf_offset_t* const offsets = wavefront->offsets;
   int k, cmax_sw_score = INT_MIN, cmax_k = 0, cmax_offset = 0;
+  const int k_lo = wavefront->lo, k_hi = wavefront->hi;  // protal: see wf_compute_distance_end2end
   PRAGMA_LOOP_VECTORIZE
-  for (k=wavefront->lo;k<=wavefront->hi;++k) {
+  for (k=k_lo;k<=k_hi;++k) {
     const wf_offset_t offset = offsets[k];
     if (offset < 0) continue;
     const int v = WAVEFRONT_V(k,offset);

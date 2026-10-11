@@ -1,0 +1,42 @@
+== lto (21:46:43)
+lto-wrapper: warning: using serial compilation of 2 LTRANS jobs
+built wfareplay_lto (44 sources)
+   pe classic: lto results identical to base
+   pe singletrack: lto results identical to base
+   pb classic: lto results identical to base
+   pb singletrack: lto results identical to base
+   ont classic: lto results identical to base
+   ont singletrack: lto results identical to base
+   pe   classic      new 0.0437 s, lto 0.0445 s, +1.8%
+   pe   singletrack  new 0.0414 s, lto 0.0421 s, +1.7%
+   pb   classic      new 0.0662 s, lto 0.0665 s, +0.5%
+   pb   singletrack  new 0.0502 s, lto 0.0504 s, +0.4%
+   ont  classic      new 0.0904 s, lto 0.0914 s, +1.1%
+   ont  singletrack  new 0.0762 s, lto 0.0776 s, +1.8%
+   pe   classic      program new   1312775334, lto   1328581792: +1.7% of new wavefront_align (927398379)
+   pe   singletrack  program new   1292166023, lto   1309398008: +1.9% of new wavefront_align (906714143)
+   pb   classic      program new   1200926462, lto   1211235125: +0.9% of new wavefront_align (1096079897)
+   pb   singletrack  program new   1155261555, lto   1165833363: +1.0% of new wavefront_align (1050659323)
+   ont  classic      program new   1879418347, lto   1900552781: +1.3% of new wavefront_align (1623483991)
+   ont  singletrack  program new   1794580260, lto   1816807110: +1.4% of new wavefront_align (1538826569)
+LTODONE 21:47:50
+== asan (21:47:50)
+PROTAL_NO_CLONES in build.ninja: 144 lines
+OK asan build
+resolver symbols in the sanitized libwfa_lib.a: 0
+asan ctest exit 0
+Total Test time (real) = 108.23 sec
+
+The following tests did not run:
+	439 - FlexScan.Avx512ScoresAndTiesAsTheScalarScan (Skipped)
+asan replay pe: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+asan replay pb: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+asan replay ont: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+ASANDONE 21:55:53
+QUEUE2DONE 21:55:53

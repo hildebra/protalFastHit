@@ -1,0 +1,96 @@
+OK new rebuilt
+wfa tests exit 0
+[  PASSED  ] 12 tests.
+ctest exit 0
+100% tests passed, 0 tests failed out of 516
+== replay (21:59:28)
+pe: A 40026 calls; mean read part 60, reference 65, budget 52
+pb: A 578 calls; pb: E 10104 calls; mean read part 77, reference 68, budget 323
+ont: A 2473 calls; ont: E 25596 calls; mean read part 54, reference 42, budget 471
+built wfareplay_base (/home/falk/wfaspeed/base/build/src/libwfa_lib.a)
+built wfareplay_new (/home/falk/wfaspeed/new/build/src/libwfa_lib.a)
+== identity (21:59:31)
+   pe classic: 40026 calls, results identical
+   pe singletrack: 40026 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+   pb classic: 10682 calls, results identical
+   pb singletrack: 10682 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+   ont classic: 28069 calls, results identical
+   ont singletrack: 28069 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+== timing: 5 alternated invocations of 9 rounds (21:59:33)
+   pe   classic      base 0.0561 s, new 0.0451 s, -19.6%
+   pe   singletrack  base 0.0539 s, new 0.0436 s, -19.1%
+   pb   classic      base 0.0983 s, new 0.0647 s, -34.2%
+   pb   singletrack  base 0.0737 s, new 0.0497 s, -32.6%
+   ont  classic      base 0.1694 s, new 0.0902 s, -46.8%
+   ont  singletrack  base 0.1085 s, new 0.0770 s, -29.0%
+== callgrind, one round (22:00:16)
+   pe   classic      base   1263137022, new    940753129 instructions in wavefront_align, -25.5%
+   pe   singletrack  base   1229017383, new    913201373 instructions in wavefront_align, -25.7%
+   pb   classic      base   2054300677, new   1071619501 instructions in wavefront_align, -47.8%
+   pb   singletrack  base   1931697648, new   1051295992 instructions in wavefront_align, -45.6%
+   ont  classic      base   2763666693, new   1574919603 instructions in wavefront_align, -43.0%
+   ont  singletrack  base   2504668604, new   1540442582 instructions in wavefront_align, -38.5%
+REPLAYDONE 22:01:14
+== new against new1 (without free_intact), callgrind (22:01:14)
+   pe   classic      new1    927398379, new    940753129, +1.44%
+   pe   singletrack  new1    906714143, new    913201373, +0.72%
+   pb   classic      new1   1096079897, new   1071619501, -2.23%
+   pb   singletrack  new1   1050659323, new   1051295992, +0.06%
+   ont  classic      new1   1623483991, new   1574919603, -2.99%
+   ont  singletrack  new1   1538826569, new   1540442582, +0.11%
+== whole runs (22:01:16)
+-- pe (22:01:16)
+    pe.new: exit 0, TIME 2.61 s, max RSS 3317652 KB
+    pe.base vs pe.new: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 87341 vs 87341; reads: 50291 vs 50291; header identical
+      SAM records identical
+    pe.base_single: exit 0, TIME 2.43 s, max RSS 3314380 KB
+    pe.new_single: exit 0, TIME 3.47 s, max RSS 3320044 KB
+    pe.base_single vs pe.new_single: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 87341 vs 87341; reads: 50291 vs 50291; header identical
+      SAM records identical
+-- pb (22:01:26)
+    pb.new: exit 0, TIME 0.49 s, max RSS 3285720 KB
+    pb.base vs pb.new: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 1805 vs 1805; reads: 893 vs 893; header identical
+      SAM records identical
+    pb.base_single: exit 0, TIME 0.52 s, max RSS 3246228 KB
+    pb.new_single: exit 0, TIME 0.52 s, max RSS 3246148 KB
+    pb.base_single vs pb.new_single: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 1805 vs 1805; reads: 893 vs 893; header identical
+      SAM records identical
+-- ont (22:01:28)
+    ont.new: exit 0, TIME 0.62 s, max RSS 3265600 KB
+    ont.base vs ont.new: 12 files, other files differing: ./misc/cpu.tsv 
+      records: 1632 vs 1632; reads: 904 vs 904; header identical
+      SAM records identical
+    ont.base_single: exit 0, TIME 0.67 s, max RSS 3230876 KB
+    ont.new_single: exit 0, TIME 0.65 s, max RSS 3227872 KB
+    ont.base_single vs ont.new_single: 12 files, other files differing: ./misc/cpu.tsv 
+      records: 1632 vs 1632; reads: 904 vs 904; header identical
+      SAM records identical
+== e2e (22:01:30)
+mini db exit 0
+e2e exit 0
+----------------------------------------------------------------------
+Ran 154 tests in 91.265s
+
+OK
+IDENTITYDONE 22:03:26
+== asan again (22:03:26)
+OK asan rebuilt
+asan ctest exit 0
+100% tests passed, 0 tests failed out of 516
+asan replay pe: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+asan replay pb: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+asan replay ont: exit 0, 0 sanitizer errors
+   classic identical to base
+   singletrack identical to base
+QUEUE3DONE 22:08:37

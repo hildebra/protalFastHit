@@ -2,7 +2,8 @@
 // use), its default changes no alignment, and an alignment X-drop breaks is reported as failed
 // rather than as a successful alignment that does not fit the read. The Singletrack traceback
 // (--wfa_traceback) gives the classic traceback's outcomes and scores with operations that are a
-// valid alignment of that score, and build_settings.tsv records it.
+// valid alignment of that score, and build_settings.tsv records it. The wrapper's halved penalties,
+// and X-drop left out where it cannot prune, give WFA2's alignments with the penalties as given.
 #include <gtest/gtest.h>
 #include <cmath>
 #include <random>
@@ -345,4 +346,113 @@ TEST(WFA2Wrapper, TheDefaultXDropChangesNoAlignment) {
             EXPECT_EQ(off.GetAlignmentScore(), deflt.GetAlignmentScore());
         }
     }
+}
+
+namespace {
+    // WFA2 as the wrapper set it up until 2026-10-11: one aligner with the penalties as given (4/6/2) and X-drop added to
+    // wf-adaptive, Singletrack's failed backtraces aligned again classic, and with X-drop an alignment that does not
+    // cover the read counted as failed.
+    struct Unscaled {
+        wfa::WFAlignerGapAffine aligner, classic;
+        size_t x_drop;
+        wfa::WFAligner* last = nullptr;
+        bool success = false;
+
+        Unscaled(size_t x_drop, WfaTraceback traceback) :
+                aligner(4, 6, 2, wfa::WFAligner::Alignment,
+                        traceback == WfaTraceback::Singletrack ? wfa::WFAligner::MemorySingletrack : wfa::WFAligner::MemoryHigh),
+                classic(4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh),
+                x_drop(x_drop) {
+            if (x_drop) {
+                aligner.setHeuristicXDrop(static_cast<int>(x_drop), 1);
+                classic.setHeuristicXDrop(static_cast<int>(x_drop), 1);
+            }
+        }
+
+        void Align(Case const& c, int max_score, bool end_to_end) {
+            auto run = [&](wfa::WFAlignerGapAffine& a) {
+                a.setMaxAlignmentSteps(max_score);
+                last = &a;
+                return end_to_end ? a.alignEnd2End(c.ref, c.read)
+                                  : a.alignEndsFree(c.ref, c.r_begin_free, c.r_end_free, c.read, 0, c.q_end_free);
+            };
+            auto status = run(aligner);
+            if (static_cast<int>(status) == WF_STATUS_UNATTAINABLE) status = run(classic);
+            success = status == wfa::WFAligner::StatusAlgCompleted && (x_drop == 0 || ReadBases(last->getAlignment()) == c.read.size());
+        }
+    };
+
+    // The wrapper and Unscaled on `cases` at budgets around each alignment's score (score - 1 fails, score + 1 succeeds:
+    // the wrapper's halved step limit must cut where WFA2 cut with the penalties as given), at 61 (short reads' budget),
+    // 0 and none: the same outcome, score and operations. end_to_end: the whole read against the whole reference, the
+    // free ends ignored. -> the successful alignments compared.
+    size_t CompareUnscaled(std::vector<Case> const& cases, size_t x_drop, WfaTraceback traceback, bool end_to_end) {
+        WFA2Wrapper2 wrapper(4, 6, 2, x_drop, traceback);
+        Unscaled unscaled(x_drop, traceback);
+        size_t compared = 0;
+        for (auto const& c : cases) {
+            unscaled.Align(c, INT32_MAX, end_to_end);
+            int const score = unscaled.success ? -unscaled.last->getAlignmentScore() : 61;
+            for (int const budget : { score - 1, score, score + 1, score + 2, 61, 0, 1, INT32_MAX }) {
+                unscaled.Align(c, budget, end_to_end);
+                wrapper.Reset();
+                if (end_to_end) wrapper.EndToEnd(c.read, c.ref, budget);
+                else wrapper.Alignment(c.read, c.ref, 0, c.q_end_free, c.r_begin_free, c.r_end_free, budget);
+                EXPECT_EQ(wrapper.Success(), unscaled.success) << "x_drop " << x_drop << ", budget " << budget << " (score "
+                                                               << score << "), read of " << c.read.size();
+                if (!wrapper.Success() || !unscaled.success) continue;
+                compared++;
+                EXPECT_EQ(wrapper.GetAlignmentScore(), unscaled.last->getAlignmentScore()) << "budget " << budget;
+                EXPECT_EQ(wrapper.Cigar(), unscaled.last->getAlignment()) << "budget " << budget;
+            }
+        }
+        return compared;
+    }
+}
+
+// The wrapper aligns with the penalties divided by 2 (2/3/1) and without X-drop where X-drop cannot prune (WFA2Wrapper2's
+// class comment): WFA2's alignments with 4/6/2 and X-drop, the same outcome, score and operations, at budgets on either
+// side of each score. Short reads take the halved aligner at X-drop 0 and 1000, the X-drop one at 50 and 20; long reads
+// the halved one at 0 only.
+TEST(WFA2Wrapper, HalvedPenaltiesGiveTheSameAlignments) {
+    std::mt19937 rng(17);
+    auto const cases = Cases(400, rng);
+    auto const long_cases = LongCases(24, rng);
+    for (auto traceback : { WfaTraceback::Classic, WfaTraceback::Singletrack }) {
+        for (size_t x_drop : { size_t{0}, size_t{1000}, size_t{50}, size_t{20} }) {
+            EXPECT_GT(CompareUnscaled(cases, x_drop, traceback, false), cases.size()) << "x_drop " << x_drop;
+            EXPECT_GT(CompareUnscaled(cases, x_drop, traceback, true), cases.size()) << "x_drop " << x_drop;
+            EXPECT_GT(CompareUnscaled(long_cases, x_drop, traceback, false), 0u) << "x_drop " << x_drop;
+        }
+    }
+}
+
+// X-drop just above the wrapper's bound (read, reference and budget adding up to less than twice X-drop) prunes nothing:
+// the halved aligner without X-drop gives what WFA2 with X-drop gives. Just below it the wrapper aligns with X-drop.
+TEST(WFA2Wrapper, XDropAboveTheBoundPrunesNothing) {
+    std::mt19937 rng(23);
+    auto cases = Cases(300, rng);
+    for (auto const& c : LongCases(12, rng)) cases.push_back(c);
+    size_t compared = 0;
+    for (auto const& c : cases) {
+        for (int const budget : { 61, static_cast<int>(c.read.size()) }) {
+            int64_t const sum = static_cast<int64_t>(c.read.size() + c.ref.size()) + budget;
+            size_t const x_drop = static_cast<size_t>(sum / 2 + 1);
+            WFA2Wrapper2 wrapper(4, 6, 2, x_drop);
+            ASSERT_FALSE(wrapper.XDropMayPrune(c.read.size(), c.ref.size(), budget));
+            ASSERT_TRUE(WFA2Wrapper2(4, 6, 2, x_drop - 1).XDropMayPrune(c.read.size(), c.ref.size(), budget));
+            Unscaled unscaled(x_drop, WfaTraceback::Classic);
+            unscaled.Align(c, budget, false);
+            wrapper.Alignment(c.read, c.ref, 0, c.q_end_free, c.r_begin_free, c.r_end_free, budget);
+            ASSERT_EQ(wrapper.Success(), unscaled.success) << "x_drop " << x_drop << ", read of " << c.read.size();
+            if (!wrapper.Success()) continue;
+            compared++;
+            EXPECT_EQ(wrapper.GetAlignmentScore(), unscaled.last->getAlignmentScore());
+            EXPECT_EQ(wrapper.Cigar(), unscaled.last->getAlignment());
+        }
+    }
+    EXPECT_GT(compared, cases.size() / 2);
+    // protal's short reads at the default X-drop take the halved aligner; long reads (aligned without X-drop) would not.
+    EXPECT_FALSE(WFA2Wrapper2(4, 6, 2, 1000).XDropMayPrune(150, 400, 61));
+    EXPECT_TRUE(WFA2Wrapper2(4, 6, 2, 1000).XDropMayPrune(2000, 2400, 1201));
 }
