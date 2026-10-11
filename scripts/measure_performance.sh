@@ -2,7 +2,7 @@
 # measure_performance.sh - time protal runs on a database and some read files: whole runs, protal's
 # stage timers and, where perf works, CPU counters. For comparing machines, builds and databases.
 #
-#   bash scripts/measure_performance.sh OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
+#   bash scripts/measure_performance.sh [--sylph SYLPH_DB] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
 # on THREADS threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
@@ -19,18 +19,35 @@
 # wall times), logs/, and prints medians.
 # The first run reads the database from disk unless the page cache holds it, so its load_index_s
 # is the cold load; later runs load from memory.
+# --sylph SYLPH_DB (a .syldb or .syl2db, best the same GTDB release as DB): last, sylph profiles each sample from
+# the same reads, REPEATS times on THREADS threads (sylph profile SYLPH_DB -1 R1 -2 R2, or -r R1 for se, pb and ont),
+# for comparison: sylph.tsv (one line per sylph run: times, memory, perf counters, the genomes in sylph's profile),
+# the profiles in sylph/, the logs in logs/sylph.*, and medians next to protal's. Its first run is the cold load too.
 #
 # Environment: THREADS (default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
 #              PERF=0 (no perf stat), KEEP=1, COHORT=0 (no cohort run), COHORT_REPEATS (default 1),
 #              QCMSA=0 (the cohort without qcMSA; qcmsa must be next to protal, on $PATH or in
-#              PROTAL_QCMSA_SCRIPT, see protal --help).
+#              PROTAL_QCMSA_SCRIPT, see protal --help),
+#              SYLPH (default: sylph on $PATH, e.g. from its activated conda environment),
+#              SYLPH_ARGS (more sylph profile options, e.g. "-u").
 # On a cluster, ask for a whole node so other jobs do not share its memory bandwidth, e.g.
 #   sbatch --exclusive -c 32 --mem 100G --wrap "bash scripts/measure_performance.sh perf_r226 \
 #       r226_db pe:sample_R1.fq.gz:sample_R2.fq.gz ont:sample_ont.fq.gz"
 set -uo pipefail
 
-[ $# -ge 3 ] || { sed -n '2,28p' "$0" >&2; exit 1; }
+# --sylph SYLPH_DB (or --sylph=SYLPH_DB) anywhere among the arguments; the rest are positional.
+sylph_db=; positional=()
+while [ $# -gt 0 ]; do
+    case $1 in
+        --sylph) [ $# -ge 2 ] || { echo "--sylph needs sylph's database (.syldb or .syl2db)" >&2; exit 1; }
+                 sylph_db=$2; shift 2 ;;
+        --sylph=*) sylph_db=${1#--sylph=}; shift ;;
+        *) positional+=("$1"); shift ;;
+    esac
+done
+set -- ${positional[@]+"${positional[@]}"}
+[ $# -ge 3 ] || { sed -n '2,36p' "$0" >&2; exit 1; }
 out=$1; db=$2; shift 2
 threads=${THREADS:-${SLURM_CPUS_PER_TASK:-$(nproc)}}
 repeats=${REPEATS:-3}
@@ -44,6 +61,14 @@ for spec in "$@"; do
                   se|pb|ont) ;; *) echo "$spec: TYPE is pe, se, pb or ont" >&2; exit 1 ;; esac
     for f in "$r1" ${r2:+"$r2"}; do [ -r "$f" ] || { echo "cannot read $f" >&2; exit 1; }; done
 done
+sylph=; sylph_reads_option=0
+if [ -n "$sylph_db" ]; then
+    sylph=$(command -v "${SYLPH:-sylph}" || true)
+    [ -n "$sylph" ] || { echo "sylph not found (activate its conda environment or set SYLPH)" >&2; exit 1; }
+    [ -e "$sylph_db" ] || { echo "sylph database not found: $sylph_db" >&2; exit 1; }
+    # Single-end reads with -r where sylph profile has it; an older sylph takes them as positional files (reads if FASTQ).
+    case $("$sylph" profile --help 2>&1) in *--reads*) sylph_reads_option=1 ;; esac
+fi
 mkdir -p "$out/logs"
 abs() { case $1 in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; esac; }
 
@@ -75,6 +100,11 @@ qcmsa=${QCMSA:-1}
     else
         echo "cohort: none ($([ $# -lt 2 ] && echo "one sample" || echo "COHORT=0"))"
     fi
+    if [ -n "$sylph" ]; then
+        echo "sylph: $("$sylph" --version 2>&1 | head -1) ($sylph), database $sylph_db, $(du -shL "$sylph_db" 2> /dev/null | cut -f1)"
+    else
+        echo "sylph: none"
+    fi
     echo; lscpu 2> /dev/null | grep -E '^(Model name|Socket|Core|Thread|NUMA node\(s\)|L3|CPU max MHz)'
     echo; free -g 2> /dev/null
 } > "$out/environment.txt"
@@ -101,6 +131,14 @@ number_after() {
 # The peak memory protal logged after a stage ("Memory after <stage>: R GB resident, peak P GB"), or NA.
 peak_after() {
     number_after "^Memory after $1: " 'peak' "$2"
+}
+# The last timed run's perf counters (with use_perf=1, else NA): sets ins cyc miss ipc.
+perf_counters() {
+    ins=NA; cyc=NA; miss=NA; ipc=NA
+    [ $use_perf = 1 ] || return 0
+    ins=$(counter instructions "$out/perf.tmp"); cyc=$(counter cycles "$out/perf.tmp"); miss=$(counter cache-misses "$out/perf.tmp")
+    [ "$ins" != NA ] && [ "$cyc" != NA ] && ipc=$(awk -v i="$ins" -v c="$cyc" 'BEGIN { printf "%.2f", i / c }')
+    return 0
 }
 # Runs a command with its log, under /usr/bin/time (and perf stat with use_perf=1): sets wall user sys rss faults.
 timed() {
@@ -132,11 +170,7 @@ for spec in "$@"; do
         # shellcheck disable=SC2206
         cmd+=(${PROTAL_ARGS:-})
         timed "$log" $use_perf "${cmd[@]}" || { echo "protal failed on $name (run $rep), see $log" >&2; tail -5 "$log" >&2; continue; }
-        ins=NA; cyc=NA; miss=NA; ipc=NA
-        if [ $use_perf = 1 ]; then
-            ins=$(counter instructions "$out/perf.tmp"); cyc=$(counter cycles "$out/perf.tmp"); miss=$(counter cache-misses "$out/perf.tmp")
-            [ "$ins" != NA ] && [ "$cyc" != NA ] && ipc=$(awk -v i="$ins" -v c="$cyc" 'BEGIN { printf "%.2f", i / c }')
-        fi
+        perf_counters
         # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused by the k-mer
         # screen, I by the indel bound, F aligned from the anchor's exact matches and W as whole windows; M alignments made,
         # O records written" (a protal from before 2026-10-09 has no "I by the indel bound": its indel_refused is NA).
@@ -213,6 +247,31 @@ if [ $cohort = 1 ]; then
     done
 fi
 [ "${KEEP:-0}" = 1 ] || rm -rf "$sams"
+
+# sylph (--sylph) on the same reads, for comparison: each sample REPEATS times, one line per run in sylph.tsv, the profiles
+# (small) kept in sylph/<sample>.<rep>.tsv.
+if [ -n "$sylph" ]; then
+    mkdir -p "$out/sylph"
+    printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tinstructions\tcycles\tcache_misses\tipc\tgenomes\n' > "$out/sylph.tsv"
+    n=0
+    for spec in "$@"; do
+        n=$((n + 1)); IFS=: read -r type r1 r2 <<< "$spec"; name=$type$n
+        if [ -n "$r2" ]; then reads=(-1 "$r1" -2 "$r2"); elif [ $sylph_reads_option = 1 ]; then reads=(-r "$r1"); else reads=("$r1"); fi
+        for rep in $(seq 1 "$repeats"); do
+            log=$out/logs/sylph.$name.$rep.log; profile=$out/sylph/$name.$rep.tsv; rm -f "$profile"
+            cmd=("$sylph" profile "$sylph_db" "${reads[@]}" -t "$threads" -o "$profile")
+            # shellcheck disable=SC2206
+            cmd+=(${SYLPH_ARGS:-})
+            timed "$log" $use_perf "${cmd[@]}" || { echo "sylph failed on $name (run $rep), see $log" >&2; tail -5 "$log" >&2; continue; }
+            perf_counters
+            # sylph's profile: a header, then one line per genome it found in the sample.
+            genomes=NA; [ -f "$profile" ] && genomes=$(awk 'NR > 1 && NF { c++ } END { print c + 0 }' "$profile")
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+                "$wall" "$user" "$sys" "$rss" "$faults" "$ins" "$cyc" "$miss" "$ipc" "$genomes" >> "$out/sylph.tsv"
+            echo "sylph $name run $rep: ${wall} s"
+        done
+    done
+fi
 rm -f "$out/time.tmp" "$out/perf.tmp"
 
 # Medians per sample over its runs, and its largest stages (seconds per thread, median). Plain awk (no gawk).
@@ -248,10 +307,32 @@ if [ "$(wc -l < "$out/cohort.tsv")" -gt 1 ]; then
                   printf " %s %s", h[i], n ? sprintf("%.2f", median(a, n)) : "NA" }
               print "" }' "$out/cohort.tsv"
 fi
+# sylph's medians per sample and protal's against them (CPU = user + sys).
+if [ -f "$out/sylph.tsv" ] && [ "$(wc -l < "$out/sylph.tsv")" -gt 1 ]; then
+    echo
+    awk -F'\t' "$median"'
+        function med(x, t, k,   a, i, j) { split("", a); j = 0
+            for (i = 1; i <= runs[t, k]; i++) if (x[t, k, i] != "NA") a[++j] = x[t, k, i] + 0
+            return j ? median(a, j) : "NA" }
+        function num(v) { return v == "NA" ? v : sprintf("%.2f", v) }
+        function ratio(p, s) { return p == "NA" || s == "NA" || s == 0 ? "NA" : sprintf("%.2fx", p / s) }
+        FNR == 1 { t = FILENAME ~ /sylph\.tsv$/ ? "sylph" : "protal"; next }
+        { k = $1; if (t == "sylph" && !(k in seen)) { seen[k] = 1; order[++m] = k }
+          r = ++runs[t, k]; wall[t, k, r] = $5; rss[t, k, r] = $8
+          cpu[t, k, r] = ($6 == "NA" || $7 == "NA") ? "NA" : $6 + $7
+          if (t == "sylph") genomes[t, k, r] = $14 }
+        END { for (j = 1; j <= m; j++) { k = order[j]
+                  sw = med(wall, "sylph", k); sc = med(cpu, "sylph", k); sr = med(rss, "sylph", k)
+                  printf "sylph %s (median of %d): wall_s %s cpu_s %s max_rss_gb %s genomes %s\n", k, runs["sylph", k],
+                      num(sw), num(sc), num(sr), med(genomes, "sylph", k)
+                  if (runs["protal", k]) printf "%s protal/sylph: wall %s, CPU %s, memory %s\n", k,
+                      ratio(med(wall, "protal", k), sw), ratio(med(cpu, "protal", k), sc), ratio(med(rss, "protal", k), sr) } }' \
+        "$out/runs.tsv" "$out/sylph.tsv"
+fi
 echo
 awk -F'\t' "$median"'
     NR > 1 { k = $1 "\t" $3; if (!(k in n)) keys[++m] = k; v[k, ++n[k]] = $6 + 0 }
     END { for (j = 1; j <= m; j++) { k = keys[j]; split("", a); for (i = 1; i <= n[k]; i++) a[i] = v[k, i]
             printf "%s\t%.2f\n", k, median(a, n[k]) } }' "$out/stages.tsv" |
     sort -t$'\t' -k1,1 -k3,3gr | awk -F'\t' '{ if (++c[$1] <= 6) printf "%s  %-40s %8s s per thread\n", $1, $2, $3 }'
-echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv, environment.txt, logs/)."
+echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,") environment.txt, logs/)."
