@@ -458,3 +458,12 @@ on the test set. But this world cannot test what the shift is for: its families 
 reaches the among-genus code of 6 (largest 4), so every column is discounted alike and the shift weighs nothing by
 conservation. The test that counts is an r226 build with `--weighted-site-shift` (2.46% of r226 columns at 6 or more),
 against v23 or the next build without it.
+
+Later the same day, at the user's request: the shift on by default, in protal (`--weighted_site_shift` the default,
+`--no_weighted_site_shift` to turn it off) and in the builds (`build_gtdb_database.py --weighted-site-shift` the default,
+`--no-weighted-site-shift` passes `--no_weighted_site_shift` to the collections' runs). Its cost on the 200,000-pair
+sample: the alignment 13.21 → 13.35 G instructions (+1%), the run +0.25%, resident memory +12 MB (callgrind and
+/usr/bin/time, one thread). Each alignment thread's handler now keeps at most 1,024 copies' column weights
+(`kHandlerColumns`): with the loader's 200,000 per thread it could have pinned gigabytes of expanded columns on a node of
+84 threads. A database built before (r226 v23) was trained without the shift: profile it with `--no_weighted_site_shift`
+for the same calls as in its training.

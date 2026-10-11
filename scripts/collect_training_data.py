@@ -175,10 +175,9 @@ def parse_args(argv=None):
                         "is aligned, on a quarter of the threads, where the profiling stage would leave cores idle (a run "
                         "of a few deep samples, as a streamed one is); off by default until measured on a cluster node "
                         "(docs/claude/2026-10-07-build-ordering)")
-    p.add_argument("--weighted_site_shift", action="store_true",
-                   help="protal --weighted_site_shift in this collection's protal runs: an unsure read's site shift also "
-                        "discounts its differences at the columns its family's genera change freely (column_weights.tsv); "
-                        "off by default, as in protal")
+    p.add_argument("--no_weighted_site_shift", action="store_true",
+                   help="protal --no_weighted_site_shift in this collection's protal runs: an unsure read's site shift "
+                        "without the column weights' discount, which protal applies by default since 2026-10-11")
     p.add_argument("--protal_lock", help="--follow: a file locked while protal runs, so that the protal runs of two "
                                          "collections that follow their simulations take turns")
     p.add_argument("--stream_above", type=float, default=0.0,
@@ -1571,7 +1570,7 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
         os.remove(stages)
     measured = run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains",
                            "--no_qcmsa"] + (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []) +
-                          (["--weighted_site_shift"] if getattr(opts, "weighted_site_shift", False) else []),
+                          (["--no_weighted_site_shift"] if getattr(opts, "no_weighted_site_shift", False) else []),
                           os.path.join(folder, "protal.log"), len(rows), companions)
     record_cpu(opts, run_label(folder, opts), measured, opts.threads, stages)
 
@@ -1916,12 +1915,12 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
 
 def profile_keys(units, opts, keys):
     """{unit name: what its profiles are made with (profiled.json)}: its simulation's key, the database's and
-    protal's identity, the read type, and --weighted_site_shift when it is on (the others' keys stay as they were)."""
+    protal's identity, the read type, and --no_weighted_site_shift when it is given (the others' keys stay as they were)."""
     db, protal = db_identity(opts.db), identity(opts.protal)
     # Only a unit that writes unmapped records has it in its key: the others' profiles stay valid.
     return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"],
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
-                        **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {})}
+                        **({"weighted_site_shift": False} if getattr(opts, "no_weighted_site_shift", False) else {})}
             for u in units}
 
 

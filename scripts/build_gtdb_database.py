@@ -1765,8 +1765,9 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("insilico_strains", insilico),
             ("samples_streamed", getattr(args, "streaming", "")),
-            ("weighted_site_shift", "on in the training runs: profile with protal --weighted_site_shift"
-             if getattr(args, "weighted_site_shift", False) else "off"),
+            ("weighted_site_shift", "on in the training runs (protal's default since 2026-10-11)"
+             if getattr(args, "weighted_site_shift", True)
+             else "off in the training runs: profile with protal --no_weighted_site_shift"),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
@@ -2683,11 +2684,12 @@ def main():
                         "each sample profiled while the next is aligned, on a quarter of the threads, so that a run's "
                         "profiling stage after its last alignment shrinks to what the worker had not started (at r226 v19 "
                         "the six runs' profiling stages took 15.5 min after their alignment; the profiles are the same)")
-    p.add_argument("--weighted-site-shift", action="store_true",
-                   help="protal --weighted_site_shift in the collections' protal runs: an unsure read's site shift also "
-                        "discounts its differences at the columns its family's genera change freely (column_weights.tsv). "
-                        "Off by default, as in protal; the models are then trained with it, and the database's users should "
-                        "profile with --weighted_site_shift too (build_metadata.tsv says so)")
+    p.add_argument("--weighted-site-shift", action=argparse.BooleanOptionalAction, default=True,
+                   help="the collections' protal runs with the weighted site shift (protal --weighted_site_shift: an unsure "
+                        "read's site shift also discounts its differences at the columns its family's genera change freely, "
+                        "column_weights.tsv), protal's default since 2026-10-11 (default: on; ~1%% of the alignment's "
+                        "instructions). --no-weighted-site-shift: protal --no_weighted_site_shift there, and the database's "
+                        "users should profile with --no_weighted_site_shift too (build_metadata.tsv says so)")
     p.add_argument("--genome-store", default="auto",
                    help="simulate_metagenomes's genome store for both collections (collect_training_data.py "
                         "--genome_store): each genome simulated is read and parsed from its FASTA once, written there "
@@ -3448,8 +3450,8 @@ def main():
             command += ["--compressed_pipes"]
         if args.profile_ahead:
             command += ["--profile_ahead"]
-        if args.weighted_site_shift:
-            command += ["--weighted_site_shift"]
+        if not args.weighted_site_shift:
+            command += ["--no_weighted_site_shift"]
         return command
 
     genome_store = None  # --genome-store

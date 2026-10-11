@@ -133,7 +133,10 @@ namespace protal {
         strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
         strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
         std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
-        // The column weights of every copy this handler scored (looked up: nullptr for a copy without a row).
+        // The column weights of the copies this handler scored last (looked up: nullptr for a copy without a row), at most
+        // kHandlerColumns of them: every alignment thread has a handler, and each entry keeps a copy's expanded columns
+        // (~4 kB) alive, so the loader's cache of 200,000 copies per thread could have held gigabytes on a cluster node.
+        static constexpr size_t kHandlerColumns = 1024;
         std::unordered_map<uint64_t, std::pair<bool, std::shared_ptr<column_weights::Columns const>>> m_columns;
         AlignmentScreen m_screen;
         IndelBound m_indel_bound;
@@ -304,7 +307,8 @@ namespace protal {
         }
 
         // --weighted_site_shift: the shift also discounts a candidate's differences at the columns the family's genera
-        // change freely (ScoreAlleles, with the GenomeLoader's column_weights.tsv). Off by default (StrainAlleles.h ShiftOf).
+        // change freely (ScoreAlleles, with the GenomeLoader's column_weights.tsv; StrainAlleles.h ShiftOf). A run sets it from
+        // the option, on by default since 2026-10-11; a handler not told stays without it.
         void SetWeightedShift(bool on) {
             m_weighted_shift = on;
         }
@@ -911,7 +915,7 @@ namespace protal {
             bool const alleles = !table.Empty() && !table.Of(taxid, gene).empty();
             column_weights::Columns const* columns = nullptr;
             if (m_weighted_shift && !m_genome_loader.GetColumnWeights().Empty()) {
-                if (m_columns.size() >= column_weights::kMaxCached) m_columns.clear();
+                if (m_columns.size() >= kHandlerColumns) m_columns.clear();
                 auto& cached = m_columns[(static_cast<uint64_t>(taxid) << 32) | gene];
                 if (!cached.first) {
                     cached.first = true;

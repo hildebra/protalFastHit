@@ -107,6 +107,8 @@
 //   NCBI species taxids (ncbi_taxids.tsv, the converter's: the taxid most of its GTDB genomes have) and --ncbi_taxids,
 //   which adds them to the profiles. Builds: the finished database's alleles from every genome, the training
 //   database's from half (--final-allele-genome-share); --insilico-strains auto; more real strains downloaded.
+// After 0.8.1: the weighted site shift on by default (--no_weighted_site_shift; builds train with it, ~1% of the
+//   alignment's instructions), each alignment thread holding at most 1,024 copies' column weights.
 #include <iostream>
 #include "RunProtal.h"
 
