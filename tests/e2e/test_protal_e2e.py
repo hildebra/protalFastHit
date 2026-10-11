@@ -3409,6 +3409,25 @@ class PacBioTest(ReadTypeTest):
         self.assertIn("holds PacBio reads; profiled as ONT reads (ont, --read_type or READ_TYPE; --force aligns them again)", log)
         self.assertIn("Model of ONT reads: " + model, log)
 
+    def test_tables_only_what_reads_them_loads(self):
+        # Since 2026-10-11 a table is read only where the run reads it: long reads' alignments are not scored with the
+        # strain alleles, so a PacBio run loads them beside the alignment, with the profiling's tables (the same profile),
+        # and leaves them unread without profiling; --keep_suspect_copies leaves the suspect copies unread.
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["la"], "--prefix", "la", "-o", "alone", "-t", "2",
+                      "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertLess(log.index("Loading the taxonomy, models and tables took"), log.index("Strain alleles:"))
+        self.assertLess(log.index("Strain alleles:"), log.index("Loading the profiling's tables beside the alignment took"))
+        self.assertEqual(read_text(self.path("alone", "la.profile")), self.runs.text("la.profile"))
+        rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["la"], "--prefix", "la", "-o", "aligned", "-t", "2",
+                      "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Strain alleles: not read (no profiling, and no short reads' alignments scored with them", log)
+        rc, log = run(self.work, "--db", self.runs.db, "--profile_only", self.path("alone", "la.sam.zst"), "-o", "kept", "-t", "2",
+                      "--no_qcmsa", "--keep_suspect_copies")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Suspect copies: not read (--keep_suspect_copies): every gene copy counts", log)
+
     def test_long_reads_given_as_short_ones_stop(self):
         rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["lb"], "--read_type", "se", "-o", "out_short",
                       "-t", "1", "--no_qcmsa")

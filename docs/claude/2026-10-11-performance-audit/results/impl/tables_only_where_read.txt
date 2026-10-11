@@ -1,0 +1,43 @@
+same: ref_pe vs work_pe (7 files)
+same: ref_pe_noscores vs work_pe_noscores (7 files)
+same: ref_pb vs work_pb (7 files)
+same: ref_pb_noprofile vs work_pb_noprofile (1 files)
+same: ref_long_ahead vs work_long_ahead (13 files)
+same: ref_keep vs work_keep (6 files)
+== work_pe
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in database.protal; 
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in database.protal)
+Loading the taxonomy, models and tables took 270ms
+Suspect copies: the database has no suspect_copies.tsv (built by an earlier protal, or none found): every gene copy counts
+Loading the profiling's tables beside the alignment took 0.01 s; the profiling waited 0.00 s for them
+== work_pe_noscores
+Loading the taxonomy, models and tables took 286ms
+Suspect copies: the database has no suspect_copies.tsv (built by an earlier protal, or none found): every gene copy counts
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in database.protal; 
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in database.protal); not in the alignment scores (--n
+Loading the profiling's tables beside the alignment took 0.03 s; the profiling waited 0.00 s for them
+== work_pb
+Loading the taxonomy, models and tables took 106ms
+Suspect copies: the database has no suspect_copies.tsv (built by an earlier protal, or none found): every gene copy counts
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in database.protal; 
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in database.protal)
+Loading the profiling's tables beside the alignment took 0.04 s; the profiling waited 0.00 s for them
+== work_pb_noprofile
+Strain alleles: not read (no profiling, and no short reads' alignments scored with them: long reads or --no_allele_scores)
+Loading the taxonomy, models and tables took 84ms
+== work_long_ahead
+Loading the taxonomy, models and tables took 97ms
+Suspect copies: the database has no suspect_copies.tsv (built by an earlier protal, or none found): every gene copy counts
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in database.protal; 
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in database.protal)
+Loading the profiling's tables beside the alignment took 0.03 s; the profiling waited 0.00 s for them
+== work_keep
+Suspect copies: not read (--keep_suspect_copies): every gene copy counts
+Column weights: 618 family-gene rows of 632112 columns, 16261 gene copies of 170 species mapped (column_weights.tsv in database.protal; 
+Strain alleles: 6617 alleles of 4166 gene copies of 66 species (strain_alleles.tsv in database.protal)
+Loading the taxonomy, models and tables took 163ms
+e2e exit 0
+Ran 155 tests in 93.056s
+
+OK
+TL DONE

@@ -453,6 +453,49 @@ waited for) and memory.
   read in place; the text path still holds its text and the packed table, ~3.5 GB, for a moment). A cohort keeps
   ~140 MB less per sample.
 
+## 9. Is every table read only where the run reads it?
+
+Asked after section 8 was committed (`0a1beaa`): are tables loaded only when an option, an output or the model needs
+them, the NCBI taxids for example only when the profile gets NCBI columns? Each table against what reads it, from the
+code (`RunProtal.h` start-up, the loaders, and every accessor's callers):
+
+| table | what reads it | loaded at `0a1beaa` | now |
+|---|---|---|---|
+| NCBI taxids | the profile's two NCBI columns | only with `--ncbi_taxids` | the same |
+| gene neighbours | the alignment (mates past a gene's end, long reads' neighbouring genes), the adjacency features | aligning or profiling; not with `--no_gene_neighbours` | the same |
+| ancestry sites | the ancestry features | profiling; not with `--no_site_weights` | the same |
+| column weights | the weighted site shift (inside short reads' allele scores), the weights counts behind `conserved_mismatch_*`, `nonsynonymous_*`, `third_position_share`, `ancestry_agreement_weighted`, small genera's ancestry sites | profiling; before the alignment for short reads with the weighted shift, **also with `--no_allele_scores`**, which leaves the shift unused | before the alignment only when short reads are scored with the alleles, else beside it for profiling |
+| strain alleles | short reads' allele scores, the alleles and polymorphic features, the species' shared ancestry sites | **before the alignment whenever a run aligns or profiles**: also for long reads and with `--no_allele_scores`, whose alignment never reads them, and in such runs with `--no_profile`, where nothing does | before the alignment only for short reads scored with them; else beside it when profiling; not at all otherwise |
+| suspect copies | the evidence filter | profiling, **read whole even with `--keep_suspect_copies`**, then dropped | not read with `--keep_suspect_copies` |
+| taxonomy (for the alignment) | the adaptive candidates' genera, short reads only | whenever `--adaptive_candidates` is on, **also for long reads alone** | only with short reads (profiling and the gene neighbours load it anyway) |
+| gene conservation | the conservation features; `--gene_conservation` margins | profiling | the same |
+| species priors | the composition's genome sizes (always), the prior features | profiling | the same |
+| species neighbours, congener gaps | the `db_*` and `gap_*` features, ancestry sites computed at run time | profiling | the same |
+| foreign rates | the foreign features | profiling (an opt-in table) | the same |
+| models | profiling, one per read type of the run's samples | profiling | the same |
+| index | the alignment | aligning | the same |
+
+**Gating by the model's features was considered and not done.** A model reads only the fields of its PMML mining
+schema, so a table whose features it does not use could stay unread. But the r226 v24 pe model
+(`trained_model.varimp.tsv`, 92 features) uses features of every table above except the species priors, which the
+composition needs anyway, and the foreign rates, which v24 does not have. So it would save nothing on a real database.
+And `--profile_truth`'s `.truth_annotated` dump, which the build's collections train on, needs every feature.
+
+**What a profile-only run cannot skip**: the genome preload. A single-file database loads every gene (`LoadAllGenomes`:
+3.8 G instructions here, the largest part of a profile-only start-up). `--preload_genomes_off` loads genes on demand,
+but only from an unpacked, raw `reference.fna`. Loading only the genes a SAM's records touch, from `database.protal`,
+would be the next step for profile-only and cohort re-profiling runs; not done here.
+
+The changes: `RunProtal.h` (`alleles_for_alignment`, `weights_for_alignment`, `LoadSuspectCopies`, the genera), a
+log line for strain alleles left unread, and an e2e test (`PacBioTest.test_tables_only_what_reads_them_loads`).
+Checked on `0a1beaa` against `0a1beaa` with the change, on the small real world's database (strain alleles, column
+weights; it has no suspect copies): the outputs are the same (the SAMs' records sorted) for pe, pe with
+`--no_allele_scores`, PacBio, PacBio with `--no_profile`, a PacBio + ONT cohort with `--profile_ahead`, and a
+profile-only run with `--keep_suspect_copies` ([tables_only_where_read.txt](results/impl/tables_only_where_read.txt)).
+The logs show the strain alleles and column weights loading beside the alignment for PacBio and for
+`--no_allele_scores`, and left unread by PacBio with `--no_profile`. Unit tests 514 run, 511 passed, 3 skipped; e2e
+155 OK.
+
 ## How it was run
 
 Everything in WSL under `~/perf9` (removed afterwards), from the scripts in [scripts/](scripts/), in this order:
@@ -471,4 +514,5 @@ database and the e2e tests), then `impl_perf_setup.sh` (the arc world rebuilt by
 conversion; HEAD's finished database `db_ref`; a copy given the binary members by `--compress_db`, `db_bin`; the
 samples) and `impl_perf_runs.sh` (the timed runs). Then, chained, `impl_after.sh`, `impl_tables.sh`, `impl_cg_align.sh`,
 `impl_final.sh`, `impl_round2.sh`, `impl_post.sh`, `impl_asan.sh` and `impl_runs3.sh`; `impl_collect.sh` made
-[results/impl/](results/impl/).
+[results/impl/](results/impl/). Section 9: `verify_commit.sh` (`0a1beaa` from `git archive`: build, unit and e2e
+tests; its build is the reference) and `tl_check.sh`, in `~/vc` and `~/tl` (removed afterwards).

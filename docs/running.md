@@ -80,12 +80,16 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   `--max_key_ubiquity`) and the anchors. At the end it times loading, freeing memory and every
   stage, so that a run's wall time adds up. Since 2026-10-11 a run that aligns loads the tables only profiling
   reads (gene conservation, suspect copies, species priors and neighbours, congener gaps, foreign rates, ancestry
-  sites, and the column weights unless the weighted site shift of short reads needs them) beside the alignment:
-  "Loading the taxonomy, models and tables" times what the alignment waits for, and the line "Loading the
+  sites, and the strain alleles and column weights unless short reads' alignments are scored with them) beside the
+  alignment: "Loading the taxonomy, models and tables" times what the alignment waits for, and the line "Loading the
   profiling's tables beside the alignment took ... s; the profiling waited ... s for them" (from the start-up to
   the last of them loaded, and the profiling's wait) comes with their messages when the first sample is
   profiled (at r226 the column weights alone had held every run back by 12 s;
-  [report](claude/2026-10-11-performance-audit/README.md)).
+  [report](claude/2026-10-11-performance-audit/README.md)). A table nothing in the run reads stays unread: the
+  NCBI taxids without `--ncbi_taxids`, the suspect copies with `--keep_suspect_copies`, the column weights and
+  ancestry sites with `--no_site_weights`, the gene neighbours with `--no_gene_neighbours`, the profiling's tables
+  with `--no_profile`, and there also the strain alleles and column weights unless short reads are scored with
+  them (not with `--no_allele_scores`, nor for long reads).
 - `misc/<taxon>.statistics.tsv` (a taxon's coverage, reads, ANI and MAPQ in each sample) is written
   only with `--taxon_statistics` since 0.7.6: on a GTDB-sized database a sample has reads on
   thousands of taxa, and that many small files took 15 s of a run on a network file system. The

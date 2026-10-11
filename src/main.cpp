@@ -118,7 +118,9 @@
 //   record evidence dropped once its outputs are written (a cohort kept ~140 MB per r226 sample); and a run without
 //   profiling reads the column weights where the weighted site shift needs them (it did not, so a --no_profile SAM
 //   differed from a profiled run's). --ncbi_taxids without the table stops the run before any loader thread starts
-//   (its exit had raced the other loaders).
+//   (its exit had raced the other loaders). A table is read only where the run reads it: the strain alleles and column
+//   weights before the alignment only for short reads scored with the alleles, else beside it for profiling, or not at
+//   all without profiling; the suspect copies not with --keep_suspect_copies.
 #include <iostream>
 #include "RunProtal.h"
 

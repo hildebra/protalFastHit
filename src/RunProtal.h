@@ -279,8 +279,12 @@ namespace protal {
     }
 
     // The database's suspect gene copies (suspect_copies.tsv, GeneIncongruence.h): records on them are left out of the
-    // evidence unless --keep_suspect_copies. Exits 8 if the file cannot be read.
+    // evidence; with --keep_suspect_copies they count, and the table is left unread. Exits 8 if the file cannot be read.
     static void LoadSuspectCopies(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        if (!options.DropSuspectCopies()) {
+            out << "Suspect copies: not read (--keep_suspect_copies): every gene copy counts" << std::endl;
+            return;
+        }
         auto const file = options.SuspectCopiesDbFile();
         if (!file.Exists()) {
             out << "Suspect copies: the database has no " << Options::PROTAL_SUSPECT_COPIES_FILE
@@ -299,10 +303,9 @@ namespace protal {
             exit(8);
         }
         out << "Suspect copies: " << table.Size() << " gene copies of " << table.Species() << " species near-identical to "
-                  << "another genus's copy (" << file.Name() << "), "
-                  << (options.DropSuspectCopies() ? "their records are left out of the evidence (--keep_suspect_copies counts them)"
-                                                  : "kept as evidence (--keep_suspect_copies)") << std::endl;
-        if (options.DropSuspectCopies()) genomes.SetSuspectCopies(std::move(table));
+                  << "another genus's copy (" << file.Name() << "), their records are left out of the evidence "
+                  << "(--keep_suspect_copies counts them)" << std::endl;
+        genomes.SetSuspectCopies(std::move(table));
     }
 
     // The species' priors (species_priors.tsv, SpeciesPriors.h: duplicated markers in the representative, CheckM
@@ -791,9 +794,9 @@ namespace protal {
             WFA2Wrapper2 long_read_wfa(4, 6, 2, 0, options.GetWfaTraceback());
 
             // Every taxon's genus, for the adaptive candidates of short reads (--adaptive_candidates); the taxonomy is loaded
-            // for profiling, and here if a run only aligns.
+            // for profiling, and here if a run only aligns (not for long reads alone).
             std::shared_ptr<std::vector<uint32_t> const> genera;
-            if (options.GetAdaptiveCandidates() > 0) {
+            if (options.GetAdaptiveCandidates() > 0 && (options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single))) {
                 if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
                 genera = profiler::GeneraOf(db.GetTaxonomy());
             }
@@ -1223,8 +1226,8 @@ namespace protal {
     }
 
     // The tables only profiling reads (gene conservation, suspect copies, species priors, NCBI taxids, species neighbours,
-    // congener gaps, foreign rates, ancestry sites, and the column weights unless the alignment's weighted site shift needs
-    // them), loading on threads of their own beside the alignment (Run, a concurrent start-up that aligns): the first
+    // congener gaps, foreign rates, ancestry sites, and the strain alleles and column weights unless the alignment scores
+    // short reads with them), loading on threads of their own beside the alignment (Run, a concurrent start-up that aligns): the first
     // sample to be profiled waits for them (Wait), which prints their messages and how long the profiling waited. At GTDB
     // r226 they held the alignment back by 12 s per run, the column weights alone (docs/claude/2026-10-11-performance-audit).
     class DeferredTables {
@@ -3384,17 +3387,20 @@ namespace protal {
         std::ostringstream conservation_log, suspect_log, priors_log, ncbi_log, species_neighbours_log, gaps_log, foreign_log, weights_log,
                 sites_log, neighbours_log;
         std::ostringstream alleles_log;
-        bool const need_alleles = !options.BuildMode() && (run_alignment || run_profiling);
-        // The column weights are read before the alignment where it needs them, for short reads aligned with the weighted
-        // site shift (--weighted_site_shift, the default; ScoreAlleles), with or without profiling; else for profiling only.
-        bool const weights_for_alignment = run_alignment && !options.BuildMode() && options.WeightedSiteShift() && !options.NoSiteWeights() &&
+        // The alignment reads the strain alleles and the column weights only to score short reads' candidates with the
+        // alleles (ScoreAlleles; not with --no_allele_scores), the column weights for its weighted site shift
+        // (--weighted_site_shift, the default): then they are read before the alignment, with or without profiling. Else
+        // only profiling reads them, and a run without profiling leaves them unread.
+        bool const alleles_for_alignment = run_alignment && !options.BuildMode() && !options.NoAlleleScores() &&
                                            (options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single));
+        bool const weights_for_alignment = alleles_for_alignment && options.WeightedSiteShift() && !options.NoSiteWeights();
+        bool const need_alleles = alleles_for_alignment || run_profiling;
         std::optional<gene_neighbours::Table> neighbours;
         // In a concurrent start-up that aligns, the tables only profiling reads load beside the alignment, and the first
-        // sample to be profiled waits for them (DeferredTables); the alignment waits only for what it reads: the strain
-        // alleles, the gene neighbours, the taxonomy (genera of the adaptive candidates) and the models (checked first), and
-        // the column weights where weights_for_alignment. Declared after the logs, which its loads write to, so that it
-        // waits for them before the logs go.
+        // sample to be profiled waits for them (DeferredTables); the alignment waits only for what it reads: the gene
+        // neighbours, the taxonomy (genera of the adaptive candidates) and the models (checked first), and the strain alleles
+        // and column weights where alleles_for_alignment and weights_for_alignment. Declared after the logs, which its loads
+        // write to, so that it waits for them before the logs go.
         DeferredTables deferred;
         if (concurrent) {
             bm_tables.Start();
@@ -3420,11 +3426,14 @@ namespace protal {
             if (weights_for_alignment) tables.push_back(std::async(std::launch::async, load_weights));
             else if (run_profiling) load_later(load_weights);
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
-            if (need_alleles) tables.push_back(std::async(std::launch::async, [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); }));
+            auto load_alleles = [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); };
+            if (alleles_for_alignment) tables.push_back(std::async(std::launch::async, load_alleles));
+            else if (run_profiling) load_later(load_alleles);
             if (!deferred.futures.empty()) {
-                deferred.messages = [&, weights_later = !weights_for_alignment]() {
+                deferred.messages = [&, weights_later = !weights_for_alignment, alleles_later = !alleles_for_alignment]() {
                     return conservation_log.str() + suspect_log.str() + priors_log.str() + ncbi_log.str() + species_neighbours_log.str() +
-                           gaps_log.str() + foreign_log.str() + (weights_later ? weights_log.str() : std::string()) + sites_log.str();
+                           gaps_log.str() + foreign_log.str() + (weights_later ? weights_log.str() : std::string()) + sites_log.str() +
+                           (alleles_later ? alleles_log.str() : std::string());
                 };
             }
             // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile; those
@@ -3509,7 +3518,11 @@ namespace protal {
             }
         }
         if (concurrent && weights_for_alignment && (!deferred.futures.empty() || !run_profiling)) std::cout << weights_log.str();
-        if (concurrent && need_alleles) std::cout << alleles_log.str();
+        if (concurrent && need_alleles && (alleles_for_alignment || !run_alignment)) std::cout << alleles_log.str();
+        if (!need_alleles && run_alignment && !options.BuildMode()) {
+            std::cout << "Strain alleles: not read (no profiling, and no short reads' alignments scored with them: long reads or "
+                      << "--no_allele_scores)" << std::endl;
+        }
         if (need_neighbours) {
             if (!concurrent) neighbours = ReadGeneNeighbours(options);
             std::cout << neighbours_log.str();
