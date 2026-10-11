@@ -1,0 +1,221 @@
+//
+// Created by fritsche on 17/08/22.
+//
+
+#pragma once
+
+
+#include "Constants.h"
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <cstdlib>
+#include "WfaTraceback.h"
+#include "wfa2-lib/bindings/cpp/WFAligner.hpp"
+
+
+using namespace::wfa;
+
+namespace protal {
+    // Gap-affine WFA2-lib aligner as protal uses it (lib/wfa2-lib.cmake: v2.3.6 with the Singletrack
+    // traceback): the reference is the pattern and the read the text, so in the returned operations 'I'
+    // is a read base missing from the reference and 'D' a reference base missing from the read (as in
+    // SAM). WFA2's default wf-adaptive heuristic stays on, as it was with the previously vendored v2.3.
+    //
+    // traceback (--wfa_traceback, WfaTraceback.h): WFA2's high-memory mode (classic), or Singletrack,
+    // which keeps only the M wavefronts. The scores are the same; among equally good alignments the
+    // operations may differ.
+    //
+    // x_drop (--x_drop) adds WFA2's X-drop to wf-adaptive; 0 leaves it off. The two share WFA2's
+    // step counter, so X-drop prunes only at steps where wf-adaptive did not (short wavefronts).
+    // With protal's scores (a match costs 0), X-drop alone stops good long alignments (a 2 kb read
+    // at 2% divergence with 50); added to wf-adaptive, 50-1000 changed no 150 bp alignment in tests,
+    // and 200 or less gave an 8 kb one a worse score. The default, 1000, is for short reads: over the
+    // gene-long windows of long reads it lost the own species' alignment of genes an ONT read ends
+    // in, so RunProtal aligns long reads without X-drop.
+    //
+    // Singletrack keeps only the M wavefronts, so its backtrace can fail where wf-adaptive pruned the
+    // wavefronts a path ran through (lib/wfa2-lib.cmake: protal's patch makes that rare and reports it
+    // instead of exiting). Such an alignment is aligned again with the classic traceback, which gives
+    // the same score; SingletrackFallbacks() counts them.
+    class WFA2Wrapper2 {
+        WFAlignerGapAffine m_aligner;
+
+        int m_mismatch;
+        int m_gap_opening;
+        int m_gap_extension;
+        size_t m_x_drop;
+        WfaTraceback m_traceback;
+
+        std::unique_ptr<WFAlignerGapAffine> m_classic;  // Singletrack's fallback, made when first needed
+        WFAlignerGapAffine* m_last = &m_aligner;        // the aligner of the last alignment
+
+        WFAligner::AlignmentStatus m_status = WFAligner::StatusMaxStepsReached;
+
+        static inline std::atomic<size_t> s_singletrack_fallbacks{ 0 };
+
+        static WFAligner::MemoryModel Memory(WfaTraceback traceback) {
+            return traceback == WfaTraceback::Singletrack ? WFAligner::MemorySingletrack : WFAligner::MemoryHigh;
+        }
+    public:
+        WFA2Wrapper2(int mismatch, int gap_opening, int gap_extension, size_t x_drop,
+                     WfaTraceback traceback = WfaTraceback::Classic) :
+                m_aligner(mismatch, gap_opening, gap_extension, WFAligner::Alignment, Memory(traceback)),
+                m_mismatch(mismatch),
+                m_gap_opening(gap_opening),
+                m_gap_extension(gap_extension),
+                m_x_drop(x_drop),
+                m_traceback(traceback) {
+            ApplyXDrop(m_aligner);
+        }
+
+        WFA2Wrapper2(const WFA2Wrapper2 &other) :
+                m_aligner(other.m_mismatch, other.m_gap_opening, other.m_gap_extension, WFAligner::Alignment,
+                          Memory(other.m_traceback)),
+                m_mismatch(other.m_mismatch),
+                m_gap_opening(other.m_gap_opening),
+                m_gap_extension(other.m_gap_extension),
+                m_x_drop(other.m_x_drop),
+                m_traceback(other.m_traceback) {
+            ApplyXDrop(m_aligner);
+        };
+
+        // Alignments of all aligners whose Singletrack backtrace failed and that were aligned again classic.
+        static size_t SingletrackFallbacks() {
+            return s_singletrack_fallbacks.load(std::memory_order_relaxed);
+        }
+
+        size_t XDrop() const {
+            return m_x_drop;
+        }
+
+        WfaTraceback Traceback() const {
+            return m_traceback;
+        }
+
+        // The gap-affine penalties (a match costs 0).
+        int Mismatch() const { return m_mismatch; }
+        int GapOpening() const { return m_gap_opening; }
+        int GapExtension() const { return m_gap_extension; }
+
+        // Per-base operations (M, X, I, D) of the last successful alignment.
+        inline std::string Cigar() {
+            return m_last->getAlignment();
+        }
+
+        // The same operations written into `out` (replaced, or appended to with append), from WFA2's own buffer:
+        // no string of its own per alignment.
+        void CigarInto(std::string& out, bool append = false) {
+            char* operations = nullptr;
+            int length = 0;
+            m_last->getAlignment(&operations, &length);
+            if (append) out.append(operations, static_cast<size_t>(length));
+            else out.assign(operations, static_cast<size_t>(length));
+        }
+
+        void Reset() {
+            m_status = WFAligner::StatusMaxStepsReached;
+        }
+
+        bool Success() const {
+            return m_status == WFAligner::StatusAlgCompleted;
+        }
+
+        // Ends-free alignment of the read `query` (text) against `ref` (pattern). An alignment whose
+        // score reaches max_score is abandoned: WFA2 counts this limit in steps, which for the
+        // gap-affine model is the same cut-off as the max score of WFA2-lib v2.3.
+        // SCRATCH (wfasimd): every call written to $PROTAL_WFA_DUMP (one alignment thread: -t 1).
+        static void Dump(char kind, size_t x_drop, int qb, int qe, int rb, int re, int max_score,
+                         std::string const& query, std::string const& ref) {
+            static FILE* file = [] { char const* p = std::getenv("PROTAL_WFA_DUMP"); return p ? std::fopen(p, "w") : nullptr; }();
+            if (!file) return;
+            std::fprintf(file, "%c\t%zu\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", kind, x_drop, qb, qe, rb, re, max_score, query.c_str(), ref.c_str());
+        }
+
+        void Alignment(std::string const& query, std::string const& ref, int q_begin_free, int q_end_free,
+                       int r_begin_free, int r_end_free, int max_score=INT32_MAX) {
+            Dump('A', m_x_drop, q_begin_free, q_end_free, r_begin_free, r_end_free, max_score, query, ref);
+            m_last = &m_aligner;
+            m_aligner.setMaxAlignmentSteps(max_score);
+            m_status = m_aligner.alignEndsFree(ref, r_begin_free, r_end_free, query, q_begin_free, q_end_free);
+            if (BacktraceFailed()) {
+                Classic().setMaxAlignmentSteps(max_score);
+                m_status = m_classic->alignEndsFree(ref, r_begin_free, r_end_free, query, q_begin_free, q_end_free);
+            }
+            // X-drop can report an alignment complete whose operations do not fit the read (151 read
+            // bases for 150, seen with --x_drop 50): count it as dropped, as WFA2 reports a drop otherwise.
+            if (m_x_drop > 0 && m_status == WFAligner::StatusAlgCompleted && !CoversText(query.size())) {
+                m_status = WFAligner::StatusAlgPartial;
+            }
+        }
+
+        // End-to-end alignment of the read `query` (text) against `ref` (pattern), both whole, with WFA2's end-to-end
+        // kernels (no ends-free bookkeeping); abandoned at max_score as Alignment is.
+        void EndToEnd(std::string const& query, std::string const& ref, int max_score=INT32_MAX) {
+            Dump('E', m_x_drop, 0, 0, 0, 0, max_score, query, ref);
+            m_last = &m_aligner;
+            m_aligner.setMaxAlignmentSteps(max_score);
+            m_status = m_aligner.alignEnd2End(ref, query);
+            if (BacktraceFailed()) {
+                Classic().setMaxAlignmentSteps(max_score);
+                m_status = m_classic->alignEnd2End(ref, query);
+            }
+            if (m_x_drop > 0 && m_status == WFAligner::StatusAlgCompleted && !CoversText(query.size())) {
+                m_status = WFAligner::StatusAlgPartial;
+            }
+        }
+
+        int GetAlignmentScore() {
+            return m_last->getAlignmentScore();
+        }
+
+        WFAlignerGapAffine &GetAligner() {
+            return m_aligner;
+        }
+
+        // Debugging: the last alignment of `query` against `ref`, drawn by WFA2.
+        void PrintAlignment(std::string const& query, std::string const& ref, FILE* stream = stderr) {
+            std::fprintf(stream, "%s (score %d)\n", m_last->getAlignment().c_str(), m_last->getAlignmentScore());
+            m_last->printPretty(stream, ref.c_str(), static_cast<int>(ref.length()),
+                                query.c_str(), static_cast<int>(query.length()));
+        }
+
+    private:
+        // Every score step, as wf-adaptive (1 step between cut-offs: the steps are shared).
+        void ApplyXDrop(WFAlignerGapAffine& aligner) {
+            if (m_x_drop > 0) aligner.setHeuristicXDrop(static_cast<int>(std::min<size_t>(m_x_drop, INT32_MAX)), 1);
+        }
+
+        // Whether the Singletrack backtrace of the last alignment found no path (the patched WFA2 reports it as
+        // unattainable); then the classic aligner is the last one, and the failure is counted.
+        bool BacktraceFailed() {
+            if (m_traceback != WfaTraceback::Singletrack || static_cast<int>(m_status) != WF_STATUS_UNATTAINABLE) return false;
+            s_singletrack_fallbacks.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        }
+
+        // The classic aligner of Singletrack's fallback, with the same penalties and X-drop; the last aligner from now.
+        WFAlignerGapAffine& Classic() {
+            if (!m_classic) {
+                m_classic = std::make_unique<WFAlignerGapAffine>(m_mismatch, m_gap_opening, m_gap_extension, WFAligner::Alignment,
+                                                                 WFAligner::MemoryHigh);
+                ApplyXDrop(*m_classic);
+            }
+            m_last = m_classic.get();
+            return *m_classic;
+        }
+
+        // Whether the last alignment consumed exactly text_length read bases (every operation but 'D').
+        bool CoversText(size_t text_length) {
+            char* operations = nullptr;
+            int length = 0;
+            m_last->getAlignment(&operations, &length);
+            size_t consumed = 0;
+            for (int i = 0; i < length; i++) consumed += operations[i] != 'D';
+            return consumed == text_length;
+        }
+    };
+}

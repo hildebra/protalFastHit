@@ -5,6 +5,7 @@
 // paper at protal's penalties. Both give the optimal score, but among equally good alignments they may choose
 // differently, so SAM records, and the features a model was trained on, can differ. A database records the traceback
 // it was built with (build_settings.tsv, BuildSettings.h), and a run follows it unless --wfa_traceback says otherwise.
+// --build aligns with Singletrack unless told otherwise (since 0.8.2; classic before).
 #pragma once
 
 #include <optional>

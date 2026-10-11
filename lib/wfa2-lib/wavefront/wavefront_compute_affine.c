@@ -40,8 +40,11 @@
 
 /*
  * Compute Kernels
+ *
+ * protal (2026-10-11): the kernel is cloned for x86-64-v3 (WFA_CLONE_V3, utils/commons.h): 8 diagonals per
+ * AVX2 step instead of 4, and a native 32-bit max.
  */
-void wavefront_compute_affine_idm(
+WFA_CLONE_V3 void wavefront_compute_affine_idm(
     wavefront_aligner_t* const wf_aligner,
     const wavefront_set_t* const wavefront_set,
     const int lo,

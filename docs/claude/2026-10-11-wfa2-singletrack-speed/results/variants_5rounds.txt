@@ -1,0 +1,83 @@
+built /home/falk/wfasimd/libs/base/wfareplay
+bounds: 4 loops
+built /home/falk/wfasimd/libs/bounds/wfareplay
+bounds: 4 loops
+term: 2 call sites
+built /home/falk/wfasimd/libs/bounds_term/wfareplay
+bounds: 4 loops
+term: 2 call sites
+built /home/falk/wfasimd/libs/bounds_term_v2/wfareplay
+bounds: 4 loops
+term: 2 call sites
+built /home/falk/wfasimd/libs/bounds_term_v3/wfareplay
+built /home/falk/wfasimd/libs/base_v3/wfareplay
+-- pe (median of 5 rounds, thread CPU seconds)
+   base             classic        0.0970
+   base             singletrack    0.0840
+   base             singletrack/2  0.0800
+   bounds           classic        0.0890
+   bounds           singletrack    0.0880
+   bounds           singletrack/2  0.0780
+   bounds_term      classic        0.0840
+   bounds_term      singletrack    0.0770
+   bounds_term      singletrack/2  0.0720
+   bounds_term_v2   classic        0.0840
+   bounds_term_v2   singletrack    0.0770
+   bounds_term_v2   singletrack/2  0.0710
+   bounds_term_v3   classic        0.0960
+   bounds_term_v3   singletrack    0.0900
+   bounds_term_v3   singletrack/2  0.0840
+   base_v3          classic        0.0990
+   base_v3          singletrack    0.0940
+   base_v3          singletrack/2  0.0890
+   pe bounds_term_v3 classic: results DIFFER from base
+   pe bounds_term_v3 singletrack: results DIFFER from base
+   pe bounds_term_v3 singletrack_half: results DIFFER from base
+   pe base_v3 classic: results DIFFER from base
+   pe base_v3 singletrack: results DIFFER from base
+   pe base_v3 singletrack_half: results DIFFER from base
+-- pb (median of 5 rounds, thread CPU seconds)
+   base             classic        0.1340
+   base             singletrack    0.1060
+   base             singletrack/2  0.1030
+   bounds           classic        0.1280
+   bounds           singletrack    0.1000
+   bounds           singletrack/2  0.0960
+   bounds_term      classic        0.1220
+   bounds_term      singletrack    0.0900
+   bounds_term      singletrack/2  0.0860
+   bounds_term_v2   classic        0.1170
+   bounds_term_v2   singletrack    0.0780
+   bounds_term_v2   singletrack/2  0.0770
+   bounds_term_v3   classic        0.1300
+   bounds_term_v3   singletrack    0.0870
+   bounds_term_v3   singletrack/2  0.0880
+   base_v3          classic        0.1400
+   base_v3          singletrack    0.1000
+   base_v3          singletrack/2  0.0950
+-- ont (median of 5 rounds, thread CPU seconds)
+   base             classic        0.2270
+   base             singletrack    0.1590
+   base             singletrack/2  0.1510
+   bounds           classic        0.2170
+   bounds           singletrack    0.1600
+   bounds           singletrack/2  0.1450
+   bounds_term      classic        0.2150
+   bounds_term      singletrack    0.1410
+   bounds_term      singletrack/2  0.1330
+   bounds_term_v2   classic        0.2020
+   bounds_term_v2   singletrack    0.1270
+   bounds_term_v2   singletrack/2  0.1200
+   bounds_term_v3   classic        0.2110
+   bounds_term_v3   singletrack    0.1360
+   bounds_term_v3   singletrack/2  0.1320
+   base_v3          classic        0.2420
+   base_v3          singletrack    0.1530
+   base_v3          singletrack/2  0.1400
+   ont bounds_term_v3 classic: results DIFFER from base
+   ont bounds_term_v3 singletrack: results DIFFER from base
+   ont bounds_term_v3 singletrack_half: results DIFFER from base
+   ont base_v3 classic: results DIFFER from base
+   ont base_v3 singletrack: results DIFFER from base
+   ont base_v3 singletrack_half: results DIFFER from base
+VARDONE 20:59:29

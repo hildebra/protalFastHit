@@ -166,6 +166,8 @@ FORCE_NO_INLINE bool wavefront_extend_matches_packed_endsfree(
   #else
   // Parameters
   wf_offset_t* const offsets = mwavefront->offsets;
+  const int pattern_length = wf_aligner->sequences.pattern_length;
+  const int text_length = wf_aligner->sequences.text_length;
   int k;
   for (k=lo;k<=hi;++k) {
     // Fetch offset
@@ -174,8 +176,11 @@ FORCE_NO_INLINE bool wavefront_extend_matches_packed_endsfree(
     // Extend offset
     offset = wavefront_extend_matches_kernel(wf_aligner,k,offset);
     offsets[k] = offset;
-    // Check ends-free reaching boundaries
-    if (wavefront_termination_endsfree(wf_aligner,mwavefront,score,k,offset)) {
+    // Check ends-free reaching boundaries. protal (2026-10-11): wavefront_termination_endsfree (not inlined)
+    // only for a diagonal at the end of the text or the pattern, the only cases in which it can stop the
+    // alignment; it was called for every diagonal, 6-12% of WFA2's instructions in protal's alignments.
+    if ((WAVEFRONT_H(k,offset) >= text_length || WAVEFRONT_V(k,offset) >= pattern_length) &&
+        wavefront_termination_endsfree(wf_aligner,mwavefront,score,k,offset)) {
       return true; // Quit (we are done)
     }
     /*

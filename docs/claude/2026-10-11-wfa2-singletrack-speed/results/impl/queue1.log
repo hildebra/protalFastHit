@@ -1,0 +1,88 @@
+OK tests rebuilt
+wfa tests exit 0
+[       OK ] WfaTraceback.SingletrackGivesTheClassicScoresOnShortReads (47 ms)
+[       OK ] WfaTraceback.SingletrackGivesTheClassicScoresOnLongReads (23 ms)
+[       OK ] WfaTraceback.SingletrackFollowsPathsThroughPrunedWavefronts (3 ms)
+[       OK ] WfaTraceback.SingletrackWithTheReadsEndFree (58 ms)
+[       OK ] WfaTraceback.SingletrackEndToEnd (16 ms)
+[       OK ] WfaTraceback.ACopyKeepsItsTraceback (0 ms)
+[       OK ] WfaTraceback.NamesAndResolution (0 ms)
+[       OK ] WFA2Wrapper.AnAlignmentXDropCutsShortFails (0 ms)
+[       OK ] WFA2Wrapper.AlignmentsItReportsCoverTheRead (65 ms)
+[       OK ] WFA2Wrapper.TheDefaultXDropChangesNoAlignment (17 ms)
+[       OK ] WFA2Wrapper.HalvedPenaltiesGiveTheSameAlignments (1152 ms)
+[       OK ] WFA2Wrapper.XDropAboveTheBoundPrunesNothing (95 ms)
+[  PASSED  ] 12 tests.
+== replay (21:43:07)
+pe: A 40026 calls; mean read part 60, reference 65, budget 52
+pb: A 578 calls; pb: E 10104 calls; mean read part 77, reference 68, budget 323
+ont: A 2473 calls; ont: E 25596 calls; mean read part 54, reference 42, budget 471
+built wfareplay_base (/home/falk/wfaspeed/base/build/src/libwfa_lib.a)
+built wfareplay_new (/home/falk/wfaspeed/new/build/src/libwfa_lib.a)
+== identity (21:43:10)
+   pe classic: 40026 calls, results identical
+   pe singletrack: 40026 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+   pb classic: 10682 calls, results identical
+   pb singletrack: 10682 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+   ont classic: 28069 calls, results identical
+   ont singletrack: 28069 calls, results identical
+   fallbacks base, new: fallbacks to classic: 0 fallbacks to classic: 0 
+== timing: 5 alternated invocations of 9 rounds (21:43:11)
+   pe   classic      base 0.0584 s, new 0.0436 s, -25.3%
+   pe   singletrack  base 0.0557 s, new 0.0418 s, -25.0%
+   pb   classic      base 0.0981 s, new 0.0663 s, -32.4%
+   pb   singletrack  base 0.0736 s, new 0.0496 s, -32.6%
+   ont  classic      base 0.1650 s, new 0.0906 s, -45.1%
+   ont  singletrack  base 0.1069 s, new 0.0759 s, -29.0%
+== callgrind, one round (21:43:55)
+   pe   classic      base   1263137022, new    927398379 instructions in wavefront_align, -26.6%
+   pe   singletrack  base   1229017383, new    906714143 instructions in wavefront_align, -26.2%
+   pb   classic      base   2054300677, new   1096079897 instructions in wavefront_align, -46.6%
+   pb   singletrack  base   1931697648, new   1050659323 instructions in wavefront_align, -45.6%
+   ont  classic      base   2763666693, new   1623483991 instructions in wavefront_align, -41.3%
+   ont  singletrack  base   2504668604, new   1538826569 instructions in wavefront_align, -38.6%
+REPLAYDONE 21:44:51
+== lto (21:44:51)
+FAIL ligner.cpp
+== identity (21:44:54)
+-- pe (21:44:54)
+    pe.new: exit 0, TIME 3.32 s, max RSS 3311552 KB
+    pe.base vs pe.new: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 87341 vs 87341; reads: 50291 vs 50291; header identical
+      SAM records identical
+    pe.base_single: exit 0, TIME 2.37 s, max RSS 3310872 KB
+    pe.new_single: exit 0, TIME 2.75 s, max RSS 3322076 KB
+    pe.base_single vs pe.new_single: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 87341 vs 87341; reads: 50291 vs 50291; header identical
+      SAM records identical
+-- pb (21:45:04)
+    pb.new: exit 0, TIME 0.60 s, max RSS 3282720 KB
+    pb.base vs pb.new: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 1805 vs 1805; reads: 893 vs 893; header identical
+      SAM records identical
+    pb.base_single: exit 0, TIME 0.58 s, max RSS 3248016 KB
+    pb.new_single: exit 0, TIME 0.58 s, max RSS 3245096 KB
+    pb.base_single vs pb.new_single: 11 files, other files differing: ./misc/cpu.tsv 
+      records: 1805 vs 1805; reads: 893 vs 893; header identical
+      SAM records identical
+-- ont (21:45:06)
+    ont.new: exit 0, TIME 0.81 s, max RSS 3261632 KB
+    ont.base vs ont.new: 12 files, other files differing: ./misc/cpu.tsv 
+      records: 1632 vs 1632; reads: 904 vs 904; header identical
+      SAM records identical
+    ont.base_single: exit 0, TIME 0.86 s, max RSS 3230764 KB
+    ont.new_single: exit 0, TIME 0.68 s, max RSS 3227728 KB
+    ont.base_single vs ont.new_single: 12 files, other files differing: ./misc/cpu.tsv 
+      records: 1632 vs 1632; reads: 904 vs 904; header identical
+      SAM records identical
+== e2e (21:45:08)
+mini db exit 0
+e2e exit 0
+----------------------------------------------------------------------
+Ran 154 tests in 77.165s
+
+OK
+IDENTITYDONE 21:46:42
+QUEUE1DONE 21:46:42

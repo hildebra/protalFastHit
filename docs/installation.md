@@ -108,10 +108,14 @@ same on every CPU.
   12 or later on Linux with glibc. With other compilers, or with
   `-DCMAKE_CXX_FLAGS=-DPROTAL_NO_CLONES`, they are compiled once, for x86-64.
 
-WFA2-lib is built for plain x86-64, because its AVX2 kernels were not faster in protal's use
+WFA2-lib is built for plain x86-64, because its AVX2 kernels were not faster in protal's use and
+change which of equally good ends-free alignments it reports
 ([report](claude/2026-10-02-wfa-avx2/README.md)). Since 2026-10-11 `lib/wfa2-lib` is T. Mokveld's
 fork of WFA2-lib v2.3.6, which adds the Singletrack traceback (`--wfa_traceback`); its source and
-commit are in `lib/wfa2-lib.cmake`.
+commit are in `lib/wfa2-lib.cmake`, with protal's changes to it. Among them, wf-adaptive's distance
+loops and the gap-affine compute kernel are cloned for x86-64-v3 like protal's hot functions
+(`WFA_CLONE_V3` in `lib/wfa2-lib/utils/commons.h`, off with `-DPROTAL_NO_CLONES` too); none of the
+changes alters an alignment ([report](claude/2026-10-11-wfa2-singletrack-speed/README.md)).
 
 ### Installing a source build
 

@@ -2023,7 +2023,7 @@ FINAL_ALLELE_ARGS = []
 # The share of the genomes the training database's alleles come from (1: all), for the ancestry report's alleles
 # (ancestry_reports), which reads the training database.
 ALLELE_SHARE = 1.0
-# The WFA2 traceback of both protal --build runs (--wfa-traceback; empty: protal's default, classic), set by main(). Each
+# The WFA2 traceback of both protal --build runs (--wfa-traceback; empty: protal's default, singletrack since 0.8.2, classic before), set by main(). Each
 # database records it in its build_settings.tsv, and the collection's protal runs align with the training database's
 # (their --wfa_traceback is auto), so that the models learn from alignments made as the finished database's runs make them.
 TRACEBACK_ARGS = []
@@ -2353,7 +2353,7 @@ def main():
                         "strain finds its species (protal --build --index_alleles; default 1: none, off since the r226 v22 "
                         "build, whose gain was too small for the entries; 0.01 indexes the alleles 1%% or more from the representative)")
     p.add_argument("--wfa-traceback", choices=["classic", "singletrack"], default=None,
-                   help="the WFA2 traceback of both databases (protal --build --wfa_traceback; default: protal's, classic): "
+                   help="the WFA2 traceback of both databases (protal --build --wfa_traceback; default: protal's, singletrack since 0.8.2): "
                         "recorded in their build_settings.tsv, used for their strain alleles, congener gaps and column "
                         "weights, and by the collection's protal runs, which align as the training database was built. "
                         "singletrack gives the same scores but may choose otherwise among equally good alignments "

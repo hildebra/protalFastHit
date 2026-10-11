@@ -58,6 +58,9 @@ wavefront_slab_t* wavefront_slab_new(
   wavefront_slab->current_wf_length = init_wf_length;
   wavefront_slab->wavefronts = vector_new(WF_SLAB_QUEUES_LENGTH_INIT,wavefront_t*);
   wavefront_slab->wavefronts_free = vector_new(WF_SLAB_QUEUES_LENGTH_INIT,wavefront_t*);
+  wavefront_slab->wavefronts_busy = vector_new(WF_SLAB_QUEUES_LENGTH_INIT,wavefront_t*);
+  wavefront_slab->num_discard = 0;
+  wavefront_slab->free_intact = 0;
   // Stats
   wavefront_slab->memory_used = 0;
   // MM
@@ -90,6 +93,10 @@ void wavefront_slab_reap_free(
   }
   vector_set_used(wavefront_slab->wavefronts,valid_idx);
   vector_clear(wavefront_slab->wavefronts_free);
+  // protal: the busy ones kept may be of an old length: the next clear walks them all
+  vector_clear(wavefront_slab->wavefronts_busy);
+  wavefront_slab->num_discard = valid_idx;
+  wavefront_slab->free_intact = 0;
 }
 void wavefront_slab_reap_repurpose(
     wavefront_slab_t* const wavefront_slab) {
@@ -125,6 +132,10 @@ void wavefront_slab_reap_repurpose(
   }
   vector_set_used(wavefront_slab->wavefronts,valid_idx);
   vector_set_used(wavefront_slab->wavefronts_free,valid_idx);
+  // protal: every wavefront left is free and of the current length
+  vector_clear(wavefront_slab->wavefronts_busy);
+  wavefront_slab->num_discard = (current_wf_length == wavefront_slab->init_wf_length) ? 0 : valid_idx;
+  wavefront_slab->free_intact = valid_idx;
 }
 void wavefront_slab_reap(
     wavefront_slab_t* const wavefront_slab) {
@@ -140,6 +151,31 @@ void wavefront_slab_clear(
       wavefront_slab_reap_repurpose(wavefront_slab);
       break;
     case wf_slab_tight:
+      // protal (2026-10-11): when the slab holds nothing a repurpose would discard (every wavefront of the
+      // initial length, none deallocated), its result is known: the same wavefronts in the same order, all
+      // free, the free stack a copy of them. Only the wavefronts handed out since the last clear can be busy,
+      // so only they are touched; the walk over every wavefront ever allocated (thousands after a gene-long
+      // window, each a cache miss) was 3-8% of WFA2's instructions on long reads. Of the free stack only the
+      // entries above free_intact are copied (classic keeps every wavefront: copying them all was 3-5%).
+      if (wavefront_slab->num_discard == 0 &&
+          wavefront_slab->current_wf_length == wavefront_slab->init_wf_length) {
+        wavefront_t** const busy = vector_get_mem(wavefront_slab->wavefronts_busy,wavefront_t*);
+        const int num_busy = vector_get_used(wavefront_slab->wavefronts_busy);
+        int i;
+        for (i=0;i<num_busy;++i) busy[i]->status = wavefront_status_free;
+        const int num_wavefronts = vector_get_used(wavefront_slab->wavefronts);
+        const int intact = wavefront_slab->free_intact;
+        vector_reserve(wavefront_slab->wavefronts_free,num_wavefronts,false);
+        if (num_wavefronts > intact) {
+          memcpy(vector_get_mem(wavefront_slab->wavefronts_free,wavefront_t*)+intact,
+                 vector_get_mem(wavefront_slab->wavefronts,wavefront_t*)+intact,
+                 (size_t)(num_wavefronts-intact)*sizeof(wavefront_t*));
+        }
+        vector_set_used(wavefront_slab->wavefronts_free,num_wavefronts);
+        wavefront_slab->free_intact = num_wavefronts;
+        vector_clear(wavefront_slab->wavefronts_busy);
+        break;
+      }
       // Back to initial size
       wavefront_slab->current_wf_length = wavefront_slab->init_wf_length;
       wavefront_slab_reap_repurpose(wavefront_slab);
@@ -152,6 +188,7 @@ void wavefront_slab_delete(
   mm_allocator_t* const mm_allocator = wavefront_slab->mm_allocator;
   // Delete free vector
   vector_delete(wavefront_slab->wavefronts_free);
+  vector_delete(wavefront_slab->wavefronts_busy);
   // Free wavefronts
   wavefront_t** const wavefronts =
       vector_get_mem(wavefront_slab->wavefronts,wavefront_t*);
@@ -198,13 +235,17 @@ wavefront_t* wavefront_slab_allocate_new(
   wavefront_allocate(wavefront,wf_length_requested,wavefront_slab->allocate_backtrace,mm_allocator);
   vector_insert(wavefront_slab->wavefronts,wavefront,wavefront_t*);
   wavefront_slab->memory_used += wavefront_get_size(wavefront);
+  // protal: noted for the next clear (wavefront_slab_clear)
+  vector_insert(wavefront_slab->wavefronts_busy,wavefront,wavefront_t*);
+  if (wf_length_requested != wavefront_slab->init_wf_length) ++(wavefront_slab->num_discard);
   // Init wavefront
   wavefront->status = wavefront_status_busy;
   wavefront_init(wavefront,min_lo,max_hi);
   // Return
   return wavefront;
 }
-wavefront_t* wavefront_slab_allocate_free(
+// protal: inlined, as GCC did before the bookkeeping below (each wavefront of each step comes through here)
+static FORCE_INLINE wavefront_t* wavefront_slab_allocate_free(
     wavefront_slab_t* const wavefront_slab,
     const int min_lo,
     const int max_hi) {
@@ -213,6 +254,11 @@ wavefront_t* wavefront_slab_allocate_free(
   // Reuse wavefront
   wavefront_t* const wavefront = *(vector_get_last_elm(wavefronts_free,wavefront_t*));
   vector_dec_used(wavefronts_free);
+  // protal: for the next clear
+  vector_insert(wavefront_slab->wavefronts_busy,wavefront,wavefront_t*);
+  if ((int)vector_get_used(wavefronts_free) < wavefront_slab->free_intact) {
+    wavefront_slab->free_intact = vector_get_used(wavefronts_free);
+  }
   // Init wavefront
   wavefront->status = wavefront_status_busy;
   wavefront_init(wavefront,min_lo,max_hi);

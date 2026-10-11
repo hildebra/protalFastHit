@@ -255,6 +255,19 @@ uint64_t nominal_prop_u64(const uint64_t base,const double factor);
 #else
   #define PRAGMA_LOOP_VECTORIZE _Pragma("ivdep")
 #endif
+/*
+ * protal (2026-10-11): WFA_CLONE_V3 compiles a function twice, for plain x86-64 and for x86-64-v3 (AVX2),
+ * and the loader runs the copy the CPU supports (GCC's target_clones, as protal's PROTAL_CLONE_V3 in
+ * src/Utilities/TargetClones.h). For the loops the compiler vectorizes; integer only, so both copies give
+ * the same results. A clone does not define __AVX2__, so WFA2's own AVX2 kernels stay out (they change
+ * ends-free ties). Needs GCC 12 or later on x86-64 Linux with glibc; -DPROTAL_NO_CLONES turns it off.
+ */
+#if defined(__x86_64__) && defined(__linux__) && defined(__GLIBC__) && defined(__GNUC__) && !defined(__clang__) && \
+    __GNUC__ >= 12 && !defined(PROTAL_NO_CLONES)
+  #define WFA_CLONE_V3 __attribute__((target_clones("default","arch=x86-64-v3")))
+#else
+  #define WFA_CLONE_V3
+#endif
 
 /*
  * Popcount macros
