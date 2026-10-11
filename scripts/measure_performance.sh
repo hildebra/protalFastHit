@@ -2,10 +2,10 @@
 # measure_performance.sh - time protal runs on a database and some read files: whole runs, protal's
 # stage timers and, where perf works, CPU counters. For comparing machines, builds and databases.
 #
-#   bash scripts/measure_performance.sh [--sylph SYLPH_DB] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
+#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
-# on THREADS threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
+# on N threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
 # outputs are removed after each run (KEEP=1 keeps them). Then, with two samples or more, the cohort:
 # all samples in one run from a map (COHORT_REPEATS times), which reuses the samples' SAM files, so
 # that it times the profiling of all samples, the strain MSAs and qcMSA (QCMSA=0: --no_qcmsa).
@@ -19,12 +19,13 @@
 # wall times), logs/, and prints medians.
 # The first run reads the database from disk unless the page cache holds it, so its load_index_s
 # is the cold load; later runs load from memory.
+# --threads N (or -t N): the threads protal and sylph each run on (their -t); without it, THREADS below.
 # --sylph SYLPH_DB (a .syldb or .syl2db, best the same GTDB release as DB): last, sylph profiles each sample from
-# the same reads, REPEATS times on THREADS threads (sylph profile SYLPH_DB -1 R1 -2 R2, or -r R1 for se, pb and ont),
+# the same reads, REPEATS times on N threads (sylph profile SYLPH_DB -1 R1 -2 R2, or -r R1 for se, pb and ont),
 # for comparison: sylph.tsv (one line per sylph run: times, memory, perf counters, the genomes in sylph's profile),
 # the profiles in sylph/, the logs in logs/sylph.*, and medians next to protal's. Its first run is the cold load too.
 #
-# Environment: THREADS (default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
+# Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
 #              PERF=0 (no perf stat), KEEP=1, COHORT=0 (no cohort run), COHORT_REPEATS (default 1),
 #              QCMSA=0 (the cohort without qcMSA; qcmsa must be next to protal, on $PATH or in
@@ -36,10 +37,14 @@
 #       r226_db pe:sample_R1.fq.gz:sample_R2.fq.gz ont:sample_ont.fq.gz"
 set -uo pipefail
 
-# --sylph SYLPH_DB (or --sylph=SYLPH_DB) anywhere among the arguments; the rest are positional.
-sylph_db=; positional=()
+# --threads N (-t N, --threads=N) and --sylph SYLPH_DB (--sylph=SYLPH_DB) anywhere among the arguments; the rest are
+# positional. Without enough of them, the comment above.
+threads=; sylph_db=; positional=()
 while [ $# -gt 0 ]; do
     case $1 in
+        -t|--threads) [ $# -ge 2 ] || { echo "$1 needs a number of threads" >&2; exit 1; }
+                      threads=$2; shift 2 ;;
+        --threads=*) threads=${1#--threads=}; shift ;;
         --sylph) [ $# -ge 2 ] || { echo "--sylph needs sylph's database (.syldb or .syl2db)" >&2; exit 1; }
                  sylph_db=$2; shift 2 ;;
         --sylph=*) sylph_db=${1#--sylph=}; shift ;;
@@ -47,9 +52,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 set -- ${positional[@]+"${positional[@]}"}
-[ $# -ge 3 ] || { sed -n '2,36p' "$0" >&2; exit 1; }
+[ $# -ge 3 ] || { awk 'NR > 1 { if (!/^#/) exit; print }' "$0" >&2; exit 1; }
 out=$1; db=$2; shift 2
-threads=${THREADS:-${SLURM_CPUS_PER_TASK:-$(nproc)}}
+threads=${threads:-${THREADS:-${SLURM_CPUS_PER_TASK:-$(nproc)}}}
+[[ $threads =~ ^[1-9][0-9]*$ ]] || { echo "threads: a positive number, not '$threads'" >&2; exit 1; }
 repeats=${REPEATS:-3}
 cohort_repeats=${COHORT_REPEATS:-1}
 protal=${PROTAL:-build/protal}
