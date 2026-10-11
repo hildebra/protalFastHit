@@ -47,7 +47,7 @@ class BuildOptionsTest(unittest.TestCase):
 
     def test_the_wfa_traceback_reaches_both_builds(self):
         # --wfa-traceback: main() sets TRACEBACK_ARGS, which every protal --build carries (the training database's and the
-        # finished one's), so that both record it in build_settings.tsv; unset, no option (protal's classic), so that
+        # finished one's), so that both record it in build_settings.tsv; unset, no option (protal's default, singletrack since 0.8.2), so that
         # earlier builds' commands and keys stay as they were.
         saved = build.TRACEBACK_ARGS[:]
         try:

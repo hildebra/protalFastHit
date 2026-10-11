@@ -3844,9 +3844,10 @@ class SimulatorTest(WorkDir):
 
 
 class WfaTracebackTest(WorkDir):
-    """--wfa_traceback: a database built with the Singletrack traceback records it in build_settings.tsv (packed into
-    database.protal); a run aligns with the database's unless told otherwise, and is warned when it aligns with another;
-    a database without the file was built classic. (Needs protal, not the test database.)"""
+    """--wfa_traceback: a database built with the default, the Singletrack traceback (since 0.8.2), records it in
+    build_settings.tsv (packed into database.protal); a run aligns with the database's unless told otherwise, and is
+    warned when it aligns with another; a database without the file was built classic. (Needs protal, not the test
+    database.)"""
 
     @classmethod
     def setUpClass(cls):
@@ -3857,7 +3858,7 @@ class WfaTracebackTest(WorkDir):
         python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--genome_length", "200000",
                "--genomes_per_species", "1", "--contigs", "1")
         python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
-        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--wfa_traceback", "singletrack",
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD,  # the default traceback
                                 "--db", cls.db, "--reference", os.path.join(cls.db, "reference.fna"))
         if rc != 0:
             raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])

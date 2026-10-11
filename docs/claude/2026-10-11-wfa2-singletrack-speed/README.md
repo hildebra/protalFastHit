@@ -22,7 +22,7 @@
 - **Follow-up (the same day, the user)**: "implement all four and the slab fast path, also check the per-step
   bookkeeping". Done on branch `wfa-speed` (from `0a1beaa`), [section 6](#6-implemented-a-d-the-slab-and-the-bookkeeping-checked):
   every call, unit test and whole run gives the same results as before; WFA2 instructions −26% pe, −46 to −48% PacBio,
-  −39 to −43% ONT.
+  −39 to −43% ONT. Then Singletrack became the default of `--build` (protal 0.8.2, end of section 6).
 
 ## Summary
 
@@ -245,6 +245,14 @@ the reset walked them all. Classic is what runs by default (`--wfa_traceback aut
 without `build_settings.tsv` were built classic). With WFA2 at 31% of short-read and 91% of long-read alignment at
 r226 scale (summary item 4), that is about −6% of short-read alignment and −23 to −40% of long-read alignment, if the
 r226 calls behave like these. The whole runs here are too short to time (0.5-4.5 s, mostly loading the index).
+
+**Singletrack the default of `--build` since 0.8.2** (the user, the same day, after this section). After a-e
+Singletrack still needs fewer instructions than classic (pe −2.4%, PacBio −1.6%, ONT −1.8%, the first table) and less
+thread time (−8%, −20%, −12%, the second). `--build` now aligns with it unless `--wfa_traceback classic`, so a new
+database records `singletrack` and its runs follow. A run on a database built before keeps that database's traceback
+(classic) and gets no warning. Singletrack chooses otherwise among equally good alignments in 47-49% of ONT records
+([2026-10-11-singletrack](../2026-10-11-singletrack/README.md)); a database built with it trains its models on its own
+alignments, but no r226 build with Singletrack has been evaluated yet.
 
 ### The per-step bookkeeping
 

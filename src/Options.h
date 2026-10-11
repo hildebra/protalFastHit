@@ -123,7 +123,7 @@ namespace protal {
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
                 ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
                 ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)))
-                ("wfa_traceback", "How WFA2 recovers each alignment's operations: classic (WFA2's high-memory mode, which keeps every wavefront), singletrack (keeps only the match wavefronts and recomputes a gap's steps while tracing back: less memory to touch, faster in its paper), or auto (default): the database's. Both give the same scores, but among equally good alignments they may choose differently, so SAM records and the model's features can differ. --build records its choice (auto: classic) in the database's build_settings.tsv and aligns its strain alleles, congener gaps and column weights with it; a run that aligns otherwise than its database was built is warned. A database built before 2026-10-11 was built with classic.", cxxopts::value<std::string>()->default_value("auto"));
+                ("wfa_traceback", "How WFA2 recovers each alignment's operations: classic (WFA2's high-memory mode, which keeps every wavefront), singletrack (keeps only the match wavefronts and recomputes a gap's steps while tracing back: less memory to touch, and faster), or auto (default): the database's. Both give the same scores, but among equally good alignments they may choose differently, so SAM records and the model's features can differ. --build records its choice (auto: singletrack; classic before protal 0.8.2) in the database's build_settings.tsv and aligns its strain alleles, congener gaps and column weights with it; a run that aligns otherwise than its database was built is warned. A database built before 2026-10-11 was built with classic.", cxxopts::value<std::string>()->default_value("auto"));
 
         // Profiling options
         options.add_options("Profiling")
@@ -485,7 +485,7 @@ namespace protal {
         bool m_max_score_ani_given = false;
         size_t m_x_drop = DEFAULT_X_DROP;
         std::optional<WfaTraceback> m_wfa_traceback_given;            // --wfa_traceback; nothing: auto
-        WfaTraceback m_wfa_traceback = WfaTraceback::Classic;          // what aligns: given, else the database's (SetWfaTraceback)
+        WfaTraceback m_wfa_traceback = WfaTraceback::Singletrack;      // what aligns: given, else --build's singletrack, or the database's (SetWfaTraceback)
         size_t m_max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t m_max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t m_min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -658,7 +658,7 @@ namespace protal {
                 m_max_score_ani_given(d.max_score_ani_given),
                 m_x_drop(d.x_drop),
                 m_wfa_traceback_given(d.wfa_traceback),
-                m_wfa_traceback(d.wfa_traceback.value_or(WfaTraceback::Classic)),
+                m_wfa_traceback(d.wfa_traceback.value_or(WfaTraceback::Singletrack)),
                 m_max_key_ubiquity(d.max_key_ubiquity),
                 m_max_seed_size(d.max_seed_size),
                 m_min_successful_lookups(d.min_successful_lookups),
@@ -763,7 +763,7 @@ namespace protal {
             result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
             result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
             result_str << "WFA2 traceback:      " << (m_wfa_traceback_given ? std::string(WfaTracebackName(*m_wfa_traceback_given)) :
-                                                      m_build ? "classic (auto)" : "auto (the database's)") << '\n';
+                                                      m_build ? "singletrack (auto)" : "auto (the database's)") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
             if (long_reads) {
@@ -1704,7 +1704,7 @@ namespace protal {
             return m_wfa_traceback_given;
         }
 
-        // The traceback the aligners use: the one given, else (--build: classic) the database's once a run has set it.
+        // The traceback the aligners use: the one given, else (--build: singletrack, since 0.8.2) the database's once a run has set it.
         WfaTraceback GetWfaTraceback() const {
             return m_wfa_traceback;
         }
