@@ -92,7 +92,9 @@ set(PROTAL_LIB_SOURCES
         SequenceUtils/VariantHandler.h
         IO/TaxonStatisticsOutput.h
         Utilities/Matrix.h
+        Utilities/BuildSettings.h
         Alignment/WFA2Wrapper2.h
+        Alignment/WfaTraceback.h
         RandomForest/MetagenomeSimulator.h
         RandomForest/MetagenomeSimulator.cpp
         RandomForest/MetagenomeTypes.h

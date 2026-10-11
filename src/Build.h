@@ -277,7 +277,7 @@ namespace protal::build {
     // The files of a database folder that go into database.protal (Database.h), in member order: the
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
-    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
+    // files queries read, compressed: reference.map, internal_taxonomy.dmp, build_settings.tsv (since 2026-10-11), unique_kmers.tsv,
     // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv
     // and ancestry_sites.bin if the build wrote them, species_priors.tsv, ncbi_taxids.tsv,
     // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
@@ -292,6 +292,7 @@ namespace protal::build {
                 {Options::PROTAL_SEQUENCE_FILE, options.ResolvedSequenceFile()},
                 {Options::PROTAL_SEQUENCE_MAP_FILE, options.GetSequenceMapFile()},
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
+        if (fs::exists(options.GetBuildSettingsFile())) sources.push_back({Options::PROTAL_BUILD_SETTINGS_FILE, options.GetBuildSettingsFile()});
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
         if (fs::exists(options.GetSuspectCopiesFile())) sources.push_back({Options::PROTAL_SUSPECT_COPIES_FILE, options.GetSuspectCopiesFile()});
@@ -1411,7 +1412,8 @@ namespace protal::build {
         }
         std::sort(taxids.begin(), taxids.end());
         int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
-        congener_gaps::Settings const settings;
+        congener_gaps::Settings settings;
+        settings.traceback = options.GetWfaTraceback();
         congener_gaps::Stats stats;
         std::vector<std::tuple<uint32_t, uint32_t, congener_gaps::Gap>> rows;
         std::vector<std::pair<uint32_t, congener_gaps::Gap>> found;
@@ -1493,10 +1495,12 @@ namespace protal::build {
         std::atomic<bool> unnamed{ false };  // a record without its genome's accession, with --allele_genome_share below 1
         // A record's allele (StrainAllelesBuild.h AddRecord); `state` is the thread's.
         struct State {
-            WFA2Wrapper2 aligner{ 4, 6, 2, 0 };
+            explicit State(WfaTraceback traceback) : aligner(4, 6, 2, 0, traceback) {}
+            WFA2Wrapper2 aligner;
             std::string rep, copy, ops, header;
             strain_alleles::Stats stats;
         };
+        WfaTraceback const traceback = options.GetWfaTraceback();
         auto add = [&](State& state, std::string_view record_header, std::string_view sequence) {
             size_t const space = record_header.find_first_of(" \t");
             state.header.assign(record_header.substr(0, space));
@@ -1532,7 +1536,7 @@ namespace protal::build {
             std::atomic<size_t> next{ 0 };
 #pragma omp parallel num_threads(static_cast<int>(std::min<size_t>(static_cast<size_t>(threads), frames->Frames())))
             {
-                State state;
+                State state(traceback);
                 FastaFrames::Reader reader(*frames);
                 std::string batch, scratch;
                 for (size_t f; (f = next.fetch_add(1)) < frames->Frames();) {
@@ -1557,7 +1561,7 @@ namespace protal::build {
             bool parsed = true;
 #pragma omp parallel num_threads(threads)
             {
-                State state;
+                State state(traceback);
                 FastxRecord record;
                 SeqReader reader { is };
                 while (reader(record)) add(state, record.header, record.sequence);
@@ -1620,6 +1624,7 @@ namespace protal::build {
         fs::remove(target, ec);
         column_weights::Settings settings;
         settings.genera = options.GetColumnWeights();
+        settings.traceback = options.GetWfaTraceback();
         if (settings.genera == 0) {
             std::cout << "Column weights: none (--column_weights 0)" << std::endl;
             return;
@@ -2388,11 +2393,28 @@ namespace protal::build {
         return std::min<int>(bits, static_cast<int>(main_bits) - 3 - 6);
     }
 
+    // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, which runs on the database follow
+    // (--wfa_traceback auto) or are warned about. Exits 8 if it cannot be written.
+    static void WriteBuildSettings(protal::Options const& options) {
+        std::string const target = options.GetBuildSettingsFile();
+        build_settings::Settings settings;
+        settings.wfa_traceback = options.GetWfaTraceback();
+        std::ofstream out(target);
+        build_settings::Write(out, settings);
+        out.close();
+        if (!out) {
+            std::cerr << "Cannot write " << target << std::endl;
+            exit(8);
+        }
+        std::cout << "WFA2 traceback: " << WfaTracebackName(options.GetWfaTraceback()) << " (" << target << ")" << std::endl;
+    }
+
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once
     // (CheckReferenceAgainstMap), so that the passes may take its records from the preloaded genes.
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
     static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes,
                           bool reference_is_mapped) {
+        WriteBuildSettings(options);
 
         // The tables made from the genes alone first (conservation factors, congeners, suspect copies) and the checks
         // of the gene neighbours and positions: none needs the index, so they run before it is allocated. The

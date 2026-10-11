@@ -106,6 +106,7 @@ typedef enum {
   wavefront_memory_med      = 1, // Succing-memory mode piggyback-based (medium, offloads half-full BT-blocks)
   wavefront_memory_low      = 2, // Succing-memory mode piggyback-based (slow, offloads only full BT-blocks)
   wavefront_memory_ultralow = 3, // Bidirectional WFA
+  wavefront_memory_singletrack = 4, // Singletrack backtrace (affine/affine2p only)
 } wavefront_memory_t;
 
 /*
@@ -115,6 +116,7 @@ typedef struct {
   // Distance model
   distance_metric_t distance_metric;       // Alignment metric/distance used
   alignment_scope_t alignment_scope;       // Alignment scope (score only or full-CIGAR)
+  bool score_only_recover_endpoints;        // Recover endpoint coordinates in score-only mode
   alignment_form_t alignment_form;         // Alignment mode (end-to-end/ends-free)
   // Penalties
   linear_penalties_t linear_penalties;     // Gap-linear penalties (placeholder)

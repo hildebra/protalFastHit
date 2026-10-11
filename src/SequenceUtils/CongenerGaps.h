@@ -40,6 +40,7 @@ namespace protal::congener_gaps {
         size_t all = 24;      // a genus with at most this many other copies of the gene: all of them
         size_t nearest = 4;   // else the nearest by sketch distance (for the min)
         size_t sample = 16;   // and this many drawn by hash (the median's sample)
+        WfaTraceback traceback = WfaTraceback::Classic;  // the build's (--wfa_traceback)
     };
 
     // The distance of two gene copies from an alignment with both ends partly free: of the aligned columns between
@@ -176,7 +177,7 @@ namespace protal::congener_gaps {
         std::vector<double> distance(pairs.size());
         #pragma omp parallel num_threads(threads)
         {
-            WFA2Wrapper2 aligner(4, 6, 2, 0);
+            WFA2Wrapper2 aligner(4, 6, 2, 0, settings.traceback);
             std::string cigar;
             #pragma omp for schedule(dynamic, 64)
             for (int64_t p = 0; p < static_cast<int64_t>(pairs.size()); p++) {

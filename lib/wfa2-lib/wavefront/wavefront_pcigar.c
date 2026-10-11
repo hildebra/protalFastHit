@@ -50,7 +50,15 @@ pcigar_op_t pcigar_lut[4] = {
 };
 // Precomputed string of Matches
 char matches_lut[8] = "MMMMMMMM";
-#define CIGAR_8MATCHES_UINT64 *((uint64_t*)matches_lut)
+
+static inline int pcigar_first_different_byte(
+    const uint64_t cmp) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return __builtin_clzll(cmp)/8;
+#else
+  return __builtin_ctzll(cmp)/8;
+#endif
+}
 
 /*
  * Accessors
@@ -98,32 +106,33 @@ int pcigar_unpack_extend(
     int h,
     char* cigar_buffer) {
   int num_matches = 0;
-  // Fetch pattern/text blocks
-  uint64_t* pattern_blocks = (uint64_t*)(pattern+v);
-  uint64_t* text_blocks = (uint64_t*)(text+h);
-  uint64_t pattern_block = *pattern_blocks;
-  uint64_t text_block = *text_blocks;
-  // Compare 64-bits blocks
-  uint64_t cmp = pattern_block ^ text_block;
-  while (cmp==0 && (v+8) < pattern_length && (h+8) < text_length) {
+  // Compare full 64-bit blocks while both sequences have eight bases left.
+  while (pattern_length-v >= 8 && text_length-h >= 8) {
+    uint64_t pattern_block, text_block;
+    memcpy(&pattern_block,pattern+v,sizeof(pattern_block));
+    memcpy(&text_block,text+h,sizeof(text_block));
+    const uint64_t cmp = pattern_block ^ text_block;
+    if (cmp != 0) {
+      const int matching_bytes = pcigar_first_different_byte(cmp);
+      memcpy(cigar_buffer,matches_lut,matching_bytes);
+      return num_matches + matching_bytes;
+    }
     // Increment offset
     v += 8;
     h += 8;
     num_matches += 8;
     // Dump matches in block
-    *((uint64_t*)cigar_buffer) = CIGAR_8MATCHES_UINT64;
+    memcpy(cigar_buffer,matches_lut,8);
     cigar_buffer += 8;
-    // Next blocks
-    ++pattern_blocks;
-    ++text_blocks;
-    // Fetch & Compare
-    pattern_block = *pattern_blocks;
-    text_block = *text_blocks;
-    cmp = pattern_block ^ text_block;
   }
-  // Count equal characters
-  num_matches += __builtin_ctzl(cmp)/8;
-  *((uint64_t*)cigar_buffer) = CIGAR_8MATCHES_UINT64;
+  // Count remaining equal characters.
+  while (v < pattern_length && h < text_length && pattern[v] == text[h]) {
+    *cigar_buffer = 'M';
+    ++cigar_buffer;
+    ++v;
+    ++h;
+    ++num_matches;
+  }
   // Return total matches
   return num_matches;
 }

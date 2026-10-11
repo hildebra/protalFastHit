@@ -1,0 +1,78 @@
+-- pe (18:46:34)
+    pe.ref: exit 0, TIME 1.75 s, max RSS 3264984 KB
+    pe.classic: exit 0, TIME 1.33 s, max RSS 3269228 KB
+    pe.single: exit 0, TIME 1.19 s, max RSS 3269332 KB
+    WFA2 traceback:      auto (the database's)
+    WFA2 traceback: classic; the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    WFA2 traceback:      singletrack
+    WFA2 traceback: singletrack (--wfa_traceback); the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    Warning: this run aligns with the singletrack WFA2 traceback (--wfa_traceback singletrack), but the database was built with classic (it has no build_settings.tsv: built before 2026-10-11). The two give the same alignment scores, but among equally good alignments they may choose differently, so the SAM records, and the features the database's models were trained on, can differ slightly from a run that aligns as the database was built. Leave out --wfa_traceback (auto) to align as it was built.
+    warnings: /home/falk/stk/cmp/pe.classic.log:0
+    warnings: /home/falk/stk/cmp/pe.single.log:1
+    ref vs classic: other files differing: ./misc/cpu.tsv 
+      records: 26568 vs 26568; reads: 15283 vs 15283; header identical
+      SAM records identical
+    classic vs single: other files differing: ./misc/cpu.tsv 
+      records: 26568 vs 26568; reads: 15283 vs 15283; header identical
+      reads whose records differ: 2 of 15283 (0.013%); with another number of records: 0
+               2  CIGAR
+      example NZ_JAVJTF010000035.1-51166:
+        a: 99	113_44	149	2	1M1X2M1X8M1X14M1X14M1X11M1X2M1X5M1X8M1X5M1X17M1X8M1X26M1X2M1D14M	ZU:i:0	ZT:i:0	ZF:Z:110:44,114:44	ZN:i:1
+        b: 99	113_44	149	2	1M1X2M1X8M1X14M1X14M1X11M1X2M1X5M1X8M1X5M1X17M1X8M1X26M1D1X16M	ZU:i:0	ZT:i:0	ZF:Z:110:44,114:44	ZN:i:1
+        a: 147	113_44	331	2	44M1X44M1X60M	ZU:i:0	ZT:i:0	ZN:i:2
+        b: 147	113_44	331	2	44M1X44M1X60M	ZU:i:0	ZT:i:0	ZN:i:2
+      example DAHZSD010000061.1-21145:
+        a: 73	44_71	963	95	6M1X35M1X8M1X11M1X2M1X1M1X3M1X14M1X5M1X4M1I7M1X2M1X2M1X35M1X1M	ZU:i:0	ZT:i:0	ZF:Z:47:71,53:71,144:71	ZN:i:1
+        b: 73	44_71	963	95	6M1X35M1X8M1X11M1X2M1X1M1X3M1X14M1X5M1I1M1X10M1X2M1X2M1X35M1X1M	ZU:i:0	ZT:i:0	ZF:Z:47:71,53:71,144:71	ZN:i:1
+-- pb (18:46:39)
+    pb.ref: exit 0, TIME 0.70 s, max RSS 3294292 KB
+    pb.classic: exit 0, TIME 0.65 s, max RSS 3291332 KB
+    pb.single: exit 0, TIME 0.50 s, max RSS 3246800 KB
+    WFA2 traceback:      auto (the database's)
+    WFA2 traceback: classic; the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    WFA2 traceback:      singletrack
+    WFA2 traceback: singletrack (--wfa_traceback); the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    Warning: this run aligns with the singletrack WFA2 traceback (--wfa_traceback singletrack), but the database was built with classic (it has no build_settings.tsv: built before 2026-10-11). The two give the same alignment scores, but among equally good alignments they may choose differently, so the SAM records, and the features the database's models were trained on, can differ slightly from a run that aligns as the database was built. Leave out --wfa_traceback (auto) to align as it was built.
+    warnings: /home/falk/stk/cmp/pb.classic.log:0
+    warnings: /home/falk/stk/cmp/pb.single.log:1
+    ref vs classic: other files differing: ./misc/cpu.tsv 
+      records: 1805 vs 1805; reads: 893 vs 893; header identical
+      SAM records identical
+    classic vs single: other files differing: ./misc/s_seedsizes_histogram.tsv ./misc/cpu.tsv ./misc/s_anchorsizes_histogram.tsv ./strains/species.tsv ./s.profile ./s.profile.composition 
+-- ont (18:46:41)
+    ont.ref: exit 0, TIME 0.90 s, max RSS 3256212 KB
+    ont.classic: exit 0, TIME 0.81 s, max RSS 3258320 KB
+    ont.single: exit 0, TIME 0.92 s, max RSS 3228892 KB
+    WFA2 traceback:      auto (the database's)
+    WFA2 traceback: classic; the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    WFA2 traceback:      singletrack
+    WFA2 traceback: singletrack (--wfa_traceback); the database was built with classic (it has no build_settings.tsv: built before 2026-10-11)
+    Warning: this run aligns with the singletrack WFA2 traceback (--wfa_traceback singletrack), but the database was built with classic (it has no build_settings.tsv: built before 2026-10-11). The two give the same alignment scores, but among equally good alignments they may choose differently, so the SAM records, and the features the database's models were trained on, can differ slightly from a run that aligns as the database was built. Leave out --wfa_traceback (auto) to align as it was built.
+    warnings: /home/falk/stk/cmp/ont.classic.log:0
+    warnings: /home/falk/stk/cmp/ont.single.log:1
+    ref vs classic: other files differing: ./misc/cpu.tsv 
+      records: 1656 vs 1656; reads: 910 vs 910; header identical
+      SAM records identical
+    classic vs single: other files differing: ./misc/cpu.tsv 
+      records: 1656 vs 1656; reads: 910 vs 910; header identical
+      reads whose records differ: 447 of 910 (49.121%); with another number of records: 0
+             389  CIGAR
+              39  CIGAR + MAPQ
+               5  CIGAR + SEQ + tag ZT + tag ZU
+               4  MAPQ
+               3  CIGAR + tag ZA
+               3  CIGAR + tag ZT + tag ZU
+               2  CIGAR + MAPQ + SEQ + tag ZT + tag ZU
+               1  CIGAR + MAPQ + tag ZA
+               1  CIGAR + FLAG + MAPQ
+      example g12x_1580:
+        a: 2048	22_126	1	80	4317H2M1X5M1X3M3D3M1X4M1X1I4M2D1M1X53M1D26M1X3M1X38M1X9M1D162M2X1M1X14M2X40M2X2M1X3M1X14M3872H	ZU:i:24	ZT:i:19	ZR:i:1	ZN:i:1
+        b: 2048	22_126	1	80	4317H2M1X5M1X3M3D3M1X4M1X1I4M2D1M1X53M1D26M1X3M1X38M1X9M1D162M2X1M1X14M2X40M2X2M1X3M1X14M3872H	ZU:i:24	ZT:i:19	ZR:i:1	ZN:i:1
+        a: 2048	22_136	1	123	5620H39M1X26M1X12M1D1X6M1D45M1X24M1I16M1X73M1I72M2X1M1D1X34M1X4M1I5M1X4M3D1M2X5M1X3M1D13M1I127M1X10M1X5M1I3M1X13M1X51M1D4M1I8M2X1M2X1M1X1M1X2M4X28M2304H	ZU:i:37	ZT:i:29	ZN:i:1
+        b: 2048	22_136	1	123	5620H39M1X26M1X12M1D1X6M1D45M1X24M1I16M1X73M1I72M2X1M1D1X34M1X4M1I5M1X4M3D1M2X5M1X3M1D13M1I127M1X10M1X5M1I3M1X13M1X51M4X9M2X1M2X1M1X1M1X2M4X28M2304H	ZU:i:37	ZT:i:29	ZN:i:1
+        a: 0	22_15	1	80	6913H6M1I3M2X11M1I12M1D8M1X142M3X11M1X25M1X4M1X4M2D1X17M1X3M1D89M1I8M1X10M1D6M1D3M3X43M1I71M1I126M3D55M2X1M1X7M1D6M1X9M3D1X72M1D2M1X63M1D5M1X2M2X2M2D15M1D89M1I10M1X4M1I4M1I2M1X5M3D1X1M1X3M1X1M1X6M1X40M2X2M1X3M1I32M1X46M1X7M3X8M1X5M523H	ZU:i:51	ZT:i:41	ZF:Z:23:136,136:95	ZR:i:1	ZN:i:1
+        b: 0	22_15	1	80	6913H6M1I3M2X11M1I12M1D8M1X142M3X11M1X25M1X4M1X4M2D1X17M1X3M1D89M1I8M1X10M1D6M1D3M3X43M1I71M1I126M3D55M2X1M1X7M1D6M1X9M3D1X72M1D2M1X63M1D5M1X2M2X2M2D15M1D89M1I10M1X4M1I4M1I2M1X5M3D1X1M1X3M1X1M1X6M1X40M2X2M1X3M1I32M1X46M1X7M3X8M1X5M523H	ZU:i:51	ZT:i:41	ZF:Z:23:136,136:95	ZR:i:1	ZN:i:1
+      example g4x_723:
+        a: 16	123_15	1	128	16579H47M2X3M1D7M1X111M1X3M1X29M1D14M1X2M3D3M1X4M1I81M1X108M1X2M1X4M1X12M2I30M1D9M3X1M2X5M1X1M1I2X10M1I1X6M1D3M1X2M1X3M3D1M1X4M1I4M1I19M1X1M1I9M1D4M1D52M1X2M1X1M1D3M2I3M1X1M1X6M1D1X1M1X3M1D26M1X3M1X27M1D7M2X3M1D2M1X3M1X40M1D36M1D9M1D20M1I3M1X5M1X4M1X2M2D36M1X4M1X18M1X11M2D12M1I9M7548
+        b: 16	123_15	1	128	16579H47M2X3M1D7M1X111M1X3M1X29M1D14M3D1M1X4M1X4M1I81M1X108M1X2M1X4M1X12M2I30M1D9M3X1M2X5M1X1M1I2X10M1I1X6M1D3M1X2M1X3M3D1M1X4M1I4M1I19M1I1X10M1D4M1D52M1X2M1D1X4M2I3M1X1M1X6M1D1X1M1X3M1D26M1X3M1X27M1D7M2X3M1D2M1X3M1X40M1D36M1D9M1D20M1I3M1X5M1X4M1X2M2D36M1X4M1X18M1X11M2D12M1I9M7548H	Z
+CHECKDONE identity 18:46:44

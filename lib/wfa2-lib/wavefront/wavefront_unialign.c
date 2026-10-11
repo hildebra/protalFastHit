@@ -144,6 +144,24 @@ bool wavefront_unialign_reached_limits(
 /*
  * Terminate alignment (backtrace)
  */
+static int wavefront_unialign_termination_score(
+    wavefront_aligner_t* const wf_aligner,
+    const int score) {
+  wavefront_align_status_t* const align_status = &wf_aligner->align_status;
+  wavefront_pos_t* const end_pos = &wf_aligner->alignment_end_pos;
+  if (align_status->status == WF_STATUS_END_UNREACHABLE &&
+      end_pos->score >= 0 &&
+      end_pos->offset != WAVEFRONT_OFFSET_NULL) {
+    // Piggyback modes keep only a modular traceback window. Z-drop can select
+    // an older endpoint whose traceback block is no longer resident.
+    if (wf_aligner->alignment_scope == compute_alignment &&
+        wf_aligner->wf_components.bt_piggyback) {
+      return score;
+    }
+    return end_pos->score;
+  }
+  return score;
+}
 void wavefront_unialign_terminate(
     wavefront_aligner_t* const wf_aligner,
     const int score) {
@@ -153,21 +171,32 @@ void wavefront_unialign_terminate(
   const int pattern_length = sequences->pattern_length;
   const int text_length = sequences->text_length;
   cigar_t* const cigar = wf_aligner->cigar;
+  const int alignment_score = wavefront_unialign_termination_score(wf_aligner,score);
   // Select alignment scope
-  align_status->score = score;
+  align_status->score = alignment_score;
   if (wf_aligner->alignment_scope == compute_score) {
     // Set end-alignment position & score
     if (align_status->status == WF_STATUS_END_REACHED) {
-      cigar->end_v = pattern_length;
-      cigar->end_h = text_length;
-      cigar->score = wavefront_compute_classic_score(wf_aligner,pattern_length,text_length,score);
+      const int k = wf_aligner->alignment_end_pos.k;
+      const int offset = wf_aligner->alignment_end_pos.offset;
+      if (offset != WAVEFRONT_OFFSET_NULL) {
+        cigar->end_v = WAVEFRONT_V(k,offset);
+        cigar->end_h = WAVEFRONT_H(k,offset);
+      } else {
+        cigar->end_v = pattern_length;
+        cigar->end_h = text_length;
+      }
+      cigar->score = wavefront_compute_classic_score(wf_aligner,cigar->end_v,cigar->end_h,alignment_score);
       align_status->status = WF_STATUS_ALG_COMPLETED;
     } else {
       const int k = wf_aligner->alignment_end_pos.k;
       const int offset = wf_aligner->alignment_end_pos.offset;
-      cigar->end_v = WAVEFRONT_V(k,offset);
-      cigar->end_h = WAVEFRONT_H(k,offset);
-      cigar->score = wavefront_compute_classic_score(wf_aligner,cigar->end_v,cigar->end_h,score);
+      // Preserve the unset result when no partial endpoint was found.
+      if (offset != WAVEFRONT_OFFSET_NULL) {
+        cigar->end_v = WAVEFRONT_V(k,offset);
+        cigar->end_h = WAVEFRONT_H(k,offset);
+        cigar->score = wavefront_compute_classic_score(wf_aligner,cigar->end_v,cigar->end_h,alignment_score);
+      }
       align_status->dropped = true;
       align_status->status = WF_STATUS_ALG_PARTIAL;
     }
@@ -181,7 +210,7 @@ void wavefront_unialign_terminate(
         // Fetch wavefront
         const bool memory_modular = wf_aligner->wf_components.memory_modular;
         const int max_score_scope = wf_aligner->wf_components.max_score_scope;
-        const int score_mod = (memory_modular) ? score % max_score_scope : score;
+        const int score_mod = (memory_modular) ? alignment_score % max_score_scope : alignment_score;
         wavefront_t* const mwavefront = wf_components->mwavefronts[score_mod];
         // Backtrace alignment from buffer (unpacking pcigar)
         wavefront_backtrace_pcigar(
@@ -192,11 +221,19 @@ void wavefront_unialign_terminate(
         // Backtrace alignment
         if (wf_aligner->penalties.distance_metric <= gap_linear) {
           wavefront_backtrace_linear(wf_aligner,
-              score,alignment_end_k,alignment_end_offset);
+              alignment_score,alignment_end_k,alignment_end_offset);
+        } else if (wf_aligner->memory_mode == wavefront_memory_singletrack) {
+          // protal: an M-only backtrace without a path fails the alignment (the caller may align it again otherwise)
+          if (!wavefront_backtrace_affine_m_only(wf_aligner,
+                  wf_aligner->component_begin,wf_aligner->component_end,
+                  alignment_score,alignment_end_k,alignment_end_offset)) {
+            align_status->status = WF_STATUS_UNATTAINABLE;
+            return;
+          }
         } else {
           wavefront_backtrace_affine(wf_aligner,
               wf_aligner->component_begin,wf_aligner->component_end,
-              score,alignment_end_k,alignment_end_offset);
+              alignment_score,alignment_end_k,alignment_end_offset);
         }
       }
     }
@@ -225,7 +262,7 @@ void wavefront_unialign_terminate(
       const int offset = wf_aligner->alignment_end_pos.offset;
       cigar->end_v = WAVEFRONT_V(k,offset);
       cigar->end_h = WAVEFRONT_H(k,offset);
-      cigar->score = wavefront_compute_classic_score(wf_aligner,cigar->end_v,cigar->end_h,score);
+      cigar->score = wavefront_compute_classic_score(wf_aligner,cigar->end_v,cigar->end_h,alignment_score);
       // Set status
       if (unreachable) {
         align_status->status = WF_STATUS_ALG_PARTIAL;
@@ -312,13 +349,13 @@ void wavefront_unialign_print_status(
   wavefront_aligner_print_mode(stream,wf_aligner);
   fprintf(stream,
       "] SequenceLength=(%d,%d) Score %d (~ %2.3f%% aligned). "
-      "MemoryUsed(WF-Slab,BT-buffer)=(%lu MB,%lu MB). "
+      "MemoryUsed(WF-Slab,BT-buffer)=(%llu MB,%llu MB). "
       "Wavefronts ~ %2.3f Moffsets\n",
       pattern_length,
       text_length,
       score,
       aligned_progress,
-      CONVERT_B_TO_MB(slab_size),
-      CONVERT_B_TO_MB(bt_buffer_used),
+      (unsigned long long)CONVERT_B_TO_MB(slab_size),
+      (unsigned long long)CONVERT_B_TO_MB(bt_buffer_used),
       million_offsets);
 }

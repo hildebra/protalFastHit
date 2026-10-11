@@ -37,6 +37,17 @@
 #include <stdbool.h>
 
 /*
+ * Compiler Hints
+ */
+#ifndef VECTOR_UNLIKELY
+  #if defined(__GNUC__) || defined(__clang__)
+    #define VECTOR_UNLIKELY(x) __builtin_expect(!!(x),0)
+  #else
+    #define VECTOR_UNLIKELY(x) (x)
+  #endif
+#endif
+
+/*
  * Checkers
  */
 //#define VECTOR_DEBUG
@@ -57,11 +68,15 @@ typedef struct {
 vector_t* vector_new_(
     const uint64_t num_initial_elements,
     const uint64_t element_size);
-#define vector_new(num_initial_elements,type) vector_new_(num_initial_elements,sizeof(type))
-#define vector_clear(vector) (vector)->used=0
+#define vector_new(num_initial_elements,type) vector_new_((num_initial_elements),sizeof(type))
+#define vector_clear(vector) ((vector)->used=0)
 void vector_delete(
     vector_t* const vector);
 
+/*
+ * Reuse the backing allocation with a new element size.
+ * Existing contents are discarded.
+ */
 void vector_cast(
     vector_t* const vector,
     const uint64_t element_size);
@@ -70,51 +85,68 @@ void vector_reserve(
     const uint64_t num_elements,
     const bool zero_mem);
 #define vector_reserve_additional(vector,additional) \
-  vector_reserve(vector,vector_get_used(vector)+(additional),false)
-#define vector_prepare(vector,num_elements,type) \
-  vector_cast(vector,sizeof(type)); \
-  vector_reserve(vector,num_elements,false);
+  vector_reserve((vector),vector_get_used((vector))+(additional),false)
+#define vector_prepare(vector,num_elements,type) do { \
+  vector_cast((vector),sizeof(type)); \
+  vector_reserve((vector),(num_elements),false); \
+} while (0)
 
 /*
  * Element Getters/Setters
  */
-#define vector_is_empty(vector) (vector_get_used(vector)==0)
+#define vector_is_empty(vector) (vector_get_used((vector))==0)
 #define vector_get_mem(vector,type) ((type*)((vector)->memory))
-#define vector_get_last_elm(vector,type) (vector_get_mem(vector,type)+(vector)->used-1)
-#define vector_get_free_elm(vector,type) (vector_get_mem(vector,type)+(vector)->used)
-#define vector_set_elm(vector,position,type,elm) *vector_get_elm(vector,position,type) = (elm)
+#define vector_get_free_elm(vector,type) (vector_get_mem((vector),type)+(vector)->used)
+#define vector_set_elm(vector,position,type,elm) (*vector_get_elm((vector),(position),type) = (elm))
 #ifndef VECTOR_DEBUG
-  #define vector_get_elm(vector,position,type) (vector_get_mem(vector,type)+position)
+  #define vector_get_elm(vector,position,type) (vector_get_mem((vector),type)+(position))
+  #define vector_get_last_elm(vector,type) (vector_get_mem((vector),type)+(vector)->used-1)
 #else
   void* vector_get_mem_element(
       vector_t* const vector,
       const uint64_t position,
       const uint64_t element_size);
-  #define vector_get_elm(vector,position,type) ((type*)vector_get_mem_element(vector,position,sizeof(type)))
+  void* vector_get_mem_last_element(
+      vector_t* const vector,
+      const uint64_t element_size);
+  #define vector_get_elm(vector,position,type) ((type*)vector_get_mem_element((vector),(position),sizeof(type)))
+  #define vector_get_last_elm(vector,type) ((type*)vector_get_mem_last_element((vector),sizeof(type)))
 #endif
 
 /*
  * Used elements Getters/Setters
  */
 #define vector_get_used(vector) ((vector)->used)
-#define vector_set_used(vector,total_used) (vector)->used=(total_used)
+#define vector_set_used(vector,total_used) ((vector)->used=(total_used))
 #define vector_inc_used(vector) (++((vector)->used))
 #define vector_dec_used(vector) (--((vector)->used))
-#define vector_add_used(vector,additional) vector_set_used(vector,vector_get_used(vector)+additional)
+#define vector_add_used(vector,additional) vector_set_used((vector),vector_get_used((vector))+(additional))
 
 /*
  * Vector Allocate/Insert (Get a new element or Add an element to the end of the vector)
+ *
+ * Unsafe append helpers assume the caller has already ensured:
+ *   vector->used < vector->elements_allocated
  */
-#define vector_alloc_new(vector,type,return_element_pointer) { \
-  vector_reserve_additional(vector,1); \
-  return_element_pointer = vector_get_free_elm(vector,type); \
-  vector_inc_used(vector); \
-}
-#define vector_insert(vector,element,type) { \
-  vector_reserve_additional(vector,1); \
-  *(vector_get_free_elm(vector,type)) = element; \
-  vector_inc_used(vector); \
-}
+#define vector_push_unsafe(vector,element,type) do { \
+  vector_get_mem((vector),type)[(vector)->used++] = (element); \
+} while (0)
+#define vector_alloc_new_unsafe(vector,type,out_ptr) do { \
+  (out_ptr) = vector_get_free_elm((vector),type); \
+  ++((vector)->used); \
+} while (0)
+#define vector_alloc_new(vector,type,return_element_pointer) do { \
+  if (VECTOR_UNLIKELY((vector)->used == (vector)->elements_allocated)) { \
+    vector_reserve((vector),(vector)->used+1,false); \
+  } \
+  vector_alloc_new_unsafe((vector),type,(return_element_pointer)); \
+} while (0)
+#define vector_insert(vector,element,type) do { \
+  if (VECTOR_UNLIKELY((vector)->used == (vector)->elements_allocated)) { \
+    vector_reserve((vector),(vector)->used+1,false); \
+  } \
+  vector_push_unsafe((vector),(element),type); \
+} while (0)
 
 /*
  * Macro generic iterator
@@ -123,15 +155,15 @@ void vector_reserve(
  *   }
  */
 #define VECTOR_ITERATE(vector,element,counter,type) \
-  const uint64_t vector_##element##_used = vector_get_used(vector); \
-  type* element = vector_get_mem(vector,type); \
+  const uint64_t vector_##element##_used = vector_get_used((vector)); \
+  type* element = vector_get_mem((vector),type); \
   uint64_t counter; \
   for (counter=0;counter<vector_##element##_used;++element,++counter)
 #define VECTOR_ITERATE_OFFSET(vector,element,counter,type,offset) \
-  const uint64_t vector_##element##_used = vector_get_used(vector); \
-  type* element = vector_get_mem(vector,type)+offset; \
+  const uint64_t vector_##element##_used = vector_get_used((vector)); \
+  type* element = vector_get_mem((vector),type)+(offset); \
   uint64_t counter; \
-  for (counter=offset;counter<vector_##element##_used;++counter,++element)
+  for (counter=(offset);counter<vector_##element##_used;++counter,++element)
 
 /*
  * Miscellaneous

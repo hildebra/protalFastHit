@@ -3842,5 +3842,76 @@ class SimulatorTest(WorkDir):
             self.assertEqual(plain, gzip.decompress(outputs["1"][name.replace(".zst", ".gz")]), name)
 
 
+class WfaTracebackTest(WorkDir):
+    """--wfa_traceback: a database built with the Singletrack traceback records it in build_settings.tsv (packed into
+    database.protal); a run aligns with the database's unless told otherwise, and is warned when it aligns with another;
+    a database without the file was built classic. (Needs protal, not the test database.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        require_binary(PROTAL, "protal", "PROTAL")
+        super().setUpClass()
+        scripts = os.path.join(ROOT, "scripts", "mini_db")
+        cls.gtdb, cls.db = os.path.join(cls.work, "gtdb"), os.path.join(cls.work, "db")
+        python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--genome_length", "200000",
+               "--genomes_per_species", "1", "--contigs", "1")
+        python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--wfa_traceback", "singletrack",
+                                "--db", cls.db, "--reference", os.path.join(cls.db, "reference.fna"))
+        if rc != 0:
+            raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])
+        genomes = os.path.join(cls.gtdb, "simulation", "genomes.tsv")
+        with open(genomes) as fh:
+            accessions = [row["accession"] for row in csv.DictReader(fh, delimiter="\t")]
+        community = os.path.join(cls.work, "community.tsv")
+        with open(community, "w") as fh:
+            fh.write("accession\trelative_abundance\n")
+            fh.writelines(f"{a}\t1\n" for a in accessions)
+        python(os.path.join(scripts, "simulate_reads.py"), "--genomes", genomes, "--community", community,
+               "--out_prefix", os.path.join(cls.work, "s"), "--pairs", "4000", "--seed", "3")
+
+    def align(self, name, *extra, db=None):
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+                      "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        return log
+
+    def test_the_build_records_its_traceback(self):
+        self.assertIn("WFA2 traceback: singletrack", self.build_log)
+        unpacked = self.path("unpacked")
+        rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("wfa_traceback\tsingletrack\n", read_text(os.path.join(unpacked, "build_settings.tsv")))
+
+    def test_a_run_follows_the_database_and_is_warned_otherwise(self):
+        log = self.align("auto")
+        self.assertIn("WFA2 traceback: singletrack; the database was built with singletrack", log)
+        self.assertNotIn("Warning: this run aligns with", log)
+        log = self.align("classic", "--wfa_traceback", "classic")
+        self.assertIn("WFA2 traceback: classic (--wfa_traceback); the database was built with singletrack", log)
+        self.assertIn("Warning: this run aligns with the classic WFA2 traceback (--wfa_traceback classic), but the "
+                      "database was built with singletrack", log)
+        self.assertEqual(len(sam_records(find_sams(self.path("auto", "s.sam"))[0])),
+                         len(sam_records(find_sams(self.path("classic", "s.sam"))[0])))
+
+    def test_a_database_without_the_record_was_built_classic(self):
+        old = self.path("old")
+        rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", old, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        os.remove(os.path.join(old, "build_settings.tsv"))
+        log = self.align("old_auto", db=old)
+        self.assertIn("WFA2 traceback: classic; the database was built with classic (it has no build_settings.tsv: built "
+                      "before 2026-10-11)", log)
+        self.assertNotIn("Warning: this run aligns with", log)
+        log = self.align("old_singletrack", "--wfa_traceback", "singletrack", db=old)
+        self.assertIn("Warning: this run aligns with the singletrack WFA2 traceback", log)
+
+    def test_an_unknown_traceback_stops_the_run(self):
+        rc, log = run(self.work, "--db", self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+                      "-o", "bad", "--wfa_traceback", "fast")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--wfa_traceback must be auto, classic or singletrack, not 'fast'", log)
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())

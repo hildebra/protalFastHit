@@ -239,12 +239,37 @@ void wavefront_aligner_init_alignment(
   wf_aligner->align_mode_tag = NULL;
   // Score & form
   wf_aligner->alignment_scope = attributes->alignment_scope;
+  wf_aligner->score_only_recover_endpoints = attributes->score_only_recover_endpoints;
   wf_aligner->alignment_form = attributes->alignment_form;
   // Penalties
   wavefront_aligner_init_penalties(wf_aligner,attributes);
   // Memory mode
   wf_aligner->memory_mode = attributes->memory_mode;
   wavefront_aligner_init_heuristic(wf_aligner,attributes);
+}
+static bool wavefront_aligner_form_has_free_ends(
+    alignment_form_t* const form) {
+  return form->span == alignment_endsfree && (
+      form->pattern_begin_free > 0 ||
+      form->pattern_end_free > 0 ||
+      form->text_begin_free > 0 ||
+      form->text_end_free > 0);
+}
+void wavefront_aligner_check_biwfa_unsupported(
+    wavefront_aligner_t* const wf_aligner) {
+  if (wf_aligner->memory_mode != wavefront_memory_ultralow) return;
+  alignment_form_t* const form = &wf_aligner->alignment_form;
+  if (form->extension) {
+    fprintf(stderr,"[WFA] BiWFA extension is not implemented yet (let me know and I'll add it)\n");
+    exit(1);
+  }
+  if (wavefront_aligner_form_has_free_ends(form) &&
+      wf_aligner->penalties.match < 0) {
+    fprintf(stderr,"[WFA] BiWFA ends-free with negative match rewards "
+        "(match < 0) requires aligned-length-aware breakpoint scoring and "
+        "is not implemented yet\n");
+    exit(1);
+  }
 }
 /*
  * Initialize wavefront-vectors (Initial alignment conditions)
@@ -258,8 +283,8 @@ void wavefront_aligner_init_wf_m(
   wavefront_penalties_t* const penalties = &wf_aligner->penalties;
   alignment_form_t* const form = &wf_aligner->alignment_form;
   // Consider ends-free
-  const int hi = (penalties->match==0) ? form->text_begin_free : 0;
-  const int lo = (penalties->match==0) ? -form->pattern_begin_free : 0;
+  const int hi = (penalties->match==0 && form->span==alignment_endsfree) ? form->text_begin_free : 0;
+  const int lo = (penalties->match==0 && form->span==alignment_endsfree) ? -form->pattern_begin_free : 0;
   // Compute dimensions
   int effective_lo, effective_hi;
   wavefront_compute_limits_output(wf_aligner,lo,hi,&effective_lo,&effective_hi);
@@ -423,6 +448,19 @@ wavefront_aligner_t* wavefront_aligner_new(
     wavefront_aligner_attr_t* attributes) {
   // Parameters
   if (attributes == NULL) attributes = &wavefront_aligner_attr_default;
+  if (attributes->memory_mode == wavefront_memory_singletrack) {
+    const bool supported_metric =
+        attributes->distance_metric == gap_affine ||
+        attributes->distance_metric == gap_affine_2p;
+    if (!supported_metric) {
+      fprintf(stderr,"[WFA] Singletrack memory mode only supports gap-affine and gap-affine-2p distances\n");
+      exit(1);
+    }
+    if (attributes->alignment_scope != compute_alignment) {
+      fprintf(stderr,"[WFA] Singletrack memory mode requires full alignment scope\n");
+      exit(1);
+    }
+  }
   const bool score_only = (attributes->alignment_scope == compute_score);
   const bool memory_succint =
       attributes->memory_mode == wavefront_memory_med ||
@@ -442,6 +480,7 @@ wavefront_aligner_t* wavefront_aligner_new(
   }
   // Alignment
   wavefront_aligner_init_alignment(wf_aligner,attributes,memory_modular,bt_piggyback,bi_alignment);
+  wavefront_aligner_check_biwfa_unsupported(wf_aligner);
   if (bi_alignment) {
     wf_aligner->bialigner = wavefront_bialigner_new(attributes,wf_aligner->plot);
   } else {
@@ -527,6 +566,11 @@ void wavefront_aligner_set_alignment_extension(
     wavefront_aligner_t* const wf_aligner) {
   wf_aligner->alignment_form.span = alignment_endsfree;
   wf_aligner->alignment_form.extension = true;
+}
+void wavefront_aligner_set_score_only_recover_endpoints(
+    wavefront_aligner_t* const wf_aligner,
+    const bool recover_endpoints) {
+  wf_aligner->score_only_recover_endpoints = recover_endpoints;
 }
 /*
  * Heuristic configuration
@@ -726,6 +770,7 @@ void wavefront_aligner_print_conf(
     case wavefront_memory_med: fprintf(stream,"MMed"); break;
     case wavefront_memory_low: fprintf(stream,"MLow"); break;
     case wavefront_memory_ultralow: fprintf(stream,"BiWFA"); break;
+    case wavefront_memory_singletrack: fprintf(stream,"MSingletrack"); break;
   }
   if (wf_aligner->system.max_alignment_steps == INT_MAX) {
     fprintf(stream,",inf)");

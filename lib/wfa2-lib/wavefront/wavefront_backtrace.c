@@ -58,6 +58,121 @@ typedef enum {
   backtrace_I1_open = 1,
 } backtrace_type;
 
+static const uint64_t matches_lut = 0x4D4D4D4D4D4D4D4Dul; // Matches LUT = "MMMMMMMM"
+static const uint64_t insertions_lut = 0x4949494949494949ul; // Insertions LUT = "IIIIIIII"
+static const uint64_t deletions_lut = 0x4444444444444444ul; // Deletions LUT = "DDDDDDDD"
+
+// protal (2026-10-11): with padding, the M-wavefront's initialized elements beyond its active bounds count too. A
+// heuristic (wf-adaptive) narrows a wavefront's lo/hi but leaves the pruned offsets in place, and the compute kernels
+// of a later, wider (ends-free) wavefront still read them, so an M-wavefront can hold a state reached from a pruned
+// one; the classic backtrace's extension lookups read the same elements (wf_elements_init_min/max). The M-only
+// backtrace looks there only when the active bounds give no path (wavefront_backtrace_affine_m_only).
+static bool wavefront_backtrace_m_offset_padded(
+    wavefront_aligner_t* const wf_aligner,
+    const int score,
+    const int k,
+    const bool padding,
+    wf_offset_t* const offset) {
+  if (score < 0) return false;
+  wavefront_components_t* const wf_components = &wf_aligner->wf_components;
+  if (score >= wf_components->num_wavefronts) return false;
+  wavefront_t* const mwavefront = wf_components->mwavefronts[score];
+  if (mwavefront == NULL) return false;
+  // Use active bounds; initialized padding can include heuristic-pruned states.
+  if (padding) {
+    if (mwavefront->null || k < mwavefront->wf_elements_init_min || mwavefront->wf_elements_init_max < k) {
+      return false;
+    }
+  } else if (k < mwavefront->lo || mwavefront->hi < k) {
+    return false;
+  }
+  const wf_offset_t m_offset = mwavefront->offsets[k];
+  if (m_offset == WAVEFRONT_OFFSET_NULL) return false;
+  *offset = m_offset;
+  return true;
+}
+// protal: the classic backtrace's M lookups (mismatch, gap openings) as in WFA2-lib v2.3.6: any initialized element,
+// NULL included (an offset that matches nothing), as the compute kernels read them. With the fork's active bounds the
+// classic backtrace of a heuristic-pruned ends-free alignment could take a wrong predecessor and give operations that
+// are no alignment of the sequences (an M of different bases, test WfaTraceback.SingletrackWithTheReadsEndFree).
+static bool wavefront_backtrace_m_offset(
+    wavefront_aligner_t* const wf_aligner,
+    const int score,
+    const int k,
+    wf_offset_t* const offset) {
+  if (score < 0) return false;
+  wavefront_components_t* const wf_components = &wf_aligner->wf_components;
+  if (score >= wf_components->num_wavefronts) return false;
+  wavefront_t* const mwavefront = wf_components->mwavefronts[score];
+  if (mwavefront == NULL ||
+      k < mwavefront->wf_elements_init_min ||
+      mwavefront->wf_elements_init_max < k) {
+    return false;
+  }
+  *offset = mwavefront->offsets[k];
+  return true;
+}
+
+/**
+ * Add @p num operations of type @p op to the CIGAR. @p lut_op represents the
+ * 64-bit representation of the operation (8 times the same operation). This is
+ * used when @p num is greater than or equal to 8, in which case the operation
+ * is added in blocks of 8 operations to the CIGAR.
+ *
+ * @param cigar The CIGAR.
+ * @param op The character representing the operation to add (e.g., 'M', 'X',
+ * 'I', 'D').
+ * @param lut_op The 64-bit representation of @p op, i.e., the same operation
+ * repeated 8 times (e.g., 0x4D4D4D4D4D4D4D4Dul for 'M').
+ * @param num The number of instances of the operation to add to the CIGAR.
+ */
+void wavefront_backtrace_add_nop_to_cigar(cigar_t *const cigar,
+                                          const char op,
+                                          const uint64_t lut_op,
+                                          int num) {
+  char* operations = cigar->operations + cigar->begin_offset;
+  // Update offset first
+  cigar->begin_offset -= num;
+  // Blocks of 8-operations
+  while (num >= 8) {
+    operations -= 8;
+    memcpy(operations+1,&lut_op,sizeof(lut_op));
+    num -= 8;
+  }
+  // Remaining operations
+  for (int i = 0; i < num; ++i) {
+    *operations = op;
+    --operations;
+  }
+}
+
+/**
+ * Add @p num operations of type @p lut_op (8 repetitions of a character) to the
+ * CIGAR. If @p num is not multiple of 8, then @p num + (8 - (num % 8))
+ * operations will be added to the CIGAR, but the begin_offset will be updated
+ * using @p num. In order to do this, the cigar needs a padding of at least 7
+ * elements.
+ *
+ * @param cigar The CIGAR.
+ * @param lut_op The 64-bit representation of an operation, i.e., the same
+ * operation repeated 8 times (e.g., 0x4D4D4D4D4D4D4D4Dul for 'M').
+ * @param num The number of instances of the operation to add to the CIGAR.
+ */
+void wavefront_backtrace_add_lut_to_cigar(cigar_t *const cigar,
+                                          const uint64_t lut_op,
+                                          int num) {
+  char* operations = cigar->operations + cigar->begin_offset + 1;
+  // Update offset first
+  cigar->begin_offset -= num;
+  // Blocks of 8-operations. We may add more than num operations if num is
+  // not a multiple of 8. We need enough space for this.
+  while (num > 0) {
+    operations -= 8;
+    memcpy(operations,&lut_op,sizeof(lut_op));
+    num -= 8;
+  }
+}
+
 /*
  * Backtrace Trace Patch Match/Mismsmatch
  */
@@ -65,15 +180,10 @@ int64_t wavefront_backtrace_misms(
     wavefront_aligner_t* const wf_aligner,
     const int score,
     const int k) {
-  if (score < 0) return WAVEFRONT_OFFSET_NULL;
-  wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
-  if (mwavefront != NULL &&
-      mwavefront->wf_elements_init_min <= k &&
-      k <= mwavefront->wf_elements_init_max) {
-    return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k]+1,backtrace_M);
-  } else {
-    return WAVEFRONT_OFFSET_NULL;
-  }
+  wf_offset_t offset;
+  return wavefront_backtrace_m_offset(wf_aligner,score,k,&offset) ?
+      BACKTRACE_PIGGYBACK_SET(offset+1,backtrace_M) :
+      WAVEFRONT_OFFSET_NULL;
 }
 void wavefront_backtrace_matches(
     wavefront_aligner_t* const wf_aligner,
@@ -81,23 +191,7 @@ void wavefront_backtrace_matches(
     wf_offset_t offset,
     int num_matches,
     cigar_t* const cigar) {
-  // Parameters
-  const uint64_t matches_lut = 0x4D4D4D4D4D4D4D4Dul; // Matches LUT = "MMMMMMMM"
-  char* operations = cigar->operations + cigar->begin_offset;
-  // Update offset first
-  cigar->begin_offset -= num_matches;
-  // Blocks of 8-matches
-  while (num_matches >= 8) {
-    operations -= 8;
-    *((uint64_t*)(operations+1)) = matches_lut;
-    num_matches -= 8;
-  }
-  // Remaining matches
-  int i;
-  for (i=0;i<num_matches;++i) {
-    *operations = 'M';
-    --operations;
-  }
+  wavefront_backtrace_add_nop_to_cigar(cigar, 'M', matches_lut, num_matches);
 }
 /*
  * Backtrace Trace Patch Deletion
@@ -106,29 +200,19 @@ int64_t wavefront_backtrace_del1_open(
     wavefront_aligner_t* const wf_aligner,
     const int score,
     const int k) {
-  if (score < 0) return WAVEFRONT_OFFSET_NULL;
-  wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
-  if (mwavefront != NULL &&
-      mwavefront->wf_elements_init_min <= k+1 &&
-      k+1 <= mwavefront->wf_elements_init_max) {
-    return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k+1],backtrace_D1_open);
-  } else {
-    return WAVEFRONT_OFFSET_NULL;
-  }
+  wf_offset_t offset;
+  return wavefront_backtrace_m_offset(wf_aligner,score,k+1,&offset) ?
+      BACKTRACE_PIGGYBACK_SET(offset,backtrace_D1_open) :
+      WAVEFRONT_OFFSET_NULL;
 }
 int64_t wavefront_backtrace_del2_open(
     wavefront_aligner_t* const wf_aligner,
     const int score,
     const int k) {
-  if (score < 0) return WAVEFRONT_OFFSET_NULL;
-  wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
-  if (mwavefront != NULL &&
-      mwavefront->wf_elements_init_min <= k+1 &&
-      k+1 <= mwavefront->wf_elements_init_max) {
-    return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k+1],backtrace_D2_open);
-  } else {
-    return WAVEFRONT_OFFSET_NULL;
-  }
+  wf_offset_t offset;
+  return wavefront_backtrace_m_offset(wf_aligner,score,k+1,&offset) ?
+      BACKTRACE_PIGGYBACK_SET(offset,backtrace_D2_open) :
+      WAVEFRONT_OFFSET_NULL;
 }
 int64_t wavefront_backtrace_del1_ext(
     wavefront_aligner_t* const wf_aligner,
@@ -165,29 +249,19 @@ int64_t wavefront_backtrace_ins1_open(
     wavefront_aligner_t* const wf_aligner,
     const int score,
     const int k) {
-  if (score < 0) return WAVEFRONT_OFFSET_NULL;
-  wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
-  if (mwavefront != NULL &&
-      mwavefront->wf_elements_init_min <= k-1 &&
-      k-1 <= mwavefront->wf_elements_init_max) {
-    return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k-1]+1,backtrace_I1_open);
-  } else {
-    return WAVEFRONT_OFFSET_NULL;
-  }
+  wf_offset_t offset;
+  return wavefront_backtrace_m_offset(wf_aligner,score,k-1,&offset) ?
+      BACKTRACE_PIGGYBACK_SET(offset+1,backtrace_I1_open) :
+      WAVEFRONT_OFFSET_NULL;
 }
 int64_t wavefront_backtrace_ins2_open(
     wavefront_aligner_t* const wf_aligner,
     const int score,
     const int k) {
-  if (score < 0) return WAVEFRONT_OFFSET_NULL;
-  wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
-  if (mwavefront != NULL &&
-      mwavefront->wf_elements_init_min <= k-1 &&
-      k-1 <= mwavefront->wf_elements_init_max) {
-    return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k-1]+1,backtrace_I2_open);
-  } else {
-    return WAVEFRONT_OFFSET_NULL;
-  }
+  wf_offset_t offset;
+  return wavefront_backtrace_m_offset(wf_aligner,score,k-1,&offset) ?
+      BACKTRACE_PIGGYBACK_SET(offset+1,backtrace_I2_open) :
+      WAVEFRONT_OFFSET_NULL;
 }
 int64_t wavefront_backtrace_ins1_ext(
     wavefront_aligner_t* const wf_aligner,
@@ -526,6 +600,637 @@ void wavefront_backtrace_affine(
   // Set CIGAR
   ++(cigar->begin_offset);
   cigar->score = alignment_score;
+}
+
+
+
+#if 0
+/**
+ * Check that the cigar produced by the M-only backtrace is coherent, i.e.,
+ * it has the expected score and matches and mismatches are consistent with
+ * the pattern and text.
+ *
+ * @param penalties The penalties.
+ * @param cigar The cigar produced by the M-only backtrace.
+ * @param sequences The sequences.
+ * @param expected_score The expected score of the alignment.
+ * @param affine2p True if the alignment is affine2p, false otherwise.
+ * @return True if the cigar is coherent, false otherwise.
+ */
+static bool
+check_cigar_backtrace_affine_m_only(const wavefront_penalties_t* const penalties,
+                                    const cigar_t* const cigar,
+                                    const wavefront_sequences_t* const sequences,
+                                    const int expected_score,
+                                    const bool affine2p) {
+
+  const char* const pattern = sequences->pattern;
+  const char* const text = sequences->text;
+
+  int score = 0;
+  int score2 = 0;   // For Dual affine.
+
+  int v = 0;
+  int h = 0;
+
+  char prev_op = ' ';
+
+  for (int i = cigar->begin_offset; i < cigar->end_offset; ++i) {
+    const char op = cigar->operations[i];
+
+    if ((prev_op == 'I' || prev_op == 'D') && op != prev_op && affine2p) {
+      // We have finished a chain of gaps, get the best score.
+      score = MIN(score, score2);
+    }
+
+    if (op == 'M') {
+      if (pattern[v] != text[h]) {
+        return false;
+      }
+
+      score += penalties->match;
+
+      ++v;
+      ++h;
+    }
+    else if (op == 'X') {
+      if (pattern[v] == text[h]) {
+        return false;
+      }
+
+      score += penalties->mismatch;
+
+      ++v;
+      ++h;
+    }
+    else if (op == 'I') {
+      if (prev_op != 'I') {
+        score2 = score + penalties->gap_opening2;
+        score += penalties->gap_opening1;
+      }
+
+      score += penalties->gap_extension1;
+      score2 += penalties->gap_extension2;
+
+      ++h;
+    }
+    else if (op == 'D') {
+      if (prev_op != 'D') {
+        score2 = score + penalties->gap_opening2;
+        score += penalties->gap_opening1;
+      }
+
+      score += penalties->gap_extension1;
+      score2 += penalties->gap_extension2;
+
+      ++v;
+    }
+    else {
+      return false;
+    }
+
+    prev_op = op;
+  }
+
+  // In case the sequence ends with a gap.
+  if ((prev_op == 'I' || prev_op == 'D') && affine2p) {
+    score = MIN(score, score2);
+  }
+
+  if (score != expected_score) {
+    return false;
+  }
+
+  return true;
+}
+
+#endif
+
+static int wavefront_backtrace_m_only_count_backward_matches(
+    wavefront_aligner_t* const wf_aligner,
+    const int v,
+    const int h) {
+  const char* const pattern = wf_aligner->sequences.pattern;
+  const char* const text = wf_aligner->sequences.text;
+  const int max_matches = MIN(v,h);
+  int nmatches = 0;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  // Blocked backwards extend, bounded to avoid reading before free-start edges.
+  while (nmatches + 8 <= max_matches) {
+    uint64_t pattern_block, text_block;
+    memcpy(&pattern_block,pattern + v - nmatches - 8,sizeof(pattern_block));
+    memcpy(&text_block,text + h - nmatches - 8,sizeof(text_block));
+    const uint64_t cmp = pattern_block ^ text_block;
+    if (cmp != 0) {
+      const int equal_left_bits = __builtin_clzll(cmp);
+      nmatches += DIV_FLOOR(equal_left_bits,8);
+      return nmatches;
+    }
+    nmatches += 8;
+  }
+#endif
+  while (nmatches < max_matches &&
+         pattern[v-nmatches-1] == text[h-nmatches-1]) {
+    ++nmatches;
+  }
+  return nmatches;
+}
+
+static bool wavefront_backtrace_m_only_is_begin_free(
+    wavefront_aligner_t* const wf_aligner,
+    const int score,
+    const int v,
+    const int h) {
+  const alignment_form_t* const form = &wf_aligner->alignment_form;
+  const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
+  if (form->span != alignment_endsfree || penalties->match >= 0) return false;
+
+  const int match_score = -penalties->match;
+  if (v == 0 && h > 0 && h <= form->text_begin_free &&
+      score == h * match_score) {
+    return true;
+  }
+  if (h == 0 && v > 0 && v <= form->pattern_begin_free &&
+      score == v * match_score) {
+    return true;
+  }
+  return false;
+}
+
+static void wavefront_backtrace_m_only_add_begin_free(
+    cigar_t* const cigar,
+    const int v,
+    const int h) {
+  int i;
+  for (i=0;i<h;++i) {
+    cigar->operations[(cigar->begin_offset)--] = 'I';
+  }
+  for (i=0;i<v;++i) {
+    cigar->operations[(cigar->begin_offset)--] = 'D';
+  }
+}
+
+static bool wavefront_backtrace_m_only_try_begin_free(
+    wavefront_aligner_t* const wf_aligner,
+    cigar_t* const cigar,
+    const int score,
+    const int v,
+    const int h) {
+  if (!wavefront_backtrace_m_only_is_begin_free(wf_aligner,score,v,h)) {
+    return false;
+  }
+  wavefront_backtrace_m_only_add_begin_free(cigar,v,h);
+  return true;
+}
+static bool wavefront_backtrace_m_only_try_zero_begin_free(
+    wavefront_aligner_t* const wf_aligner,
+    cigar_t* const cigar,
+    const int v,
+    const int h) {
+  const alignment_form_t* const form = &wf_aligner->alignment_form;
+  const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
+  if (form->span != alignment_endsfree || penalties->match != 0) return false;
+  const int k = h - v;
+  if (k >= 0 && k <= form->text_begin_free) {
+    wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,v);
+    wavefront_backtrace_add_lut_to_cigar(cigar,insertions_lut,k);
+    return true;
+  }
+  if (k < 0 && -k <= form->pattern_begin_free) {
+    wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,h);
+    wavefront_backtrace_add_lut_to_cigar(cigar,deletions_lut,-k);
+    return true;
+  }
+  return false;
+}
+static bool wavefront_backtrace_m_only_try_indel(
+    wavefront_aligner_t* const wf_aligner,
+    cigar_t* const cigar,
+    const distance_metric_t distance_metric,
+    const int score,
+    const int k,
+    const wf_offset_t offset,
+    const wf_offset_t offset_orig,
+    int* const next_score,
+    int* const next_k,
+    wf_offset_t* const next_offset) {
+  const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
+  int l;
+  for (l=1;;++l) {
+    bool score_in_scope = false;
+    const int k_ins = k - l;
+    const int k_del = k + l;
+    const int indel1 = score - penalties->gap_opening1 -
+                       l * penalties->gap_extension1;
+    if (indel1 >= 0) {
+      score_in_scope = true;
+      wf_offset_t m_offset;
+      if (wavefront_backtrace_m_offset(wf_aligner,indel1,k_ins,&m_offset) &&
+          m_offset + l >= offset_orig &&
+          m_offset + l <= offset) {
+        const int nmatches = offset - (m_offset + l);
+        wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar,insertions_lut,l);
+        *next_k = k_ins;
+        *next_offset = m_offset;
+        *next_score = indel1;
+        return true;
+      }
+      if (wavefront_backtrace_m_offset(wf_aligner,indel1,k_del,&m_offset) &&
+          m_offset >= offset_orig &&
+          m_offset <= offset) {
+        const int nmatches = offset - m_offset;
+        wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar,deletions_lut,l);
+        *next_k = k_del;
+        *next_offset = m_offset;
+        *next_score = indel1;
+        return true;
+      }
+    }
+    if (distance_metric == gap_affine_2p) {
+      const int indel2 = score - penalties->gap_opening2 -
+                         l * penalties->gap_extension2;
+      if (indel2 >= 0) {
+        score_in_scope = true;
+        wf_offset_t m_offset;
+        if (wavefront_backtrace_m_offset(wf_aligner,indel2,k_ins,&m_offset) &&
+            m_offset + l >= offset_orig &&
+            m_offset + l <= offset) {
+          const int nmatches = offset - (m_offset + l);
+          wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,nmatches);
+          wavefront_backtrace_add_lut_to_cigar(cigar,insertions_lut,l);
+          *next_k = k_ins;
+          *next_offset = m_offset;
+          *next_score = indel2;
+          return true;
+        }
+        if (wavefront_backtrace_m_offset(wf_aligner,indel2,k_del,&m_offset) &&
+            m_offset >= offset_orig &&
+            m_offset <= offset) {
+          const int nmatches = offset - m_offset;
+          wavefront_backtrace_add_lut_to_cigar(cigar,matches_lut,nmatches);
+          wavefront_backtrace_add_lut_to_cigar(cigar,deletions_lut,l);
+          *next_k = k_del;
+          *next_offset = m_offset;
+          *next_score = indel2;
+          return true;
+        }
+      }
+    }
+    if (!score_in_scope) return false;
+  }
+}
+
+static void wavefront_backtrace_m_only_free_temp(
+    wavefront_aligner_t* const wf_aligner,
+    wavefront_t** const wavefront_slot) {
+  if (*wavefront_slot == NULL) return;
+  wavefront_slab_free(wf_aligner->wavefront_slab,*wavefront_slot);
+  *wavefront_slot = NULL;
+}
+
+static void wavefront_backtrace_m_only_free_temps(
+    wavefront_aligner_t* const wf_aligner,
+    const distance_metric_t distance_metric,
+    const int alignment_score) {
+  wavefront_components_t* const wf_components = &wf_aligner->wf_components;
+  int i;
+  for (i=0;i<=alignment_score;++i) {
+    if (distance_metric == gap_affine ||
+        distance_metric == gap_affine_2p) {
+      wavefront_backtrace_m_only_free_temp(
+          wf_aligner,&wf_components->i1wavefronts[i]);
+      wavefront_backtrace_m_only_free_temp(
+          wf_aligner,&wf_components->d1wavefronts[i]);
+    }
+    if (distance_metric == gap_affine_2p) {
+      wavefront_backtrace_m_only_free_temp(
+          wf_aligner,&wf_components->i2wavefronts[i]);
+      wavefront_backtrace_m_only_free_temp(
+          wf_aligner,&wf_components->d2wavefronts[i]);
+    }
+  }
+}
+
+/**
+ * Retrieve the cigar of the alignment for gap-affine and dual gap-affine
+ * using exclusively the information in the M matrix (M wavefronts). This is
+ * slightly slower than the general traceback, but it enables storing only
+ * the M matrix when performing the alignment (I1, I2, D1 and D2 only need a
+ * small scope).
+ *
+ * @param wf_aligner The wavefront aligner.
+ * @param component_begin unused.
+ * @param component_end The component (matrix) where the traceback starts.
+ * @param alignment_score The score of the alignment.
+ * @param alignment_k The diagonal that contains the cell (N, M), where the
+ * traceback starts.
+ * @param alignment_offset The offset of the cell (N, M), where the traceback
+ * starts.
+ */
+bool wavefront_backtrace_affine_m_only(
+    wavefront_aligner_t* const wf_aligner,
+    const affine2p_matrix_type component_begin,
+    const affine2p_matrix_type component_end,
+    const int alignment_score,
+    const int alignment_k,
+    const wf_offset_t alignment_offset) {
+
+  // Parameters
+  wavefront_sequences_t* const sequences = &wf_aligner->sequences;
+  const int pattern_length = sequences->pattern_length;
+  const int text_length = sequences->text_length;
+  const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
+  const distance_metric_t distance_metric = penalties->distance_metric;
+
+  // Prepare cigar
+  // WARNING: We want padding in the cigar so we can always use LUTs.
+  cigar_t* const cigar = wf_aligner->cigar;
+  cigar_clear(cigar);
+  cigar->end_offset = cigar->max_operations - 1;
+  cigar->begin_offset = cigar->max_operations - 2;
+  cigar->operations[cigar->end_offset] = '\0';
+
+  // Compute starting location
+  int score = alignment_score;
+  int k = alignment_k;
+  int h = WAVEFRONT_H(alignment_k,alignment_offset);
+  int v = WAVEFRONT_V(alignment_k,alignment_offset);
+  wf_offset_t offset = alignment_offset;
+  wf_offset_t offset_orig = offset;
+
+  // Account for ending insertions/deletions
+  if (component_end == affine2p_matrix_M) { // ends-free
+    if (v < pattern_length) {
+      int i = pattern_length - v;
+      while (i > 0) {cigar->operations[(cigar->begin_offset)--] = 'D'; --i;};
+    }
+    if (h < text_length) {
+      int i = text_length - h;
+      while (i > 0) {cigar->operations[(cigar->begin_offset)--] = 'I'; --i;};
+    }
+  }
+
+  bool in_mmatrix = component_end == affine2p_matrix_M;
+  int l = 0; // Length of the current chain of insertions or deletions.
+  // protal: whether the current cell's predecessors are looked up in the M-wavefronts' initialized padding too
+  // (wavefront_backtrace_m_offset_padded), after its active bounds gave no path.
+  bool padding = false;
+
+  // Trace the alignment back
+  while (score != 0) {
+    if (in_mmatrix) {
+      v = WAVEFRONT_V(k, offset);
+      h = WAVEFRONT_H(k, offset);
+
+      if (wavefront_backtrace_m_only_try_begin_free(
+              wf_aligner,cigar,score,v,h)) {
+        score = 0;
+        k = 0;
+        offset = 0;
+        break;
+      }
+
+      const int nmatches =
+          wavefront_backtrace_m_only_count_backward_matches(wf_aligner,v,h);
+
+      const int mismatch = score - penalties->mismatch;
+
+      offset_orig = offset - nmatches;
+
+      const int v_orig = WAVEFRONT_V(k, offset_orig);
+      const int h_orig = WAVEFRONT_H(k, offset_orig);
+      if (wavefront_backtrace_m_only_is_begin_free(
+              wf_aligner,score,v_orig,h_orig)) {
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        wavefront_backtrace_m_only_add_begin_free(cigar,v_orig,h_orig);
+        score = 0;
+        k = 0;
+        offset = 0;
+        break;
+      }
+
+      if (wf_aligner->alignment_form.extension &&
+          wavefront_backtrace_m_only_try_indel(
+              wf_aligner,cigar,distance_metric,
+              score,k,offset,offset_orig,
+              &score,&k,&offset)) {
+        in_mmatrix = true;
+        continue;
+      }
+
+      // If we come from a mismatch, then the backwards extend is correct.
+      wf_offset_t m_offset;
+      if (wavefront_backtrace_m_offset_padded(wf_aligner,mismatch,k,padding,&m_offset) &&
+          m_offset + 1 == offset_orig) {
+
+        offset = offset_orig - 1;
+
+        score = mismatch;
+        padding = false;
+
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        cigar->operations[(cigar->begin_offset)--] = 'X';
+      }
+      else {
+        // Otherwise, we come from either I1, D2, I2 or D2.
+        // Freeze v and h and start searching a path back to M.
+
+        // In WFA, for a given diagonal and score, we only store the furthest
+        // reaching offset. We do not know which was the offset prior to
+        // extending it. To account for that, we must allow the indel to come
+        // at any point between the offset previous performing the backwards
+        // extension and the current offset.
+        //
+        // Example, in the following DP table, where there is a chain of 3
+        // matches an insertion can come from any of the positions marked with
+        // '>'.
+        //
+        //      A  A  A
+        //  A > M
+        //  A    > M
+        //  A       > M
+        //
+        in_mmatrix = false;
+
+        l = 0;
+      }
+    } else {
+      // We are searching a path back to M in I1, D1, I2 and D2.
+      // Any path that leads to M is valid.
+      ++l;
+
+      const int k_ins = k - l;
+      const int k_del = k + l;
+
+      const int indel1 = score - penalties->gap_opening1 -
+                         l * penalties->gap_extension1;
+
+      // I1 path.
+      wf_offset_t m_offset;
+      if (wavefront_backtrace_m_offset_padded(wf_aligner,indel1,k_ins,padding,&m_offset) &&
+          m_offset + l >= offset_orig &&
+          m_offset + l <= offset) {
+
+        const int nmatches = offset - (m_offset + l);
+
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar, insertions_lut, l);
+
+        k = k_ins;
+        offset = m_offset;
+        score = indel1;
+
+        in_mmatrix = true;
+        padding = false;
+
+        continue;
+      }
+
+      // D1 path.
+      if (wavefront_backtrace_m_offset_padded(wf_aligner,indel1,k_del,padding,&m_offset) &&
+          m_offset >= offset_orig &&
+          m_offset <= offset) {
+
+        const int nmatches = offset - m_offset;
+
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar, deletions_lut, l);
+
+        k = k_del;
+        offset = m_offset;
+        score = indel1;
+
+        in_mmatrix = true;
+        padding = false;
+
+        continue;
+      }
+
+      // protal: no path within the active bounds: the cell once more, its predecessors looked up in the padding too.
+      if (distance_metric != gap_affine_2p) {
+        if (indel1 < 0) {
+          if (padding) break;
+          padding = true;
+          in_mmatrix = true;
+        }
+        continue;
+      }
+
+      const int indel2 = score - penalties->gap_opening2 -
+                         l * penalties->gap_extension2;
+      if (indel1 < 0 && indel2 < 0) {
+        if (padding) break;
+        padding = true;
+        in_mmatrix = true;
+        continue;
+      }
+
+      // I2 path.
+      if (wavefront_backtrace_m_offset_padded(wf_aligner,indel2,k_ins,padding,&m_offset) &&
+          m_offset + l >= offset_orig &&
+          m_offset + l <= offset) {
+
+        const int nmatches = offset - (m_offset + l);
+
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar, insertions_lut, l);
+
+        k = k_ins;
+        offset = m_offset;
+        score = indel2;
+
+        in_mmatrix = true;
+        padding = false;
+
+        continue;
+      }
+
+      // D2 path.
+      if (wavefront_backtrace_m_offset_padded(wf_aligner,indel2,k_del,padding,&m_offset) &&
+          m_offset >= offset_orig &&
+          m_offset <= offset) {
+
+        const int nmatches = offset - m_offset;
+
+        wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, nmatches);
+        wavefront_backtrace_add_lut_to_cigar(cigar, deletions_lut, l);
+
+        k = k_del;
+        offset = m_offset;
+        score = indel2;
+
+        in_mmatrix = true;
+        padding = false;
+
+        continue;
+      }
+    }
+  }
+
+  // Account for last operations. The traceback loop above relies on every
+  // score-consuming operation strictly decreasing the score.
+  // wavefront_penalties_set_*() enforces these internal penalty invariants.
+  assert(penalties->mismatch > 0);
+  if (distance_metric == gap_affine || distance_metric == gap_affine_2p) {
+    assert(penalties->gap_extension1 > 0);
+  }
+  if (distance_metric == gap_affine_2p) {
+    assert(penalties->gap_extension2 > 0);
+  }
+
+  v = WAVEFRONT_V(k, offset);
+  h = WAVEFRONT_H(k, offset);
+  if (in_mmatrix) {
+    if (wavefront_backtrace_m_only_try_zero_begin_free(wf_aligner,cigar,v,h)) {
+      v = 0;
+      h = 0;
+    } else {
+      const int num_matches = MIN(v,h);
+      wavefront_backtrace_add_lut_to_cigar(cigar, matches_lut, num_matches);
+      v -= num_matches;
+      h -= num_matches;
+      while (v > 0) {
+        cigar->operations[(cigar->begin_offset)--] = 'D';
+        --v;
+      }
+      while (h > 0) {
+        cigar->operations[(cigar->begin_offset)--] = 'I';
+        --h;
+      }
+    }
+  }
+
+  // protal: no path back to the beginning is reported to the caller (wavefront_unialign_terminate: the alignment fails
+  // as WF_STATUS_UNATTAINABLE, and protal aligns it again with the classic traceback) instead of ending the process.
+  if (v != 0 || h != 0 || (score != 0 && penalties->match == 0)) {
+    cigar_clear(cigar);
+    wavefront_backtrace_m_only_free_temps(
+        wf_aligner,distance_metric,alignment_score);
+    return false;
+  }
+
+  // Release temporary I/D wavefronts. The traceback above uses M only.
+  wavefront_backtrace_m_only_free_temps(
+      wf_aligner,distance_metric,alignment_score);
+
+  // Set CIGAR
+  ++(cigar->begin_offset);
+  cigar->score = alignment_score;
+
+#if 0
+  const bool ok = check_cigar_backtrace_affine_m_only(penalties,
+                                                      cigar,
+                                                      sequences,
+                                                      alignment_score,
+                                                      distance_metric == gap_affine_2p);
+  if (!ok) {
+    fprintf(stderr, "[WFA::Backtrace] M-only backtrace not coherent\n");
+    exit(-1);
+  }
+#endif
+  return true;
 }
 /*
  * Backtrace from BT-Buffer (pcigar)

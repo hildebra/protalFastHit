@@ -39,6 +39,7 @@ wavefront_aligner_attr_t wavefront_aligner_attr_default = {
     // Distance model & Penalties
     .distance_metric = gap_affine,
     .alignment_scope = compute_alignment,
+    .score_only_recover_endpoints = false,
     .alignment_form = {
         .span = alignment_end2end,
         .extension = false,

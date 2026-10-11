@@ -2023,12 +2023,16 @@ FINAL_ALLELE_ARGS = []
 # The share of the genomes the training database's alleles come from (1: all), for the ancestry report's alleles
 # (ancestry_reports), which reads the training database.
 ALLELE_SHARE = 1.0
+# The WFA2 traceback of both protal --build runs (--wfa-traceback; empty: protal's default, classic), set by main(). Each
+# database records it in its build_settings.tsv, and the collection's protal runs align with the training database's
+# (their --wfa_traceback is auto), so that the models learn from alignments made as the finished database's runs make them.
+TRACEBACK_ARGS = []
 
 
 def build_command(protal, db, threads, *extra, alleles=None):
     """protal --build of `db`, with the training database's allele options unless `alleles` (FINAL_ALLELE_ARGS)."""
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
-               "--reference", os.path.join(db, "reference.fna"), *extra]
+               "--reference", os.path.join(db, "reference.fna"), *TRACEBACK_ARGS, *extra]
     if full_reference_path(db):
         command += ["--full_reference", full_reference_path(db), *(ALLELE_ARGS if alleles is None else alleles)]
     return command
@@ -2348,6 +2352,12 @@ def main():
                         "go into both databases' indexes under the species as non-unique entries, so that a read of a deep "
                         "strain finds its species (protal --build --index_alleles; default 1: none, off since the r226 v22 "
                         "build, whose gain was too small for the entries; 0.01 indexes the alleles 1%% or more from the representative)")
+    p.add_argument("--wfa-traceback", choices=["classic", "singletrack"], default=None,
+                   help="the WFA2 traceback of both databases (protal --build --wfa_traceback; default: protal's, classic): "
+                        "recorded in their build_settings.tsv, used for their strain alleles, congener gaps and column "
+                        "weights, and by the collection's protal runs, which align as the training database was built. "
+                        "singletrack gives the same scores but may choose otherwise among equally good alignments "
+                        "(docs/claude/2026-10-11-singletrack)")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -2721,6 +2731,7 @@ def main():
                       "--index_alleles", f"{args.index_alleles:g}"]
     FINAL_ALLELE_ARGS[:] = ["--strain_alleles", str(args.strain_alleles), "--allele_genome_share",
                             f"{args.final_allele_genome_share:g}", "--index_alleles", f"{args.index_alleles:g}"]
+    TRACEBACK_ARGS[:] = ["--wfa_traceback", args.wfa_traceback] if args.wfa_traceback else []
     global ALLELE_SHARE
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
@@ -2877,6 +2888,8 @@ def main():
                    "placeholders": not args.no_placeholder_models}
     final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level,
                   "alleles": FINAL_ALLELE_ARGS}
+    if TRACEBACK_ARGS:  # only when given, so that the keys of earlier builds stay valid
+        final_base["traceback"] = TRACEBACK_ARGS
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(work, "internal_taxonomy.dmp")
@@ -3364,6 +3377,8 @@ def main():
         training_key = {"convert": convert_key, "gene_neighbours": neighbours_key,
                         "heldout": content_hash(heldout) if held_out else "none",
                         "protal": final_key["protal"], "level": args.training_db_level, "alleles": ALLELE_ARGS}
+        if TRACEBACK_ARGS:
+            training_key["traceback"] = TRACEBACK_ARGS
         if subset:
             training_key["genes"] = final_key["genes"]
         # The key is kept in the training database's folder too: on a --scratch that several OUTDIRs share, another
