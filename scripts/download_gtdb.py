@@ -110,17 +110,24 @@ def parse_args(argv=None):
     p.add_argument("--dry_run", action="store_true", help="list GTDB's files to download, with their sizes, and stop")
     p.add_argument("--keep_archives", action="store_true",
                    help="keep the downloaded .tar.gz archives after extracting them (default: removed)")
-    p.add_argument("--species", type=int, default=16000,
-                   help="species to download strains of (default 16000; 6000 before 2026-10-05, when the r226 v12 build "
+    p.add_argument("--species", type=int, default=40000,
+                   help="species to download strains of, at most (default 40000 since 2026-10-11: all 36,515 of GTDB r226 "
+                        "that have strains passing the filters; 16000 until then, when r226 v23 simulated real strains for "
+                        "13.3%% of its species against 40%% in-silico ones, docs/claude/2026-10-11-r226-v23; 6000 before "
+                        "2026-10-05, when the r226 v12 build "
                         "had 6000 such species against 18978 simulated from their representative and an in-silico strain, "
                         "and its models missed real strains 2.4 times as often as in-silico ones: "
                         "docs/claude/2026-10-05-r226-v12-scenarios). A rerun with more keeps the species and strains it "
                         "has, and gives strains to its representative-only species first")
-    p.add_argument("--per_species", type=int, default=2, help="strains per species at most (default 2)")
+    p.add_argument("--per_species", type=int, default=4,
+                   help="strains per species at most (default 4 since 2026-10-11, 2 before): build_gtdb_database.py leaves "
+                        "about half of them to the strain alleles (--allele-genome-share 0.5), so a species keeps one or "
+                        "more strains to simulate from 15 times in 16 instead of 3 in 4; with --species 40000 real strains "
+                        "are then ~54%% of the simulated strains with the build's defaults (~30%% of the simulated species)")
     p.add_argument("--rep_only_species", type=int, default=9000,
                    help="further species, simulated from their representative only (and an in-silico strain, "
-                        "build_gtdb_database.py --insilico-strains) (default 9000: with --species, 25,000 species, what "
-                        "the soil scenarios need at full size; 2000 before 2026-10-05)")
+                        "build_gtdb_database.py --insilico-strains) (default 9000: with the strain species of the defaults, "
+                        "~45,500 species; 2000 before 2026-10-05)")
     p.add_argument("--min_completeness", type=float, default=90.0, help="CheckM2 completeness, %% (default 90)")
     p.add_argument("--max_contamination", type=float, default=5.0, help="CheckM2 contamination, %% (default 5)")
     p.add_argument("--tech_candidates", type=int, default=30,

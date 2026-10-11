@@ -299,7 +299,12 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(self.text("out", "logs", "insilico_strains.log"),
                          r"congener share [0-9.]+|no congener sites \(no real strains")
         console = self.text("out", "console.log")
-        self.assertLess(console.index("species clouds (species_clouds.tsv"), console.index("in-silico strains of the species"))
+        # --insilico-strains auto (the default): the step names the share of the one-genome species it chose.
+        step = re.search(r"in-silico strains of [0-9.]+ of the species with one genome", console)
+        self.assertIsNotNone(step)
+        self.assertLess(console.index("species clouds (species_clouds.tsv"), step.start())
+        self.assertRegex(console, r"--insilico-strains auto: [0-9.]+ of the \d+ one-genome species, so that real strains "
+                                  r"are at least 0.5 of the simulated strains")
         self.assertTrue(any(line.startswith("insilico_")
                             for line in self.text("out", "work", "genomes_simulated.tsv").splitlines()))
         self.assertFalse(any(line.startswith("insilico_") for line in self.text("out", "work", "genomes.tsv").splitlines()))

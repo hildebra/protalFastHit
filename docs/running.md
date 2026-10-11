@@ -409,7 +409,10 @@ each candidate alignment of a short read gets a site shift against its species' 
   family's genera change freely (below 3 nats of among-genus conservation) counts half a difference; a copy without
   alleles gets this part of the shift too. On simulated worlds whose every column is variable it cost 0.006 of F1
   ([report](claude/2026-10-09-site-weighted-evidence-plan/README.md), section 9); a GTDB database, whose families
-  have conserved columns, has to show whether it pays.
+  have conserved columns, has to show whether it pays. Between 2026-10-10 (when it became an option) and 2026-10-11 the
+  option had no effect: the alignment threads' copies of the run's settings dropped it
+  ([report](claude/2026-10-11-r226-v23/README.md), section 6). `build_gtdb_database.py --weighted-site-shift` trains a
+  database's models with it.
 
 Since 2026-10-09 the shifts decide only the reads protal is unsure about: a candidate of another species within 3
 mismatches of the best by the references alone. Then a read of a known strain scores on its species as on the strain's

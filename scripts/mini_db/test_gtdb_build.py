@@ -320,6 +320,31 @@ class BuildFunctionsTest(unittest.TestCase):
         # Mostly real strains: no warning.
         reps = table({**{f"R{i}": (2, 0) for i in range(8)}, **{f"M{i}": (0, 1) for i in range(2)}})
         self.assertEqual(build.summarize_genome_table(path, reps)[2], "")
+        # --insilico-strains auto: the share of the one-genome species given an in-silico strain that keeps the real
+        # strains at --min-real-strains of the simulated strains. Two species of two real strains (2/3 real each) and
+        # eight one-genome species: real 4/3; without strains of the multi species, 8 * 0.5 * s <= 4/3 gives s = 1/3.
+        reps = table({**{f"R{i}": (2, 0) for i in range(2)}, **{f"S{i}": (0, 0) for i in range(8)}})
+        share, real, made, single = build.auto_insilico_share(path, reps, 0.0, 0.5)
+        self.assertAlmostEqual(share, 1 / 3)
+        self.assertAlmostEqual(real, (4 / 3) / 10)
+        self.assertEqual((made, single), (0.0, 8))
+        # A quarter of the multi species with an in-silico strain: each 1/4 drawn (k = 2), 2/4 real.
+        share, real, made, single = build.auto_insilico_share(path, reps, 0.25, 0.5)
+        real_draws = 2 * (0.75 * 2 / 3 + 0.25 * 2 / 4)
+        made_draws = 2 * 0.25 / 4
+        self.assertAlmostEqual(share, (real_draws - made_draws) / 4)
+        self.assertAlmostEqual(made * 10, made_draws)
+        # A stricter share leaves less room, a looser one never more than all; without real strains none.
+        self.assertLess(build.auto_insilico_share(path, reps, 0.0, 0.8)[0], 1 / 3)
+        self.assertEqual(build.auto_insilico_share(path, reps, 0.0, 0.01)[0], 1.0)
+        reps = table({f"S{i}": (0, 0) for i in range(5)})
+        self.assertEqual(build.auto_insilico_share(path, reps, 0.25, 0.5)[0], 0.0)
+        # The option takes auto or a share.
+        self.assertEqual(build.insilico_share_arg("auto"), "auto")
+        self.assertEqual(build.insilico_share_arg("0.25"), 0.25)
+        for bad in ("1.5", "some"):
+            with self.assertRaises(Exception):
+                build.insilico_share_arg(bad)
 
     def test_gene_conservation_in_the_build_metadata(self):
         # build_metadata.tsv records what protal --build said of the genes' conservation factors.

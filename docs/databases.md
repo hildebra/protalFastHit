@@ -29,6 +29,7 @@ databases are in [development.md](development.md).
 | `congener_gaps.tsv` | optional (since 2026-10-07): per species' copy of each marker gene, the alignment distance to its nearest congener's copy and to a typical one, and which congener is the nearest, for the `gaps` features and the ancestry sites ([below](#2-build-the-index), [features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)) |
 | `column_weights.tsv` | optional (since 2026-10-10, `--build --column_weights`, default 10 genera per family; 0: none): per family and marker gene, how conserved each column of the family's reference copy is among the genus references and within the genera (averaged over genera), the amino acid per codon, and the family's consensus base, each weight in half nats on 4 bits; and every copy's mapping onto the columns. For the `weights` features and the polarised ancestry sites of small genera ([features.md](features.md#the-columns-conservation-weights-2026-10-10)); `--no_site_weights` leaves it unread |
 | `strain_alleles.tsv` | optional (since 2026-10-08, `--build` with `--full_reference`): per species' copy of each marker gene, up to 4 alleles of the species' other genomes (`--strain_alleles`) as edits of the representative's copy, each nearer the representative than the gene's nearest congener's copy; for the alignment scores (`--no_allele_scores`) and the `alleles` features ([below](#2-build-the-index), [features.md](features.md#the-strain-alleles-alleles-2026-10-08)) |
+| `ancestry_sites.bin` | optional (since 2026-10-11, `--build`; `--no_ancestry_sites`: none): every species' copy of each marker gene with its ancestry sites (where its copy differs from the consensus of its congeners' copies, and the indels they share), computed by the build from `species_neighbours.tsv`, `congener_gaps.tsv` and `column_weights.tsv` as a run would compute them on a copy's first record; a run decodes them instead (computing them was half of a sample's profiling at r226 v23: [report](claude/2026-10-11-r226-v23/README.md)). Binary: per copy the positions, bases and indels, varint-coded. Without it, or with `--no_site_weights`, a run computes them as before; the features are the same ([features.md](features.md#which-side-the-reads-take-ancestry-079)) |
 | `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the full reference's marker genes (every species' alike, a few genomes each) that landed on it and how many came from other species and genera, every copy listed (`scripts/foreign_rates.py`, stored with `--add_tables`; `build_gtdb_database.py --foreign-rates` does both for each database), for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); until 2026-10-08 the scan read the genomes at hand, which leaked the simulation's species ([features.md](features.md#the-foreign-features-leak)) |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)); since 2026-10-08 also its genome size and the share of it its marker genes cover, from which a run tells how much of a sample the called species explain and the profile's unknown share ([running.md](running.md#what-the-called-species-explain-the-unknown-share)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
@@ -193,9 +194,13 @@ The result is `/data/protal_r226/protal_db/database.protal`, with a model for ea
 - **GTDB's files**: taxonomy, metadata, the species clusters and the marker genes of the
   representatives and of all genomes. They are checked against the release's `MD5SUM.txt` and
   extracted.
-- **Genomes to simulate from**, from NCBI: 16,000 species with up to 2 non-representative genomes
-  each, and 9,000 species with their representative only, about 50,000 genomes (estimated; until
-  2026-10-05 6,000 and 2,000). Species are picked per domain in GTDB's proportions, in a random
+- **Genomes to simulate from**, from NCBI: up to 40,000 species with up to 4 non-representative genomes
+  each (since 2026-10-11: every species of GTDB r226 with genomes passing the filters, 36,515, about 80,700
+  strains), and 9,000 species with their representative only (16,000 with 2 each until 2026-10-11, 6,000 and 2,000
+  until 2026-10-05). The build leaves about half of each species' strains to its alleles, so with 4 a species keeps a
+  strain to simulate from 15 times in 16: real strains are ~54% of the simulated strains and ~30% of the simulated
+  species with the build's defaults, against 25% and 13% in r226 v23 ([report](claude/2026-10-11-r226-v23/README.md),
+  `strain_supply.py` there estimates it from the metadata). Species are picked per domain in GTDB's proportions, in a random
   order fixed by the seed. 25,000 species hold the soil scenarios at full size, and most simulated
   strains are real ones: with 6,000 and 19,000 (r226 v12) three quarters were in-silico, and the
   models missed real strains 2.4 times as often ([report](claude/2026-10-05-r226-v12-scenarios/README.md)).
@@ -235,7 +240,7 @@ HTTP 503.
 |---|---|---|
 | `-o` | required | the folder |
 | `--release` | 226 | GTDB release (207 or later) or point release |
-| `--species`, `--per_species`, `--rep_only_species` | 16000, 2, 9000 | species with strains, strains each, species simulated from their representative only (and an in-silico strain) |
+| `--species`, `--per_species`, `--rep_only_species` | 40000, 4, 9000 | species with strains, strains each, species simulated from their representative only (and an in-silico strain) |
 | `--min_completeness`, `--max_contamination` | 90, 5 | CheckM2 filters for strains |
 | `--rep_genomes` | `ncbi` | where the representatives' genomes come from; `gtdb`: GTDB's archive of all of them (137 GB for r226) |
 | `--tech_candidates`, `--no_tech_lookup` | 30 | candidates per species whose sequencing technology is asked of NCBI; or ask for none |
@@ -263,9 +268,10 @@ numbered line when it starts and indented lines when it ends.
    genes are neighbours (`gene_neighbours.log`, [details](#gene-neighbours)), while the converter
    writes the full reference. The gene neighbours have a stage of their own: a changed genome table
    finds them again without converting again.
-3. **In-silico strains** (`insilico_strains.log`): a mutated copy of the representative of every
-   species with one genome, so that these species are simulated from a strain too, and since 2026-10-09 of half the
-   species with real strains, a strain their alleles do not reach (`--insilico-multi`;
+3. **In-silico strains** (`insilico_strains.log`): a mutated copy of the representative of species with one genome,
+   so that these species are simulated from a strain too (since 2026-10-11 only as many as keep the real strains at
+   half of the simulated strains or more, `--insilico-strains auto`), and of a quarter of the species with real
+   strains (half from 2026-10-09 to 2026-10-11), a strain their alleles do not reach (`--insilico-multi`;
    [details](#training-data-like-real-samples)). Since 2026-10-09 the species clouds come first (`species_clouds.log`:
    every species' nearest congeners by their references), which give each strain its congener sites and steer the
    hold-out of step 4. Only the simulations read the strains, so they are made in the background, at a lower
@@ -441,8 +447,9 @@ sample or missed a fifth of the strains.
 - **In-silico strains** (since 0.7.6). A species with one genome would always be simulated from its
   reference. A model given GTDB's cluster sizes (`+priors`) learned from that to reject a divergent
   read cloud on a one-genome species, which is a rule of the simulation, not of nature. So each such
-  species gets a strain (`scripts/insilico_strains.py`; `--insilico-strains`, the share given one,
-  default 1):
+  species gets a strain (`scripts/insilico_strains.py`; `--insilico-strains`, the share given one; default `auto`
+  since 2026-10-11: as many as keep the real strains at `--min-real-strains`, 0.5, of the simulated strains or more;
+  until then 1, and in r226 v23 the in-silico strains were 40% of the simulated species against 13.3% real ones):
   - a copy of the representative with substitutions only;
   - as far from it as the table's real strains are from theirs (marker genes from the k-mer traces
     in `gene_positions.tsv`), each marker gene by its conservation factor;
@@ -460,8 +467,8 @@ sample or missed a fifth of the strains.
     the r226 v19 in-silico strains lacked their species' base at 3.5% of those sites against 10% for the real strains,
     so the models learnt from them that a strain never sides with a congener
     ([report](claude/2026-10-09-r226-v19/README.md), section 7).
-  - strains the alleles do not reach (since 2026-10-09 evening): half of the species with real strains in the table
-    get one as well (`--insilico-multi`, the share; `--multi-share` in the script). A species' other genomes are
+  - strains the alleles do not reach (since 2026-10-09 evening): a quarter of the species with real strains in the
+    table (half until 2026-10-11) get one as well (`--insilico-multi`, the share; `--multi-share` in the script). A species' other genomes are
     split by a hash into its strain alleles and the genomes simulated from, so every simulated real strain has a
     close relative among the alleles, and the models learnt that a strain the alleles explain is present and one
     they do not is not: in a world grown on known trees they called the strains of lineages without an allele
@@ -846,7 +853,8 @@ keeps the finished database.
 | `--holdout-species` | | a file of the species to leave out instead |
 | `--holdout-complex-distance`, `--species-clouds` | 0.01, | species within this distance of a congener on their references' marker genes form a complex that the training database leaves out or keeps whole, never torn (0: species drawn one by one, as before 2026-10-08); the distances come from `species_clouds.tsv`, which the build makes with `protal --write_species_neighbours` on the converted release, or from the table given ([below](#species-and-clades-the-database-lacks)) |
 | `--novel-clades-per-sample` | 1 | species of held-out clades per sample and rank |
-| `--insilico-strains`, `--insilico-ani` | 1, | share of one-genome species given an in-silico strain; or their ANI drawn from `MIN-MAX` |
+| `--insilico-strains`, `--min-real-strains`, `--insilico-multi`, `--insilico-ani` | `auto`, 0.5, 0.25, | share of one-genome species given an in-silico strain (`auto`: as many as keep the real strains at `--min-real-strains` of the simulated strains or more); share of the species with real strains given one too; or their ANI drawn from `MIN-MAX` |
+| `--weighted-site-shift` | off | `protal --weighted_site_shift` in the collections' protal runs (the models are then trained with it, and the database's users should profile with it; `build_metadata.tsv` says so) |
 | `--samples` | 12 | samples per design point |
 | `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD |
@@ -1128,6 +1136,12 @@ alone (before the index takes its memory), then the index:
    amino acids per codon alike; every copy's mapping onto the columns is kept. One alignment per copy and one per genus
    reference and gene (3 minutes at r226 on 84 threads). `--column_weights 0`: none. The build log gives the failed
    alignments by kind and cause and how the columns' codes fall ("Column weights alignments", "Column weights codes").
+   Then every copy's ancestry sites (since 2026-10-11, `ancestry_sites.bin`; `--no_ancestry_sites`: none): with the
+   species neighbours, the congener gaps and the column weights just written, each copy compared with its congeners'
+   copies as a run would on the copy's first record ([features.md](features.md#which-side-the-reads-take-ancestry-079)),
+   gene by gene on all threads, and stored for the copies that have sites (~110 bytes each on the small real world;
+   "Ancestry sites" in the build log). A run decodes them instead of computing them, which halved a sample's
+   profiling instructions at the same outputs ([report](claude/2026-10-11-r226-v23/README.md), section 8).
 5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
    k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`. With `--index_alleles 0.01` (on
    by default from 2026-10-09 until the r226 v22 build, off since: its F1 gain was too small for the entries it

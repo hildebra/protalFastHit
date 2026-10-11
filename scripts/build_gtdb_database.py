@@ -913,6 +913,51 @@ def genome_facts(path):
     return letters, names
 
 
+def insilico_share_arg(value):
+    """argparse type of --insilico-strains: auto, or a share from 0 to 1."""
+    if value == "auto":
+        return value
+    try:
+        share = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is neither auto nor a share")
+    if not 0 <= share <= 1:
+        raise argparse.ArgumentTypeError(f"{value} is no share from 0 to 1")
+    return share
+
+
+def auto_insilico_share(path, reps, multi, min_real):
+    """--insilico-strains auto: the share of the one-genome species of the genome table (before the in-silico strains) to
+    give an in-silico strain so that real strains are at least min_real of the simulated strains. The simulator draws a
+    species, then one of its genomes: a species with k real strains is simulated from one k/(k+1) of the time, or
+    k/(k+2) with an in-silico strain as well (--insilico-multi of them, which is drawn 1/(k+2) of the time), and a
+    one-genome species with an in-silico strain from it half of the time. -> (share, real strains and in-silico ones
+    of species with real strains per simulated species, one-genome species)."""
+    genomes, rep_count = collections.Counter(), collections.Counter()
+    with open(path) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            lineage = next((f for f in fields if f.startswith("d__") and ";s__" in f), None)
+            if lineage is None:
+                continue
+            species = lineage.split(";")[-1]
+            genomes[species] += 1
+            rep_count[species] += reps is not None and normalize_accession(fields[0]) in reps
+    real = made = 0.0
+    single = 0
+    for species, n in genomes.items():
+        k = n - (rep_count[species] if reps is not None else 1)
+        if k <= 0:
+            single += 1
+            continue
+        real += (1 - multi) * k / (k + 1) + multi * k / (k + 2)
+        made += multi / (k + 2)
+    budget = real * (1 - min_real) / min_real - made
+    share = max(0.0, min(1.0, budget / (0.5 * single))) if single else 0.0
+    total = max(1, len(genomes))
+    return share, real / total, made / total, single
+
+
 def summarize_genome_table(path, reps, insilico_to_come=False):
     """What the simulations can draw: genomes and species by domain, and how often a simulated species is
     not the database's representative genome (the simulator picks a species, then one of its genomes): a real
@@ -957,7 +1002,8 @@ def summarize_genome_table(path, reps, insilico_to_come=False):
                    f"{100 * real:.1f}% real): the models learn strains mostly from in-silico ones, which they miss less "
                    "often than real ones (r226 v12: 2.5% against 6.1% with species held out; "
                    "docs/claude/2026-10-05-r226-v12-scenarios). Download more species with strains (download_gtdb.py "
-                   "--species, then --inputs), or give fewer one-genome species an in-silico strain (--insilico-strains).")
+                   "--species, --per_species, then --inputs), or give fewer one-genome species an in-silico strain "
+                   "(--insilico-strains auto, the default, keeps them at most as many as the real ones).")
     if warning:
         lines.append("  " + warning)
     elif insilico_to_come and other_strain < 0.2:
@@ -1719,6 +1765,8 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("insilico_strains", insilico),
             ("samples_streamed", getattr(args, "streaming", "")),
+            ("weighted_site_shift", "on in the training runs: profile with protal --weighted_site_shift"
+             if getattr(args, "weighted_site_shift", False) else "off"),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
@@ -2398,21 +2446,28 @@ def main():
     p.add_argument("--pbsim", default="pbsim", help="pbsim3's executable, only to find its data folder of .model files "
                                                     "(pbsim3 itself is not run)")
     p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: pbsim3's data folder)")
-    p.add_argument("--insilico-strains", type=float, default=1.0, metavar="SHARE",
+    p.add_argument("--insilico-strains", type=insilico_share_arg, default="auto", metavar="SHARE|auto",
                    help="give this share of the species with one genome in the genome table an in-silico strain to be "
                         "simulated from, too (scripts/insilico_strains.py: a copy of the representative with "
                         "codon-aware substitutions, as far from it as the table's real strains are from theirs, each "
-                        "marker gene by its conservation factor; default 1, 0: none). Without them one-genome species "
+                        "marker gene by its conservation factor; 0: none). auto (the default since 2026-10-11): as many as "
+                        "keep the real strains at --min-real-strains of the simulated strains or more (at most all); "
+                        "until then 1, and in r226 v23 40%% of the simulated species were in-silico strains against "
+                        "13.3%% real ones, which the models miss more often (docs/claude/2026-10-11-r226-v23). Without them one-genome species "
                         "were always simulated from the database's own reference, and a model given the GTDB cluster "
                         "sizes (+priors) learned to reject divergent reads on them (docs/claude/2026-10-04-r226-v10-"
                         "evaluation). They go to the samples' disk (SCRATCH/insilico_strains, OUTDIR/work/insilico_strains "
                         "without --scratch), the table simulated from to OUTDIR/work/genomes_simulated.tsv")
+    p.add_argument("--min-real-strains", type=float, default=0.5, metavar="SHARE",
+                   help="with --insilico-strains auto: the share of the simulated strains (a species simulated from another "
+                        "genome than its representative) that are real at least (default 0.5); more real strains "
+                        "(download_gtdb.py --species, --per_species) leave room for more in-silico ones")
     p.add_argument("--insilico-ani", metavar="MIN-MAX",
                    help="draw the in-silico strains' genome ANI uniformly from MIN-MAX (e.g. 95-99) instead of the "
                         "real strains' marker divergence")
-    p.add_argument("--insilico-multi", type=float, default=0.5, metavar="SHARE",
+    p.add_argument("--insilico-multi", type=float, default=0.25, metavar="SHARE",
                    help="give this share of the species with real strains in the genome table an in-silico strain as "
-                        "well (insilico_strains.py --multi-share; default 0.5, 0: none): a strain its species' alleles "
+                        "well (insilico_strains.py --multi-share; default 0.25 since 2026-10-11, 0.5 before; 0: none): a strain its species' alleles "
                         "do not reach, as a strain of a lineage GTDB has not sampled is. Trained on real strains alone, "
                         "half of whose relatives are the alleles, the models learn that a strain the alleles explain is "
                         "present and one they do not is not, and call the strains of lineages without an allele genome "
@@ -2612,6 +2667,11 @@ def main():
                         "each sample profiled while the next is aligned, on a quarter of the threads, so that a run's "
                         "profiling stage after its last alignment shrinks to what the worker had not started (at r226 v19 "
                         "the six runs' profiling stages took 15.5 min after their alignment; the profiles are the same)")
+    p.add_argument("--weighted-site-shift", action="store_true",
+                   help="protal --weighted_site_shift in the collections' protal runs: an unsure read's site shift also "
+                        "discounts its differences at the columns its family's genera change freely (column_weights.tsv). "
+                        "Off by default, as in protal; the models are then trained with it, and the database's users should "
+                        "profile with --weighted_site_shift too (build_metadata.tsv says so)")
     p.add_argument("--genome-store", default="auto",
                    help="simulate_metagenomes's genome store for both collections (collect_training_data.py "
                         "--genome_store): each genome simulated is read and parsed from its FASTA once, written there "
@@ -2631,6 +2691,10 @@ def main():
                         "gzip (.fq.gz); protal reads both")
     args = p.parse_args()
     args.no_foreign_rates = args.no_foreign_rates or not args.foreign_rates  # the scan only with --foreign-rates
+    if not 0 < args.min_real_strains <= 1 or not 0 <= args.insilico_multi <= 1:
+        p.error("--min-real-strains is a share above 0 and at most 1, --insilico-multi a share from 0 to 1")
+    # Whether there will be in-silico strains: auto decides how many once the genome table is made (step 2).
+    insilico_wanted = args.insilico_strains == "auto" or args.insilico_strains > 0
     if args.strain_alleles < 0 or not 0 <= args.allele_genome_share <= 1 or args.index_alleles < 0:
         p.error("--strain-alleles is a count (0: none), --allele-genome-share a share from 0 to 1, --index-alleles a "
                 "divergence of 0 or more (1 or more: none)")
@@ -2776,8 +2840,8 @@ def main():
     clades = parse_clades(args.holdout_clades)
     steer_holdout = (args.holdout > 0 or bool(clades)) and not args.holdout_species and args.holdout_complex_distance > 0
     # The species clouds steer the hold-out and give the in-silico strains their congener sites.
-    make_clouds = steer_holdout or (args.insilico_strains > 0 and not args.no_gene_neighbours)
-    Steps.total = 8 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates) + make_clouds
+    make_clouds = steer_holdout or (insilico_wanted and not args.no_gene_neighbours)
+    Steps.total = 8 + has_test + subset + insilico_wanted + (not args.no_foreign_rates) + make_clouds
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -2922,7 +2986,15 @@ def main():
     allele_split = (f"; {removed} genomes left to the strain alleles, not simulated (--allele-genome-share "
                     f"{args.allele_genome_share:g})") if share else ""
     # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
-    summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
+    summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=insilico_wanted)
+    insilico_choice = ""
+    if args.insilico_strains == "auto":
+        auto_share, _, _, single = auto_insilico_share(genome_table, reps, args.insilico_multi, args.min_real_strains)
+        args.insilico_strains = round(auto_share, 4)
+        insilico_wanted = args.insilico_strains > 0 or args.insilico_multi > 0
+        insilico_choice = (f"--insilico-strains auto: {args.insilico_strains:g} of the {single} one-genome species, so that "
+                           f"real strains are at least {args.min_real_strains:g} of the simulated strains")
+        summary.append(insilico_choice)
     if allele_split:
         summary.append(allele_split[2:])
     with open(os.path.join(logs, "genome_table.txt"), "w") as fh:
@@ -2995,7 +3067,7 @@ def main():
                     "references' marker genes" +
                     (f"; congeners within {args.holdout_complex_distance:g} form a complex the training database leaves "
                      "out or keeps whole" if steer_holdout else "") +
-                    ("; the in-silico strains' congener sites" if args.insilico_strains > 0 else ""))
+                    ("; the in-silico strains' congener sites" if insilico_wanted else ""))
         clouds_key = {"convert": convert_key, "protal": final_key["protal"],
                       "given": content_hash(args.species_clouds) if args.species_clouds else None}
         if args.species_clouds:
@@ -3071,13 +3143,13 @@ def main():
                    ("" if insilico_positions else f" (no gene_positions.tsv: ANI {args.insilico_ani or INSILICO_FALLBACK_ANI})"))
         insilico_summary(job.log)
 
-    if args.insilico_strains > 0:
+    if insilico_wanted:
         sim_table = os.path.join(work, "genomes_simulated.tsv")
         strains = os.path.join(samples_root, "insilico_strains")
         log = step_log("insilico_strains.log")
-        Steps.start("in-silico strains of the species with one genome" +
+        Steps.start(f"in-silico strains of {args.insilico_strains:g} of the species with one genome" +
                     (f" and of {args.insilico_multi:g} of those with real strains" if args.insilico_multi > 0 else "") +
-                    " (insilico_strains.log, genomes_simulated.tsv)")
+                    " (insilico_strains.log, genomes_simulated.tsv)" + (f"; {insilico_choice}" if insilico_choice else ""))
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
                         "convert": convert_key, "gene_neighbours": neighbours_key, "share": args.insilico_strains,
                         "multi": args.insilico_multi, "ani": args.insilico_ani, "seed": args.seed, "strains": strains,
@@ -3347,6 +3419,8 @@ def main():
             command += ["--compressed_pipes"]
         if args.profile_ahead:
             command += ["--profile_ahead"]
+        if args.weighted_site_shift:
+            command += ["--weighted_site_shift"]
         return command
 
     genome_store = None  # --genome-store
