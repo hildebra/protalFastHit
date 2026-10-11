@@ -1,0 +1,7 @@
+2026-10-11T20:38:18.769Z INFO  [sylph::contain] Obtaining sketches...
+2026-10-11T20:38:22.777Z INFO  [sylph::contain] Finished obtaining genome sketches.
+2026-10-11T20:38:22.851Z INFO  [sylph::contain] Loaded 0 two-stage database(s) (0 genomes total) and 143614 plain genome sketch(es).
+2026-10-11T20:38:30.806Z INFO  [sylph::contain] /hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz taxonomic profiling; reassigning k-mers for 1405 genomes...
+2026-10-11T20:38:30.915Z INFO  [sylph::contain] /hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz has 168 genomes passing profiling threshold. 
+2026-10-11T20:38:30.916Z INFO  [sylph::contain] Finished sample /hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz.
+2026-10-11T20:38:30.916Z INFO  [sylph::contain] sylph finished.

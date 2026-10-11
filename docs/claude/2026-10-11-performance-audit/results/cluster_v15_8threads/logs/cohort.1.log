@@ -1,0 +1,531 @@
+                                             ,,  
+`7MM"""Mq.                   mm            `7MM  
+  MM   `MM.                  MM              MM  
+  MM   ,M9 `7Mb,od8 ,pW"Wq.mmMMmm  ,6"Yb.    MM  
+  MMmmdM9    MM' "'6W'   `Wb MM   8)   MM    MM  
+  MM         MM    8M     M8 MM    ,pm9MM    MM  
+  MM         MM    YA.   ,A9 MM   8M   MM    MM  
+.JMML.     .JMML.   `Ybmd9'  `Mbmo`Moo9^Yo..JMML.
+
+
+Total available memory is 502GB
+
+Options:
+------ General ------------------------------------
+build:               0
+no strains:          0
+threads:             8
+-------- I/O --------------------------------------
+first:               2 files
+second:              2 files
+read types:          1 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)
+db path:             /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal
+database:            single file /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal
+sequence file:       
+sam file:            2 files
+profile file:        2 files
+output prefix:       2 files
+Output dir:          /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1
+preload genomes:     yes
+----- Alignment -----------------------------------
+align top:           3
+adaptive candidates: 7
+allele scores:       the database's strain alleles, if it has them
+max key ubiquity:    256
+max seed size:       128
+max score ani:       0.900000
+x-drop:              1000 (short reads; long reads: none)
+short reads aligned: from their anchors
+alignment screen:    k-mers shared with the window before WFA2
+indel bound:         ONT reads screened by their indel distance to the window instead
+long read budget:    the ANI floor's for every candidate
+SAM header lists:    the genes aligned to
+unaligned reads:     counted per taxon in the SAM header
+fastalign:           0
+max out:             1
+------ Strains ------------------------------------
+snp min cov:         2
+snp min phred sum:   90
+snp min mean qual:   15
+snp min af:          0.150000
+snp require strand:  yes
+snp max alleles:     3
+run qcmsa:           yes
+msa species:         
+msa min hcov:        1000
+msa min depth:       1
+msa identity margin: 0.040000
+msa knob:            0.500000 (--knob)
+phasing:             long-read samples
+foreign genes:       left out of depth and MSAs
+suspect gene copies: left out of the evidence
+---- Dev Options ----------------------------------
+verbose:             no
+benchmark alignment: no
+profile truth:       no
+^ output:            
+---------------------------------------------------
+
+Loading the gene tables took 417ms
+Gene tables: gene_table.bin 14527738 genes with unique k-mer counts: reading 0.08 s, genomes 0.08 s, adding 0.26 s
+All alignments are present.
+Preload genomes
+Preload genomes took 3s 40ms
+Preload: 14527738 genes, 16.45 Gb, 4.12 GB packed, from 16.62 GB of reference: listing the genes 0.36 s (sorted), arena 0.41 s, reading and packing 2.27 s, marking the genomes 0.00 s
+Memory after the genome preload: 8.78 GB resident, peak 10.23 GB
+Model of paired-end reads: model_pe.xml in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal
+  knobs by sample depth (log10 of the sample's fragments: knob; linear between, the ends' beyond): 5.343: 0.74
+Model of PacBio reads: model_PB.xml in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal
+Gene conservation: factors 0.28-1.6 for 168 genes (gene_conservation.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 5589 gene copies of 2908 species near-identical to another genus's copy (suspect_copies.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 143614 species (species_priors.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal), 143614 with a duplicated marker, CheckM quality or a species cluster known, 143614 with a genome size
+Species neighbours: 143614 species with 577071 congeners within 0.15 (species_neighbours.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal)
+Congener gaps: 12988407 gene copies of 128747 species (congener_gaps.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal)
+Foreign rates: the database has none (scripts/foreign_rates.py and --add_tables make it: the foreign features are unknown (-1))
+Column weights: 586368 family-gene rows of 602094588 columns, 13944532 gene copies of 143614 species mapped (column_weights.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal)
+Ancestry sites: the database has none (built before 2026-10-11 or with --no_ancestry_sites): computed for each gene copy on its first record
+Strain alleles: 4221296 alleles of 2260516 gene copies of 33279 species (strain_alleles.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal)
+Gene neighbours: 1669780 rules of 31330 clades from 47312 genomes (gene_neighbours.tsv in /hpc-home/hildebra/DB/protal/protal0.7.9_r226_v23/protal_db/database.protal), for 143614 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 13s 772ms
+Sample pb2: 346 records on suspect gene copies left out of the evidence (suspect_copies.tsv; --keep_suspect_copies counts them)
+Sample pb2: 38 foreign genes of 20 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/pb2.profile.genes.log
+Sample pb2: 74.1% of 497656 fragments explained by the 207 species called; average genome size 3.00 Mb (10-90%: 2.19-3.91 Mb); unknown 25.9% of genomes, about 452 species at the median depth (96484 at the lowest)
+Profiling sample pb2 took 8.2s: reading the SAM 7.0s, record evidence and sample context 0.8s, read EM 0.1s, congener distances 0.6s, SNP post-processing 0.1s, scoring 0.0s, writing the profile 0.2s
+Sample pb2 read EM: 6906 ambiguity classes with 14467 alternatives, 143506 taxa (1837 named by the classes), 100 sweeps; the record counts by taxon 0.010 s, setting up 0.014 s, the sweeps 0.011 s, the shares 0.013 s
+Sample pe1: 1514724 fragments, knob 0.74 (the model's for that depth)
+Sample pe1: 20277 records on suspect gene copies left out of the evidence (suspect_copies.tsv; --keep_suspect_copies counts them)
+Sample pe1: 39 foreign genes of 28 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/pe1.profile.genes.log
+Sample pe1: 53.8% of 50607792 fragments explained by the 574 species called; average genome size 2.73 Mb (10-90%: 1.51-4.20 Mb); unknown 46.2% of genomes, about 3708 species at the median depth (2223210 at the lowest)
+Profiling sample pe1 took 18.4s: reading the SAM 15.6s, record evidence and sample context 2.0s, read EM 0.6s, congener distances 0.8s, SNP post-processing 0.2s, scoring 0.2s, writing the profile 0.5s
+Sample pe1 SAM read: 1.70 GB of SAM text in 1615 chunks (0 decompressing threads); the reading thread: 1.71 s reading, 0.30 s cutting chunks, 12.98 s waiting for room; this thread: 0.05 s waiting for chunks, 1.90 s adding the chunks' counts, 0.19 s planning the taxa's records, 0.06 s on rejected reads, 13.35 s on 7 threads (parsing 78.37 s, adding to the taxa 4.80 s, summed over the threads)
+Sample pe1 read EM: 309861 ambiguity classes with 863573 alternatives, 143614 taxa (11324 named by the classes), 100 sweeps; the record counts by taxon 0.014 s, setting up 0.074 s, the sweeps 0.533 s, the shares 0.016 s
+Warning: 3 species in 3 sample profile(s) score below their sample's knob (0.5, or the model's for the sample's depth) and are not reported, although their own reads are strong evidence (depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are listed in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/misc/unreported_species.tsv. Their samples enter the strain MSAs if they score that knob or more.
+Profiling took 20s 245ms
+Memory after profiling: 9.28 GB resident, peak 15.24 GB
+Strain outputs: /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains
+qcMSA: /hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py on each species' raw MSA (its output is shown only if it fails)
+s__Actinomyces sp000220835
+12921: s__Actinomyces_sp000220835 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Actinomyces_sp000220835: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Actinomyces_sp000220835' --reapply-hcov 1000 shows why)
+s__Pauljensenia sp902373545
+13116: s__Pauljensenia_sp902373545 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Pauljensenia_sp902373545: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Pauljensenia_sp902373545' --reapply-hcov 1000 shows why)
+s__Peptidiphaga sp000466165
+13146: s__Peptidiphaga_sp000466165 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Peptidiphaga_sp000466165: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Peptidiphaga_sp000466165' --reapply-hcov 1000 shows why)
+s__Bifidobacterium adolescentis
+13241: s__Bifidobacterium_adolescentis across samples 2
+  pb2: 79 long reads at 4 blocks of multi-allelic sites (6 cut between unlikely neighbours); one row
+s__Bifidobacterium longum
+13290: s__Bifidobacterium_longum across samples 2
+  pb2: 203 long reads at 15 blocks of multi-allelic sites (4 cut between unlikely neighbours); 2 strain rows (shares 0.637795 0.362205), 4 of the blocks phased
+s__Corynebacterium durum
+17560: s__Corynebacterium_durum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Corynebacterium_durum: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Corynebacterium_durum' --reapply-hcov 1000 shows why)
+s__Arachnia rubra
+20706: s__Arachnia_rubra across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Arachnia_rubra: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Arachnia_rubra' --reapply-hcov 1000 shows why)
+s__Olsenella uli
+24143: s__Olsenella_uli across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Olsenella_uli: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Olsenella_uli' --reapply-hcov 1000 shows why)
+s__CAJFUR01 sp904420575
+25487: s__CAJFUR01_sp904420575 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__CAJFUR01_sp904420575: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__CAJFUR01_sp904420575' --reapply-hcov 1000 shows why)
+s__Gordonibacter urolithinfaciens
+25544: s__Gordonibacter_urolithinfaciens across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Gordonibacter_urolithinfaciens: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Gordonibacter_urolithinfaciens' --reapply-hcov 1000 shows why)
+s__Slackia piriformis
+25624: s__Slackia_piriformis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Faecalibacillus faecis
+30511: s__Faecalibacillus_faecis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Faecalibacillus intestinalis
+30512: s__Faecalibacillus_intestinalis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Merdibacter merdigallinarum
+30884: s__Merdibacter_merdigallinarum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Merdibacter_merdigallinarum: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Merdibacter_merdigallinarum' --reapply-hcov 1000 shows why)
+s__Merdibacter merdipullorum
+30885: s__Merdibacter_merdipullorum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Streptococcus parasanguinis
+32442: s__Streptococcus_parasanguinis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Streptococcus_parasanguinis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Streptococcus_parasanguinis' --reapply-hcov 1000 shows why)
+s__Streptococcus salivarius_D
+32517: s__Streptococcus_salivarius_D across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Christensenella massiliensis
+37615: s__Christensenella_massiliensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Christensenella_massiliensis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Christensenella_massiliensis' --reapply-hcov 1000 shows why)
+s__CAG-274 sp000432155
+39149: s__CAG-274_sp000432155 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Acetatifactor acetigignens
+39339: s__Acetatifactor_acetigignens across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Agathobacter faecis
+39529: s__Agathobacter_faecis across samples 2
+  pb2: 2764 long reads at 33 blocks of multi-allelic sites (217 cut between unlikely neighbours); 2 strain rows (shares 0.709841 0.290159), 33 of the blocks phased
+s__Agathobacter rectalis
+39530: s__Agathobacter_rectalis across samples 2
+  pb2: 34 long reads at 1 blocks of multi-allelic sites (82 cut between unlikely neighbours); one row
+s__Anaerobutyricum hallii
+39603: s__Anaerobutyricum_hallii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Anaerobutyricum soehngenii
+39604: s__Anaerobutyricum_soehngenii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Anaerostipes amylophilus
+39670: s__Anaerostipes_amylophilus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Anaerostipes hadrus
+39676: s__Anaerostipes_hadrus across samples 2
+  pb2: 4 long reads at 1 blocks of multi-allelic sites (2 cut between unlikely neighbours); one row
+s__Anthropogastromicrobium aceti
+39690: s__Anthropogastromicrobium_aceti across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bariatricus comes
+39736: s__Bariatricus_comes across samples 2
+  pb2: 145 long reads at 16 blocks of multi-allelic sites (0 cut between unlikely neighbours); 2 strain rows (shares 0.704545 0.295455), 4 of the blocks phased
+s__Blautia_A difficilis
+39815: s__Blautia_A_difficilis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A faecis
+39822: s__Blautia_A_faecis across samples 2
+  pb2: 34 long reads at 7 blocks of multi-allelic sites (8 cut between unlikely neighbours); one row
+s__Blautia_A obeum
+39833: s__Blautia_A_obeum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A sp900066205
+39870: s__Blautia_A_sp900066205 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A sp900066335
+39871: s__Blautia_A_sp900066335 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A sp900066355
+39872: s__Blautia_A_sp900066355 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A sp900120195
+39873: s__Blautia_A_sp900120195 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Blautia_A wexlerae
+39935: s__Blautia_A_wexlerae across samples 2
+  pb2: 717 long reads at 22 blocks of multi-allelic sites (16 cut between unlikely neighbours); 2 strain rows (shares 0.768313 0.231687), 21 of the blocks phased
+s__Brotaphodocola sp003478505
+39954: s__Brotaphodocola_sp003478505 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Brotaphodocola sp003480315
+39955: s__Brotaphodocola_sp003480315 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Butyribacter intestini
+40001: s__Butyribacter_intestini across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Butyribacter sp000436755
+40002: s__Butyribacter_sp000436755 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Butyribacter_sp000436755: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Butyribacter_sp000436755' --reapply-hcov 1000 shows why)
+s__Butyribacter sp003529475
+40006: s__Butyribacter_sp003529475 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Claveliimonas ammoniilytica
+40605: s__Claveliimonas_ammoniilytica across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Dorea formicigenerans
+40695: s__Dorea_formicigenerans across samples 2
+  pb2: 11 long reads at 2 blocks of multi-allelic sites (3 cut between unlikely neighbours); one row
+s__Dorea_A longicatena
+40699: s__Dorea_A_longicatena across samples 2
+  pb2: 98 long reads at 9 blocks of multi-allelic sites (13 cut between unlikely neighbours); 2 strain rows (shares 0.637681 0.362319), 2 of the blocks phased
+s__Dorea_D hominis
+40710: s__Dorea_D_hominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Enterocloster citroniae
+40744: s__Enterocloster_citroniae across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Enterocloster_citroniae: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_citroniae' --reapply-hcov 1000 shows why)
+s__Enterocloster sp000431375
+40753: s__Enterocloster_sp000431375 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Enterocloster sp900541315
+40758: s__Enterocloster_sp900541315 across samples 2
+  pb2: 4 long reads at 1 blocks of multi-allelic sites (3 cut between unlikely neighbours); one row
+s__Enterocloster sp944384065
+40771: s__Enterocloster_sp944384065 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Enterocloster_sp944384065: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Enterocloster_sp944384065' --reapply-hcov 1000 shows why)
+s__Eubacterium_U album
+40995: s__Eubacterium_U_album across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Fusicatenibacter saccharivorans
+41062: s__Fusicatenibacter_saccharivorans across samples 2
+  pb2: 45 long reads at 6 blocks of multi-allelic sites (10 cut between unlikely neighbours); one row
+s__Gallintestinimicrobium propionicum
+41074: s__Gallintestinimicrobium_propionicum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Hominisplanchenecus faecis
+41101: s__Hominisplanchenecus_faecis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Hominiventricola aquisgranensis
+41112: s__Hominiventricola_aquisgranensis across samples 2
+  pb2: 9 long reads at 2 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Hominiventricola filiformis
+41114: s__Hominiventricola_filiformis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__JAGTTR01 sp018223385
+41203: s__JAGTTR01_sp018223385 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Lachnospira hominis
+41369: s__Lachnospira_hominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Lachnospira sp000437735
+41376: s__Lachnospira_sp000437735 across samples 2
+  pb2: 15 long reads at 2 blocks of multi-allelic sites (14 cut between unlikely neighbours); one row
+s__Mediterraneibacter faecis
+41585: s__Mediterraneibacter_faecis across samples 2
+  pb2: 4 long reads at 1 blocks of multi-allelic sites (5 cut between unlikely neighbours); one row
+s__Mediterraneibacter hominis
+41589: s__Mediterraneibacter_hominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Mediterraneibacter_hominis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Mediterraneibacter_hominis' --reapply-hcov 1000 shows why)
+s__Mediterraneibacter massiliensis
+41594: s__Mediterraneibacter_massiliensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Mediterraneibacter_A butyricigenes
+41643: s__Mediterraneibacter_A_butyricigenes across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Oliverpabstia intestinalis
+41869: s__Oliverpabstia_intestinalis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Otoolea fessa
+41932: s__Otoolea_fessa across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Pilosibacter fragilis
+42018: s__Pilosibacter_fragilis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Pilosibacter sp900066785
+42023: s__Pilosibacter_sp900066785 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Roseburia hominis
+42289: s__Roseburia_hominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Roseburia intestinalis
+42291: s__Roseburia_intestinalis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Roseburia inulinivorans
+42292: s__Roseburia_inulinivorans across samples 2
+  pb2: 13 long reads at 3 blocks of multi-allelic sites (4 cut between unlikely neighbours); one row
+s__Roseburia_C amylophila
+42367: s__Roseburia_C_amylophila across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Scatomonas hejianensis
+42466: s__Scatomonas_hejianensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Scatomonas_hejianensis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Scatomonas_hejianensis' --reapply-hcov 1000 shows why)
+s__Schaedlerella hominis
+42478: s__Schaedlerella_hominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Schaedlerella_hominis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Schaedlerella_hominis' --reapply-hcov 1000 shows why)
+s__UBA3402 sp003478355
+42857: s__UBA3402_sp003478355 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Anaeromassilibacillus stercoravium
+43438: s__Anaeromassilibacillus_stercoravium across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Anaeromassilibacillus_stercoravium: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaeromassilibacillus_stercoravium' --reapply-hcov 1000 shows why)
+s__CAG-217 sp000436335
+43526: s__CAG-217_sp000436335 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Clostridium_A leptum
+43684: s__Clostridium_A_leptum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Hominenteromicrobium mulieris
+43942: s__Hominenteromicrobium_mulieris across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__UMGS1264 sp904399395
+44788: s__UMGS1264_sp904399395 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__UMGS1264_sp904399395: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__UMGS1264_sp904399395' --reapply-hcov 1000 shows why)
+s__Agathobaculum butyriciproducens
+44907: s__Agathobaculum_butyriciproducens across samples 2
+  pb2: 6 long reads at 1 blocks of multi-allelic sites (3 cut between unlikely neighbours); one row
+s__Pseudobutyricicoccus lothianensis
+44993: s__Pseudobutyricicoccus_lothianensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__DXYV01 sp019415645
+45997: s__DXYV01_sp019415645 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Evtepia gabavorous
+46073: s__Evtepia_gabavorous across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Faecousia intestinalis
+46146: s__Faecousia_intestinalis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Flavonifractor plautii
+46422: s__Flavonifractor_plautii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Lawsonibacter aceti
+46573: s__Lawsonibacter_aceti across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Lawsonibacter asaccharolyticus
+46574: s__Lawsonibacter_asaccharolyticus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Oscillibacter faecalis
+46861: s__Oscillibacter_faecalis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Oscillibacter faecalis_A
+46862: s__Oscillibacter_faecalis_A across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Oscillibacter welbionis
+47015: s__Oscillibacter_welbionis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Vescimonas coprocola
+47291: s__Vescimonas_coprocola across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Vescimonas sp900552475
+47331: s__Vescimonas_sp900552475 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Anaerotruncus colihominis
+47466: s__Anaerotruncus_colihominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Anaerotruncus_colihominis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Anaerotruncus_colihominis' --reapply-hcov 1000 shows why)
+s__Avimicrobium caecorum
+47512: s__Avimicrobium_caecorum across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Faecalibacterium duncaniae
+47655: s__Faecalibacterium_duncaniae across samples 2
+  pb2: 3224 long reads at 49 blocks of multi-allelic sites (91 cut between unlikely neighbours); 2 strain rows (shares 0.743377 0.256623), 49 of the blocks phased
+s__Faecalibacterium longum
+47664: s__Faecalibacterium_longum across samples 2
+  pb2: 747 long reads at 18 blocks of multi-allelic sites (59 cut between unlikely neighbours); 2 strain rows (shares 0.796519 0.203481), 18 of the blocks phased
+s__Faecalibacterium prausnitzii_I
+47668: s__Faecalibacterium_prausnitzii_I across samples 2
+  pb2: 14 long reads at 1 blocks of multi-allelic sites (44 cut between unlikely neighbours); one row
+s__Faecalibacterium sp900539945
+47679: s__Faecalibacterium_sp900539945 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Faecalibacterium taiwanense
+47730: s__Faecalibacterium_taiwanense across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Gemmiger formicilis
+47862: s__Gemmiger_formicilis across samples 2
+  pb2: 5 long reads at 1 blocks of multi-allelic sites (6 cut between unlikely neighbours); one row
+s__Gemmiger qucibialis
+47866: s__Gemmiger_qucibialis across samples 2
+  pb2: 4 long reads at 1 blocks of multi-allelic sites (6 cut between unlikely neighbours); one row
+s__Gemmiger sp900539695
+47875: s__Gemmiger_sp900539695 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Ruthenibacterium lactatiformans
+48530: s__Ruthenibacterium_lactatiformans across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Alangreenwoodia sp905206455
+48917: s__Alangreenwoodia_sp905206455 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__CAG-238 sp900542245
+48948: s__CAG-238_sp900542245 across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Eubacterium_B sulci
+49074: s__Eubacterium_B_sulci across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Eubacterium_B_sulci: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Eubacterium_B_sulci' --reapply-hcov 1000 shows why)
+s__Lentihominibacter butyricus
+49200: s__Lentihominibacter_butyricus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Lentihominibacter faecis
+49204: s__Lentihominibacter_faecis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Intestinibacter bartlettii
+49527: s__Intestinibacter_bartlettii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Romboutsia timonensis
+49580: s__Romboutsia_timonensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Romboutsia_timonensis: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Romboutsia_timonensis' --reapply-hcov 1000 shows why)
+s__Hominilimicola fabiformis
+51298: s__Hominilimicola_fabiformis across samples 2
+  pb2: 6 long reads at 1 blocks of multi-allelic sites (15 cut between unlikely neighbours); one row
+s__Dialister invisus
+52720: s__Dialister_invisus across samples 2
+  pb2: 236 long reads at 9 blocks of multi-allelic sites (0 cut between unlikely neighbours); 2 strain rows (shares 0.759259 0.240741), 8 of the blocks phased
+s__Bacteroides caccae
+53943: s__Bacteroides_caccae across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides cellulosilyticus
+53946: s__Bacteroides_cellulosilyticus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides fragilis
+53957: s__Bacteroides_fragilis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides ovatus
+53985: s__Bacteroides_ovatus across samples 2
+  pb2: 6 long reads at 1 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides stercoris
+54148: s__Bacteroides_stercoris across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides thetaiotaomicron
+54150: s__Bacteroides_thetaiotaomicron across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bacteroides uniformis
+54153: s__Bacteroides_uniformis across samples 2
+  pb2: 5 long reads at 1 blocks of multi-allelic sites (18 cut between unlikely neighbours); one row
+s__Coprobacter fastidiosus
+55736: s__Coprobacter_fastidiosus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Odoribacter splanchnicus
+56592: s__Odoribacter_splanchnicus across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Alistipes communis
+58498: s__Alistipes_communis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Alistipes finegoldii
+58507: s__Alistipes_finegoldii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Alistipes putredinis
+58517: s__Alistipes_putredinis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Alistipes senegalensis
+58518: s__Alistipes_senegalensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Parabacteroides distasonis
+58982: s__Parabacteroides_distasonis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Parabacteroides goldsteinii
+58988: s__Parabacteroides_goldsteinii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Parabacteroides merdae
+58997: s__Parabacteroides_merdae across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Bilophila wadsworthia
+84505: s__Bilophila_wadsworthia across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Parasutterella excrementihominis
+119997: s__Parasutterella_excrementihominis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Sutterella wadsworthensis
+121441: s__Sutterella_wadsworthensis across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Sutterella wadsworthensis_A
+121442: s__Sutterella_wadsworthensis_A across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+s__Citrobacter freundii
+126318: s__Citrobacter_freundii across samples 2
+  pb2: 0 long reads at 0 blocks of multi-allelic sites (0 cut between unlikely neighbours); one row
+[qcmsa] WARNING: s__Citrobacter_freundii: qcmsa kept no gene or sample, so there is no /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii.msa.fna (the raw MSA is /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii.raw.msa.fna; OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 '/hpc-home/hildebra/dev/protalFastHit/scripts/qcmsa.py' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii.raw.msa.fna' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii.raw.partition.txt' '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii.meta.tsv' --prefix '/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1/strains/s__Citrobacter_freundii' --reapply-hcov 1000 shows why)
+Strain-level MSAs took 5s 187ms
+Strain-level MSAs of 132 species: 132 raw MSAs, 109 filtered by qcMSA; 8 species at a time, the times below summed over the species
+Building the strain MSAs took 8s 306ms (132)
+qcMSA took 29s 389ms (132)
+Run protal took 39s 782ms
+Freeing memory took 0s 488ms

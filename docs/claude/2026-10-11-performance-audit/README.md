@@ -496,6 +496,37 @@ The logs show the strain alleles and column weights loading beside the alignment
 `--no_allele_scores`, and left unread by PacBio with `--no_profile`. Unit tests 514 run, 511 passed, 3 skipped; e2e
 155 OK.
 
+## 10. The same run on 8 threads (the 15th cluster run)
+
+The user's next run (SLURM 24167284, node `q512n11`, the same EPYC 9634, database and samples, 0.8.1 at `7d5df4b`,
+so **before** sections 8 and 9) used `-t 8` instead of 32, with sylph 1.0.0 beside it
+([cluster_v15_8threads](results/cluster_v15_8threads/)). PacBio took only twice as long with a quarter of the threads,
+and the logs say why: the start-up does not use the threads. Runs 2 (the database in the page cache):
+
+| | pe, 32 threads | pe, 8 | ratio | HiFi, 32 | HiFi, 8 | ratio |
+|---|---|---|---|---|---|---|
+| **wall** | **51.0 s** | **126.0** | 2.47 | **24.8** | **47.7** | 1.92 |
+| "Loading the taxonomy, models and tables" (the preload inside: 1.8 / 3.1 s) | 14.25 | 13.91 | 0.98 | 14.33 | 13.89 | 0.97 |
+| the index, beside it | 2.81 | 9.44 | 3.36 | 2.81 | 9.47 | 3.37 |
+| aligning | 23.88 | 91.11 | 3.82 | 7.86 | 29.74 | 3.78 |
+| profiling | 10.56 | 18.92 | 1.79 | 1.16 | 2.32 | 2.00 |
+
+- **The start-up is ~14 s at any thread count**: the column weights parsed on one thread (section 2). At 32 threads
+  it was 58% of the HiFi run, so only the other 42% could get slower. The aligning scaled almost linearly
+  (3.8× for 4× fewer threads).
+- **Profiling scales worse** (1.8× for pe): the run computes the ancestry sites (v23 has no `ancestry_sites.bin`), and
+  the SAM's reading thread waited 13.0 s for room (4.9 s at 32 threads).
+- **At 8 threads, the fixes gain less.** With the column weights off the path, the alignment waits for the index, and
+  at 8 threads that takes 9.5 s. Expected with `0a1beaa` and the binary members: a start-up of ~9.5 s instead of
+  13.9, so **pe ~121 s and HiFi ~43 s** at 8 threads, against ~40 s and ~14 s at 32 (section 8). After that, the
+  index load is what an 8-thread run waits for. It scales with the threads (3.4×), and its 44 GB peak is the run's.
+- The first pe run took 311 s: the index (198 s) and the preload (70 s) read the 29 GB database cold from NFS, at
+  ~150 MB/s.
+- Against sylph on the same 8 threads (medians of three): pe 126.0 s against 69.5 s (1.81× the wall, 2.6× the CPU,
+  44.0 GB against 4.5 GB); HiFi 47.7 s against 12.5 s (3.81×, 18.6× the CPU, 44.0 against 3.8 GB). With the fixes,
+  ~1.7× and ~3.4× the wall. For HiFi the rest is mostly aligning (29.7 s, the alignment handler 29.4 s per thread)
+  and the index.
+
 ## How it was run
 
 Everything in WSL under `~/perf9` (removed afterwards), from the scripts in [scripts/](scripts/), in this order:
