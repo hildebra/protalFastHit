@@ -1,0 +1,37 @@
+732475 genomes in the metadata
+--species 16000 --per_species 2 --rep_only_species 9000: 16000 species with strains (of 36515 that have candidates), 24741 strains, 9000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 25000 species simulated; a real strain 18.4%, in-silico 36.1% (one-genome share 1.00), the representative 45.5%; real strains 33.8% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 25000 species simulated; a real strain 20.1%, in-silico 20.1% (one-genome share 0.57), the representative 59.7%; real strains 50.0% of the strains
+    --insilico-multi 0 --insilico-strains auto: 25000 species simulated; a real strain 21.8%, in-silico 21.8% (one-genome share 0.74), the representative 56.3%; real strains 50.0% of the strains
+--species 16000 --per_species 2 --rep_only_species 19000: 16000 species with strains (of 36515 that have candidates), 24741 strains, 19000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 35000 species simulated; a real strain 13.2%, in-silico 40.0% (one-genome share 1.00), the representative 46.8%; real strains 24.7% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 35000 species simulated; a real strain 14.4%, in-silico 14.4% (one-genome share 0.34), the representative 71.2%; real strains 50.0% of the strains
+    --insilico-multi 0 --insilico-strains auto: 35000 species simulated; a real strain 15.6%, in-silico 15.6% (one-genome share 0.44), the representative 68.8%; real strains 50.0% of the strains
+--species 30000 --per_species 2 --rep_only_species 9000: 29853 species with strains (of 36515 that have candidates), 46270 strains, 9000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 38853 species simulated; a real strain 22.2%, in-silico 33.2% (one-genome share 1.00), the representative 44.6%; real strains 40.0% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 38853 species simulated; a real strain 24.2%, in-silico 24.2% (one-genome share 0.80), the representative 51.6%; real strains 50.0% of the strains
+    --insilico-multi 0 --insilico-strains auto: 38853 species simulated; a real strain 26.3%, in-silico 25.5% (one-genome share 1.00), the representative 48.2%; real strains 50.7% of the strains
+--species 30000 --per_species 4 --rep_only_species 9000: 29853 species with strains (of 36515 that have candidates), 65863 strains, 9000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 38853 species simulated; a real strain 26.9%, in-silico 30.9% (one-genome share 1.00), the representative 42.2%; real strains 46.5% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 38853 species simulated; a real strain 29.1%, in-silico 27.0% (one-genome share 1.00), the representative 43.9%; real strains 51.9% of the strains
+    --insilico-multi 0 --insilico-strains auto: 38853 species simulated; a real strain 31.3%, in-silico 23.0% (one-genome share 1.00), the representative 45.7%; real strains 57.6% of the strains
+--species 40000 --per_species 4 --rep_only_species 5000: 36515 species with strains (of 36515 that have candidates), 80684 strains, 5000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 41515 species simulated; a real strain 30.8%, in-silico 28.1% (one-genome share 1.00), the representative 41.1%; real strains 52.3% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 41515 species simulated; a real strain 33.3%, in-silico 23.6% (one-genome share 1.00), the representative 43.0%; real strains 58.5% of the strains
+    --insilico-multi 0 --insilico-strains auto: 41515 species simulated; a real strain 35.9%, in-silico 19.1% (one-genome share 1.00), the representative 45.0%; real strains 65.2% of the strains
+--species 40000 --per_species 4 --rep_only_species 9000: 36515 species with strains (of 36515 that have candidates), 80684 strains, 9000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 45515 species simulated; a real strain 28.1%, in-silico 30.0% (one-genome share 1.00), the representative 41.9%; real strains 48.3% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 45515 species simulated; a real strain 30.4%, in-silico 25.9% (one-genome share 1.00), the representative 43.7%; real strains 54.0% of the strains
+    --insilico-multi 0 --insilico-strains auto: 45515 species simulated; a real strain 32.7%, in-silico 21.8% (one-genome share 1.00), the representative 45.5%; real strains 60.0% of the strains
+--species 40000 --per_species 4 --rep_only_species 19000: 36515 species with strains (of 36515 that have candidates), 80684 strains, 19000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 55515 species simulated; a real strain 23.0%, in-silico 33.6% (one-genome share 1.00), the representative 43.3%; real strains 40.7% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 55515 species simulated; a real strain 24.9%, in-silico 24.9% (one-genome share 0.80), the representative 50.1%; real strains 50.0% of the strains
+    --insilico-multi 0 --insilico-strains auto: 55515 species simulated; a real strain 26.8%, in-silico 26.8% (one-genome share 1.00), the representative 46.3%; real strains 50.0% of the strains
+--species 100000 --per_species 6 --rep_only_species 5000: 36515 species with strains (of 36515 that have candidates), 96178 strains, 5000 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 41515 species simulated; a real strain 32.8%, in-silico 27.4% (one-genome share 1.00), the representative 39.8%; real strains 54.5% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 41515 species simulated; a real strain 35.3%, in-silico 23.0% (one-genome share 1.00), the representative 41.7%; real strains 60.5% of the strains
+    --insilico-multi 0 --insilico-strains auto: 41515 species simulated; a real strain 37.8%, in-silico 18.7% (one-genome share 1.00), the representative 43.5%; real strains 67.0% of the strains
+--species 100000 --per_species 4 --rep_only_species 0: 36515 species with strains (of 36515 that have candidates), 80684 strains, 0 representative-only species
+    --insilico-multi 0.5 --insilico-strains 1.0: 36515 species simulated; a real strain 35.0%, in-silico 25.1% (one-genome share 1.00), the representative 39.8%; real strains 58.2% of the strains
+    --insilico-multi 0.25 --insilico-strains auto: 36515 species simulated; a real strain 37.9%, in-silico 20.0% (one-genome share 1.00), the representative 42.1%; real strains 65.5% of the strains
+    --insilico-multi 0 --insilico-strains auto: 36515 species simulated; a real strain 40.8%, in-silico 14.9% (one-genome share 1.00), the representative 44.3%; real strains 73.3% of the strains

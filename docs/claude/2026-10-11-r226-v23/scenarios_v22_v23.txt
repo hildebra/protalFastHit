@@ -1,0 +1,44 @@
+pe   species held out                          F1=0.9573 FP=4288 FN=2300  F1=0.9595 FP=4049 FN=2255
+pe   independent test set                      F1=0.9700 FP=82 FN=160     F1=0.9709 FP=79 FN=149
+pe   gut: hold-in, species held out            F1=0.9899 FP=19 FN=65      F1=0.9912 FP=15 FN=58
+pe   gut: hold-out                             F1=0.9771 FP=3 FN=67       F1=0.9798 FP=1 FN=61
+pe   host: hold-in, species held out           F1=0.9929 FP=1 FN=1        F1=0.9927 FP=1 FN=1
+pe   host: hold-out                            F1=0.9922 FP=0 FN=1        F1=1.0000 FP=0 FN=0
+pe   moderate: hold-in, species held out       F1=0.9715 FP=363 FN=525    F1=0.9720 FP=372 FN=511
+pe   moderate: hold-out                        F1=0.9741 FP=127 FN=230    F1=0.9755 FP=173 FN=170
+pe   soil: hold-in, species held out           F1=0.9542 FP=792 FN=1245   F1=0.9561 FP=745 FN=1212
+pe   soil: hold-out                            F1=0.9636 FP=166 FN=416    F1=0.9643 FP=155 FN=415
+pe   soil_shallow: hold-in, species held out   F1=0.9462 FP=901 FN=1060   F1=0.9482 FP=921 FN=1001
+pe   soil_shallow: hold-out                    F1=0.9416 FP=331 FN=520    F1=0.9448 FP=358 FN=479
+se   species held out                          F1=0.9627 FP=2334 FN=1654  F1=0.9650 FP=2185 FN=1593
+se   independent test set                      F1=0.9672 FP=96 FN=161     F1=0.9662 FP=114 FN=143
+se   host: hold-in, species held out           F1=0.9964 FP=1 FN=0        F1=0.9856 FP=2 FN=2
+se   host: hold-out                            F1=0.9771 FP=2 FN=1        F1=1.0000 FP=0 FN=0
+se   moderate: hold-in, species held out       F1=0.9727 FP=380 FN=467    F1=0.9722 FP=508 FN=374
+se   moderate: hold-out                        F1=0.9720 FP=216 FN=175    F1=0.9783 FP=174 FN=130
+se   soil: hold-in, species held out           F1=0.9552 FP=868 FN=1126   F1=0.9562 FP=1110 FN=866
+se   soil: hold-out                            F1=0.9598 FP=141 FN=495    F1=0.9662 FP=186 FN=355
+pb   species held out                          F1=0.9757 FP=1071 FN=1392  F1=0.9791 FP=907 FN=1226
+pb   independent test set                      F1=0.9867 FP=13 FN=19      F1=0.9828 FP=22 FN=22
+pb   gut: hold-in, species held out            F1=0.9931 FP=24 FN=31      F1=0.9942 FP=20 FN=26
+pb   gut: hold-out                             F1=0.9961 FP=5 FN=6        F1=0.9916 FP=10 FN=14
+pb   host: hold-in, species held out           F1=0.9893 FP=2 FN=1        F1=0.9839 FP=3 FN=1
+pb   host: hold-out                            F1=0.9922 FP=0 FN=1        F1=1.0000 FP=0 FN=0
+pb   moderate: hold-in, species held out       F1=0.9826 FP=171 FN=249    F1=0.9855 FP=134 FN=222
+pb   moderate: hold-out                        F1=0.9858 FP=64 FN=103     F1=0.9883 FP=47 FN=90
+pb   soil: hold-in, species held out           F1=0.9696 FP=462 FN=609    F1=0.9736 FP=400 FN=529
+pb   soil: hold-out                            F1=0.9762 FP=106 FN=218    F1=0.9764 FP=125 FN=198
+pb   soil_shallow: hold-in, species held out   F1=0.9670 FP=318 FN=417    F1=0.9718 FP=274 FN=355
+pb   soil_shallow: hold-out                    F1=0.9732 FP=93 FN=146     F1=0.9744 FP=111 FN=132
+ont  species held out                          F1=0.9704 FP=1377 FN=1697  F1=0.9741 FP=1173 FN=1521
+ont  independent test set                      F1=0.9833 FP=21 FN=20      F1=0.9820 FP=20 FN=28
+ont  gut: hold-in, species held out            F1=0.9904 FP=30 FN=47      F1=0.9943 FP=21 FN=25
+ont  gut: hold-out                             F1=0.9913 FP=9 FN=16       F1=0.9883 FP=8 FN=25
+ont  host: hold-in, species held out           F1=0.9929 FP=1 FN=1        F1=0.9769 FP=4 FN=2
+ont  host: hold-out                            F1=0.9697 FP=3 FN=1        F1=1.0000 FP=0 FN=0
+ont  moderate: hold-in, species held out       F1=0.9783 FP=221 FN=317    F1=0.9829 FP=153 FN=273
+ont  moderate: hold-out                        F1=0.9813 FP=63 FN=159     F1=0.9826 FP=72 FN=134
+ont  soil: hold-in, species held out           F1=0.9624 FP=598 FN=754    F1=0.9663 FP=536 FN=673
+ont  soil: hold-out                            F1=0.9700 FP=178 FN=239    F1=0.9695 FP=186 FN=239
+ont  soil_shallow: hold-in, species held out   F1=0.9607 FP=423 FN=473    F1=0.9647 FP=362 FN=446
+ont  soil_shallow: hold-out                    F1=0.9601 FP=177 FN=193    F1=0.9625 FP=158 FN=204

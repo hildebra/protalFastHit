@@ -1,0 +1,24 @@
+== v22
+per read type and kind of sample, seconds summed over the samples (training + test collections)
+aligning: wall and CPU on 84 threads; profiling: wall of the stage (its parts run in parallel, so they may sum above the total)
+type	kind	samples	align wall	align CPU	profile wall	parse CPU	parse/align CPU	reading the SAM	record evidence and sample context	read EM	congener distances	SNP post-processing	scoring	writing the profile
+ont	design	228	153	7328	73	160	0.02	37	20	6	0	1	1	1
+ont	scenario	70	1009	41907	250	1766	0.04	149	51	7	25	9	4	8
+pb	design	228	201	9075	66	143	0.02	32	20	5	0	0	0	0
+pb	scenario	70	944	47838	185	1477	0.03	122	42	6	15	1	1	5
+pe	design	387	310	8059	231	1263	0.16	141	64	19	7	1	0	0
+pe	scenario	70	722	18201	680	5705	0.31	420	212	20	117	3	6	8
+se	design	387	195	4480	193	972	0.22	124	49	12	5	0	0	0
+se	scenario	42	550	13148	306	3438	0.26	225	58	6	40	1	2	4
+== v23
+per read type and kind of sample, seconds summed over the samples (training + test collections)
+aligning: wall and CPU on 84 threads; profiling: wall of the stage (its parts run in parallel, so they may sum above the total)
+type	kind	samples	align wall	align CPU	profile wall	parse CPU	parse/align CPU	reading the SAM	record evidence and sample context	read EM	congener distances	SNP post-processing	scoring	writing the profile
+ont	design	228	151	7513	69	167	0.02	34	19	5	0	1	0	0
+ont	scenario	70	955	42676	375	1710	0.04	235	84	7	52	9	4	11
+pb	design	228	213	9906	58	135	0.01	29	19	4	0	0	0	0
+pb	scenario	70	915	51351	309	1542	0.03	204	82	8	47	1	1	6
+pe	design	387	310	7671	214	1057	0.14	127	62	17	6	0	0	0
+pe	scenario	70	683	17584	790	5524	0.31	505	231	21	150	3	7	9
+se	design	387	181	3941	185	882	0.22	115	50	12	4	0	0	0
+se	scenario	42	526	12023	347	3462	0.29	217	107	7	49	1	1	4

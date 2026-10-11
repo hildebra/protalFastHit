@@ -1,0 +1,84 @@
+== pe, held out: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class          v22 n      v22 rate          v23 n      v23 rate
+         FN real strain, alleles   9414 (12.4%)  0.0542 (510)    6655 (8.6%)  0.0651 (433)
+            FN real strain, none    6752 (8.9%)  0.0535 (361)    5024 (6.5%)  0.0488 (245)
+             FN in-silico strain  37044 (48.6%) 0.0278 (1030)  41407 (53.8%) 0.0275 (1137)
+               FN representative  22946 (30.1%)  0.0174 (399)  23936 (31.1%)  0.0184 (440)
+     FP beside held-out congener 209616 (69.2%) 0.0159 (3341) 220460 (69.6%) 0.0141 (3104)
+FP beside present congeners only  37484 (12.4%)  0.0062 (234)  37286 (11.8%)  0.0061 (227)
+        FP no congener in sample  55773 (18.4%)  0.0128 (713)  59083 (18.6%)  0.0122 (718)
+== pe, test: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class        v22 n    v22 rate        v23 n    v23 rate
+         FN real strain, alleles  488 (12.0%) 0.0369 (18)   387 (9.8%) 0.0465 (18)
+            FN real strain, none   397 (9.7%) 0.0277 (11)   271 (6.9%) 0.0443 (12)
+             FN in-silico strain 2218 (54.4%) 0.0325 (72) 2363 (59.8%) 0.0229 (54)
+               FN representative  973 (23.9%) 0.0134 (13)  933 (23.6%) 0.0171 (16)
+     FP beside held-out congener 6269 (43.2%) 0.0124 (78) 6119 (40.8%) 0.0126 (77)
+FP beside present congeners only 3458 (23.8%) 0.0035 (12) 2572 (17.1%) 0.0047 (12)
+        FP no congener in sample 4790 (33.0%) 0.0077 (37) 6316 (42.1%) 0.0068 (43)
+== pe, held out: F1 at knob 0.5 from the class rates and shares (rates of the row's build, shares of the column's)
+   rates v22: mix v22 0.9573  mix v23 0.9572
+   rates v23: mix v22 0.9594  mix v23 0.9595
+== se, held out: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class          v22 n      v22 rate          v23 n      v23 rate
+         FN real strain, alleles   6576 (12.4%)  0.0570 (375)    4578 (8.5%)  0.0640 (293)
+            FN real strain, none    4718 (8.9%)  0.0532 (251)    3590 (6.7%)  0.0543 (195)
+             FN in-silico strain  26055 (49.1%)  0.0287 (747)  29325 (54.6%)  0.0279 (817)
+               FN representative  15701 (29.6%)  0.0179 (281)  16181 (30.1%)  0.0178 (288)
+     FP beside held-out congener 111715 (71.2%) 0.0155 (1735) 117705 (72.9%) 0.0132 (1555)
+FP beside present congeners only  18944 (12.1%)  0.0086 (163)  17519 (10.8%)  0.0088 (155)
+        FP no congener in sample  26242 (16.7%)  0.0166 (436)  26253 (16.3%)  0.0181 (475)
+== se, test: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class        v22 n    v22 rate        v23 n    v23 rate
+         FN real strain, alleles  464 (11.8%) 0.0517 (24)   355 (9.3%) 0.0479 (17)
+            FN real strain, none  394 (10.0%) 0.0254 (10)   274 (7.2%) 0.0693 (19)
+             FN in-silico strain 2150 (54.5%) 0.0330 (71) 2303 (60.3%) 0.0352 (81)
+               FN representative  938 (23.8%) 0.0224 (21)  889 (23.3%) 0.0292 (26)
+     FP beside held-out congener 4906 (43.4%) 0.0185 (91) 5237 (42.2%) 0.0134 (70)
+FP beside present congeners only 2563 (22.7%)  0.0031 (8) 2144 (17.3%) 0.0051 (11)
+        FP no congener in sample 3827 (33.9%) 0.0105 (40) 5041 (40.6%) 0.0065 (33)
+== se, held out: F1 at knob 0.5 from the class rates and shares (rates of the row's build, shares of the column's)
+   rates v22: mix v22 0.9627  mix v23 0.9630
+   rates v23: mix v22 0.9643  mix v23 0.9650
+== pb, held out: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class         v22 n     v22 rate         v23 n     v23 rate
+         FN real strain, alleles  6109 (12.0%) 0.0619 (378)   4305 (8.4%) 0.0674 (290)
+            FN real strain, none   4735 (9.3%) 0.0676 (320)   3447 (6.7%) 0.0725 (250)
+             FN in-silico strain 24313 (47.8%) 0.0218 (529) 27217 (53.2%) 0.0188 (513)
+               FN representative 15708 (30.9%) 0.0105 (165) 16225 (31.7%) 0.0107 (173)
+     FP beside held-out congener 42401 (91.4%) 0.0215 (913) 42151 (92.0%) 0.0179 (753)
+FP beside present congeners only   3083 (6.6%)  0.0175 (54)   2673 (5.8%)  0.0165 (44)
+        FP no congener in sample    908 (2.0%) 0.1145 (104)    985 (2.2%) 0.1117 (110)
+== pb, test: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class       v22 n   v22 rate       v23 n    v23 rate
+         FN real strain, alleles 132 (10.9%) 0.0303 (4)  112 (8.8%)  0.0625 (7)
+            FN real strain, none 123 (10.2%) 0.0325 (4)   93 (7.3%)  0.0430 (4)
+             FN in-silico strain 671 (55.6%) 0.0134 (9) 785 (61.3%)  0.0076 (6)
+               FN representative 281 (23.3%) 0.0071 (2) 290 (22.7%)  0.0172 (5)
+     FP beside held-out congener 622 (77.8%) 0.0129 (8) 536 (69.0%) 0.0280 (15)
+FP beside present congeners only 138 (17.3%) 0.0000 (0) 112 (14.4%)  0.0089 (1)
+        FP no congener in sample   39 (4.9%) 0.1282 (5) 129 (16.6%)  0.0465 (6)
+== pb, held out: F1 at knob 0.5 from the class rates and shares (rates of the row's build, shares of the column's)
+   rates v22: mix v22 0.9757  mix v23 0.9772
+   rates v23: mix v22 0.9774  mix v23 0.9791
+== ont, held out: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class         v22 n      v22 rate         v23 n     v23 rate
+         FN real strain, alleles  6261 (12.0%)  0.0714 (447)   4322 (8.3%) 0.0731 (316)
+            FN real strain, none   4806 (9.2%)  0.0728 (350)   3501 (6.7%) 0.0706 (247)
+             FN in-silico strain 24846 (47.7%)  0.0256 (635) 27847 (53.3%) 0.0254 (708)
+               FN representative 16137 (31.0%)  0.0164 (265) 16569 (31.7%) 0.0151 (250)
+     FP beside held-out congener 52767 (88.3%) 0.0220 (1159) 53733 (88.7%) 0.0182 (976)
+FP beside present congeners only   4698 (7.9%)   0.0143 (67)   4394 (7.3%)  0.0121 (53)
+        FP no congener in sample   2273 (3.8%)  0.0664 (151)   2449 (4.0%) 0.0588 (144)
+== ont, test: class size (share of present or absent) and error rate (count), v22 -> v23
+                           class       v22 n    v22 rate       v23 n    v23 rate
+         FN real strain, alleles 141 (11.5%)  0.0284 (4)  110 (8.2%)  0.0636 (7)
+            FN real strain, none  121 (9.9%)  0.0165 (2)   96 (7.2%)  0.0625 (6)
+             FN in-silico strain 674 (55.0%)  0.0134 (9) 819 (61.4%) 0.0159 (13)
+               FN representative 289 (23.6%)  0.0173 (5) 309 (23.2%)  0.0065 (2)
+     FP beside held-out congener 766 (72.1%) 0.0209 (16) 743 (59.1%) 0.0202 (15)
+FP beside present congeners only 184 (17.3%)  0.0109 (2) 177 (14.1%)  0.0000 (0)
+        FP no congener in sample 112 (10.5%)  0.0268 (3) 337 (26.8%)  0.0148 (5)
+== ont, held out: F1 at knob 0.5 from the class rates and shares (rates of the row's build, shares of the column's)
+   rates v22: mix v22 0.9704  mix v23 0.9717
+   rates v23: mix v22 0.9728  mix v23 0.9741

@@ -1,0 +1,76 @@
+share of the split gain by group
+               v22 pe  v22 se  v22 pb  v22 ont  v23 pe  v23 se  v23 pb  v23 ont
+group                                                                          
+normalized      89.02   87.37   18.14    15.81   90.42   87.94   17.94    16.56
+distance         1.53    2.04    0.87     1.17    1.47    1.94    0.96     1.07
+divergence       2.23    2.05   70.36    70.21    1.30    1.86   71.02    70.85
+ancestry         1.12    1.26    2.65     4.76    1.07    1.29    2.86     3.81
+complexity       1.03    1.23    0.70     1.00    1.04    1.26    0.66     0.81
+depth            0.95    1.56    0.34     0.39    0.98    1.22    0.35     0.40
+weights          0.38    0.40    0.51     0.46    0.83    0.94    1.59     1.84
+ref              0.68    0.84    1.24     1.19    0.58    0.68    0.81     0.86
+shape            0.59    0.64    1.06     1.18    0.53    0.63    0.79     0.99
+unfiltered       0.38    0.44    0.38     0.44    0.41    0.55    0.37     0.41
+untried          0.47    0.42    0.00     0.00    0.33    0.34    0.00     0.00
+consistency      0.39    0.45    1.50     0.99    0.31    0.57    1.15     0.87
+polymorphic      0.56    0.58    1.02     1.20    0.21    0.22    0.48     0.74
+alleles          0.27    0.39    0.39     0.29    0.16    0.17    0.30     0.17
+gaps             0.18    0.14    0.15     0.29    0.16    0.15    0.14     0.15
+neighbourhood    0.18    0.21    0.31     0.34    0.16    0.24    0.23     0.25
+adjacency        0.02    0.00    0.39     0.28    0.03    0.00    0.35     0.23
+
+the 25 features of most gain in the last build, pe and pb, and their groups
+pe
+ rank                     feature      group  share %
+    1                    identity normalized    74.67
+    2               lu_gene_rate3 normalized     5.35
+    3                   lu_per_kb normalized     2.43
+    4                top_identity normalized     2.08
+    5         gene_presence_ratio normalized     2.02
+    6              lsu_gene_rate3 normalized     1.54
+    7        sample_log_fragments      depth     0.98
+    8        excess_scaled_median divergence     0.87
+    9             sample_log_taxa complexity     0.65
+   10     ancestry_congener_share   ancestry     0.56
+   11              relative_spill   distance     0.56
+   12               relative_skew   distance     0.54
+   13          ancestry_agreement   ancestry     0.40
+   14    conserved_mismatch_ratio    weights     0.34
+   15                lu_gene_rate normalized     0.34
+   16      untried_candidate_rate    untried     0.33
+   17           relative_distance   distance     0.29
+   18                 su_rate_ref        ref     0.27
+   19             mate_lost_share divergence     0.26
+   20       failed_candidate_rate unfiltered     0.25
+   21         sample_low_identity complexity     0.20
+   22             sample_identity complexity     0.19
+   23               excess_median normalized     0.19
+   24               breadth_ratio      shape     0.19
+   25 ancestry_agreement_weighted    weights     0.19
+pb
+ rank                      feature       group  share %
+    1         excess_scaled_median  divergence    70.67
+    2                    lu_per_kb  normalized     5.44
+    3                     identity  normalized     4.38
+    4                 top_identity  normalized     2.58
+    5      ancestry_congener_share    ancestry     2.12
+    6               lsu_gene_rate3  normalized     1.87
+    7         split_fragment_share consistency     0.86
+    8           ancestry_agreement    ancestry     0.52
+    9                 lu_gene_rate  normalized     0.48
+   10     conserved_mismatch_ratio     weights     0.43
+   11  ancestry_agreement_weighted     weights     0.42
+   12          gene_presence_ratio  normalized     0.39
+   13         sample_log_fragments       depth     0.35
+   14                  su_rate_ref         ref     0.34
+   15               relative_spill    distance     0.32
+   16                relative_skew    distance     0.32
+   17                excess_median  normalized     0.30
+   18                lu_gene_rate3  normalized     0.30
+   19              sample_log_taxa  complexity     0.29
+   20                breadth_ratio       shape     0.28
+   21 nonsynonymous_conserved_rate     weights     0.28
+   22      conserved_mismatch_rate     weights     0.27
+   23            failed_gene_share       shape     0.27
+   24                  lu_rate_ref         ref     0.26
+   25            relative_distance    distance     0.26

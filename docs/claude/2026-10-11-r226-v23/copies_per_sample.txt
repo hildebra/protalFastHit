@@ -1,0 +1,72 @@
+/home/falk/v23abl/tables/training/training_data.tsv
+meta_sample         design   scenario
+taxa      count      309.0       50.0
+          mean       215.0     6546.0
+          std        384.0     6814.0
+          min         10.0       35.0
+          50%        119.0     4707.0
+          90%        444.0    13341.0
+          max       4143.0    32749.0
+copies    count      309.0       50.0
+          mean      1914.0    56363.0
+          std       2913.0    59818.0
+          min         20.0      304.0
+          50%        903.0    46232.0
+          90%       4969.0   105642.0
+          max      25360.0   324552.0
+fragments count      309.0       50.0
+          mean     25851.0   304475.0
+          std     127807.0   358448.0
+          min         20.0     6944.0
+          50%       1749.0   170394.0
+          90%      21905.0   793929.0
+          max    1559507.0  1718333.0
+
+/mnt/c/Users/hildebra/Documents/locDev/protal/local/v23/protal0.7.9_r226_v23/work/training/training_data_pb.tsv
+meta_sample        design  scenario
+taxa      count     184.0      50.0
+          mean       50.0    1756.0
+          std        58.0    1833.0
+          min         2.0       2.0
+          50%        27.0    1380.0
+          90%       124.0    3532.0
+          max       334.0    8773.0
+copies    count     184.0      50.0
+          mean      687.0   19517.0
+          std      1309.0   19353.0
+          min         2.0     173.0
+          50%       180.0   14812.0
+          90%      1955.0   36736.0
+          max      9409.0  105711.0
+fragments count     184.0      50.0
+          mean     4169.0   79856.0
+          std     19208.0  101628.0
+          min         2.0    2205.0
+          50%       214.0   41450.0
+          90%      5455.0  198250.0
+          max    191981.0  550906.0
+
+/home/falk/realworld_sp_s1/work/training/training_data.tsv
+meta_sample       design
+taxa      count    300.0
+          mean      34.0
+          std       17.0
+          min        5.0
+          50%       34.0
+          90%       59.0
+          max       75.0
+copies    count    300.0
+          mean     846.0
+          std      810.0
+          min        8.0
+          50%      646.0
+          90%     2037.0
+          max     3704.0
+fragments count    300.0
+          mean    8518.0
+          std    13827.0
+          min        8.0
+          50%     1564.0
+          90%    34882.0
+          max    55109.0
+

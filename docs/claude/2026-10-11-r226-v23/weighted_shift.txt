@@ -1,0 +1,28 @@
+== does the build without the shift reproduce the earlier one (realworld_sp, 371ac84)?
+   seed 1 training pe: identical
+   seed 1 training pb: identical
+   seed 1 test pe: identical
+   seed 1 test pb: identical
+   seed 2: the earlier build itself (rw_ws_off_s2 links to it)
+   seed 3: the earlier build itself (rw_ws_off_s3 links to it)
+== F1 at knob 0.5 by arm (species held out / test set), and the paired bootstrap of on - off over samples
+-- pe
+ seed     off held out       off test      on held out        on test
+    1 0.9695 (167/207)  0.9761 (6/39) 0.9713 (151/199)  0.9761 (7/38)
+    2 0.9654 (187/189) 0.9665 (17/40) 0.9659 (186/184)  0.9722 (8/39)
+    3 0.9644 (213/207) 0.9709 (15/36) 0.9643 (215/205) 0.9737 (14/32)
+   held out: F1 off 0.9665, on 0.9672; on - off +0.0008 [-0.0003, +0.0019] over 900 samples
+   test: F1 off 0.9713, on 0.9741; on - off +0.0027 [+0.0005, +0.0052] over 135 samples
+-- pb
+ seed   off held out      off test    on held out       on test
+    1 0.9781 (16/33) 0.9792 (3/10) 0.9781 (16/33) 0.9792 (3/10)
+    2 0.9766 (19/26) 0.9732 (4/11) 0.9766 (19/26) 0.9732 (4/11)
+    3 0.9705 (28/33) 0.9801 (1/10) 0.9705 (28/33) 0.9801 (1/10)
+   held out: F1 off 0.9751, on 0.9751; on - off +0.0000 [+0.0000, +0.0000] over 216 samples
+   test: F1 off 0.9775, on 0.9775; on - off +0.0000 [+0.0000, +0.0000] over 72 samples
+seed 1 off: shifted candidates 737748, unsure reads that took shifts 665565, moved to another species 53578
+seed 1 on: shifted candidates 4568043, unsure reads that took shifts 665565, moved to another species 48462
+seed 2 off: shifted candidates 589592, unsure reads that took shifts 592756, moved to another species 45920
+seed 2 on: shifted candidates 4156655, unsure reads that took shifts 592756, moved to another species 42197
+seed 3 off: shifted candidates 478085, unsure reads that took shifts 550792, moved to another species 23996
+seed 3 on: shifted candidates 4161659, unsure reads that took shifts 550792, moved to another species 24595

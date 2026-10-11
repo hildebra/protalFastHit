@@ -1,0 +1,30 @@
+== pe: v23 refits, knob 0.5; class columns: errors with species held out (full) and the variant's net change
+        variant  F1 held out           d held out [95%]  F1 test               d test [95%]  logloss FP congener FP other FN real+al FN real FN insilico FN rep
+          build       0.9595                              0.9708                              0.0492        3104      945        433     245        1137    440
+no_site_columns       0.9581 -0.0015 [-0.0020, -0.0009]   0.9691 -0.0017 [-0.0038, +0.0007]   0.0507        +173      +29         -7     -12         +54     -1
+       no_sites       0.9574 -0.0022 [-0.0029, -0.0015]   0.9695 -0.0013 [-0.0037, +0.0011]   0.0515        +261      +48         -7     -21         +67     +1
+    no_anc_dist       0.9592 -0.0004 [-0.0009, +0.0001]   0.9709 +0.0001 [-0.0021, +0.0020]   0.0499          +9      +24         +5      +3         +12     +2
+           full       0.9596 +0.0001 [-0.0003, +0.0005]   0.9701 -0.0007 [-0.0021, +0.0007]   0.0492         -16       +2         -3      +0          -4     +7
+
+== se: v23 refits, knob 0.5; class columns: errors with species held out (full) and the variant's net change
+        variant  F1 held out           d held out [95%]  F1 test               d test [95%]  logloss FP congener FP other FN real+al FN real FN insilico FN rep
+          build       0.9650                              0.9662                              0.0519        1555      630        293     195         817    288
+no_site_columns       0.9641 -0.0009 [-0.0015, -0.0003]   0.9661 -0.0001 [-0.0023, +0.0018]   0.0531         +79      +13         +5     -21         +25     +0
+       no_sites       0.9634 -0.0016 [-0.0021, -0.0009]   0.9649 -0.0013 [-0.0038, +0.0010]   0.0542        +147      +22         -8     -30         +45     +3
+    no_anc_dist       0.9641 -0.0009 [-0.0014, -0.0003]   0.9664 +0.0002 [-0.0021, +0.0027]   0.0529         +57      +24         +5      -3         +11     +1
+
+== pb: v23 refits, knob 0.5; class columns: errors with species held out (full) and the variant's net change
+        variant  F1 held out           d held out [95%]  F1 test               d test [95%]  logloss FP congener FP other FN real+al FN real FN insilico FN rep
+          build       0.9791                              0.9828                              0.0730         753      154        290     250         513    173
+no_site_columns       0.9790 -0.0001 [-0.0006, +0.0003]   0.9824 -0.0003 [-0.0021, +0.0019]   0.0738          +7       -3         -3     -18         +36     -4
+       no_sites       0.9779 -0.0012 [-0.0018, -0.0006]   0.9832 +0.0004 [-0.0017, +0.0027]   0.0757         +80       +4        -12     -41         +95     -2
+    no_anc_dist       0.9793 +0.0002 [-0.0004, +0.0007]   0.9824 -0.0004 [-0.0027, +0.0015]   0.0731          +3       -4         -3      -1          -5     -6
+           full       0.9792 +0.0001 [-0.0003, +0.0004]   0.9844 +0.0016 [-0.0003, +0.0042]   0.0731          +2       +4         -4     -10          +2     -1
+
+== ont: v23 refits, knob 0.5; class columns: errors with species held out (full) and the variant's net change
+        variant  F1 held out           d held out [95%]  F1 test               d test [95%]  logloss FP congener FP other FN real+al FN real FN insilico FN rep
+          build       0.9741                              0.9820                              0.0777         976      197        316     247         708    250
+no_site_columns       0.9722 -0.0019 [-0.0025, -0.0014]   0.9805 -0.0014 [-0.0042, +0.0011]   0.0814        +130       +4        +17     -34         +81     +5
+       no_sites       0.9711 -0.0031 [-0.0039, -0.0023]   0.9793 -0.0026 [-0.0056, +0.0000]   0.0834        +190      +12         +9     -38        +127    +21
+    no_anc_dist       0.9738 -0.0004 [-0.0009, +0.0001]   0.9789 -0.0031 [-0.0070, +0.0003]   0.0791         +28       +8        -11     -11         +30     -5
+
