@@ -90,7 +90,10 @@
 //   --build --column_weights; ColumnWeights.h): per column -log(1 - p) within the genera and among the genus
 //   references, the amino acid per codon, the family's consensus base; five 'weights' features (91 default features:
 //   mismatches at conserved columns are errors or reads from afar), the ancestry sites of small genera polarised by
-//   the consensus; --no_site_weights (docs/claude/2026-10-09-site-weighted-evidence-plan). The profile ends with the share of the genomes its species do not explain ("?",
+//   the consensus; --no_site_weights (docs/claude/2026-10-09-site-weighted-evidence-plan). 2026-10-11: every copy's
+//   ancestry sites computed by --build (ancestry_sites.bin; --no_ancestry_sites) and decoded by a run instead of
+//   computed on its first record (half of a sample's profiling instructions, the same outputs), and
+//   --weighted_site_shift reaching the alignment threads (docs/claude/2026-10-11-r226-v23). The profile ends with the share of the genomes its species do not explain ("?",
 //   from the genome sizes in species_priors.tsv; <profile>.composition; --no_unknown_share). Speed: ONT candidates
 //   refused by an exact indel-distance bound before WFA2 (-45% of the bench's ONT alignment instructions;
 //   --no_indel_bound), the seed lookup and syncmer scan in AVX-512 (PROTAL_SIMD; seeding -10% on Zen 4), BGZF input

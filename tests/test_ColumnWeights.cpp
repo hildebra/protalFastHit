@@ -633,6 +633,14 @@ TEST(ColumnWeights, TheShiftDiscountsDifferencesAtVariableColumns) {
             ASSERT_EQ(plain.size(), 2u);
             EXPECT_EQ(plain.front().GetAlignmentInfo().site_shift, 0);  // the default: no weighted shift
             EXPECT_EQ(off.m_allele_shifted, 0u);
+            // Every alignment thread works on a copy of the run's handler (Classify.h): the copy shifts as the original
+            // does (until 2026-10-11 the copy constructor dropped the flag, and --weighted_site_shift did nothing).
+            SimpleAlignmentHandler copy(handler);
+            AlignmentResultList copied;
+            copy(anchors, copied, read, rev, 3, id);
+            ASSERT_EQ(copied.size(), 2u);
+            auto const& c1 = copied.front().Taxid() == 1 ? copied.front() : copied.back();
+            EXPECT_EQ(c1.GetAlignmentInfo().site_shift, -4);
         }
         auto const& on1 = results.front().Taxid() == 1 ? results.front() : results.back();
         auto const& on2 = results.front().Taxid() == 2 ? results.front() : results.back();

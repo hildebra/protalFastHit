@@ -32,6 +32,7 @@
 #include "ForeignRatesTable.h"
 #include "StrainAlleles.h"
 #include "ColumnWeights.h"
+#include "AncestrySites.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -177,13 +178,13 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes) or species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
@@ -195,6 +196,7 @@ namespace protal {
                 ("index_alleles", "With --build: the k-mers of the strain alleles at least this far from the representative's copy (edits per base of the allele's range) go into the index under the species as non-unique entries, so that a read of a deep strain, which seeds on few of the representative's k-mers, finds its species and is aligned and scored against the representative as before. The seeds are left out of unique_kmers.tsv's totals. Off by default (1 or more: none) since the r226 v22 build, whose F1 gains with 0.01 (and the other changes of that build) were too small for the entries it adds (about three per edit, +5% on the test worlds).", cxxopts::value<double>()->default_value("1"))
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("column_weights_alignment", "With --build and --column_weights: where the family columns come from. auto (default): msa if the database folder has GTDB's alignments and tree (column_msa/, species_tree.nwk: gtdb_to_protal_db.py writes them from the release's *_msa_marker_genes_reps archive and tree), else aa. msa (since 2026-10-10): no alignment, each copy's residues placed on its row of GTDB-Tk's alignment of the marker, every genus of a family voting through its ancestral sequence (Fitch parsimony on GTDB's tree), the family's ancestral base polarising small genera. aa: the copies translated in frame and their proteins aligned (WFA2, up to 0.3 of the amino acids different within a genus, 0.5 among genera), each aligned amino-acid pair mapping its codon's bases. nt: the bases aligned (up to 0.2 and 0.4), which fails for most copies of GTDB's wide genera (docs/claude/2026-10-10-real-ancestry).", cxxopts::value<std::string>()->default_value("auto"))
+                ("no_ancestry_sites", "With --build: do not store every gene copy's ancestry sites (ancestry_sites.bin, AncestrySites.h: where its copy differs from the consensus of its congeners' copies, the ancestry features' sites), computed by default from the species neighbours, congener gaps and column weights the build writes, as a run would compute them on a copy's first record. Without the table a run computes them there, as before 2026-10-11, at ~0.3 M instructions plus ~0.6 M per congener compared for every copy its records touch (half of the profiling of a sample built at r226 v23, docs/claude/2026-10-11-r226-v23); the features are the same.")
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -242,6 +244,7 @@ namespace protal {
         double allele_genome_share = 1.0;
         size_t column_weights = 10;
         std::string column_weights_alignment = "auto";
+        bool no_ancestry_sites = false;
         bool no_site_weights = false;
         bool weighted_site_shift = false;
         double index_alleles = 1;
@@ -377,6 +380,7 @@ namespace protal {
         double m_index_alleles = 1;  // --index_alleles (--build): the least divergence of an allele whose k-mers are indexed
         size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
         std::string m_column_weights_alignment = "auto";  // --column_weights_alignment (--build): auto, msa, aa or nt
+        bool m_no_ancestry_sites = false;  // --no_ancestry_sites (--build): no ancestry_sites.bin
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_weighted_site_shift = false;  // --weighted_site_shift: the shift discounts differences at variable columns
         bool m_no_phasing = false;
@@ -504,6 +508,7 @@ namespace protal {
         static inline const std::string PROTAL_CONGENER_GAPS_FILE = congener_gaps::kFileName;
         static inline const std::string PROTAL_STRAIN_ALLELES_FILE = strain_alleles::kFileName;
         static inline const std::string PROTAL_COLUMN_WEIGHTS_FILE = column_weights::kFileName;
+        static inline const std::string PROTAL_ANCESTRY_SITES_FILE = ancestry::kFileName;
         static inline const std::string PROTAL_FOREIGN_RATES_FILE = foreign_rates::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
@@ -560,6 +565,7 @@ namespace protal {
                 m_index_alleles(d.index_alleles),
                 m_column_weights(d.column_weights),
                 m_column_weights_alignment(std::move(d.column_weights_alignment)),
+                m_no_ancestry_sites(d.no_ancestry_sites),
                 m_no_site_weights(d.no_site_weights),
                 m_weighted_site_shift(d.weighted_site_shift),
                 m_no_phasing(d.no_phasing),
@@ -972,6 +978,11 @@ namespace protal {
             return m_column_weights_alignment;
         }
 
+        // --no_ancestry_sites (--build): no table of every copy's ancestry sites; a run computes them as it needs them.
+        bool NoAncestrySites() const {
+            return m_no_ancestry_sites;
+        }
+
         // --no_site_weights: the database's column weights left unread.
         bool NoSiteWeights() const {
             return m_no_site_weights;
@@ -1097,6 +1108,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_COLUMN_WEIGHTS_FILE;
         }
 
+        // Every gene copy's ancestry sites (AncestrySites.h), written and packed by --build (unless --no_ancestry_sites).
+        std::string GetAncestrySitesFile() const {
+            return m_database_path + "/" + PROTAL_ANCESTRY_SITES_FILE;
+        }
+
         // Each gene copy's reads of a tiled scan and their foreign share (ForeignRatesTable.h): packed by --build if the
         // folder has it, or by --add_tables.
         std::string GetForeignRatesFile() const {
@@ -1195,6 +1211,11 @@ namespace protal {
         // The database's column_weights.tsv (--build's since 2026-10-10); Exists() is false if it has none.
         db::DbFile ColumnWeightsDbFile() const {
             return DbFileNamed(PROTAL_COLUMN_WEIGHTS_FILE, GetColumnWeightsFile());
+        }
+
+        // The database's ancestry_sites.bin (--build's since 2026-10-11); Exists() is false if it has none.
+        db::DbFile AncestrySitesDbFile() const {
+            return DbFileNamed(PROTAL_ANCESTRY_SITES_FILE, GetAncestrySitesFile());
         }
 
         // The database's foreign_rates.tsv (scripts/foreign_rates.py, --add_tables); Exists() is false if it has none.
@@ -3323,6 +3344,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             // --no_site_weights and --weighted_site_shift kept their defaults whatever the command line said).
             d.column_weights           = result["column_weights"].as<size_t>();
             d.column_weights_alignment = result["column_weights_alignment"].as<std::string>();
+            d.no_ancestry_sites        = result.count("no_ancestry_sites") > 0;
             d.no_site_weights          = result.count("no_site_weights") > 0;
             d.weighted_site_shift      = result.count("weighted_site_shift") > 0;
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();

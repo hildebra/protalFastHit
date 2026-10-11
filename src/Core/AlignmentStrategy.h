@@ -281,7 +281,8 @@ namespace protal {
                 m_indel_bound_on(other.m_indel_bound_on),
                 m_adaptive_candidates(other.m_adaptive_candidates),
                 m_genera(other.m_genera),
-                m_allele_scores(other.m_allele_scores) {
+                m_allele_scores(other.m_allele_scores),
+                m_weighted_shift(other.m_weighted_shift) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
 

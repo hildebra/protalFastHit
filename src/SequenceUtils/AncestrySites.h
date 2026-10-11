@@ -27,11 +27,13 @@
 // exact matches inwards from both pairs; the stretch left between them is not compared), and the bases are compared on
 // the stretches between two chained pairs on one diagonal. A position no congener was compared at is no site. Per copy
 // the sites are a sorted list of positions with the congeners' base and a short list of indels: a few hundred bytes.
-// They are computed once per run for each (species, gene) a record touches (Cache: the gene store holds every
-// reference's copy; the congeners are the gene's nearest by alignment in congener_gaps.tsv and the species' nearest in
-// species_neighbours.tsv, up to kCongeners) and counted per record from its CIGAR (M: the species' base at every
-// site; X: the read's base looked up; D and I: against the indel sites). The gaps features (CongenerGaps.h) take their
-// nearest congener from the same table.
+// They are computed for every copy by --build (ComputeSites: the gene store holds every reference's copy; the
+// congeners are the gene's nearest by alignment in congener_gaps.tsv and the species' nearest in
+// species_neighbours.tsv, up to kCongeners) and stored in ancestry_sites.bin (Table), which a run decodes once for each
+// (species, gene) a record touches (Cache); with a database without the table (built before 2026-10-11 or with
+// --no_ancestry_sites) or with --no_site_weights, a run computes them there instead. They are counted per record from
+// its CIGAR (M: the species' base at every site; X: the read's base looked up; D and I: against the indel sites). The
+// gaps features (CongenerGaps.h) take their nearest congener from the same table.
 #pragma once
 
 #include <algorithm>
@@ -39,9 +41,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -570,61 +574,82 @@ namespace protal::ancestry {
         return out;
     }
 
-    // The sites of every (species, gene) a run touches, computed once: the consensus (Consensus) over the congeners
-    // that have the gene and whose copy pairs with the species' (CompareCopies): the gene's nearest congener by
-    // alignment (congener_gaps.tsv) and the species' nearest congeners (species_neighbours.tsv, nearest first), up to
-    // kCongeners. Thread-safe; a shared empty Sites for a species without one. `genomes` is the GenomeLoader (HasGene,
-    // GetGeneOMP), a template so that this header needs none of it.
+    // The empty Sites every copy without sites shares.
+    inline std::shared_ptr<Sites const> const& NoSites() {
+        static std::shared_ptr<Sites const> const none = std::make_shared<Sites const>();
+        return none;
+    }
+
+    // The sites of taxid's copy of a gene, computed: the consensus (Consensus) over the congeners that have the gene and
+    // whose copy pairs with the species' (CompareCopies): the gene's nearest congener by alignment (congener_gaps.tsv)
+    // and the species' nearest congeners (species_neighbours.tsv, nearest first), up to kCongeners. NoSites() for a copy
+    // without any. `genomes` is the GenomeLoader (HasGene, GetGeneOMP), a template so that this header needs none of it.
+    // gaps: the database's congener_gaps.tsv, or nullptr (the species' neighbours alone); neighbours may be empty (the
+    // gene's nearest by the gaps alone). `outgroup`: the family's consensus base per position of the copy
+    // (ColumnWeights.h), for Consensus; may be null. What a run computes on a copy's first record (Cache) and --build
+    // stores for every copy (Table, ancestry_sites.bin).
+    template<typename Genomes>
+    std::shared_ptr<Sites const> ComputeSites(uint32_t taxid, uint32_t geneid, Genomes& genomes,
+                                              species_neighbours::Table const& neighbours,
+                                              congener_gaps::Table const* gaps = nullptr,
+                                              std::vector<uint8_t> const* outgroup = nullptr) {
+        bool const by_gaps = gaps != nullptr && !gaps->Empty();
+        if ((neighbours.Empty() && !by_gaps) || !genomes.HasGene(taxid, geneid)) return NoSites();
+        auto const own = genomes.GetGeneOMP(taxid, geneid).Sequence();
+        std::string_view const view = own.View();
+        if (view.size() < kKmer || view.size() > kMaxLength) return NoSites();
+        std::vector<uint32_t> candidates;
+        if (by_gaps) {
+            auto const gap = gaps->Find(taxid, geneid);
+            if (gap && gap->nearest != 0 && gap->nearest != taxid) candidates.push_back(gap->nearest);
+        }
+        for (auto const& n : neighbours.Of(taxid)) {
+            if (n.taxid != taxid && std::find(candidates.begin(), candidates.end(), n.taxid) == candidates.end()) {
+                candidates.push_back(n.taxid);
+            }
+        }
+        if (candidates.empty()) return NoSites();
+        auto const own_kmers = detail::UniqueKmers(view);
+        std::vector<Comparison> comparisons;
+        for (uint32_t const congener : candidates) {
+            if (comparisons.size() >= kCongeners) break;
+            if (!genomes.HasGene(congener, geneid)) continue;
+            auto const other = genomes.GetGeneOMP(congener, geneid).Sequence();
+            auto comparison = CompareCopies(view, own_kmers, other.View());
+            if (!comparison) continue;
+            comparison->sites.congener = congener;
+            comparisons.push_back(std::move(*comparison));
+        }
+        if (comparisons.empty()) return NoSites();
+        return std::make_shared<Sites const>(Consensus(view.size(), comparisons, outgroup));
+    }
+
+    // The sites of every (species, gene) a run touches, once each: computed (Get, ComputeSites) or decoded from the
+    // database's table (Lookup with Table::Get). Thread-safe; NoSites() for a copy without any.
     class Cache {
     public:
-        // gaps: the database's congener_gaps.tsv, or nullptr (the species' neighbours alone); neighbours may be empty (the
-        // gene's nearest by the gaps alone).
-        // `outgroup`: the family's consensus base per position of the copy (ColumnWeights.h), for Consensus; may be null.
         template<typename Genomes>
         std::shared_ptr<Sites const> Get(uint32_t taxid, uint32_t geneid, Genomes& genomes,
                                          species_neighbours::Table const& neighbours,
                                          congener_gaps::Table const* gaps = nullptr,
                                          std::vector<uint8_t> const* outgroup = nullptr) {
-            static std::shared_ptr<Sites const> const none = std::make_shared<Sites const>();
             bool const by_gaps = gaps != nullptr && !gaps->Empty();
-            if (neighbours.Empty() && !by_gaps) return none;
+            if (neighbours.Empty() && !by_gaps) return NoSites();
             uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
+            return Lookup(key, [&]() { return ComputeSites(taxid, geneid, genomes, neighbours, gaps, outgroup); });
+        }
+
+        // The sites under key: the cached ones, or make()'s (made outside the lock), kept.
+        template<typename Make>
+        std::shared_ptr<Sites const> Lookup(uint64_t key, Make&& make) {
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 if (auto const it = m_sites.find(key); it != m_sites.end()) return it->second;
             }
-            std::shared_ptr<Sites const> result = none;
-            if (genomes.HasGene(taxid, geneid)) {
-                auto const own = genomes.GetGeneOMP(taxid, geneid).Sequence();
-                std::string_view const view = own.View();
-                if (view.size() >= kKmer && view.size() <= kMaxLength) {
-                    std::vector<uint32_t> candidates;
-                    if (by_gaps) {
-                        auto const gap = gaps->Find(taxid, geneid);
-                        if (gap && gap->nearest != 0 && gap->nearest != taxid) candidates.push_back(gap->nearest);
-                    }
-                    for (auto const& n : neighbours.Of(taxid)) {
-                        if (n.taxid != taxid && std::find(candidates.begin(), candidates.end(), n.taxid) == candidates.end()) {
-                            candidates.push_back(n.taxid);
-                        }
-                    }
-                    auto const own_kmers = detail::UniqueKmers(view);
-                    std::vector<Comparison> comparisons;
-                    for (uint32_t const congener : candidates) {
-                        if (comparisons.size() >= kCongeners) break;
-                        if (!genomes.HasGene(congener, geneid)) continue;
-                        auto const other = genomes.GetGeneOMP(congener, geneid).Sequence();
-                        auto comparison = CompareCopies(view, own_kmers, other.View());
-                        if (!comparison) continue;
-                        comparison->sites.congener = congener;
-                        comparisons.push_back(std::move(*comparison));
-                    }
-                    if (!comparisons.empty()) result = std::make_shared<Sites const>(Consensus(view.size(), comparisons, outgroup));
-                }
-            }
+            std::shared_ptr<Sites const> result = make();
             std::lock_guard<std::mutex> lock(m_mutex);
             if (m_sites.size() >= kMaxCached) m_sites.clear();
-            return m_sites.try_emplace(key, result).first->second;
+            return m_sites.try_emplace(key, std::move(result)).first->second;
         }
 
         size_t Size() const {
@@ -640,5 +665,224 @@ namespace protal::ancestry {
     private:
         mutable std::mutex m_mutex;
         std::unordered_map<uint64_t, std::shared_ptr<Sites const>> m_sites;
+    };
+
+    // ---- every copy's sites, made by --build (ancestry_sites.bin, since 2026-10-11) -----------------------------------
+    //
+    // Computing a copy's sites takes ~0.3 M instructions plus ~0.6 M per congener compared, and a complex sample touches
+    // tens of thousands of copies: on a run's first records of a copy that was half of the profiling
+    // (docs/claude/2026-10-11-r226-v23, section 5). --build computes them once for every copy (ComputeSites, with the
+    // database's species neighbours, congener gaps and column weights, as a run would) and stores them; a run decodes a
+    // copy's on its first record. A copy without sites has no entry.
+    //
+    // The file: kMagic, then little-endian 64-bit integers: the entries n, the payload's bytes, n keys (taxid << 32 |
+    // gene, ascending) and n offsets into the payload; then the payload, where each entry is its length (varint) and
+    // its bytes (Encode).
+    inline const std::string kFileName = "ancestry_sites.bin";
+    inline const std::string kMagic = "protal ancestry sites 1\n";
+
+    namespace codec {
+        inline void PutVarint(std::string& out, uint64_t v) {
+            while (v >= 0x80) {
+                out.push_back(static_cast<char>((v & 0x7f) | 0x80));
+                v >>= 7;
+            }
+            out.push_back(static_cast<char>(v));
+        }
+
+        inline bool GetVarint(std::string_view& in, uint64_t& v) {
+            v = 0;
+            for (int shift = 0; shift < 64; shift += 7) {
+                if (in.empty()) return false;
+                auto const b = static_cast<uint8_t>(in.front());
+                in.remove_prefix(1);
+                v |= static_cast<uint64_t>(b & 0x7f) << shift;
+                if ((b & 0x80) == 0) return true;
+            }
+            return false;
+        }
+
+        inline uint64_t Zigzag(int64_t v) {
+            return (static_cast<uint64_t>(v) << 1) ^ static_cast<uint64_t>(v >> 63);
+        }
+
+        inline int64_t Unzigzag(uint64_t v) {
+            return static_cast<int64_t>(v >> 1) ^ -static_cast<int64_t>(v & 1);
+        }
+
+        inline void PutU64(std::string& out, uint64_t v) {
+            for (int i = 0; i < 8; i++) out.push_back(static_cast<char>((v >> (8 * i)) & 0xff));
+        }
+
+        inline uint64_t GetU64(char const* p) {
+            uint64_t v = 0;
+            for (int i = 0; i < 8; i++) v |= static_cast<uint64_t>(static_cast<uint8_t>(p[i])) << (8 * i);
+            return v;
+        }
+    }
+
+    // A copy's sites as bytes: the nearest congener, the congeners compared, the positions compared, the identity (its
+    // float's bits), the positions (each as its step from the one before, zigzag), the bases (four to a byte, or one per
+    // byte after a 0 flag if one is no A/C/G/T code) and the indels (position steps and lengths, zigzag).
+    inline void Encode(Sites const& s, std::string& out) {
+        using namespace codec;
+        PutVarint(out, s.congener);
+        PutVarint(out, s.congeners);
+        PutVarint(out, s.compared);
+        uint32_t bits = 0;
+        static_assert(sizeof(float) == sizeof(uint32_t));
+        std::memcpy(&bits, &s.identity, sizeof bits);
+        PutVarint(out, bits);
+        PutVarint(out, s.positions.size());
+        int64_t previous = 0;
+        for (auto const p : s.positions) {
+            PutVarint(out, Zigzag(static_cast<int64_t>(p) - previous));
+            previous = p;
+        }
+        bool const packed = std::all_of(s.bases.begin(), s.bases.end(), [](uint8_t b) { return b < 4; });
+        out.push_back(packed ? 1 : 0);
+        if (packed) {
+            for (size_t i = 0; i < s.bases.size(); i += 4) {
+                uint8_t byte = 0;
+                for (size_t j = 0; j < 4 && i + j < s.bases.size(); j++) byte |= static_cast<uint8_t>(s.bases[i + j] << (2 * j));
+                out.push_back(static_cast<char>(byte));
+            }
+        } else {
+            for (auto const b : s.bases) out.push_back(static_cast<char>(b));
+        }
+        PutVarint(out, s.indels.size());
+        previous = 0;
+        for (auto const& indel : s.indels) {
+            PutVarint(out, Zigzag(static_cast<int64_t>(indel.position) - previous));
+            PutVarint(out, Zigzag(indel.length));
+            previous = indel.position;
+        }
+    }
+
+    // Encode's bytes back into Sites; false if they are not a whole entry.
+    inline bool Decode(std::string_view in, Sites& s) {
+        using namespace codec;
+        s = Sites();
+        uint64_t congener = 0, congeners = 0, compared = 0, bits = 0, n = 0;
+        if (!GetVarint(in, congener) || !GetVarint(in, congeners) || !GetVarint(in, compared) || !GetVarint(in, bits) ||
+            !GetVarint(in, n) || congener > UINT32_MAX || congeners > UINT16_MAX || bits > UINT32_MAX || n > kMaxLength + 1) {
+            return false;
+        }
+        s.congener = static_cast<uint32_t>(congener);
+        s.congeners = static_cast<uint16_t>(congeners);
+        s.compared = static_cast<size_t>(compared);
+        auto const fbits = static_cast<uint32_t>(bits);
+        std::memcpy(&s.identity, &fbits, sizeof fbits);
+        s.positions.reserve(n);
+        int64_t previous = 0;
+        for (uint64_t i = 0; i < n; i++) {
+            uint64_t step = 0;
+            if (!GetVarint(in, step)) return false;
+            previous += Unzigzag(step);
+            if (previous < 0 || previous > static_cast<int64_t>(kMaxLength)) return false;
+            s.positions.push_back(static_cast<uint16_t>(previous));
+        }
+        if (in.empty()) return false;
+        bool const packed = in.front() == 1;
+        in.remove_prefix(1);
+        size_t const base_bytes = packed ? (n + 3) / 4 : n;
+        if (in.size() < base_bytes) return false;
+        s.bases.resize(n);
+        for (size_t i = 0; i < n; i++) {
+            s.bases[i] = packed ? static_cast<uint8_t>((static_cast<uint8_t>(in[i / 4]) >> (2 * (i % 4))) & 3)
+                                : static_cast<uint8_t>(in[i]);
+        }
+        in.remove_prefix(base_bytes);
+        uint64_t indels = 0;
+        if (!GetVarint(in, indels) || indels > kMaxLength) return false;
+        previous = 0;
+        for (uint64_t i = 0; i < indels; i++) {
+            uint64_t step = 0, length = 0;
+            if (!GetVarint(in, step) || !GetVarint(in, length)) return false;
+            previous += Unzigzag(step);
+            int64_t const l = Unzigzag(length);
+            if (previous < 0 || previous > static_cast<int64_t>(kMaxLength) || l < INT16_MIN || l > INT16_MAX) return false;
+            s.indels.push_back({ static_cast<uint16_t>(previous), static_cast<int16_t>(l) });
+        }
+        return in.empty();
+    }
+
+    // The database's sites of every copy (ancestry_sites.bin): looked up by key, decoded on demand.
+    class Table {
+    public:
+        bool Empty() const { return m_keys.empty(); }
+        size_t Copies() const { return m_keys.size(); }
+        size_t Species() const { return m_species; }
+        size_t PayloadBytes() const { return m_payload_size; }
+
+        // Appends a copy's sites to a payload (Write's), returning its offset.
+        static uint64_t Append(std::string& payload, Sites const& sites) {
+            std::string bytes;
+            Encode(sites, bytes);
+            uint64_t const offset = payload.size();
+            codec::PutVarint(payload, bytes.size());
+            payload += bytes;
+            return offset;
+        }
+
+        // Writes a table: index holds each entry's key and offset into payload (Append's), keys distinct.
+        static void Write(std::ostream& os, std::vector<std::pair<uint64_t, uint64_t>> index, std::string const& payload) {
+            std::sort(index.begin(), index.end());
+            std::string head = kMagic;
+            codec::PutU64(head, index.size());
+            codec::PutU64(head, payload.size());
+            for (auto const& entry : index) codec::PutU64(head, entry.first);
+            for (auto const& entry : index) codec::PutU64(head, entry.second);
+            os.write(head.data(), static_cast<std::streamsize>(head.size()));
+            os.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+        }
+
+        // Reads Write's bytes; "" or what is wrong with them.
+        std::string Read(std::string content) {
+            *this = Table();
+            if (content.compare(0, kMagic.size(), kMagic) != 0) return "not a table of ancestry sites (" + kFileName + ")";
+            size_t at = kMagic.size();
+            if (content.size() < at + 16) return "truncated header";
+            uint64_t const n = codec::GetU64(content.data() + at), payload = codec::GetU64(content.data() + at + 8);
+            at += 16;
+            if (n > (content.size() - at) / 16 || content.size() - at - 16 * n != payload) return "sizes do not match the file's";
+            m_keys.resize(n);
+            m_offsets.resize(n);
+            for (uint64_t i = 0; i < n; i++) m_keys[i] = codec::GetU64(content.data() + at + 8 * i);
+            for (uint64_t i = 0; i < n; i++) m_offsets[i] = codec::GetU64(content.data() + at + 8 * (n + i));
+            for (uint64_t i = 0; i < n; i++) {
+                if ((i > 0 && m_keys[i] <= m_keys[i - 1]) || m_offsets[i] >= payload) {
+                    *this = Table();
+                    return "keys out of order or an offset beyond the payload at entry " + std::to_string(i);
+                }
+                if (i == 0 || (m_keys[i] >> 32) != (m_keys[i - 1] >> 32)) m_species++;
+            }
+            content.erase(0, at + 16 * n);  // the index is in m_keys and m_offsets now
+            m_payload_size = payload;
+            m_content = std::move(content);
+            return "";
+        }
+
+        // The sites of taxid's copy of a gene; NoSites() without an entry (or for one that does not decode, which Read's
+        // checks and the build's writer make impossible short of a damaged file).
+        std::shared_ptr<Sites const> Get(uint32_t taxid, uint32_t geneid) const {
+            uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
+            auto const it = std::lower_bound(m_keys.begin(), m_keys.end(), key);
+            if (it == m_keys.end() || *it != key) return NoSites();
+            std::string_view payload(m_content.data(), m_payload_size);
+            payload.remove_prefix(m_offsets[static_cast<size_t>(it - m_keys.begin())]);
+            uint64_t length = 0;
+            if (!codec::GetVarint(payload, length) || length > payload.size()) return NoSites();
+            auto sites = std::make_shared<Sites>();
+            if (!Decode(payload.substr(0, length), *sites)) return NoSites();
+            return sites;
+        }
+
+    private:
+        std::vector<uint64_t> m_keys;
+        std::vector<uint64_t> m_offsets;
+        std::string m_content;  // the payload
+        size_t m_payload_size = 0;
+        size_t m_species = 0;
     };
 }

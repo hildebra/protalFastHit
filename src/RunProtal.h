@@ -451,6 +451,35 @@ namespace protal {
         genomes.SetColumnWeights(std::move(table));
     }
 
+    // Every gene copy's ancestry sites as --build computed them (ancestry_sites.bin, AncestrySites.h Table): a run decodes a
+    // copy's on its first record instead of computing them there. Without the table (a database built before 2026-10-11
+    // or with --no_ancestry_sites), or with --no_site_weights (the build polarised them with the weights), a run computes
+    // them as it needs them; the features are the same either way.
+    static void LoadAncestrySites(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        auto const file = options.AncestrySitesDbFile();
+        if (!file.Exists()) {
+            out << "Ancestry sites: the database has none (built before 2026-10-11 or with --no_ancestry_sites): computed "
+                << "for each gene copy on its first record" << std::endl;
+            return;
+        }
+        if (options.NoSiteWeights()) {
+            out << "Ancestry sites: " << file.Name() << " not read (--no_site_weights: the build polarised them with the column "
+                << "weights): computed for each gene copy on its first record" << std::endl;
+            return;
+        }
+        std::string error;
+        auto content = file.ReadAll(error);
+        ancestry::Table table;
+        if (content) error = table.Read(std::move(*content));
+        if (!error.empty()) {
+            std::cerr << "Invalid ancestry sites " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << "Ancestry sites: " << table.Copies() << " gene copies of " << table.Species() << " species with sites (" << file.Name()
+            << ")" << std::endl;
+        genomes.SetPrebuiltSites(std::move(table));
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -3194,7 +3223,8 @@ namespace protal {
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");
         std::vector<profiler::TaxonFilterObj> loaded_models;
-        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, gaps_log, foreign_log, weights_log, neighbours_log;
+        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, gaps_log, foreign_log, weights_log, sites_log,
+                neighbours_log;
         std::ostringstream alleles_log;
         bool const need_alleles = !options.BuildMode() && (run_alignment || run_profiling);
         std::optional<gene_neighbours::Table> neighbours;
@@ -3213,6 +3243,7 @@ namespace protal {
                 tables.push_back(std::async(std::launch::async, [&]() { LoadCongenerGaps(options, db.GetGenomes(), gaps_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadColumnWeights(options, db.GetGenomes(), weights_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadAncestrySites(options, db.GetGenomes(), sites_log); }));
             }
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
             if (need_alleles) tables.push_back(std::async(std::launch::async, [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); }));
@@ -3278,7 +3309,7 @@ namespace protal {
             }
             if (concurrent) {
                 std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << species_neighbours_log.str() << gaps_log.str()
-                          << foreign_log.str() << weights_log.str();
+                          << foreign_log.str() << weights_log.str() << sites_log.str();
             } else {
                 LoadGeneConservation(options, db.GetGenomes());
                 LoadSuspectCopies(options, db.GetGenomes());
@@ -3287,6 +3318,7 @@ namespace protal {
                 LoadCongenerGaps(options, db.GetGenomes());
                 LoadForeignRates(options, db.GetGenomes());
                 LoadColumnWeights(options, db.GetGenomes());
+                LoadAncestrySites(options, db.GetGenomes());
             }
         }
         if (concurrent && need_alleles) std::cout << alleles_log.str();

@@ -861,6 +861,7 @@ namespace protal {
         column_weights::Table m_column_weights;  // empty: no column's conservation known (ColumnWeights.h)
         column_weights::Cache m_column_weights_cache;  // the columns of every copy a run touched, expanded
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
+        ancestry::Table m_prebuilt_sites;  // every copy's sites as --build made them; empty: computed as a run needs them
         // Of those, the ones the species' alleles share (SpeciesAncestrySitesOf), for copies with alleles.
         std::mutex m_species_sites_mutex;
         std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_species_sites;
@@ -1210,10 +1211,36 @@ namespace protal {
         // from the gene store, with the gene's nearest congener by alignment (congener_gaps.tsv) or else the species'
         // (species_neighbours.tsv), for the ancestry features; empty without either table, or without a congener with the
         // gene whose copy pairs with the species'.
+        // With the database's ancestry_sites.bin (SetPrebuiltSites) they are decoded from it instead, as --build computed
+        // them from the same tables (ComputeAncestrySites).
         std::shared_ptr<ancestry::Sites const> AncestrySitesOf(uint32_t taxid, uint32_t geneid) {
+            if (!m_prebuilt_sites.Empty()) {
+                uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
+                return m_ancestry_sites.Lookup(key, [&]() { return m_prebuilt_sites.Get(taxid, geneid); });
+            }
             auto const columns = ColumnWeightsOf(taxid, geneid);  // the family's consensus polarises a small genus's sites
             return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps,
                                         columns ? &columns->consensus : nullptr);
+        }
+
+        // The sites of taxid's copy of a gene computed afresh from the tables set (species neighbours, congener gaps, column
+        // weights), past the run's cache and the prebuilt table: what --build stores in ancestry_sites.bin.
+        std::shared_ptr<ancestry::Sites const> ComputeAncestrySites(uint32_t taxid, uint32_t geneid) {
+            auto const columns = ColumnWeightsOf(taxid, geneid);
+            return ancestry::ComputeSites(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps,
+                                          columns ? &columns->consensus : nullptr);
+        }
+
+        // Every copy's sites as --build made them (ancestry_sites.bin), for AncestrySitesOf; an empty table: computed
+        // as a run needs them.
+        void SetPrebuiltSites(ancestry::Table table) {
+            m_prebuilt_sites = std::move(table);
+            m_ancestry_sites.Clear();
+            ClearSpeciesSites();
+        }
+
+        ancestry::Table const& GetPrebuiltSites() const {
+            return m_prebuilt_sites;
         }
 
         // Those of AncestrySitesOf's sites that the species' known genomes share (ancestry::SharedBySpecies): without the

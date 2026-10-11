@@ -1,8 +1,10 @@
 // Unit tests of AncestrySites.h: the sites where a species' gene copy differs from its congener's, found along their
-// shared 12-mers; the consensus over several congeners; what a record covers of them from its CIGAR; and the per-run
-// cache over the species neighbours and the congener gaps.
+// shared 12-mers; the consensus over several congeners; what a record covers of them from its CIGAR; the per-run
+// cache over the species neighbours and the congener gaps; and the table of every copy's sites --build writes.
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <random>
+#include <sstream>
 #include <set>
 #include <string>
 #include <string_view>
@@ -446,4 +448,105 @@ TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
     an::Cache before;
     EXPECT_EQ(before.Get(1, 5, genomes, neighbours)->congener, 2u);
     EXPECT_EQ(before.Get(1, 5, genomes, neighbours)->positions.size(), 5u);
+}
+
+namespace {
+    void ExpectSameSites(an::Sites const& a, an::Sites const& b) {
+        EXPECT_EQ(a.positions, b.positions);
+        EXPECT_EQ(a.bases, b.bases);
+        ASSERT_EQ(a.indels.size(), b.indels.size());
+        for (size_t i = 0; i < a.indels.size(); i++) EXPECT_EQ(a.indels[i], b.indels[i]);
+        EXPECT_EQ(a.congener, b.congener);
+        EXPECT_EQ(a.congeners, b.congeners);
+        EXPECT_EQ(a.compared, b.compared);
+        EXPECT_EQ(a.identity, b.identity);
+    }
+}
+
+// A copy's sites survive Encode and Decode whole: packed bases, a base that is no A/C/G/T code (stored one per
+// byte), indels both ways, and a truncated or overlong entry is refused.
+TEST(AncestrySites, EncodedSitesDecodeToTheSame) {
+    an::Sites s;
+    s.positions = { 0, 3, 4, 250, 1200, 65535 };
+    s.bases = { 0, 1, 2, 3, 2, 1 };
+    s.indels = { { 10, 3 }, { 40, -6 }, { 900, 12 } };
+    s.congener = 4000000000u;
+    s.congeners = 17;
+    s.compared = 1499;
+    s.identity = 0.9375f;
+    std::string bytes;
+    an::Encode(s, bytes);
+    an::Sites back;
+    ASSERT_TRUE(an::Decode(bytes, back));
+    ExpectSameSites(s, back);
+    EXPECT_FALSE(an::Decode(std::string_view(bytes).substr(0, bytes.size() - 1), back));
+    EXPECT_FALSE(an::Decode(bytes + "x", back));
+    s.bases[2] = 4;  // not packable
+    bytes.clear();
+    an::Encode(s, bytes);
+    ASSERT_TRUE(an::Decode(bytes, back));
+    ExpectSameSites(s, back);
+    an::Sites empty;
+    bytes.clear();
+    an::Encode(empty, bytes);
+    ASSERT_TRUE(an::Decode(bytes, back));
+    EXPECT_TRUE(back.Empty());
+}
+
+// The table --build writes (ancestry_sites.bin): every copy's computed sites, read back by key equal to what a run
+// computes (ComputeSites); a copy without sites has no entry and comes back empty; the cache keeps the decoded sites;
+// a damaged file is refused.
+TEST(AncestrySites, TheTableHoldsWhatARunComputes) {
+    std::mt19937 rng(19);
+    FakeGenomes genomes;
+    sn::Table neighbours;
+    std::vector<std::pair<uint32_t, uint32_t>> copies;
+    for (uint32_t gene = 1; gene <= 3; gene++) {
+        auto const own = RandomSequence(900, rng);
+        std::string shared = own;
+        for (size_t p = 50; p < 900; p += 97) shared[p] = Alt(own[p], gene % 3);
+        genomes.Set(10, gene, own);
+        for (uint32_t c = 11; c <= 14; c++) genomes.Set(c, gene, Substituted(shared, { 30 + c * 5, 400 + c * 7 }, rng));
+        genomes.Set(20, gene, RandomSequence(900, rng));  // a species without congeners
+        for (uint32_t t : { 10u, 11u, 12u, 13u, 14u, 20u }) copies.emplace_back(t, gene);
+    }
+    neighbours.Set(10, { { 11, 0.02f }, { 12, 0.03f }, { 13, 0.04f }, { 14, 0.05f } });
+    neighbours.Set(11, { { 10, 0.02f }, { 12, 0.03f } });
+    std::vector<std::pair<uint64_t, uint64_t>> index;
+    std::string payload;
+    std::unordered_map<uint64_t, std::shared_ptr<an::Sites const>> computed;
+    for (auto const& [taxid, gene] : copies) {
+        auto const sites = an::ComputeSites(taxid, gene, genomes, neighbours);
+        uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | gene;
+        computed[key] = sites;
+        if (!sites->Empty()) index.emplace_back(key, an::Table::Append(payload, *sites));
+    }
+    ASSERT_EQ(index.size(), 6u);  // species 10 and 11, three genes each
+    std::reverse(index.begin(), index.end());  // Write sorts
+    std::ostringstream os;
+    an::Table::Write(os, index, payload);
+    an::Table table;
+    ASSERT_EQ(table.Read(os.str()), "");
+    EXPECT_EQ(table.Copies(), 6u);
+    EXPECT_EQ(table.Species(), 2u);
+    for (auto const& [key, sites] : computed) {
+        auto const back = table.Get(static_cast<uint32_t>(key >> 32), static_cast<uint32_t>(key & 0xffffffffu));
+        EXPECT_EQ(back->Empty(), sites->Empty());
+        if (!sites->Empty()) ExpectSameSites(*sites, *back);
+    }
+    EXPECT_TRUE(table.Get(99, 1)->Empty());
+    an::Cache cache;
+    auto const first = cache.Lookup((uint64_t{ 10 } << 32) | 2, [&]() { return table.Get(10, 2); });
+    EXPECT_EQ(cache.Lookup((uint64_t{ 10 } << 32) | 2, [&]() { return table.Get(10, 2); }).get(), first.get());
+    // Damaged: another file, a cut one, keys out of order.
+    an::Table bad;
+    EXPECT_NE(bad.Read("not a table"), "");
+    auto const whole = os.str();
+    EXPECT_NE(bad.Read(whole.substr(0, whole.size() - 3)), "");
+    EXPECT_TRUE(bad.Empty());
+    std::string swapped = whole;
+    size_t const keys = an::kMagic.size() + 16;
+    std::swap_ranges(swapped.begin() + static_cast<long>(keys), swapped.begin() + static_cast<long>(keys + 8),
+                     swapped.begin() + static_cast<long>(keys + 8));
+    EXPECT_NE(bad.Read(swapped), "");
 }

@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <fstream>
 #include <memory>
+#include <unordered_set>
 #include <omp.h>
 #include "Constants.h"
 #include "Hash/KmerPutter.h"
@@ -277,7 +278,8 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv and congener_gaps.tsv if the build wrote them, species_priors.tsv,
+    // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv
+    // and ancestry_sites.bin if the build wrote them, species_priors.tsv,
     // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), and every presence model there is (AllModelFiles in
@@ -298,6 +300,7 @@ namespace protal::build {
         if (fs::exists(options.GetCongenerGapsFile())) sources.push_back({Options::PROTAL_CONGENER_GAPS_FILE, options.GetCongenerGapsFile()});
         if (fs::exists(options.GetStrainAllelesFile())) sources.push_back({Options::PROTAL_STRAIN_ALLELES_FILE, options.GetStrainAllelesFile()});
         if (fs::exists(options.GetColumnWeightsFile())) sources.push_back({Options::PROTAL_COLUMN_WEIGHTS_FILE, options.GetColumnWeightsFile()});
+        if (fs::exists(options.GetAncestrySitesFile())) sources.push_back({Options::PROTAL_ANCESTRY_SITES_FILE, options.GetAncestrySitesFile()});
         if (fs::exists(options.GetForeignRatesFile())) sources.push_back({Options::PROTAL_FOREIGN_RATES_FILE, options.GetForeignRatesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
@@ -763,6 +766,12 @@ namespace protal::build {
                 exit(8);
             }
             std::cout << file << ": " << summary << std::endl;
+            if ((name == Options::PROTAL_CONGENER_GAPS_FILE || name == Options::PROTAL_COLUMN_WEIGHTS_FILE) &&
+                options.AncestrySitesDbFile().Exists()) {
+                std::cerr << "Warning: the database's " << Options::PROTAL_ANCESTRY_SITES_FILE << " was computed with its earlier "
+                          << name << " (--build): its ancestry sites no longer match the new one; build the database again "
+                          << "for sites that do" << std::endl;
+            }
             tables.emplace_back(file, name);
         }
         AddModel(options, tables, "tables");
@@ -1777,6 +1786,110 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // ancestry_sites.bin in the database (AncestrySites.h Table): every species' copy of each marker gene with its
+    // ancestry sites as a run would compute them on the copy's first record (GenomeLoader::ComputeAncestrySites: the
+    // congeners from the species neighbours and congener gaps written before, the small genera polarised by the column
+    // weights' family consensus), so that a run decodes them instead: computed in the run they were half of a sample's
+    // profiling at r226 v23 (docs/claude/2026-10-11-r226-v23). Gene by gene, its copies on all threads; the tables are
+    // set on the genome loader for it and cleared after. None with --no_ancestry_sites; an earlier build's is removed.
+    static void WriteAncestrySites(protal::Options const& options, GenomeLoader& genomes, congener_gaps::Table const& gaps) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Ancestry sites");
+        bm.Start();
+        std::string const target = options.GetAncestrySitesFile();
+        std::error_code ec;
+        fs::remove(target, ec);
+        if (options.NoAncestrySites()) {
+            std::cout << "Ancestry sites: none (--no_ancestry_sites): a run computes them as it needs them" << std::endl;
+            return;
+        }
+        species_neighbours::Table neighbours;
+        if (std::ifstream is(options.GetSpeciesNeighboursFile()); is) {
+            if (auto const error = neighbours.Read(is); !error.empty()) {
+                std::cerr << "Reading " << options.GetSpeciesNeighboursFile() << " failed: " << error << std::endl;
+                exit(8);
+            }
+        }
+        if (neighbours.Empty() && gaps.Empty()) {
+            std::cout << "Ancestry sites: none (neither species neighbours nor congener gaps: no congeners to compare)" << std::endl;
+            return;
+        }
+        column_weights::Table weights;
+        if (std::ifstream is(options.GetColumnWeightsFile()); is) {
+            if (auto const error = weights.Read(is); !error.empty()) {
+                std::cerr << "Reading " << options.GetColumnWeightsFile() << " failed: " << error << std::endl;
+                exit(8);
+            }
+        }
+        bool const polarised = !weights.Empty();
+        genomes.SetSpeciesNeighbours(std::move(neighbours));
+        genomes.SetCongenerGaps(gaps);
+        genomes.SetColumnWeights(std::move(weights));
+        std::vector<uint32_t> taxids;
+        size_t max_gene = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            taxids.push_back(static_cast<uint32_t>(taxid));
+            max_gene = std::max(max_gene, genome.GetGeneList().size());
+        }
+        std::sort(taxids.begin(), taxids.end());
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        std::vector<std::pair<uint64_t, uint64_t>> index;  // key, offset into payload
+        std::string payload;
+        size_t copies = 0, sites = 0, indels = 0;
+        std::vector<uint32_t> holders;
+        std::vector<std::string> encoded;
+        std::unordered_set<uint32_t> species;
+        for (size_t g = 1; g <= max_gene; g++) {
+            if (!options.BuildGeneAllowed(g)) continue;
+            holders.clear();
+            for (auto const taxid : taxids) {
+                auto const& list = genomes.GetGenome(taxid).GetGeneList();
+                if (g <= list.size() && list[g - 1].IsSet()) holders.push_back(taxid);
+            }
+            if (holders.empty()) continue;
+            encoded.assign(holders.size(), std::string());
+            size_t gene_sites = 0, gene_indels = 0;
+            #pragma omp parallel for schedule(dynamic, 64) num_threads(threads) reduction(+ : gene_sites, gene_indels)
+            for (size_t k = 0; k < holders.size(); k++) {
+                auto const result = genomes.ComputeAncestrySites(holders[k], static_cast<uint32_t>(g));
+                if (result->Empty()) continue;
+                ancestry::Encode(*result, encoded[k]);
+                gene_sites += result->positions.size();
+                gene_indels += result->indels.size();
+            }
+            for (size_t k = 0; k < holders.size(); k++) {  // in the order of the copies, whatever the threads
+                if (encoded[k].empty()) continue;
+                index.emplace_back((static_cast<uint64_t>(holders[k]) << 32) | g, payload.size());
+                ancestry::codec::PutVarint(payload, encoded[k].size());
+                payload += encoded[k];
+                species.insert(holders[k]);
+            }
+            copies += holders.size();
+            sites += gene_sites;
+            indels += gene_indels;
+        }
+        size_t const entries = index.size();
+        {
+            std::ofstream os(target, std::ios::binary);
+            ancestry::Table::Write(os, std::move(index), payload);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << target << " failed" << std::endl;
+                exit(8);
+            }
+        }
+        genomes.SetColumnWeights(column_weights::Table());
+        genomes.SetCongenerGaps(congener_gaps::Table());
+        genomes.SetSpeciesNeighbours(species_neighbours::Table());
+        std::cout << "Ancestry sites: " << entries << " of " << copies << " gene copies of " << species.size() << " species have sites ("
+                  << sites << " sites, " << std::fixed << std::setprecision(1) << (entries ? static_cast<double>(sites) / static_cast<double>(entries) : 0.0)
+                  << std::defaultfloat << " per copy, and " << indels << " indels), from the species neighbours and congener gaps"
+                  << (polarised ? ", polarised by the column weights" : "") << "; " << HumanBytes(fs::file_size(target, ec)) << ": " << target
+                  << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // suspect_copies.tsv in the database and gene_incongruence.tsv beside it (gene_incongruence::Scan): every
     // species' copy of each gene sketched and compared with the other species' copies; a copy within
     // --suspect_copy_distance of another genus's copy, and farther from its congeners' or without one, is suspect
@@ -2287,6 +2400,7 @@ namespace protal::build {
         auto const gaps = WriteCongenerGaps(options, genomes);
         auto const alleles = WriteStrainAlleles(options, genomes, gaps);
         WriteColumnWeights(options, genomes);
+        WriteAncestrySites(options, genomes, gaps);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
         ReleaseFreeMemory();

@@ -367,6 +367,14 @@ were compared (a small genus, or a stretch past an indel in the others' copies),
 differs, as 0.7.9 had everywhere. It keeps the sites with the congeners' base and reads each best record's
 base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
 
+Since 2026-10-11 `--build` computes every copy's sites the same way and stores them (`ancestry_sites.bin`), and a run
+decodes a copy's on its first record instead of comparing it with its congeners there: computed in the run, at ~0.3 M
+instructions plus ~0.6 M per congener compared for each copy a sample's records touch (tens of thousands in a complex
+sample at r226), they were half of a sample's profiling instructions
+([report](claude/2026-10-11-r226-v23/README.md), section 5). The features are the same either way; a database without
+the table (built earlier, or with `--no_ancestry_sites`), or a run with `--no_site_weights` (the build polarised the
+sites with the column weights), computes them as before.
+
 Since the evening of 2026-10-10 the ancestry features (and `ancestry_agreement_weighted`) count only the sites the
 species' known genomes share: a site where one of the copy's strain alleles (`strain_alleles.tsv`, the species'
 other genomes) carries another base, or an indel near, is left out (`SharedBySpecies`); a copy without alleles keeps
