@@ -51,6 +51,7 @@ void wavefront_align_presets__checks(
     const int text_length) {
   // Parameters
   alignment_form_t* const form = &wf_aligner->alignment_form;
+  const distance_metric_t distance_metric = wf_aligner->penalties.distance_metric;
   /*
    * Configuration presets
    */
@@ -61,25 +62,25 @@ void wavefront_align_presets__checks(
     form->text_begin_free = 0;
     form->text_end_free = text_length;
   }
+  if (wf_aligner->memory_mode == wavefront_memory_singletrack) {
+    const bool supported_metric =
+        distance_metric == gap_affine ||
+        distance_metric == gap_affine_2p;
+    if (!supported_metric) {
+      fprintf(stderr,"[WFA] Singletrack memory mode only supports gap-affine and gap-affine-2p distances\n");
+      exit(1);
+    }
+    if (wf_aligner->alignment_scope != compute_alignment) {
+      fprintf(stderr,"[WFA] Singletrack memory mode requires full alignment scope\n");
+      exit(1);
+    }
+  }
   /*
    * Checks
    */
   if (wf_aligner->bialigner != NULL) {
-    const bool ends_free =
-        form->pattern_begin_free > 0 ||
-        form->pattern_end_free > 0 ||
-        form->text_begin_free > 0 ||
-        form->text_end_free > 0;
-    if (ends_free) {
-      fprintf(stderr,"[WFA] BiWFA ends-free has not been tested properly yet (let me know and I'll do it)\n");
-      exit(1);
-    }
-    if (wf_aligner->alignment_form.extension) {
-      fprintf(stderr,"[WFA] BiWFA extension is not implemented yet (let me know and I'll add it)\n");
-      exit(1);
-    }
+    wavefront_aligner_check_biwfa_unsupported(wf_aligner);
   }
-  const distance_metric_t distance_metric = wf_aligner->penalties.distance_metric;
   const bool is_heuristic_drop =
       (wf_aligner->heuristic.strategy & wf_heuristic_xdrop) ||
       (wf_aligner->heuristic.strategy & wf_heuristic_zdrop);
@@ -155,6 +156,10 @@ int wavefront_align_lambda(
     const int text_length) {
   // Checks
   wavefront_align_presets__checks(wf_aligner,pattern_length,text_length);
+  if (wf_aligner->memory_mode == wavefront_memory_singletrack) {
+    fprintf(stderr,"[WFA] Singletrack memory mode does not support lambda/custom sequence inputs\n");
+    exit(1);
+  }
   wavefront_debug_begin(wf_aligner);
   // Plot
   if (wf_aligner->plot != NULL) wavefront_plot_resize(wf_aligner->plot,pattern_length,text_length);

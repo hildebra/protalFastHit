@@ -26,6 +26,7 @@
 #include "Database.h"
 #include "SamHandler.h"
 #include "GeneIncongruence.h"
+#include "BuildSettings.h"
 #include "SpeciesPriors.h"
 #include "NcbiTaxids.h"
 #include "SpeciesNeighbours.h"
@@ -120,7 +121,8 @@ namespace protal {
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
                 ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
-                ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
+                ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)))
+                ("wfa_traceback", "How WFA2 recovers each alignment's operations: classic (WFA2's high-memory mode, which keeps every wavefront), singletrack (keeps only the match wavefronts and recomputes a gap's steps while tracing back: less memory to touch, faster in its paper), or auto (default): the database's. Both give the same scores, but among equally good alignments they may choose differently, so SAM records and the model's features can differ. --build records its choice (auto: classic) in the database's build_settings.tsv and aligns its strain alleles, congener gaps and column weights with it; a run that aligns otherwise than its database was built is warned. A database built before 2026-10-11 was built with classic.", cxxopts::value<std::string>()->default_value("auto"));
 
         // Profiling options
         options.add_options("Profiling")
@@ -180,13 +182,13 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, build_settings.tsv, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, build_settings.tsv, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes), species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08) or ncbi_taxids.tsv (gtdb_to_protal_db.py --priors_only too: the species' NCBI taxids for --ncbi_taxids, for a database converted before 2026-10-11). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
@@ -338,6 +340,7 @@ namespace protal {
         double max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool max_score_ani_given = false;  // -a given: it applies to all read types
         size_t x_drop = DEFAULT_X_DROP;
+        std::optional<WfaTraceback> wfa_traceback;  // --wfa_traceback; nothing: auto
         size_t max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -479,6 +482,8 @@ namespace protal {
         double m_max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool m_max_score_ani_given = false;
         size_t m_x_drop = DEFAULT_X_DROP;
+        std::optional<WfaTraceback> m_wfa_traceback_given;            // --wfa_traceback; nothing: auto
+        WfaTraceback m_wfa_traceback = WfaTraceback::Classic;          // what aligns: given, else the database's (SetWfaTraceback)
         size_t m_max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t m_max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t m_min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -518,6 +523,7 @@ namespace protal {
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
+        static inline const std::string PROTAL_BUILD_SETTINGS_FILE = build_settings::kFileName;
         // The presence models of paired-end and of single-end reads.
 
         static inline const std::string MAP_SAMPLEID = "#SAMPLEID";
@@ -647,6 +653,8 @@ namespace protal {
                 m_max_score_ani(d.max_score_ani),
                 m_max_score_ani_given(d.max_score_ani_given),
                 m_x_drop(d.x_drop),
+                m_wfa_traceback_given(d.wfa_traceback),
+                m_wfa_traceback(d.wfa_traceback.value_or(WfaTraceback::Classic)),
                 m_max_key_ubiquity(d.max_key_ubiquity),
                 m_max_seed_size(d.max_seed_size),
                 m_min_successful_lookups(d.min_successful_lookups),
@@ -749,6 +757,8 @@ namespace protal {
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
             result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
             result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
+            result_str << "WFA2 traceback:      " << (m_wfa_traceback_given ? std::string(WfaTracebackName(*m_wfa_traceback_given)) :
+                                                      m_build ? "classic (auto)" : "auto (the database's)") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
             if (long_reads) {
@@ -1099,6 +1109,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_NCBI_TAXIDS_FILE;
         }
 
+        // The settings --build used that runs should match (BuildSettings.h: the WFA2 traceback), packed by --build.
+        std::string GetBuildSettingsFile() const {
+            return m_database_path + "/" + PROTAL_BUILD_SETTINGS_FILE;
+        }
+
         // Each species' nearest congeners (SpeciesNeighbours.h), written and packed by --build.
         std::string GetSpeciesNeighboursFile() const {
             return m_database_path + "/" + PROTAL_SPECIES_NEIGHBOURS_FILE;
@@ -1207,6 +1222,11 @@ namespace protal {
         // The database's ncbi_taxids.tsv (the converter's since 2026-10-11); Exists() is false if it has none.
         db::DbFile NcbiTaxidsDbFile() const {
             return DbFileNamed(PROTAL_NCBI_TAXIDS_FILE, GetNcbiTaxidsFile());
+        }
+
+        // The database's build_settings.tsv (--build's since 2026-10-11); Exists() is false if it has none.
+        db::DbFile BuildSettingsDbFile() const {
+            return DbFileNamed(PROTAL_BUILD_SETTINGS_FILE, GetBuildSettingsFile());
         }
 
         // The database's species_neighbours.tsv (--build's since 2026-10-06); Exists() is false if it has none.
@@ -1657,6 +1677,20 @@ namespace protal {
 
         size_t GetXDrop() const {
             return m_x_drop;
+        }
+
+        // --wfa_traceback as given; nothing for auto (the database's).
+        std::optional<WfaTraceback> WfaTracebackGiven() const {
+            return m_wfa_traceback_given;
+        }
+
+        // The traceback the aligners use: the one given, else (--build: classic) the database's once a run has set it.
+        WfaTraceback GetWfaTraceback() const {
+            return m_wfa_traceback;
+        }
+
+        void SetWfaTraceback(WfaTraceback traceback) {
+            m_wfa_traceback = traceback;
         }
 
         size_t GetMaxKeyUbiquity() const {
@@ -2916,6 +2950,14 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             size_t threads = result["threads"].as<size_t>();
             size_t align_top = result["align_top"].as<size_t>();
             size_t x_drop = result["x_drop"].as<size_t>();
+            std::optional<WfaTraceback> wfa_traceback;
+            if (auto const name = result["wfa_traceback"].as<std::string>(); name != "auto") {
+                wfa_traceback = ParseWfaTraceback(name);
+                if (!wfa_traceback) {
+                    std::cerr << "Error: --wfa_traceback must be auto, classic or singletrack, not '" << name << "'" << std::endl;
+                    exit(2);
+                }
+            }
             size_t max_key_ubiquity = result["max_key_ubiquity"].as<size_t>();
             size_t min_successful_lookups = result["min_successful_lookups"].as<size_t>();
             size_t max_seed_size = result["max_seed_size"].as<size_t>();
@@ -3326,6 +3368,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.qcmsa_args               = std::move(qcmsa_args);
             d.snp_max_alleles          = snp_max_alleles;
             d.x_drop                   = x_drop;
+            d.wfa_traceback            = wfa_traceback;
             d.max_key_ubiquity         = max_key_ubiquity;
             d.min_successful_lookups   = min_successful_lookups;
             d.max_seed_size            = max_seed_size;

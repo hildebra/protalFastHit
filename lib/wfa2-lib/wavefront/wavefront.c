@@ -128,7 +128,8 @@ void wavefront_init_null(
   for (i=0;i<wf_elements;++i) {
     wavefront->offsets_mem[i] = WAVEFRONT_OFFSET_NULL;
   }
-  if (wavefront->bt_pcigar_mem) { // TODO: Really needed?
+  if (wavefront->bt_pcigar_mem) {
+    // Affine piggyback kernels can inspect null traceback candidates.
     memset(wavefront->bt_pcigar_mem,0,wf_elements*sizeof(pcigar_t));
     memset(wavefront->bt_prev_mem,0,wf_elements*sizeof(bt_block_idx_t));
   }

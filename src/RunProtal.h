@@ -328,6 +328,45 @@ namespace protal {
         genomes.SetSpeciesPriors(std::move(table));
     }
 
+    // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
+    // with (build_settings.tsv; classic for a database built before 2026-10-11). Warns when the run aligns otherwise than
+    // the database was built: its strain alleles, congener gaps and column weights, and the runs its models were trained
+    // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Exits 8 if
+    // build_settings.tsv cannot be read.
+    static void SetWfaTraceback(Options& options, std::ostream& out = std::cout) {
+        if (options.BuildMode()) return;
+        auto const file = options.BuildSettingsDbFile();
+        build_settings::Settings settings;
+        if (file.Exists()) {
+            std::string error;
+            auto const content = file.ReadAll(error);
+            if (content) {
+                std::istringstream is(*content);
+                error = build_settings::Read(is, settings);
+            }
+            if (!error.empty()) {
+                std::cerr << "Invalid build settings " << file.Name() << ": " << error << std::endl;
+                exit(8);
+            }
+        }
+        auto const given = options.WfaTracebackGiven();
+        WfaTraceback const database = ResolveWfaTraceback(std::nullopt, settings.wfa_traceback);
+        WfaTraceback const traceback = ResolveWfaTraceback(given, settings.wfa_traceback);
+        options.SetWfaTraceback(traceback);
+        std::string const built = std::string(WfaTracebackName(database)) +
+                                  (settings.wfa_traceback ? "" : " (it has no " + Options::PROTAL_BUILD_SETTINGS_FILE + ": built before 2026-10-11)");
+        out << "WFA2 traceback: " << WfaTracebackName(traceback) << (given ? " (--wfa_traceback)" : "")
+            << "; the database was built with " << built << std::endl;
+        if (traceback != database && !options.ProfileOnly()) {
+            std::cerr << "Warning: this run aligns with the " << WfaTracebackName(traceback) << " WFA2 traceback (--wfa_traceback "
+                      << WfaTracebackName(traceback) << "), but the database was built with " << built << ". The two give the "
+                      << "same alignment scores, but among equally good alignments they may choose differently, so the SAM "
+                      << "records, and the features the database's models were trained on, can differ slightly from a run "
+                      << "that aligns as the database was built. Leave out --wfa_traceback (auto) to align as it was built."
+                      << std::endl;
+        }
+    }
+
     // The species' NCBI taxids (ncbi_taxids.tsv, NcbiTaxids.h) for the profiles' last columns, with --ncbi_taxids. Exits 2
     // if the database has none (before any read is aligned), 8 if the file cannot be read.
     static void LoadNcbiTaxids(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
@@ -719,10 +758,10 @@ namespace protal {
 
             GenomeLoader& genomes = db.GetGenomes();
 
-            WFA2Wrapper2 aligner(4, 6, 2, options.GetXDrop());
+            WFA2Wrapper2 aligner(4, 6, 2, options.GetXDrop(), options.GetWfaTraceback());
             // Long reads are aligned without X-drop: over their gene-long windows it loses the own
             // species' alignment of genes the read ends in, and leaves a relative's weaker one unique.
-            WFA2Wrapper2 long_read_wfa(4, 6, 2, 0);
+            WFA2Wrapper2 long_read_wfa(4, 6, 2, 0, options.GetWfaTraceback());
 
             // Every taxon's genus, for the adaptive candidates of short reads (--adaptive_candidates); the taxonomy is loaded
             // for profiling, and here if a run only aligns.
@@ -1068,6 +1107,10 @@ namespace protal {
             }
             bm_classify.Stop();
             bm_classify.PrintResults();
+            if (options.GetWfaTraceback() == WfaTraceback::Singletrack) {
+                std::cout << "WFA2 Singletrack: " << WFA2Wrapper2::SingletrackFallbacks() << " alignment(s) traced back classic, "
+                          << "their Singletrack backtrace having found no path through the wavefronts wf-adaptive pruned" << std::endl;
+            }
             protal::build::PrintMemory("aligning");
         }
     }
@@ -3147,6 +3190,8 @@ namespace protal {
             }
             return RunStatus::Get().Finish();
         }
+
+        SetWfaTraceback(options);
 
         // Directories that outputs are written into without creating them first (per-species strain
         // files, misc statistics). Created here so that a run started with -1/-2/-o, not a map, has them.

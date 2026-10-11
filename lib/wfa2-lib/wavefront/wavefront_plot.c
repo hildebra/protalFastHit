@@ -135,8 +135,6 @@ void wavefront_plot_component(
   const int pattern_length = sequences->pattern_length;
   const int text_begin = sequences->text_begin;
   const int text_length = sequences->text_length;
-  const char* const pattern = sequences->pattern;
-  const char* const text = sequences->text;
   const bool reverse = (wf_aligner->align_mode == wf_align_biwfa_breakpoint_reverse);
   // Traverse all offsets
   int k;
@@ -167,7 +165,7 @@ void wavefront_plot_component(
     if (extend) {
       while (v_local < pattern_length &&
              h_local < text_length &&
-             pattern[v_local] == text[h_local]) {
+             wavefront_sequences_cmp(sequences,v_local,h_local)) {
         if (reverse) {
           v_global--; h_global--;
         } else {

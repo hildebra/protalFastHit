@@ -49,6 +49,14 @@ void wavefront_backtrace_affine(
     const int alignment_score,
     const int alignment_k,
     const wf_offset_t alignment_offset);
+// protal: false if it found no path back to the beginning (the CIGAR is then empty), instead of exiting.
+bool wavefront_backtrace_affine_m_only(
+    wavefront_aligner_t* const wf_aligner,
+    const affine2p_matrix_type component_begin,
+    const affine2p_matrix_type component_end,
+    const int alignment_score,
+    const int alignment_k,
+    const wf_offset_t alignment_offset);
 
 /*
  * Backtrace from BT-Buffer (pcigar)

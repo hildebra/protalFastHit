@@ -109,7 +109,9 @@ same on every CPU.
   `-DCMAKE_CXX_FLAGS=-DPROTAL_NO_CLONES`, they are compiled once, for x86-64.
 
 WFA2-lib is built for plain x86-64, because its AVX2 kernels were not faster in protal's use
-([report](claude/2026-10-02-wfa-avx2/README.md)).
+([report](claude/2026-10-02-wfa-avx2/README.md)). Since 2026-10-11 `lib/wfa2-lib` is T. Mokveld's
+fork of WFA2-lib v2.3.6, which adds the Singletrack traceback (`--wfa_traceback`); its source and
+commit are in `lib/wfa2-lib.cmake`.
 
 ### Installing a source build
 

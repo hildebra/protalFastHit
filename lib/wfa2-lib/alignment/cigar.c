@@ -44,12 +44,14 @@
 /* ... */
 #define SAM_CIGAR_NA    15
 
+#define CIGAR_OPERATIONS_PADDING 8 // Leading padding for block CIGAR writers
+
 const uint8_t sam_cigar_lut[256] =
 {
   [0 ... 255] = SAM_CIGAR_NA,
   ['M'] = SAM_CIGAR_MATCH,
-  ['I'] = SAM_CIGAR_INS,
-  ['D'] = SAM_CIGAR_DEL,
+  ['I'] = SAM_CIGAR_DEL,
+  ['D'] = SAM_CIGAR_INS,
   ['N'] = SAM_CIGAR_N_SKIP,
   ['='] = SAM_CIGAR_EQ,
   ['X'] = SAM_CIGAR_X,
@@ -63,7 +65,7 @@ cigar_t* cigar_new(
   // Allocate
   cigar_t* const cigar = malloc(sizeof(cigar_t));
   // Allocate alignment-operations buffer
-  cigar->max_operations = max_operations;
+  cigar->max_operations = max_operations + CIGAR_OPERATIONS_PADDING;
   cigar->operations = malloc(cigar->max_operations);
   cigar->begin_offset = 0;
   cigar->end_offset = 0;
@@ -72,7 +74,7 @@ cigar_t* cigar_new(
   cigar->end_h = -1;
   // CIGAR
   cigar->cigar_length = 0;
-  cigar->cigar_buffer = calloc(max_operations,sizeof(uint32_t));
+  cigar->cigar_buffer = calloc(cigar->max_operations,sizeof(uint32_t));
   // Return
   return cigar;
 }
@@ -92,12 +94,12 @@ void cigar_resize(
     cigar_t* const cigar,
     const int max_operations) {
   // Check maximum operations
-  if (max_operations > cigar->max_operations) {
-    cigar->max_operations = max_operations;
+  if (max_operations + CIGAR_OPERATIONS_PADDING > cigar->max_operations) {
+    cigar->max_operations = max_operations + CIGAR_OPERATIONS_PADDING;
     free(cigar->operations); // Free
     free(cigar->cigar_buffer); // Free
-    cigar->operations = malloc(max_operations); // Allocate
-    cigar->cigar_buffer = calloc(max_operations,sizeof(uint32_t)); // Allocate
+    cigar->operations = malloc(cigar->max_operations); // Allocate
+    cigar->cigar_buffer = calloc(cigar->max_operations,sizeof(uint32_t)); // Allocate
   }
   cigar_clear(cigar);
 }
@@ -195,6 +197,7 @@ void cigar_compute_CIGAR(
     uint32_t* const cigar_buffer = cigar->cigar_buffer;
     int cigar_length = 0;
     char last_op = operations[begin_offset];
+    if (!show_mismatches && last_op=='X') last_op = 'M';
     uint32_t last_op_len = 1;
     int i;
     for (i=begin_offset+1;i<end_offset;++i) {
@@ -593,5 +596,3 @@ void cigar_print_pretty(
   // Free
   free(mem);
 }
-
-

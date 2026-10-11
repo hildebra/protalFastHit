@@ -54,6 +54,9 @@ uint64_t wavefront_aligner_get_size(
 bool wavefront_aligner_maxtrim_cigar(
     wavefront_aligner_t* const wf_aligner);
 
+void wavefront_aligner_check_biwfa_unsupported(
+    wavefront_aligner_t* const wf_aligner);
+
 /*
  * Display
  */
@@ -66,5 +69,4 @@ void wavefront_aligner_print_scope(
 void wavefront_aligner_print_conf(
     FILE* const stream,
     wavefront_aligner_t* const wf_aligner);
-
 

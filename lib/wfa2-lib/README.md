@@ -1,4 +1,6 @@
-# WFA2-lib
+# WFA2-lib + Singletrack
+
+This version of WFA2-lib includes Singletrack for the traceback. It includes optimizations that store only a scope of the indel matrices during alignment, rather than the full matrices, for both gap-affine and dual gap-affine alignments. This integration is compatible with end-to-end, ends-free, and extension alignments using the library's singletrack memory option, including the supported WFA heuristic modes (See https://github.com/LorienLV/singletrack/ for details).
 
 ## 1. INTRODUCTION
 
@@ -58,7 +60,7 @@ Section [WFA2-lib features](#wfa2.features) explores the most relevant options a
     * [Memory modes](#wfa2.mem)
     * [Heuristic modes](#wfa2.heuristics)
     * [Technical notes](#wfa2.other.notes)
-* [Reporting Bugs and Feature Request](#wfa2.complains)
+* [Reporting Bugs and Feature Request](#wfa2.bugs)
 * [License](#wfa2.licence)
 * [Citation](#wfa2.cite)
 
@@ -158,11 +160,15 @@ Display the result of the alignment.
 // Display CIGAR in raw format (e.g. MMMDDDXD)
 string raw_cigar = aligner.getAlignment();
 cout << "Raw CIGAR: " << raw_cigar  << endl;
-// Display CIGAR in SAM format (e.g. 3M3D1X1D)
+// Display CIGAR in SAM format (e.g. 3M3I1M1I for the raw example above)
 string sam_cigar = aligner.getCIGAR(false);
 cout << "SAM CIGAR: " << sam_cigar  << endl;
 cout << "Alignment score " << aligner.getAlignmentScore() << endl;
 ```
+
+SAM CIGAR treats the pattern as the query and the text as the reference. Its `I` and `D` operations are therefore reversed relative to the raw WFA alignment returned by `getAlignment()`. With `getCIGAR(false)`, both matches and mismatches are reported as `M`; use `getCIGAR(true)` for `=` and `X`.
+
+C++ aligners own their C alignment state through a smart pointer. They can be moved, but not copied; a moved-from aligner must be assigned a new aligner before it can be used again. Rebuild C++ consumers when updating from the older raw-pointer binding, as the accessor signatures and class layout have changed.
 
 > [!IMPORTANT]
 > Once an alignment object is created, **it is strongly recommended to reuse it to compute multiple alignments**. Creating and destroying the alignment object for every alignment computed can have a significant overhead. Reusing the alignment object allows repurposing internal data structures, minimising the cost of memory allocations, and avoiding multiple alignment setups and precomputations.
@@ -415,9 +421,17 @@ The WFA2 library allows computing alignments with different spans or shapes. Alt
 
 ### <a name="wfa2.mem"></a> 3.4 Memory modes
 
-The WFA2 library implements various memory modes: `wavefront_memory_high`, `wavefront_memory_med`, `wavefront_memory_low`, and `wavefront_memory_ultralow`. These modes allow regulating the overall memory consumption. The standard WFA algorithm, which stores explicitly all wavefronts in memory, correspond to the mode `wavefront_memory_high`. Memory modes `wavefront_memory_med` and `wavefront_memory_low` progressively reduce memory usage at the expense of slightly larger alignment times. Memory mode `wavefront_memory_ultralow` utilizes the BiWFA algorithm using a minimal memory footprint of `O(s)` and the same `O(ns+s^2)` time complexity as the original WFA. In practice, `wavefront_memory_ultralow` can outperform `wavefront_memory_high` because the latter experiences memory slowdowns when aligning long and noisy sequences.
+The WFA2 library implements various memory modes: `wavefront_memory_high`, `wavefront_memory_med`, `wavefront_memory_low`, `wavefront_memory_ultralow`, and `wavefront_memory_singletrack`. These modes allow regulating the overall memory consumption. The standard WFA algorithm, which stores explicitly all wavefronts in memory, correspond to the mode `wavefront_memory_high`. Memory modes `wavefront_memory_med` and `wavefront_memory_low` progressively reduce memory usage at the expense of slightly larger alignment times. Memory mode `wavefront_memory_ultralow` utilizes the BiWFA algorithm using a minimal memory footprint of `O(s)` and the same `O(ns+s^2)` time complexity as the original WFA. In practice, `wavefront_memory_ultralow` can outperform `wavefront_memory_high` because the latter experiences memory slowdowns when aligning long and noisy sequences.
 
-Memory modes can be used transparently with other alignment options and generate identical results. Note that this option does not affect the score-only alignment mode, which always uses a minimal memory footprint of `O(s)`).
+BiWFA supports end-to-end alignment and ordinary ends-free alignment in both score-only scope and full-CIGAR alignment when the normalized internal match score is zero. This includes the common M=0 configurations for indel, edit, gap-linear, gap-affine, and dual gap-affine distances. Under those conditions, `wavefront_memory_ultralow` returns an optimal legal score-only or full-CIGAR result for the requested ends-free alignment, but its divide-and-conquer traceback may choose a different optimal CIGAR or endpoint than `wavefront_memory_high`. Consumers should rely on optimal score and legal endpoint semantics rather than exact high-memory tie-breaking equality.
+
+BiWFA intentionally rejects ordinary ends-free alignments whose normalized internal match score is negative. Supporting that case requires aligned-length-aware breakpoint scoring, because the final transformed score depends on the chosen aligned span. BiWFA extension alignment remains unsupported and is rejected separately from ordinary ends-free support.
+
+Memory mode `wavefront_memory_singletrack` enables the Singletrack traceback for full-scope end-to-end, ends-free, and extension gap-affine and dual gap-affine alignments. It stores all M wavefronts and reuses the indel wavefronts needed during computation. Without heuristics, Singletrack reconstructs an optimal CIGAR from the M wavefronts. With heuristics enabled, Singletrack reconstructs a CIGAR consistent with the heuristic result; heuristic modes can prune or drop alignment search and therefore do not guarantee global optimality.
+
+Singletrack supports adaptive, drop, and banded WFA heuristic modes for the supported full-scope affine and dual-affine spans. It is not available for score-only scope, edit/indel/gap-linear distances, or lambda/custom sequence inputs. Singletrack follows the reference implementation and directly accesses padded sequence buffers; use ASCII or packed2bits inputs.
+
+Within their supported scopes, exact memory modes preserve the requested alignment score and legal alignment semantics. They can differ in CIGAR and endpoint tie-breaking as noted above. Note that this option does not affect the score-only alignment mode, which always uses a minimal memory footprint of `O(s)`).
 
 ```C
   wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
@@ -428,7 +442,7 @@ Memory modes can be used transparently with other alignment options and generate
 
 The WFA algorithm can be used combined with many heuristics to reduce the alignment time and memory used. As it happens to other alignment methods, heuristics can result in suboptimal solutions and loss of accuracy. Moreover, some heuristics may drop the alignment if the sequences exceed certain divergence thresholds (i.e., x-drop/z-drop). Due to the popularity and efficiency of these methods, the WFA2 library implements many of these heuristics. Note, **it is not about how little DP-matrix you compute, but about how good/accurate the resulting alignments are.**
 
-WFA2's heuristics are classified into the following categories: ['wf-adaptive'](#wfa2.wfadaptive), ['drops'](#wfa2.drops), and ['bands'](#wfa2.bands). It is possible to combine a maximum of one heuristic from each category (OR-ing the strategy values or using the API). In the case of using multiple heuristics, these will be applied in cascade, starting with 'wf-adaptive', then 'drops', and finally 'bands'.
+WFA2's heuristics are classified into the following categories: ['wf-adaptive'](#wfa2.wfadaptive), ['drops'](#wfa2.drops), and ['bands'](#wfa2.bands). The API also exposes WFMash as a weighted adaptive cutoff mode. It is possible to combine a maximum of one heuristic from each category (OR-ing the strategy values or using the API). In the case of using multiple heuristics, these will be applied in cascade, starting with 'wf-adaptive', then 'drops', and finally 'bands'.
 
 - **None (for comparison)**. If no heuristic is used, the WFA behaves exploring cells of the DP-matrix in increasing score order (increasing scores correspond to colours from blue to red).
 
@@ -447,6 +461,24 @@ WFA2's heuristics are classified into the following categories: ['wf-adaptive'](
   wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
   attributes.heuristic.strategy = wf_heuristic_none;
 ```
+
+- **Maximum alignment steps.** This option stops the alignment once the wavefront score reaches a specified limit. The limit applies to the WFA score, not to the number of edits or DP cells computed. By default, `max_alignment_steps` is set to `INT_MAX` (unlimited). Reaching the limit returns `WF_STATUS_MAX_STEPS_REACHED`. In that case, no complete alignment or CIGAR is available.
+
+```C
+  wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
+  attributes.distance_metric = gap_affine;
+  attributes.affine_penalties.mismatch = 6;
+  attributes.affine_penalties.gap_opening = 4;
+  attributes.affine_penalties.gap_extension = 2;
+  attributes.heuristic.strategy = wf_heuristic_none;
+  attributes.system.max_alignment_steps = 9; // Allow a total penalty of up to 8
+```
+
+When the match penalty is zero, the threshold can be set directly from the desired WFA score. The limit is exclusive, so set `max_alignment_steps` to one more than the maximum permitted score. For example, with $X=6$, $O=4$, and $E=2$, a two-base gap costs 8, so a limit of 9 allows that alignment. The score reported by WFA for weighted penalties is the negative of the total penalty.
+
+When the match penalty is nonzero, WFA internally uses Eizenga's transformation to obtain an equivalent score. The threshold must be transformed in the same way before setting `max_alignment_steps`. For an end-to-end alignment, let $M$ be the match reward (`M = -attributes.affine_penalties.match`), $|P|$ and $|T|$ the sequence lengths, and $S$ the reported alignment score. The equivalent WFA score is $s=M(|P|+|T|)-2S$. To retain alignments with a reported score of at least $S_{min}$, set `max_alignment_steps` to $M(|P|+|T|)-2S_{min}+1$. For ends-free alignment, the transformation also needs to account for the free ends.
+
+This limit can be combined with the heuristics below; set `attributes.heuristic.strategy = wf_heuristic_none` when an exact threshold comparison is required.
 
 - <a name="wfa2.wfadaptive"></a> **Heuristic wf-adaptive.** This WFA heuristic removes outer diagonals that are extremely far behind compared to other ones in the same wavefront. Unlike other methods, the adaptive-wavefront reduction heuristic prunes based on the potential of the diagonal to lead to the optimal solution without previous knowledge of the error between the sequences.
 
@@ -523,7 +555,13 @@ WFA2's heuristics are classified into the following categories: ['wf-adaptive'](
   attributes.heuristic.max_k = +10;
 ```
 
+BiWFA (`ultralow`) translates static bands from the original sequence coordinates into each forward, reverse, and base sub-alignment. The same band is retained during score-only endpoint recovery. This does not turn a banded alignment into an unbanded exact alignment: a band can exclude the optimal path.
+
+Static-band bounds may span the full `int` range, including `[INT_MIN, INT_MAX]`. If pruning exhausts the edit/indel frontier, BiWFA reports `WF_STATUS_UNATTAINABLE`; unidirectional alignment retains its partial-alignment behavior.
+
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**Adaptive-band** is similar to the static-band heuristic; however, it allows the band to move towards the diagonals closer to the end of the alignment. Unlike the static-band that is performed on each step, the adaptive-band heuristics allows configuring the number of steps between heuristic band cut-offs.
+
+For adaptive bands, `max_k - min_k + 1` specifies the band width, not fixed global bounds. The band can move beyond the initial `min_k` and `max_k` coordinates.
 
 ```C
   wavefront_aligner_attr_t attributes = wavefront_aligner_attr_default;
@@ -565,7 +603,7 @@ WFA2's heuristics are classified into the following categories: ['wf-adaptive'](
 - Note that edit and LCS are distance metrics and, thus, the score computed is always positive. However, using weighted distances (e.g., gap-linear and gap-affine) the alignment score is computed using the selected penalties (i.e., the alignment score can be positive or negative). For instance, if WFA2-lib is executed using $M=0$, the final score is expected to be negative.
 
 
-- All WFA2-lib algorithms/variants are stable. That is, for alignments with the same score, all alignment modes always resolve ties (between M, X, I,and D) using the same criteria: M (highest prio) > X > D > I (lowest prio). Only the memory mode `ultralow` (BiWFA) resolves ties differently (although the results are still optimal).
+- Most WFA2-lib algorithms/variants are stable. That is, for alignments with the same score, they resolve ties (between M, X, I,and D) using the same criteria: M (highest prio) > X > D > I (lowest prio). Memory modes `ultralow` (BiWFA) and non-heuristic `singletrack` can resolve ties differently. For supported BiWFA ends-free alignment, the guarantee is an optimal legal semiglobal result, not identical CIGAR or endpoint tie-breaking versus high-memory WFA. Heuristic-enabled alignments, including Singletrack, remain consistent with the heuristic result but may be suboptimal by design.
 
 
 - WFA2lib follows the convention that describes how to transform the (1) Pattern/Query into the (2) Text/Database/Reference used in classic pattern matching papers. However, the SAM CIGAR specification describes the transformation from (2) Reference to (1) Query. If you want CIGAR-compliant alignments, swap the pattern and text sequences argument when calling the WFA2lib's align functions (to convert all the Ds into Is and vice-versa).

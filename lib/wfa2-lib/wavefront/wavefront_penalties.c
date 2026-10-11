@@ -138,18 +138,36 @@ void wavefront_penalties_set_affine2p(
   if (affine2p_penalties->match > 0) {
     fprintf(stderr,"[WFA::Penalties] Match score must be negative or zero (M=%d)\n",affine2p_penalties->match);
     exit(1);
-  } else if (affine2p_penalties->mismatch <= 0 ||
-             affine2p_penalties->gap_opening1 < 0 ||
-             affine2p_penalties->gap_extension1 <= 0 ||
-             affine2p_penalties->gap_opening2 < 0 ||
-             affine2p_penalties->gap_extension2 <= 0) {
-    fprintf(stderr,"[WFA::Penalties] Penalties (X=%d,O1=%d,E1=%d,O2=%d,E2=%d) must be (X>0,O1>=0,E1>0,O2>=0,E2>0)\n",
+  }
+  if (affine2p_penalties->match < 0) {
+    if ((2*affine2p_penalties->mismatch-affine2p_penalties->match) <= 0 ||
+         affine2p_penalties->gap_opening1 < 0 ||
+         (2*affine2p_penalties->gap_extension1-affine2p_penalties->match) <= 0 ||
+         affine2p_penalties->gap_opening2 < 0 ||
+         (2*affine2p_penalties->gap_extension2-affine2p_penalties->match) <= 0) {
+      fprintf(stderr,"[WFA::Penalties] Penalties (M=%d X=%d,O1=%d,E1=%d,O2=%d,E2=%d) must be (2*X-M)>0,O1>=0,(2*E1-M)>0,O2>=0,(2*E2-M)>0)\n",
+        affine2p_penalties->match,
         affine2p_penalties->mismatch,
         affine2p_penalties->gap_opening1,
         affine2p_penalties->gap_extension1,
         affine2p_penalties->gap_opening2,
         affine2p_penalties->gap_extension2);
-    exit(1);
+      exit(1);
+    }
+  } else {
+    if (affine2p_penalties->mismatch <= 0 ||
+         affine2p_penalties->gap_opening1 < 0 ||
+         affine2p_penalties->gap_extension1 <= 0 ||
+         affine2p_penalties->gap_opening2 < 0 ||
+         affine2p_penalties->gap_extension2 <= 0) {
+      fprintf(stderr,"[WFA::Penalties] Penalties (X=%d,O1=%d,E1=%d,O2=%d,E2=%d) must be (X>0,O1>=0,E1>0,O2>=0,E2>0)\n",
+        affine2p_penalties->mismatch,
+        affine2p_penalties->gap_opening1,
+        affine2p_penalties->gap_extension1,
+        affine2p_penalties->gap_opening2,
+        affine2p_penalties->gap_extension2);
+      exit(1);
+    }
   }
   // Set penalties (if needed, adjust using Eizenga's formula)
   if (affine2p_penalties->match < 0) {

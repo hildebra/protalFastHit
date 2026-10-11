@@ -158,13 +158,39 @@ int wf_distance_endsfree(
   const int dist_down = MAX(left_v,left_h_endsfree);
   return (offset >= 0) ? MIN(dist_up,dist_down) : -WAVEFRONT_OFFSET_NULL;
 }
+void wf_heuristic_nullify_boundaries(
+    wavefront_t* const wavefront,
+    const int lo_base,
+    const int hi_base) {
+  // protal (2026-10-11): off, as in WFA2-lib v2.3.6, whose wavefronts protal's models were trained on: the fork nulls
+  // the elements next to a pruned wavefront, so that a later gap no longer starts from a pruned state; heuristic-pruned
+  // alignments then score worse than with v2.3.6 (71 of 33,500 test alignments, all past protal's budgets) and are no
+  // longer the same. Without it the classic traceback gives v2.3.6's alignments, and Singletrack its scores
+  // (docs/claude/2026-10-11-singletrack).
+#if 0
+  if (wavefront == NULL || wavefront->null) return;
+  // Compute kernels read one neighboring diagonal for gap transitions.
+  if (lo_base < wavefront->lo) {
+    wavefront->offsets[wavefront->lo-1] = WAVEFRONT_OFFSET_NULL;
+  }
+  if (wavefront->hi < hi_base) {
+    wavefront->offsets[wavefront->hi+1] = WAVEFRONT_OFFSET_NULL;
+  }
+#endif
+  (void)wavefront;
+  (void)lo_base;
+  (void)hi_base;
+}
 void wf_heuristic_equate(
     wavefront_t* const wavefront_dst,
     wavefront_t* const wavefront_src) {
   if (wavefront_dst != NULL) {
+    const int lo_base = wavefront_dst->lo;
+    const int hi_base = wavefront_dst->hi;
     if (wavefront_src->lo > wavefront_dst->lo) wavefront_dst->lo = wavefront_src->lo;
     if (wavefront_src->hi < wavefront_dst->hi) wavefront_dst->hi = wavefront_src->hi;
     if (wavefront_dst->lo > wavefront_dst->hi) wavefront_dst->null = true;
+    wf_heuristic_nullify_boundaries(wavefront_dst,lo_base,hi_base);
   }
 }
 /*
@@ -540,6 +566,7 @@ bool wavefront_heuristic_cufoff(
   // Check wavefront length
   if (lo_base == mwavefront->lo && hi_base == mwavefront->hi) return false; // No wavefronts pruned
   if (mwavefront->lo > mwavefront->hi) mwavefront->null = true;
+  wf_heuristic_nullify_boundaries(mwavefront,lo_base,hi_base);
   // DEBUG
   // const int wf_length_base = hi_base-lo_base+1;
   // const int wf_length_reduced = mwavefront->hi-mwavefront->lo+1;

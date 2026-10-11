@@ -45,6 +45,22 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build.max_leaves(bad, "pe")
 
+    def test_the_wfa_traceback_reaches_both_builds(self):
+        # --wfa-traceback: main() sets TRACEBACK_ARGS, which every protal --build carries (the training database's and the
+        # finished one's), so that both record it in build_settings.tsv; unset, no option (protal's classic), so that
+        # earlier builds' commands and keys stay as they were.
+        saved = build.TRACEBACK_ARGS[:]
+        try:
+            build.TRACEBACK_ARGS[:] = []
+            self.assertNotIn("--wfa_traceback", build.build_command("protal", "/nonexistent/db", 4))
+            build.TRACEBACK_ARGS[:] = ["--wfa_traceback", "singletrack"]
+            for alleles in (None, build.FINAL_ALLELE_ARGS):
+                command = build.build_command("protal", "/nonexistent/db", 4, "--compress_level", "3", alleles=alleles)
+                self.assertEqual(command[command.index("--wfa_traceback") + 1], "singletrack")
+                self.assertEqual(command[-2:], ["--compress_level", "3"])
+        finally:
+            build.TRACEBACK_ARGS[:] = saved
+
     def test_the_genomes_of_the_strain_alleles_are_not_simulated(self):
         # The genomes that give strain alleles: a hash of the accession, the same in protal (tests/test_StrainAlleles.cpp
         # pins the same values); the genome table to simulate from loses them, but the representatives.

@@ -96,6 +96,7 @@ typedef struct _wavefront_aligner_t {
   wavefront_sequences_t sequences;            // Input sequences
   // Alignment Attributes
   alignment_scope_t alignment_scope;          // Alignment scope (score only or full-CIGAR)
+  bool score_only_recover_endpoints;          // Recover endpoint coordinates in score-only mode
   alignment_form_t alignment_form;            // Alignment form (end-to-end/ends-free)
   wavefront_penalties_t penalties;            // Alignment penalties
   wavefront_heuristic_t heuristic;            // Heuristic's parameters
@@ -142,6 +143,9 @@ void wavefront_aligner_set_alignment_free_ends(
     const int text_end_free);
 void wavefront_aligner_set_alignment_extension(
     wavefront_aligner_t* const wf_aligner);
+void wavefront_aligner_set_score_only_recover_endpoints(
+    wavefront_aligner_t* const wf_aligner,
+    const bool recover_endpoints);
 
 /*
  * Heuristic configuration

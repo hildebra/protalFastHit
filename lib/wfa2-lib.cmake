@@ -1,9 +1,28 @@
 # WFA2-lib, built for protal as the static library `wfa_lib`.
 #
-# lib/wfa2-lib is WFA2-lib v2.3.6, unmodified, from
-#   https://github.com/smarco/WFA2-lib/archive/refs/tags/v2.3.6.tar.gz
-#   (sha256 fd74c4bfdd5764ae8668cdeee7a80bfa35583b1980e261daa9dbf425bf12bb0b)
-# without its img/, tests/, tools/, examples/ and .github/ directories.
+# lib/wfa2-lib is WFA2-lib v2.3.6 with the Singletrack traceback (wavefront_memory_singletrack;
+# López-Villellas et al., bioRxiv 10.1101/2025.10.31.685625), from T. Mokveld's fork
+#   https://github.com/tmokveld/WFA2-lib at commit 85d063f0c4121d8331b91d7f953b4caa7024d2f8 (2026-10-05),
+# which merges upstream's main (smarco/WFA2-lib 3282f83, after v2.3.6) and adds Singletrack for
+# end-to-end, ends-free and extension alignments with the adaptive, drop and band heuristics, besides
+# fixes; without its img/, tests/, tools/, examples/ and .github/ directories. Until 2026-10-11 it was
+# upstream's v2.3.6 tarball. protal's classic traceback (--wfa_traceback classic) is WFA2's high-memory
+# mode, as before; its outputs were the same as with v2.3.6 (docs/claude/2026-10-11-singletrack).
+#
+# protal's changes to it (comments starting "protal"; docs/claude/2026-10-11-singletrack). wf-adaptive
+# narrows a wavefront's lo/hi but leaves the pruned offsets, and the kernels of a later, wider ends-free
+# wavefront still read them, so a state can descend from a pruned one:
+#  1. wavefront_heuristic.c: the fork's nulling of the elements next to a pruned wavefront is off, as in
+#     v2.3.6 (with it, heuristic-pruned alignments past protal's budgets scored worse than with v2.3.6).
+#  2. wavefront_backtrace.c: the classic backtrace's M lookups read any initialized element, as in v2.3.6
+#     (the fork's active bounds gave operations that are no alignment of the sequences).
+#  3. wavefront_backtrace.c, .h, wavefront_unialign.c: Singletrack's M-only backtrace looks in the
+#     initialized elements too when lo/hi give no path (it ended the process, exit(-1), on a PacBio
+#     flank with the read's end free); one that still finds none fails the alignment
+#     (WF_STATUS_UNATTAINABLE) instead of exiting, and WFA2Wrapper2 aligns it with the classic traceback.
+# With them, 33,500 protal-like alignments gave v2.3.6's results byte for byte (classic) and its scores
+# (Singletrack). Keep them when updating the library, unless upstream has the fixes (tests
+# WfaTraceback.*, scripts in docs/claude/2026-10-11-singletrack).
 #
 # Upstream's own CMakeLists.txt is not used: in Release builds it adds -march=native (the baseline
 # protal binary must run on any x86-64), and it needs pkg-config and builds shared libraries, a

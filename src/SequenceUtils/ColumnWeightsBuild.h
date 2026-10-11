@@ -72,6 +72,7 @@ namespace protal::column_weights {
         // family of r226 the species' nearest congener was 0.12-0.25 of the bases away (quartiles), and two thirds of
         // the species' alignments to their genus reference failed (docs/claude/2026-10-10-real-ancestry).
         bool codons = true;
+        WfaTraceback traceback = WfaTraceback::Classic;  // the build's (--wfa_traceback)
 
         double MaxDivergence(size_t kind) const {
             if (codons) return kind == kAmong ? kMaxAmongAminoDivergence : kMaxWithinAminoDivergence;
@@ -620,7 +621,7 @@ namespace protal::column_weights {
         std::vector<Stats> stat_out(tasks.size());
         #pragma omp parallel num_threads(threads)
         {
-            WFA2Wrapper2 aligner(4, 6, 2, 0);
+            WFA2Wrapper2 aligner(4, 6, 2, 0, settings.traceback);
             #pragma omp for schedule(dynamic, 1)
             for (int64_t t = 0; t < static_cast<int64_t>(tasks.size()); t++) {
                 auto const& [family, members] = tasks[static_cast<size_t>(t)];

@@ -1,0 +1,93 @@
+-- pe3m (19:18:53)
+    t.pe3m.classic.1: exit 0, TIME 6.10 s, max RSS 3318840 KB
+      Alignment handler took 318ms mean over 4 threads
+      Processing all samples took 5s 468ms
+    t.pe3m.single.1: exit 0, TIME 5.95 s, max RSS 3317552 KB
+      Alignment handler took 470ms mean over 4 threads
+      Processing all samples took 5s 677ms
+    t.pe3m.classic.2: exit 0, TIME 6.83 s, max RSS 3317552 KB
+      Alignment handler took 510ms mean over 4 threads
+      Processing all samples took 6s 418ms
+    t.pe3m.single.2: exit 0, TIME 5.52 s, max RSS 3316752 KB
+      Alignment handler took 415ms mean over 4 threads
+      Processing all samples took 5s 241ms
+    t.pe3m.classic.3: exit 0, TIME 5.87 s, max RSS 3318092 KB
+      Alignment handler took 437ms mean over 4 threads
+      Processing all samples took 5s 628ms
+    t.pe3m.single.3: exit 0, TIME 5.33 s, max RSS 3316888 KB
+      Alignment handler took 468ms mean over 4 threads
+      Processing all samples took 5s 53ms
+    t.pe3m.classic.4: exit 0, TIME 4.77 s, max RSS 3318736 KB
+      Alignment handler took 297ms mean over 4 threads
+      Processing all samples took 4s 543ms
+    t.pe3m.single.4: exit 0, TIME 5.08 s, max RSS 3316392 KB
+      Alignment handler took 460ms mean over 4 threads
+      Processing all samples took 4s 840ms
+    t.pe3m.classic.5: exit 0, TIME 5.29 s, max RSS 3317148 KB
+      Alignment handler took 394ms mean over 4 threads
+      Processing all samples took 4s 987ms
+    t.pe3m.single.5: exit 0, TIME 4.84 s, max RSS 3316972 KB
+      Alignment handler took 407ms mean over 4 threads
+      Processing all samples took 4s 606ms
+-- pbbig (19:19:49)
+    t.pbbig.classic.1: exit 0, TIME 2.34 s, max RSS 3312584 KB
+      Alignment handler took 1s 964ms mean over 4 threads
+      Processing all samples took 2s 112ms
+    t.pbbig.single.1: exit 0, TIME 2.15 s, max RSS 3272156 KB
+      Alignment handler took 1s 637ms mean over 4 threads
+      Processing all samples took 1s 917ms
+    t.pbbig.classic.2: exit 0, TIME 2.38 s, max RSS 3311672 KB
+      Alignment handler took 1s 889ms mean over 4 threads
+      Processing all samples took 2s 132ms
+    t.pbbig.single.2: exit 0, TIME 2.06 s, max RSS 3274300 KB
+      Alignment handler took 1s 460ms mean over 4 threads
+      Processing all samples took 1s 838ms
+    t.pbbig.classic.3: exit 0, TIME 2.60 s, max RSS 3310904 KB
+      Alignment handler took 2s 44ms mean over 4 threads
+      Processing all samples took 2s 371ms
+    t.pbbig.single.3: exit 0, TIME 2.37 s, max RSS 3272808 KB
+      Alignment handler took 1s 703ms mean over 4 threads
+      Processing all samples took 2s 94ms
+    t.pbbig.classic.4: exit 0, TIME 2.53 s, max RSS 3313708 KB
+      Alignment handler took 2s 512ms mean over 4 threads
+      Processing all samples took 2s 306ms
+    t.pbbig.single.4: exit 0, TIME 2.09 s, max RSS 3271168 KB
+      Alignment handler took 1s 494ms mean over 4 threads
+      Processing all samples took 1s 850ms
+    t.pbbig.classic.5: exit 0, TIME 2.23 s, max RSS 3314660 KB
+      Alignment handler took 1s 939ms mean over 4 threads
+      Processing all samples took 2s 4ms
+    t.pbbig.single.5: exit 0, TIME 2.04 s, max RSS 3272148 KB
+      Alignment handler took 1s 522ms mean over 4 threads
+      Processing all samples took 1s 815ms
+-- ontbig (19:20:12)
+    t.ontbig.classic.1: exit 0, TIME 1.71 s, max RSS 3281588 KB
+      Alignment handler took 1s 367ms mean over 4 threads
+      Processing all samples took 1s 487ms
+    t.ontbig.single.1: exit 0, TIME 1.57 s, max RSS 3249632 KB
+      Alignment handler took 1s 323ms mean over 4 threads
+      Processing all samples took 1s 343ms
+    t.ontbig.classic.2: exit 0, TIME 1.69 s, max RSS 3279508 KB
+      Alignment handler took 1s 443ms mean over 4 threads
+      Processing all samples took 1s 451ms
+    t.ontbig.single.2: exit 0, TIME 1.57 s, max RSS 3246244 KB
+      Alignment handler took 1s 92ms mean over 4 threads
+      Processing all samples took 1s 334ms
+    t.ontbig.classic.3: exit 0, TIME 1.79 s, max RSS 3280708 KB
+      Alignment handler took 1s 327ms mean over 4 threads
+      Processing all samples took 1s 564ms
+    t.ontbig.single.3: exit 0, TIME 1.63 s, max RSS 3247248 KB
+      Alignment handler took 1s 320ms mean over 4 threads
+      Processing all samples took 1s 361ms
+    t.ontbig.classic.4: exit 0, TIME 1.75 s, max RSS 3278924 KB
+      Alignment handler took 1s 362ms mean over 4 threads
+      Processing all samples took 1s 515ms
+    t.ontbig.single.4: exit 0, TIME 1.56 s, max RSS 3251448 KB
+      Alignment handler took 1s 153ms mean over 4 threads
+      Processing all samples took 1s 342ms
+    t.ontbig.classic.5: exit 0, TIME 1.70 s, max RSS 3282244 KB
+      Alignment handler took 1s 225ms mean over 4 threads
+      Processing all samples took 1s 467ms
+    t.ontbig.single.5: exit 0, TIME 1.61 s, max RSS 3246808 KB
+      Alignment handler took 1s 446ms mean over 4 threads
+      Processing all samples took 1s 386ms

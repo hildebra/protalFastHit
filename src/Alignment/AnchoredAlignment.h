@@ -285,9 +285,12 @@ namespace protal {
         // m_query aligned to m_ref end to end, the operations appended to ops. Short reads on the window's aligner,
         // as before; long reads on one of their own, with WFA2's end-to-end kernels. WFA2 keeps the wavefronts of the
         // largest alignment it made and resets every one of them for each alignment, which costs a piece between
-        // two links that shares the aligner with gene-long flanks more than its alignment does.
+        // two links that shares the aligner with gene-long flanks more than its alignment does. The pieces' aligner traces
+        // back as the window's does.
         Status Piece(WFA2Wrapper2& window_aligner, int max_score, int& used, std::string& ops) {
-            if (m_indels && !m_pieces) m_pieces = std::make_unique<WFA2Wrapper2>(kMismatch, kGapOpen, kGapExtend, 0);
+            if (m_indels && !m_pieces) {
+                m_pieces = std::make_unique<WFA2Wrapper2>(kMismatch, kGapOpen, kGapExtend, 0, window_aligner.Traceback());
+            }
             WFA2Wrapper2& aligner = m_indels ? *m_pieces : window_aligner;
             aligner.Reset();
             if (m_indels) aligner.EndToEnd(m_query, m_ref, max_score - used);

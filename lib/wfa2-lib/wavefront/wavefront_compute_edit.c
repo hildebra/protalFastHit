@@ -343,6 +343,12 @@ void wavefront_compute_edit(
   }
   // Fetch previous wavefront, compute limits & initialize
   wavefront_t* const wf_prev = wf_components->mwavefronts[score_prev];
+  if (wf_prev == NULL || wf_prev->null) {
+    // Edit/indel depend only on the previous score; an empty frontier is final.
+    wf_components->mwavefronts[score_curr] = NULL;
+    wf_aligner->align_status.num_null_steps = INT_MAX;
+    return;
+  }
   const int lo = wf_prev->lo - 1;
   const int hi = wf_prev->hi + 1;
   //  wf_components->historic_min_lo = min_lo;
