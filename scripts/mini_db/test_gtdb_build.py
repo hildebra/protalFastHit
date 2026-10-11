@@ -779,7 +779,7 @@ class GeneSubsetTest(unittest.TestCase):
             kept = {m: int(g) for m, g in (line.rstrip("\n").split("\t") for line in fh)}
         self.assertEqual(sorted(kept.values()), self.subset)
         self.assertEqual(kept, {m: g for m, g in self.gene_ids.items() if g in self.subset})
-        same_files(self, self.db, self.copy, "internal_taxonomy.dmp", "species_priors.tsv", "genome2tiid.tsv")
+        same_files(self, self.db, self.copy, "internal_taxonomy.dmp", "species_priors.tsv", "ncbi_taxids.tsv", "genome2tiid.tsv")
         # The genomes with a gene kept: the archaea have none of the bacterial genes chosen here.
         self.assertRegex(self.derived, r"gene_neighbours\.tsv derived from the 1[2-6] genomes of [6-8] species kept: \d+ lines "
                                        r"\(over the 6 genes kept\)")
@@ -789,7 +789,7 @@ class GeneSubsetTest(unittest.TestCase):
         direct = os.path.join(self.tmp.name, "direct")
         run(CONVERT, "--gtdb", self.gtdb, "--outdir", direct, "--genes", self.spec)
         same_files(self, direct, self.copy, "reference.fna", "reference.map", "gene2geneid.tsv", "internal_taxonomy.dmp",
-                   "species_priors.tsv")
+                   "species_priors.tsv", "ncbi_taxids.tsv")
         self.assertEqual(full_reference(direct), full_reference(self.copy))
         # A file lists the genes too (its first column), with or without the species left out.
         listed = os.path.join(self.tmp.name, "genes.txt")

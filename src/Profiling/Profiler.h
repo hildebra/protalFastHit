@@ -4415,8 +4415,10 @@ namespace protal {
             // fragments its depth implies over its genome, and per-gene coverage; one column per gene id of the
             // database, so every file has the same columns) and .gene.log (statistics per gene hit). On `threads`
             // threads, each taxon's lines apart, then written in the order of the taxa: the same files.
+            // With `ncbi` (--ncbi_taxids), each profile line ends with the species' NCBI taxid and NCBI's name of it (NA, NA
+            // for a species the table lacks; ?, ? on the "?" line).
             void WriteSparseProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream &os_filtered=std::cout, std::ostream* os_total=nullptr, std::ostream* os_genes=nullptr,
-                                    size_t threads=1) {
+                                    size_t threads=1, ncbi_taxids::Table const* ncbi=nullptr) {
                 size_t max_gene_id = 0;
                 for (auto& [key, genome] : m_genome_loader.GetGenomeMap()) {
                     max_gene_id = std::max(max_gene_id, genome.GetGeneList().size());
@@ -4489,7 +4491,13 @@ namespace protal {
                     auto const& node = taxonomy.Get(key);
 
                     if (prediction) {
-                        filtered << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance << '\n';
+                        filtered << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance;
+                        if (ncbi) {
+                            auto const* row = ncbi->Get(key);
+                            if (row) filtered << '\t' << row->ncbi_taxid << '\t' << row->name;
+                            else filtered << "\tNA\tNA";
+                        }
+                        filtered << '\n';
                     }
 
                     if (os_total) {
@@ -4518,7 +4526,7 @@ namespace protal {
                     one_pass |= taxon_lines.prediction;
                 }
                 if (m_fill_unknown && m_composition && m_composition->HasUnknownShare()) {
-                    os_filtered << "?\t?\t" << m_composition->unknown_share << '\n';
+                    os_filtered << "?\t?\t" << m_composition->unknown_share << (ncbi ? "\t?\t?" : "") << '\n';
                 }
                 os_filtered.flush();
 

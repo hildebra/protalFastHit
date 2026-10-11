@@ -279,7 +279,7 @@ namespace protal::build {
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
     // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv
-    // and ancestry_sites.bin if the build wrote them, species_priors.tsv,
+    // and ancestry_sites.bin if the build wrote them, species_priors.tsv, ncbi_taxids.tsv,
     // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), and every presence model there is (AllModelFiles in
@@ -296,6 +296,7 @@ namespace protal::build {
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
         if (fs::exists(options.GetSuspectCopiesFile())) sources.push_back({Options::PROTAL_SUSPECT_COPIES_FILE, options.GetSuspectCopiesFile()});
         if (fs::exists(options.GetSpeciesPriorsFile())) sources.push_back({Options::PROTAL_SPECIES_PRIORS_FILE, options.GetSpeciesPriorsFile()});
+        if (fs::exists(options.GetNcbiTaxidsFile())) sources.push_back({Options::PROTAL_NCBI_TAXIDS_FILE, options.GetNcbiTaxidsFile()});
         if (fs::exists(options.GetSpeciesNeighboursFile())) sources.push_back({Options::PROTAL_SPECIES_NEIGHBOURS_FILE, options.GetSpeciesNeighboursFile()});
         if (fs::exists(options.GetCongenerGapsFile())) sources.push_back({Options::PROTAL_CONGENER_GAPS_FILE, options.GetCongenerGapsFile()});
         if (fs::exists(options.GetStrainAllelesFile())) sources.push_back({Options::PROTAL_STRAIN_ALLELES_FILE, options.GetStrainAllelesFile()});
@@ -695,9 +696,9 @@ namespace protal::build {
         bm.PrintResults();
     }
 
-    // Whether species_priors.tsv `file` is of the database's species: each of its taxids a species of the database's
-    // taxonomy with the same representative genome (a table converted from another release would give other species'
-    // values). Returns an error text, or "".
+    // Whether species_priors.tsv or ncbi_taxids.tsv `file` (taxid and rep_genome first) is of the database's species: each
+    // of its taxids a species of the database's taxonomy with the same representative genome (a table converted from
+    // another release would give other species' values). Returns an error text, or "".
     static std::string PriorsMatchTaxonomy(std::string const& file, protal::Options const& options) {
         auto const taxonomy_file = options.TaxonomyDbFile();
         auto input = taxonomy_file.Open();
@@ -726,7 +727,7 @@ namespace protal::build {
         return "";
     }
 
-    // --add_tables: stores tables (congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, species_priors.tsv) in the database by their file
+    // --add_tables: stores tables (congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, species_priors.tsv, ncbi_taxids.tsv) in the database by their file
     // names, as AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder
     // gets the files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
     static void AddTables(protal::Options const& options) {
@@ -751,6 +752,11 @@ namespace protal::build {
                 error = table.Read(is);
                 if (error.empty()) error = PriorsMatchTaxonomy(file, options);
                 summary = std::to_string(table.Size()) + " species, " + std::to_string(table.WithGenomeSize()) + " with a genome size";
+            } else if (error.empty() && name == Options::PROTAL_NCBI_TAXIDS_FILE) {
+                ncbi_taxids::Table table;
+                error = table.Read(is);
+                if (error.empty()) error = PriorsMatchTaxonomy(file, options);
+                summary = std::to_string(table.Size()) + " species, " + std::to_string(table.Named()) + " with a named NCBI species";
             } else if (error.empty() && name == Options::PROTAL_COLUMN_WEIGHTS_FILE) {
                 column_weights::Table table;
                 error = table.Read(is);

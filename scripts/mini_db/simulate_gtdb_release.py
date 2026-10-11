@@ -22,7 +22,9 @@ the taxonomy, so related species share diverged copies of the same marker genes:
 Every species gets one representative genome (RS_GCF_999SSS001.1) plus
 --genomes_per_species - 1 non-representative strains (GB_GCA_999SSSGGG.1).
 NCBI has not issued accessions in the 999xxxxxx range, so none of these collide
-with a real genome.
+with a real genome. The metadata's NCBI species taxids are made up (ncbi_columns):
+every third species and the other species' third and later genomes have an
+"uncultured <genus> sp." placeholder of their genus, as most GTDB species do.
 
 The marker universe comes from markers_r226.tsv (GTDB r226 bac120 + ar53 marker
 info). Species in d__Archaea carry the ar53 markers, all others bac120.
@@ -65,6 +67,7 @@ import io
 import math
 import os
 import random
+import re
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -414,6 +417,7 @@ class Simulator:
                 "rep_gtdb_acc": f"RS_GCF_999{sp['index']:03d}001.1",
                 "species": sp,
                 "is_rep": is_rep,
+                "number": g,
                 "divergence": divergence,
                 "strain": f"SIM-{g}",
                 "genes": genes,
@@ -457,10 +461,33 @@ def write_taxonomy(path, genomes):
             fh.write(f"{g['gtdb_acc']}\t{g['species']['lineage']}\n")
 
 
-def write_metadata(path, genomes):
+def ncbi_lineage(gtdb_lineage):
+    """A GTDB lineage as NCBI would name it: without GTDB's suffixes (g__Mockella_A -> g__Mockella)."""
+    return ";".join(re.sub(r"_[A-Z]+\b", "", rank) for rank in gtdb_lineage.split(";"))
+
+
+def ncbi_columns(g, placeholders):
+    """Made-up NCBI columns of genome g (ncbi_species_taxid, ncbi_taxid, ncbi_taxonomy, ncbi_taxonomy_unfiltered), as
+    gtdb_to_protal_db.py reads them for ncbi_taxids.tsv: every third species (by index) is one NCBI has no name for,
+    an "uncultured <genus> sp." placeholder of its genus (`placeholders`: {genus: taxid}, filled in order), as are the
+    other species' genomes from the third on; the rest are the NCBI species 1000000 + index. GTDB's filtered lineage
+    (ncbi_taxonomy) leaves a placeholder's species empty. Drawn from no generator: the release is the same otherwise."""
+    sp = g["species"]
+    lineage = ncbi_lineage(sp["lineage"])
+    genus = lineage.split(";")[5][3:]
+    if sp["index"] % 3 == 0 or g["number"] >= 3:
+        taxid = placeholders.setdefault(genus, 2000000 + len(placeholders) + 1)
+        filtered = lineage.rsplit(";", 1)[0] + ";s__"
+        return [str(taxid), str(taxid), filtered, filtered + f"uncultured {genus} sp."]
+    taxid = 1000000 + sp["index"]
+    return [str(taxid), str(taxid), lineage, lineage]
+
+
+def write_metadata(path, genomes, placeholders):
     cols = ["accession", "ambiguous_bases", "checkm2_completeness", "checkm2_contamination",
             "contig_count", "gc_percentage", "genome_size", "gtdb_genome_representative",
-            "gtdb_representative", "gtdb_taxonomy", "ncbi_organism_name"]
+            "gtdb_representative", "gtdb_taxonomy", "ncbi_organism_name", "ncbi_species_taxid", "ncbi_taxid",
+            "ncbi_taxonomy", "ncbi_taxonomy_unfiltered"]
     with gzip_text(path) as fh:
         fh.write("\t".join(cols) + "\n")
         for g in genomes:
@@ -470,6 +497,7 @@ def write_metadata(path, genomes):
                 g["gtdb_acc"], "0", "100.00", "0.00", str(len(g["contigs"])), f"{gc:.2f}",
                 str(len(seq)), g["rep_gtdb_acc"], "t" if g["is_rep"] else "f",
                 g["species"]["lineage"], f"{g['species']['name']} strain {g['strain']}",
+                *ncbi_columns(g, placeholders),
             ]) + "\n")
 
 
@@ -552,10 +580,11 @@ def main():
         fh.write(f"v{args.release}.0\nSynthetic sparse GTDB release written by simulate_gtdb_release.py "
                  f"(seed {args.seed}, {len(sim.species)} species, {len(sim.genomes)} genomes)\n")
 
+    placeholders = {}  # NCBI placeholder taxid per genus (ncbi_columns)
     for mset in ("bac120", "ar53"):
         genomes = [g for g in sim.genomes if g["species"]["set"] == mset]
         write_taxonomy(os.path.join(out, f"{mset}_taxonomy_{rel}.tsv"), genomes)
-        write_metadata(os.path.join(out, f"{mset}_metadata_{rel}.tsv.gz"), genomes)
+        write_metadata(os.path.join(out, f"{mset}_metadata_{rel}.tsv.gz"), genomes, placeholders)
         write_marker_files(os.path.join(out, "genomic_files_reps", f"{mset}_marker_genes_reps_{rel}"),
                            mset, markers_by_set[mset], [g for g in genomes if g["is_rep"]])
         write_marker_files(os.path.join(out, "genomic_files_all", f"{mset}_marker_genes_all_{rel}"),

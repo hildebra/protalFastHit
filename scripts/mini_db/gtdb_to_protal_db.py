@@ -4,8 +4,8 @@ of a protal database folder, ready for `protal --build`.
 
 Reads from the GTDB release directory:
   {bac120,ar53}_taxonomy_r<R>.tsv[.gz]     accession -> GTDB lineage
-  {bac120,ar53}_metadata_r<R>.tsv[.gz]     species representatives, CheckM quality and
-                                           genome sizes (optional; without it, genomes
+  {bac120,ar53}_metadata_r<R>.tsv[.gz]     species representatives, CheckM quality, genome
+                                           sizes and NCBI species taxids (optional; without it, genomes
                                            present in the *_marker_genes_reps_* files
                                            are the reps, and sizes are unknown)
   genomic_files_reps/*_marker_genes_reps_r<R>/**.fna[.gz]   marker genes of reps
@@ -41,7 +41,12 @@ Writes to <outdir>:
   species_priors.tsv     per species: the representative's markers, CheckM quality, GTDB's species
                          cluster, and (since 2026-10-08) the species' genome size (the mean of its
                          genomes' sizes corrected by CheckM), the representative's assembly size and
-                         the bases of its marker genes; --priors_only writes this file alone
+                         the bases of its marker genes; --priors_only writes this file and the next alone
+  ncbi_taxids.tsv        per species (since 2026-10-11): the NCBI species taxid most of its genomes have in the
+                         metadata (a tie: the representative's), NCBI's name of it, whether that names a species
+                         (named 0: an NCBI placeholder, e.g. "uncultured Lachnospiraceae bacterium"), the genomes
+                         with it, the species' genomes, and how many species share it; protal --ncbi_taxids adds the
+                         taxid and name to the profiles
   column_msa/<geneid>.faa.zst  the representatives' rows of GTDB-Tk's alignment of each marker, >taxid
   species_tree.nwk       GTDB's bacterial and archaeal trees under one root, leaves renamed to taxids:
                          both for protal --build's column weights (ColumnWeightsMsa.h; build inputs,
@@ -67,7 +72,8 @@ Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
       [--exclude_species FILE] [--genes LIST]
   gtdb_to_protal_db.py --from_db <db dir> [--exclude_species FILE] [--genes LIST] --outdir <copy>
-  gtdb_to_protal_db.py --gtdb <release dir> --priors_only --outdir <dir>   (then protal --add_tables)
+  gtdb_to_protal_db.py --gtdb <release dir> --priors_only --outdir <dir>   (then protal --add_tables
+      <dir>/species_priors.tsv,<dir>/ncbi_taxids.tsv --db DB)
 
 --genes keeps a subset of the marker genes (a reduced database: less memory, fewer hits): GTDB
 marker ids (PF00380.20, TIGR00001; PF00380 without its version matches any) or protal gene ids
@@ -301,6 +307,55 @@ def read_representatives(gtdb, rel):
                 if len(fields) > rep_col and fields[rep_col] == "t":
                     reps.add(normalize_accession(fields[acc_col]))
     return reps if found else None
+
+
+def read_ncbi_species(gtdb, rel):
+    """-> {accession: (NCBI species taxid, NCBI's name of that species, named)} from the metadata: ncbi_species_taxid,
+    the species of ncbi_taxonomy_unfiltered (NCBI's lineage as it is) for the name, and of ncbi_taxonomy, GTDB's copy of
+    that lineage with the names that are no species' left empty, for `named`: False for NCBI's placeholders, such as
+    "bacterium", "uncultured Lachnospiraceae bacterium" or "Streptomyces sp. IB2014 016-6", which NCBI files under the
+    deepest rank it can name (most GTDB species have only such a taxid, docs/claude/2026-10-11-ncbi-taxids). Every genome of the
+    release; {} for a release without ncbi_species_taxid."""
+    ncbi = {}
+    for mset in MARKER_SETS:
+        path = find_one(gtdb, f"{mset}_metadata_r{rel}")
+        if not path:
+            continue
+        with open_text(path) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            if "accession" not in header or "ncbi_species_taxid" not in header:
+                continue
+            col = {name: header.index(name) if name in header else None for name in
+                   ("accession", "ncbi_species_taxid", "ncbi_taxonomy", "ncbi_taxonomy_unfiltered", "ncbi_organism_name")}
+
+            def field(fields, name):
+                return fields[col[name]] if col[name] is not None and col[name] < len(fields) else ""
+
+            def species(lineage):
+                return next((rank[3:] for rank in reversed(lineage.split(";")) if rank.startswith("s__")), "")
+
+            for line in fh:
+                fields = line.rstrip("\n").split("\t")
+                taxid = field(fields, "ncbi_species_taxid")
+                if not taxid.isdigit() or int(taxid) == 0:
+                    continue
+                named = species(field(fields, "ncbi_taxonomy"))
+                name = species(field(fields, "ncbi_taxonomy_unfiltered")) or named or field(fields, "ncbi_organism_name")
+                ncbi[normalize_accession(field(fields, "accession"))] = (int(taxid), name, bool(named))
+    return ncbi
+
+
+def ncbi_majority(genomes, rep):
+    """The NCBI species taxid of a GTDB species: the one most of its genomes have (`genomes`: their read_ncbi_species
+    entries), a tie going to the representative's (`rep`, its entry or None), else to the smallest taxid. -> (its
+    entry, the genomes with it)."""
+    counts = {}
+    for entry in genomes:
+        counts[entry[0]] = counts.get(entry[0], 0) + 1
+    most = max(counts.values())
+    tied = [taxid for taxid, n in counts.items() if n == most]
+    taxid = rep[0] if rep is not None and rep[0] in tied else min(tied)
+    return next(entry for entry in genomes if entry[0] == taxid), most
 
 
 def marker_files(gtdb, subdir, kind, rel):
@@ -572,8 +627,9 @@ def species_taxids(taxonomy_rows, names, what):
 # full_reference.fna, and those build_gtdb_database.py puts beside them: the models (model_pmml.MODEL_FILES)
 # and gene_neighbours.tsv (gene_neighbours.py; per clade). A copy without some species derives
 # gene_neighbours.tsv anew from gene_positions.tsv, without their genomes, when the folder has one.
+NCBI_TAXIDS = "ncbi_taxids.tsv"
 CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv", "gene_neighbours.tsv",
-                   "species_priors.tsv", "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml",
+                   "species_priors.tsv", NCBI_TAXIDS, "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml",
                    "species_tree.nwk")
 # GTDB's own alignments of the representatives' marker proteins and its tree, for protal --build's column weights
 # (ColumnWeightsMsa.h, --column_weights_alignment msa): column_msa/<geneid>.faa[.zst] (">taxid" and the aligned row,
@@ -1107,10 +1163,10 @@ def main():
                          "takes for the column weights where they are (--column_weights_alignment auto); without them it "
                          "aligns the proteins itself")
     ap.add_argument("--priors_only", action="store_true",
-                    help="write species_priors.tsv only (into --outdir, nothing else there is touched): the priors with "
-                         "the genome sizes for a database converted from this release before 2026-10-08, to store with "
-                         "protal --add_tables (the taxids are the same for a release, with or without --exclude_species "
-                         "and --genes)")
+                    help="write species_priors.tsv and ncbi_taxids.tsv only (into --outdir, nothing else there is touched): "
+                         "the priors with the genome sizes for a database converted from this release before 2026-10-08, "
+                         "the NCBI taxids for one converted before 2026-10-11, to store with protal --add_tables (the "
+                         "taxids are the same for a release, with or without --exclude_species and --genes)")
     args = ap.parse_args()
     if bool(args.gtdb) == bool(args.from_db):
         ap.error("give --gtdb or --from_db")
@@ -1245,10 +1301,38 @@ def main():
     phase(f"species priors ({with_dups} representatives with a duplicated marker, CheckM quality for {with_quality}, "
           f"species clusters for {with_cluster}, genome sizes for {with_size} of {len(taxid)} species"
           + ("" if clusters else "; no sp_clusters file") + ("" if sizes else "; no genome_size in the metadata") + ")")
+
+    # ncbi_taxids.tsv: each species' NCBI species taxid, the one most of its genomes have in the metadata (a tie: the
+    # representative's), for protal --ncbi_taxids (NcbiTaxids.h). named 0: NCBI names no species for them, the taxid is a
+    # placeholder of NCBI's (docs/claude/2026-10-11-ncbi-taxids); shared_by: the species of the release with the same one.
+    ncbi = read_ncbi_species(args.gtdb, rel)
+    genomes_of = {}
+    for acc, entry in ncbi.items():
+        if acc in lineage:
+            genomes_of.setdefault(lineage[acc].split(";")[-1], []).append(entry)
+    choice = {sp: ncbi_majority(genomes_of[sp], ncbi.get(species_rep[sp])) for sp in taxid if sp in genomes_of}
+    shared_by = {}
+    for (entry, _) in choice.values():
+        shared_by[entry[0]] = shared_by.get(entry[0], 0) + 1
+    if ncbi:
+        with open(out(NCBI_TAXIDS), "w", newline="\n") as fh:
+            fh.write("taxid\trep_genome\tspecies\tncbi_taxid\tncbi_name\tnamed\tncbi_genomes\tgenomes\tshared_by\n")
+            for sp in sorted(choice, key=lambda s: taxid[s]):
+                (ncbi_taxid, name, named), n = choice[sp]
+                fh.write(f"{taxid[sp]}\t{species_rep[sp]}\t{sp[3:]}\t{ncbi_taxid}\t{name}\t{int(named)}\t{n}\t"
+                         f"{len(genomes_of[sp])}\t{shared_by[ncbi_taxid]}\n")
+        named = sum(entry[2] for entry, _ in choice.values())
+        phase(f"NCBI species taxids ({len(choice)} of {len(taxid)} species, {named} of them named NCBI species, "
+              f"{sum(shared_by[entry[0]] == 1 for entry, _ in choice.values())} with a taxid of their own)")
+    else:
+        if os.path.exists(out(NCBI_TAXIDS)):
+            os.remove(out(NCBI_TAXIDS))
+        phase("no NCBI species taxids (no ncbi_species_taxid in the metadata)")
     if args.priors_only:
         shutil.rmtree(tmp, ignore_errors=True)
-        sys.stderr.write(f"GTDB r{rel} -> {out('species_priors.tsv')} ({len(taxid)} species; store it in a database built "
-                         f"from this release with protal --add_tables {out('species_priors.tsv')} --db DB)\n")
+        tables = ",".join(out(name) for name in ("species_priors.tsv", NCBI_TAXIDS) if os.path.exists(out(name)))
+        sys.stderr.write(f"GTDB r{rel} -> {tables} ({len(taxid)} species; store them in a database built from this release "
+                         f"with protal --add_tables {tables} --db DB)\n")
         return
 
     # Each gene's records, sorted by taxid, then all genes in gene id order (--order gene), or merged

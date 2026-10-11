@@ -328,6 +328,33 @@ namespace protal {
         genomes.SetSpeciesPriors(std::move(table));
     }
 
+    // The species' NCBI taxids (ncbi_taxids.tsv, NcbiTaxids.h) for the profiles' last columns, with --ncbi_taxids. Exits 2
+    // if the database has none (before any read is aligned), 8 if the file cannot be read.
+    static void LoadNcbiTaxids(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        auto const file = options.NcbiTaxidsDbFile();
+        if (!file.Exists()) {
+            std::cerr << "--ncbi_taxids: the database has no " << Options::PROTAL_NCBI_TAXIDS_FILE << " (converted before "
+                      << "2026-10-11): write it with scripts/mini_db/gtdb_to_protal_db.py --gtdb RELEASE --priors_only --outdir DIR "
+                      << "from the GTDB release the database was converted from, and store it with protal --add_tables DIR/"
+                      << Options::PROTAL_NCBI_TAXIDS_FILE << " --db DB" << std::endl;
+            exit(2);
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        ncbi_taxids::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid NCBI taxids " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << "NCBI taxids: " << table.Size() << " species (" << file.Name() << "), " << table.Named()
+            << " of them a named NCBI species, the others an NCBI placeholder" << std::endl;
+        genomes.SetNcbiTaxids(std::move(table));
+    }
+
     // Each species' nearest congeners in the database (species_neighbours.tsv, SpeciesNeighbours.h), for the
     // database-neighbourhood features and unexpected_congener_fit_share. Exits 8 if the file cannot be read.
     static void LoadSpeciesNeighbours(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
@@ -1451,7 +1478,8 @@ namespace protal {
             std::ofstream os_genes(options.ProfileFile(i) + ".genes.log", std::ios::out);
             std::ofstream os_composition(options.ProfileFile(i) + ".composition", std::ios::out);
 
-            profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed, threads_per_sample);
+            profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed, threads_per_sample,
+                                       options.NcbiTaxids() ? &genomes.GetNcbiTaxids() : nullptr);
             profile.WriteGeneProfile(taxonomy, filter, &os_genes, threads_per_sample);
             composition::WriteHeader(os_composition);
             composition::WriteRow(os_composition, options.GetSampleId(i), *profile.GetComposition());
@@ -3223,8 +3251,8 @@ namespace protal {
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");
         std::vector<profiler::TaxonFilterObj> loaded_models;
-        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, gaps_log, foreign_log, weights_log, sites_log,
-                neighbours_log;
+        std::ostringstream conservation_log, suspect_log, priors_log, ncbi_log, species_neighbours_log, gaps_log, foreign_log, weights_log,
+                sites_log, neighbours_log;
         std::ostringstream alleles_log;
         bool const need_alleles = !options.BuildMode() && (run_alignment || run_profiling);
         std::optional<gene_neighbours::Table> neighbours;
@@ -3239,6 +3267,7 @@ namespace protal {
                 tables.push_back(std::async(std::launch::async, [&]() { LoadGeneConservation(options, db.GetGenomes(), conservation_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); }));
+                if (options.NcbiTaxids()) tables.push_back(std::async(std::launch::async, [&]() { LoadNcbiTaxids(options, db.GetGenomes(), ncbi_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesNeighbours(options, db.GetGenomes(), species_neighbours_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadCongenerGaps(options, db.GetGenomes(), gaps_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); }));
@@ -3308,12 +3337,13 @@ namespace protal {
                 }
             }
             if (concurrent) {
-                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << species_neighbours_log.str() << gaps_log.str()
-                          << foreign_log.str() << weights_log.str() << sites_log.str();
+                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << ncbi_log.str() << species_neighbours_log.str()
+                          << gaps_log.str() << foreign_log.str() << weights_log.str() << sites_log.str();
             } else {
                 LoadGeneConservation(options, db.GetGenomes());
                 LoadSuspectCopies(options, db.GetGenomes());
                 LoadSpeciesPriors(options, db.GetGenomes());
+                if (options.NcbiTaxids()) LoadNcbiTaxids(options, db.GetGenomes());
                 LoadSpeciesNeighbours(options, db.GetGenomes());
                 LoadCongenerGaps(options, db.GetGenomes());
                 LoadForeignRates(options, db.GetGenomes());

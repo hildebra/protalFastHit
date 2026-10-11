@@ -146,8 +146,49 @@ class MiniDbTest(unittest.TestCase):
         with open(os.path.join(only, "keep.txt"), "w") as fh:
             fh.write("left alone\n")
         run(CONVERT, "--gtdb", self.gtdb, "--outdir", only, "--priors_only")
-        self.assertEqual(sorted(os.listdir(only)), ["keep.txt", "species_priors.tsv"])
-        same_files(self, self.db, only, "species_priors.tsv")
+        self.assertEqual(sorted(os.listdir(only)), ["keep.txt", "ncbi_taxids.tsv", "species_priors.tsv"])
+        same_files(self, self.db, only, "species_priors.tsv", "ncbi_taxids.tsv")
+
+    def test_ncbi_taxids(self):
+        # ncbi_taxids.tsv (since 2026-10-11): each species' NCBI species taxid, the one most of its genomes have in the
+        # metadata. The synthetic release's (simulate_gtdb_release.ncbi_columns): Mockella alpha and beta are NCBI species
+        # of their own, but their third genomes "uncultured Mockella sp."; Fakibacter gamma has only its genus's placeholder.
+        with open(os.path.join(self.db, "ncbi_taxids.tsv")) as fh:
+            rows = {row["species"]: row for row in csv.DictReader(fh, delimiter="\t")}
+        tax = {r[3]: r for r in self.taxonomy().values() if r[4] == "species"}
+        self.assertEqual(sorted(rows), sorted(name[3:] for name in tax))
+        for name, row in rows.items():
+            self.assertEqual((row["taxid"], row["rep_genome"]), (tax["s__" + name][0], tax["s__" + name][6]), name)
+        self.assertEqual([rows["Mockella alpha"][c] for c in ("ncbi_taxid", "ncbi_name", "named", "ncbi_genomes", "genomes", "shared_by")],
+                         ["1000001", "Mockella alpha", "1", "2", "3", "1"])
+        self.assertEqual(rows["Mockella beta"]["ncbi_taxid"], "1000002")
+        self.assertEqual([rows["Fakibacter gamma"][c] for c in ("ncbi_name", "named", "ncbi_genomes", "genomes", "shared_by")],
+                         ["uncultured Fakibacter sp.", "0", "3", "3", "1"])
+
+        # Species that share a placeholder: the third and sixth of six, both of genus Mockella (--priors_only, which
+        # writes the table as the conversion does).
+        lineages = os.path.join(self.tmp.name, "six_lineages.txt")
+        with open(lineages, "w") as fh:
+            for i, epithet in enumerate(("alpha", "beta", "gamma", "delta", "epsilon", "zeta")):
+                genus = "Mockella" if i in (0, 2, 5) else "Fakibacter"
+                fh.write(f"d__Bacteria;p__Simulatota;c__Simulatia;o__Simulales;f__Simulaceae;g__{genus};s__{genus} {epithet}\n")
+        release, only = os.path.join(self.tmp.name, "gtdb_six"), os.path.join(self.tmp.name, "six_priors")
+        run(SIMULATE, "--outdir", release, "--genome_length", "20000", "--lineages", lineages, "--genomes_per_species", "2")
+        run(CONVERT, "--gtdb", release, "--outdir", only, "--priors_only")
+        with open(os.path.join(only, "ncbi_taxids.tsv")) as fh:
+            six = {row["species"]: row for row in csv.DictReader(fh, delimiter="\t")}
+        self.assertEqual(six["Mockella gamma"]["ncbi_taxid"], six["Mockella zeta"]["ncbi_taxid"])
+        self.assertEqual([six["Mockella zeta"][c] for c in ("ncbi_name", "named", "shared_by")], ["uncultured Mockella sp.", "0", "2"])
+        self.assertEqual([six["Fakibacter delta"][c] for c in ("named", "ncbi_genomes", "genomes", "shared_by")], ["1", "2", "2", "1"])
+
+    def test_ncbi_majority(self):
+        # The taxid most genomes have; a tie goes to the representative's, else to the smallest taxid.
+        from gtdb_to_protal_db import ncbi_majority
+        a, b, c = (5, "Mockella alpha", True), (9, "uncultured Mockella sp.", False), (7, "Mockella beta", True)
+        self.assertEqual(ncbi_majority([b, a, b], a), (b, 2))
+        self.assertEqual(ncbi_majority([b, a], a), (a, 1))
+        self.assertEqual(ncbi_majority([b, a, c], None), (a, 1))
+        self.assertEqual(ncbi_majority([b, c], (11, "other", True)), (c, 1))
 
     def test_genome_length_range(self):
         # --genome_length LOW-HIGH: each species' background drawn from the range, shared by its genomes (strains differ

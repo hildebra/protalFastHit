@@ -27,6 +27,7 @@
 #include "SamHandler.h"
 #include "GeneIncongruence.h"
 #include "SpeciesPriors.h"
+#include "NcbiTaxids.h"
 #include "SpeciesNeighbours.h"
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
@@ -134,7 +135,8 @@ namespace protal {
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_ont", "PMML model file for ONT samples, given as --model. Default: --model if given, else the database's model_ONT.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""))
-                ("no_unknown_share", "Report the called species' abundances as shares of their summed depth (adding up to 1), as protal did before 2026-10-08. By default, where the database gives genome sizes (species_priors.tsv) and the SAM says how many reads were scanned, the profile ends with a line '?' of the genomes the called species do not explain (the reads they leave over, at their average genome size), and the abundances are shares of all genomes sequenced. <profile>.composition gives the numbers either way.");
+                ("no_unknown_share", "Report the called species' abundances as shares of their summed depth (adding up to 1), as protal did before 2026-10-08. By default, where the database gives genome sizes (species_priors.tsv) and the SAM says how many reads were scanned, the profile ends with a line '?' of the genomes the called species do not explain (the reads they leave over, at their average genome size), and the abundances are shares of all genomes sequenced. <profile>.composition gives the numbers either way.")
+                ("ncbi_taxids", "Add two columns to each line of the profile: the species' NCBI taxid and NCBI's name of it, from the database's ncbi_taxids.tsv (per GTDB species the NCBI species taxid most of its genomes have in GTDB's metadata). For most GTDB species NCBI names no species: their taxid is one of NCBI's placeholders ('uncultured Lachnospiraceae bacterium', 'Streptomyces sp. IB2014 016-6'), which NCBI files under the deepest rank it can name, and which several GTDB species may share (the table's named and shared_by columns say which). NA for a species the table lacks; the line '?' gets '?'. A database converted before 2026-10-11 gets the table with gtdb_to_protal_db.py --priors_only and --add_tables.");
 
         // Strain / SNP options
         options.add_options("Strains")
@@ -178,16 +180,16 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes) or species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes), species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08) or ncbi_taxids.tsv (gtdb_to_protal_db.py --priors_only too: the species' NCBI taxids for --ncbi_taxids, for a database converted before 2026-10-11). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
                 ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
@@ -266,6 +268,7 @@ namespace protal {
         bool serial_index_passes = false;
         bool profile_ahead = false;
         bool no_unknown_share = false;
+        bool ncbi_taxids = false;
         size_t index_batch_kb = 1024;
 
         // build
@@ -402,6 +405,7 @@ namespace protal {
         bool m_serial_index_passes = false;
         bool m_profile_ahead = false;
         bool m_no_unknown_share = false;
+        bool m_ncbi_taxids = false;
         size_t m_index_batch_kb = 1024;
 
         size_t m_current_index = 0;
@@ -504,6 +508,7 @@ namespace protal {
         static inline const std::string PROTAL_GENE_CONSERVATION_FILE = gene_conservation::kFileName;
         static inline const std::string PROTAL_SUSPECT_COPIES_FILE = gene_incongruence::kFileName;
         static inline const std::string PROTAL_SPECIES_PRIORS_FILE = species_priors::kFileName;
+        static inline const std::string PROTAL_NCBI_TAXIDS_FILE = ncbi_taxids::kFileName;
         static inline const std::string PROTAL_SPECIES_NEIGHBOURS_FILE = species_neighbours::kFileName;
         static inline const std::string PROTAL_CONGENER_GAPS_FILE = congener_gaps::kFileName;
         static inline const std::string PROTAL_STRAIN_ALLELES_FILE = strain_alleles::kFileName;
@@ -588,6 +593,7 @@ namespace protal {
                 m_serial_index_passes(d.serial_index_passes),
                 m_profile_ahead(d.profile_ahead),
                 m_no_unknown_share(d.no_unknown_share),
+                m_ncbi_taxids(d.ncbi_taxids),
                 m_index_batch_kb(d.index_batch_kb),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
@@ -862,8 +868,8 @@ namespace protal {
 
         // The tables --add_tables may store, by file name.
         static std::vector<std::string> AddableTables() {
-            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE, PROTAL_STRAIN_ALLELES_FILE,
-                     PROTAL_COLUMN_WEIGHTS_FILE };
+            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE, PROTAL_NCBI_TAXIDS_FILE,
+                     PROTAL_STRAIN_ALLELES_FILE, PROTAL_COLUMN_WEIGHTS_FILE };
         }
 
         // --no_allele_scores: candidates scored against the reference alone, not their species' strain alleles.
@@ -1088,6 +1094,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_SPECIES_PRIORS_FILE;
         }
 
+        // Each species' NCBI species taxid (gtdb_to_protal_db.py, NcbiTaxids.h), packed by --build.
+        std::string GetNcbiTaxidsFile() const {
+            return m_database_path + "/" + PROTAL_NCBI_TAXIDS_FILE;
+        }
+
         // Each species' nearest congeners (SpeciesNeighbours.h), written and packed by --build.
         std::string GetSpeciesNeighboursFile() const {
             return m_database_path + "/" + PROTAL_SPECIES_NEIGHBOURS_FILE;
@@ -1191,6 +1202,11 @@ namespace protal {
         // The database's species_priors.tsv (the converter's); Exists() is false if it has none.
         db::DbFile SpeciesPriorsDbFile() const {
             return DbFileNamed(PROTAL_SPECIES_PRIORS_FILE, GetSpeciesPriorsFile());
+        }
+
+        // The database's ncbi_taxids.tsv (the converter's since 2026-10-11); Exists() is false if it has none.
+        db::DbFile NcbiTaxidsDbFile() const {
+            return DbFileNamed(PROTAL_NCBI_TAXIDS_FILE, GetNcbiTaxidsFile());
         }
 
         // The database's species_neighbours.tsv (--build's since 2026-10-06); Exists() is false if it has none.
@@ -1589,6 +1605,11 @@ namespace protal {
         // (Composition.h).
         bool NoUnknownShare() const {
             return m_no_unknown_share;
+        }
+
+        // --ncbi_taxids: the profile's lines end with the species' NCBI taxid and name (the database's ncbi_taxids.tsv).
+        bool NcbiTaxids() const {
+            return m_ncbi_taxids;
         }
 
         // --index_batch_kb: bytes of the reference per batch in the parallel index passes.
@@ -3091,6 +3112,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool serial_index_passes = result.count("serial_index_passes");
             bool profile_ahead = result.count("profile_ahead");
             bool no_unknown_share = result.count("no_unknown_share");
+            bool ncbi_taxids = result.count("ncbi_taxids");
             size_t index_batch_kb = std::max<size_t>(result["index_batch_kb"].as<size_t>(), 1);
             bool force = result.count("force");
 
@@ -3270,6 +3292,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.serial_index_passes      = serial_index_passes;
             d.profile_ahead  = profile_ahead;
             d.no_unknown_share         = no_unknown_share;
+            d.ncbi_taxids              = ncbi_taxids;
             d.index_batch_kb           = index_batch_kb;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);

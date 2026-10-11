@@ -32,6 +32,7 @@ databases are in [development.md](development.md).
 | `ancestry_sites.bin` | optional (since 2026-10-11, `--build`; `--no_ancestry_sites`: none): every species' copy of each marker gene with its ancestry sites (where its copy differs from the consensus of its congeners' copies, and the indels they share), computed by the build from `species_neighbours.tsv`, `congener_gaps.tsv` and `column_weights.tsv` as a run would compute them on a copy's first record; a run decodes them instead (computing them was half of a sample's profiling at r226 v23: [report](claude/2026-10-11-r226-v23/README.md)). Binary: per copy the positions, bases and indels, varint-coded. Without it, or with `--no_site_weights`, a run computes them as before; the features are the same ([features.md](features.md#which-side-the-reads-take-ancestry-079)) |
 | `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the full reference's marker genes (every species' alike, a few genomes each) that landed on it and how many came from other species and genera, every copy listed (`scripts/foreign_rates.py`, stored with `--add_tables`; `build_gtdb_database.py --foreign-rates` does both for each database), for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); until 2026-10-08 the scan read the genomes at hand, which leaked the simulation's species ([features.md](features.md#the-foreign-features-leak)) |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)); since 2026-10-08 also its genome size and the share of it its marker genes cover, from which a run tells how much of a sample the called species explain and the profile's unknown share ([running.md](running.md#what-the-called-species-explain-the-unknown-share)) |
+| `ncbi_taxids.tsv` | optional (since 2026-10-11): each species' NCBI species taxid, the one most of its GTDB genomes have, NCBI's name of it and whether that is a named species or one of NCBI's placeholders ([below](#ncbi-taxids)); read only by runs with `--ncbi_taxids` |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
@@ -977,6 +978,7 @@ It writes:
   seek table at the end, so that `protal --build` decompresses it on several threads; the `zstd`
   command reads it as any other file;
 - `species_priors.tsv` ([below](#species-priors));
+- `ncbi_taxids.tsv` ([below](#ncbi-taxids));
 - `model_pe.xml`;
 - for your own use, `gene2geneid.tsv` (marker id to protal gene id) and `genome2tiid.tsv`
   (accession, species taxid, representative, lineage).
@@ -994,7 +996,7 @@ one-command route.
 | `--from_db` | | copy a converted folder instead of reading the release (with `--exclude_species` and `--genes`) |
 | `--genes` | | only these marker genes ([reduced marker sets](#reduced-marker-sets)) |
 | `--order` | `gene` | `reference.fna` by gene, then taxon (compresses ~2x better), or `genome` |
-| `--priors_only` | off | write `species_priors.tsv` alone into `--outdir`, touching nothing else there ([below](#species-priors)) |
+| `--priors_only` | off | write `species_priors.tsv` and `ncbi_taxids.tsv` alone into `--outdir`, touching nothing else there ([below](#species-priors)) |
 
 #### Species priors
 
@@ -1036,6 +1038,36 @@ The first ten columns come out as before for a database `build_gtdb_database.py`
 passes `--release`), so a model trained with `+priors` scores the same. A conversion run without
 `--release` had left CheckM's and the clusters' values unknown (fixed on 2026-10-08: the release
 found from the file names serves them too), and its table now gains them.
+
+#### NCBI taxids
+
+GTDB's species have no numeric ids, but its metadata gives every genome NCBI's species taxid
+(`ncbi_species_taxid`). Since 2026-10-11 the converter writes `ncbi_taxids.tsv`, which gives each
+species the NCBI species taxid most of its genomes have. A tie goes to the representative's taxid,
+else to the smallest. `protal --ncbi_taxids` adds that taxid and its name to the profiles.
+
+| Column | |
+|---|---|
+| `taxid`, `rep_genome`, `species` | the species in the database, its representative and its GTDB name |
+| `ncbi_taxid`, `ncbi_name` | the majority NCBI species taxid, and NCBI's name of it (the species of `ncbi_taxonomy_unfiltered`) |
+| `named` | 1 if NCBI names a species by it; 0 if it is one of NCBI's placeholders ("bacterium", "uncultured Lachnospiraceae bacterium", "Streptomyces sp. IB2014 016-6"), which GTDB's filtered NCBI lineage (`ncbi_taxonomy`) leaves out |
+| `ncbi_genomes`, `genomes` | the species' genomes with that taxid, and all its genomes |
+| `shared_by` | the species of the release with the same taxid (1: this one alone) |
+
+At GTDB r226, 17.5% of the 143,614 species get a named NCBI species and 82.5% a placeholder.
+Of the placeholders, 16,440 species have one of their own and 102,010 share one, up to 2,311
+species on one taxid ("uncultured Clostridia bacterium"). NCBI files a placeholder under the
+deepest rank it can name, so NCBI's tools place such a species there, not at species level. NCBI
+also lumps species that GTDB splits: *E. coli* covers eight GTDB species. And it takes over
+mislabelled genomes: 94,012 species have a single genome, and 58 GTDB species, most of them MAGs
+of other genera, have "Akkermansia muciniphila" as their majority. `ncbi_genomes` and `shared_by`
+show how far a taxid can be trusted ([report](claude/2026-10-11-ncbi-taxids.md)). A database
+converted before 2026-10-11 gets the table as it gets the priors, without a rebuild:
+
+```bash
+python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --priors_only --outdir /tmp/priors -t 16
+protal --add_tables /tmp/priors/ncbi_taxids.tsv --db /data/protal_r226_db
+```
 
 #### Gene neighbours
 
@@ -1420,7 +1452,7 @@ Then make it the database's model of its read type with `protal --add_model trai
 `<prefix>.thresholds.tsv` is a start.
 
 The per-copy tables a run reads go in the same way, by their file names: `protal --add_tables foreign_rates.tsv --db DB`
-(also `congener_gaps.tsv`, `strain_alleles.tsv`, and `species_priors.tsv`: [species priors](#species-priors)). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
+(also `congener_gaps.tsv`, `strain_alleles.tsv`, `species_priors.tsv` and `ncbi_taxids.tsv`: [species priors](#species-priors), [NCBI taxids](#ncbi-taxids)). `scripts/foreign_rates.py --db DB --full-reference DB/full_reference.fna.zst --out
 foreign_rates.tsv` makes the first: error-free reads every `--stride` bases (250) of at most `--per-header` (10) copies
 of each species' gene in the full reference (`simulate_metagenomes --tiles --tile_fasta --tile_per_header`; the reads
 named `<taxid_gene>:<record>:<start>`, the headers' records and tiles in `<tiles>.sources.tsv`), aligned against the

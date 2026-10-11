@@ -45,6 +45,7 @@
 #include "GeneIncongruence.h"
 #include "GeneNeighbours.h"
 #include "SpeciesPriors.h"
+#include "NcbiTaxids.h"
 #include "SpeciesNeighbours.h"
 #include "AncestrySites.h"
 #include "CongenerGapsTable.h"
@@ -854,6 +855,7 @@ namespace protal {
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
         gene_incongruence::Table m_suspect_copies;     // empty: every gene copy is evidence of its species
         species_priors::Table m_species_priors;        // empty: every species' priors unknown
+        ncbi_taxids::Table m_ncbi_taxids;              // empty unless --ncbi_taxids
         species_neighbours::Table m_species_neighbours;  // empty: no species' congeners known (SpeciesNeighbours.h)
         congener_gaps::Table m_congener_gaps;  // empty: no copy's gap to its congeners known (CongenerGapsTable.h)
         foreign_rates::Table m_foreign_rates;  // empty: no copy's foreign reads known (ForeignRatesTable.h)
@@ -1192,6 +1194,15 @@ namespace protal {
 
         void SetSpeciesPriors(species_priors::Table table) {
             m_species_priors = std::move(table);
+        }
+
+        // Each species' NCBI species taxid (NcbiTaxids.h), for the profiles of --ncbi_taxids; empty unless set.
+        ncbi_taxids::Table const& GetNcbiTaxids() const {
+            return m_ncbi_taxids;
+        }
+
+        void SetNcbiTaxids(ncbi_taxids::Table table) {
+            m_ncbi_taxids = std::move(table);
         }
 
         // Each species' nearest congeners in the database by the distance of their references (SpeciesNeighbours.h),

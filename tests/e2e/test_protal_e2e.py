@@ -2550,6 +2550,60 @@ class ReadTypeModelTest(DbTest):
         for row in logged:
             self.assertEqual(row["GenomeSize"], doubled[row["TaxID"]])
 
+    def test_ncbi_taxids(self):
+        # --ncbi_taxids (since 2026-10-11): each profile line ends with the species' NCBI taxid and name, from the
+        # database's ncbi_taxids.tsv (gtdb_to_protal_db.py: the mini release's Fakibacter gamma has only a placeholder);
+        # the columns before are the same. A database without the table stops the run before it profiles; --add_tables
+        # stores one, if it is of the database's species.
+        table = {row["taxid"]: row for row in read_dicts(db_file("ncbi_taxids.tsv"))}
+        rc, log = self.profile_only(DB, "out_ncbi", "--ncbi_taxids")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertRegex(log, r"NCBI taxids: 3 species \(.*ncbi_taxids\.tsv.*\), 2 of them a named NCBI species")
+        before = baseline().text("sa.profile").splitlines()
+        lines = read_text(self.path("out_ncbi", "sa.profile")).splitlines()
+        self.assertEqual(len(lines), len(before))
+        for line, plain in zip(lines, before):
+            fields = line.split("\t")
+            self.assertEqual("\t".join(fields[:3]), plain)
+            if fields[0] == "?":
+                self.assertEqual(fields[3:], ["?", "?"])
+            else:
+                row = table[species()[fields[1].split(";")[-1]]]
+                self.assertEqual(fields[3:], [row["ncbi_taxid"], row["ncbi_name"]])
+        self.assertEqual(sorted(line.split("\t")[4] for line in lines[:-1]),
+                         ["Mockella alpha", "Mockella beta", "uncultured Fakibacter sp."])
+
+        rc, log = self.profile_only(symlink_db(self.path("db_without_ncbi"), skip=("ncbi_taxids.tsv",)), "out_no_ncbi", "--ncbi_taxids")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--ncbi_taxids: the database has no ncbi_taxids.tsv", log)
+        self.assertFalse(os.path.exists(self.path("out_no_ncbi", "sa.profile")))
+
+        db, bundle = self.copy("db_ncbi")
+        os.makedirs(self.path("ncbi_tables"))
+        stored = self.path("ncbi_tables", "ncbi_taxids.tsv")
+        with open(db_file("ncbi_taxids.tsv")) as fh:
+            lines = fh.read().splitlines()
+        header, rows = lines[0].split("\t"), [line.split("\t") for line in lines[1:]]
+        name = header.index("ncbi_name")
+        for row in rows:
+            row[name] = "renamed " + row[name]
+        rows[0][header.index("rep_genome")] = "GCF_000000001.1"  # another release's
+        with open(stored, "w") as fh:
+            fh.write("\n".join("\t".join(r) for r in [header] + rows) + "\n")
+        rc, log = run(self.work, "--add_tables", stored, "--db", db, "-t", "2")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("in the database (converted from another GTDB release?)", log)
+        rows[0][header.index("rep_genome")] = table[rows[0][0]]["rep_genome"]
+        with open(stored, "w") as fh:
+            fh.write("\n".join("\t".join(r) for r in [header] + rows) + "\n")
+        rc, log = run(self.work, "--add_tables", stored, "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"{stored}: 3 species, 2 with a named NCBI species", log)
+        rc, log = self.profile_only(db, "out_renamed", "--ncbi_taxids")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(all(line.split("\t")[4].startswith("renamed ")
+                            for line in read_text(self.path("out_renamed", "sa.profile")).splitlines()[:-1]))
+
     def test_add_model_for_a_read_type(self):
         db, bundle = self.copy("db_add")
         rc, log = self.profile_only(db, "out_pe")
