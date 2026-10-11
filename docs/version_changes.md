@@ -1,7 +1,7 @@
-# What changed from protal 0.6.0a to 0.8.0
+# What changed from protal 0.6.0a to 0.8.1
 
 The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026), the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.9 on 2026-10-07) and 0.8.0 (2026-10-09, branch `audit-fixes`) are compared here:
+2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09) and 0.8.1 (2026-10-11, branch `audit-fixes`) are compared here:
 what changed, and how every version scores on the same simulated data in detection, abundance,
 strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
@@ -22,6 +22,91 @@ for this page.
 | 0.7.8 | `5de3224` | 2026-10-06 | 16 | GTDB-scale speed (paired-end run 42 → 33 s, HiFi 15.6 → 12.3 s on r226, the same outputs): AVX2 tie masks in the seed lookup, flat gene tables, the k-mer screen from packed genes and reads, only shared seeds sorted; gzip with ISA-L (paired-end runs no longer wait for their input); `--add_model` in place; gradient-boosted models by default |
 | 0.7.9 | `ffbedb3` | 2026-10-07 | 37 | against false positives in complex communities: the reads' consistency, the genes' shape, the database's neighbourhood, the sample's complexity and the ancestry sites (which side a read takes where the species differs from its congeners) as default features, untested at r226 until the next build; strain MSAs packed (159 → 37 MB per dense sample), spilled to disk and merged over runs; builds keep the reads behind every model error (`--error-reads`, `--share-logs` with the ancestry report), calibrate the in-silico strains' dN/dS on real strains, vary the scenarios and choose the knob by bootstrap; `simulate_metagenomes` makes Illumina, Ultima and long reads itself and streams large samples; `--build` resumes, packs the index straight into `database.protal`; every test suite in CI |
 | 0.8.0 | `a82df8f` | 2026-10-09 | 39 | strains told from congeners: the species' other genomes as alleles of its marker genes (in the scores of the reads protal is unsure about, and as features), where the species varies, the congeners' gene copies (`congener_gaps.tsv`), a divergent read's untried candidates, ancestry sites by the congeners' consensus and across indels (85 default features, untested at r226); profiles end with the share of the genomes the called species do not explain (`?`); Nanopore candidates refused by an exact indel bound (−45% of the alignment's instructions), AVX-512 seeding, BGZF input on several threads; builds without the foreign leak, species complexes held out whole, ~118 output files instead of ~11,900, the build on many cores |
+| 0.8.1 | | 2026-10-11 | 22 | 0.8.0's features measured at r226 (v21-v23: strain alleles and ancestry sites +0.001-0.002 of F1 each, the site groups together +0.001-0.003) and acted on: the ancestry sites prebuilt by `--build` (profiling −47% of its instructions, the same profiles) and counted where the species' known genomes share them; the columns' conservation in the family from GTDB's own alignments (`weights`, 91 default features); up to 16 strain alleles per gene, the finished database's from every genome; the deep alleles' index entries off; more real strains and fewer in-silico ones in training; NCBI species taxids in the database and the profiles (`--ncbi_taxids`) |
+
+## What 0.8.1 adds
+
+0.8.1 collects the 21 commits after 0.8.0. Three r226 builds have measured 0.8.0's features since,
+with each model refitted without one feature group at a time. With species held out, the strain
+alleles gained 0.0010-0.0017 of F1 and the ancestry sites 0.0010-0.0022 in v21
+([r226 v21](claude/2026-10-09-r226-v21/README.md)); the polymorphic sites gained nothing
+measurable there. In v22 the column weights gained nothing, two of their five features being
+constant, and the deep alleles' index entries too little for their memory
+([r226 v22](claude/2026-10-10-r226-v22/README.md)). v23 (at `8d8c89b` with `--index-alleles 0.01`,
+the weights fixed, before the prebuilt ancestry sites, 16 alleles and the NCBI table) scored 0.0022-0.0037 above v22
+with species held out (paired-end 0.9595, single-end 0.9650, PacBio 0.9791, Nanopore 0.9741).
+Left out together, the three site groups (`ancestry`, `polymorphic`, `weights`) cost it 0.0012-0.0031;
+each alone is replaceable by the others ([r226 v23](claude/2026-10-11-r226-v23/README.md)).
+
+### For everyone running protal
+
+- **Profiling at half the instructions, the same profiles.** `--build` computes every gene copy's ancestry
+  sites once and stores them (`ancestry_sites.bin`). A run decodes them instead of computing them on
+  a copy's first record, which was half of a sample's profiling instructions at r226 v23. A 1M-pair
+  sample's profiling took 6.47 → 3.45 G instructions; its profiles are byte-identical. A database
+  without the table computes the sites as before (`--no_ancestry_sites` at build time).
+- **NCBI taxids.** The converter writes each species' NCBI species taxid, the one most of its GTDB
+  genomes have (`ncbi_taxids.tsv`), and `--ncbi_taxids` adds the taxid and NCBI's name to every
+  profile line. At r226 17.5% of the species get a named NCBI species and 82.5% one of NCBI's
+  placeholders ("uncultured Lachnospiraceae bacterium"), mostly shared with other GTDB species.
+  A database converted before 0.8.1 gets the table without a rebuild
+  ([databases.md](databases.md#ncbi-taxids), [running.md](running.md#options-the-website-does-not-list),
+  [report](claude/2026-10-11-ncbi-taxids.md)).
+- **More strain alleles.** `--build` keeps up to 16 alleles per species and gene (4 in 0.8.0). On a
+  strain-rich world of GTDB r226 marker genes 16 called 6 more test strains of 600 than 4, and 1
+  fewer; at r226 they should cost about 0.9 GB of memory (an estimate)
+  ([report](claude/2026-10-11-strain-false-negatives/README.md)). The deep alleles' k-mers can go
+  into the index (`--index_alleles 0.01`), off by default: at r226 v22 they added 1.1 GB to the
+  database and 2.8 GB to the run's memory for about 0.0025 of short-read F1, confounded with other
+  changes of that build.
+- **Ancestry sites the species shares.** The ancestry features count only the sites that the
+  species' known genomes (its strain alleles) share, not the representative's own recent mutations,
+  at which a real strain carries the congeners' base. On six real GTDB families a quarter of the real
+  strains had agreed at under 88.5% of the sites ([real ancestry](claude/2026-10-10-real-ancestry/README.md),
+  [small real world](claude/2026-10-10-real-small-world/README.md)). From a world grown on known trees
+  ([ancestry true-positive test](claude/2026-10-09-ancestry-true-positive-test/README.md)): the
+  agreement at the sites the species does not vary at is a feature of its own (`ancestry_fixed_agreement`),
+  the alleles are chosen for the coverage they give a sample instead of farthest first, and from six
+  congeners compared one with a base of its own no longer breaks a site's consensus.
+- **The columns' conservation** (`weights`, five features, 91 in the default set): how conserved each
+  column of a marker gene is within the genera of the species' family and among them, and the amino
+  acid per codon (`column_weights.tsv`, `--build --column_weights`, 10 genera per family by
+  default). The columns come from GTDB-Tk's own alignment and GTDB's tree where the converter wrote
+  them (`--column_weights_alignment msa`, the default where present; 99.7-99.9% of GTDB's aligned
+  residues placed on real families), else from the proteins aligned. Mismatches at conserved columns
+  are read errors or reads from afar; a relative's mutations avoid them. The family's consensus
+  also polarises the ancestry sites of genera with fewer than three species. `--weighted_site_shift`
+  (opt-in, untested at r226) lets a difference at a weakly conserved column count half in the
+  scores of the reads protal is unsure about ([features.md](features.md#the-columns-conservation-weights-2026-10-10)).
+
+### For anyone building a database
+
+- **Real strains over in-silico ones.** r226 v23 simulated real strains for 13% of its species and
+  in-silico strains for 40%, which the models miss less often than real ones.
+  `--insilico-strains auto` (the default) now makes only as many in-silico strains as keep the real
+  ones at half of the simulated strains or more (`--min-real-strains`), and `download_gtdb.py` fetches
+  up to 4 strains of every species that has them (`--species 40000 --per_species 4`; 36,515 species
+  at r226). With the defaults, real strains should be ~54% of the simulated strains.
+- **The finished database knows every strain.** Its alleles come from all of a species' genomes
+  (`--final-allele-genome-share 1`); the training database's from half, the genomes no sample is
+  simulated from (`--allele-genome-share 0.5`).
+- The converter writes GTDB's alignments and trees for the column weights (`column_msa/`,
+  `species_tree.nwk`; `download_gtdb.py` fetches them, 2.2 GB at r226, unless `--no_msa`) and
+  `ncbi_taxids.tsv`. `--weighted-site-shift` and `--index-alleles` pass the run options on.
+- The ancestry true-positive test (`simulate_ancestry_world.py`, `ancestry_oracle.py`,
+  `ancestry_truth_test.py`) checks protal's ancestry, allele and polymorphic counting against a
+  Python port on worlds grown on explicit trees.
+
+### Compatibility
+
+- 0.8.1 reads 0.8.0 and 0.7 databases. Without `column_weights.tsv` the `weights` features are −1;
+  without `ancestry_sites.bin` a run computes the sites (the same features, slower); without
+  `ncbi_taxids.tsv`, `--ncbi_taxids` stops before aligning
+  (`gtdb_to_protal_db.py --priors_only` and `--add_tables` add it).
+- The ancestry features count other sites than in 0.8.0: retrain a model trained on 0.8.0's
+  tables. A training table of 0.8.0 lacks the `weights` columns: train it with the groups it has.
+- `build_gtdb_database.py` refuses a protal or `simulate_metagenomes` binary of another version.
+  Rebuild both after updating a checkout.
 
 ## What 0.8.0 adds, and why it matters
 
@@ -181,7 +266,9 @@ gain is still to be measured, and a group that does not pay will leave the set, 
   another genus's (`suspect_copies.tsv`, 0.7.5), species priors from GTDB's clusters
   (`species_priors.tsv`, 0.7.5; genome sizes since 0.8.0), each copy's distance to its congeners'
   copies (`congener_gaps.tsv`, 0.8.0) and alleles of the species' other genomes (`strain_alleles.tsv`,
-  0.8.0).
+  0.8.0; up to 16 per gene since 0.8.1), the columns' conservation in each family (`column_weights.tsv`,
+  0.8.1), every copy's ancestry sites (`ancestry_sites.bin`, 0.8.1) and each species' NCBI species
+  taxid (`ncbi_taxids.tsv`, 0.8.1).
 - In memory the reference genes are held at two bits per base (0.7.1; 19.5 GB → 5.1 GB at GTDB
   r226 size) and the index's values packed at 42 bits (0.7.5; 35 → 27 GB at r226). The files are
   unchanged by either.
@@ -225,6 +312,8 @@ gain is still to be measured, and a group that does not pay will leave the set, 
   genome size and its quantiles, and how many species the rest would be
   ([running.md](running.md#what-the-called-species-explain-the-unknown-share)). Older databases get the
   sizes with `gtdb_to_protal_db.py --priors_only` and `--add_tables`.
+- In 0.8.1: `--ncbi_taxids` ends every profile line with the species' NCBI species taxid and NCBI's
+  name of it ([databases.md](databases.md#ncbi-taxids)).
 
 ### Speed
 
@@ -253,6 +342,9 @@ gain is still to be measured, and a group that does not pay will leave the set, 
   lookup's flex scan and the syncmer scan in AVX-512 where the CPU has it (`PROTAL_SIMD`; seeding about
   10% faster on Zen 4), BGZF input inflated on 1-4 threads per file, and `misc/cpu.tsv` with each
   stage's wall and CPU time ([above](#what-080-adds-and-why-it-matters)).
+- In 0.8.1: the ancestry sites stored by `--build` (`ancestry_sites.bin`) and decoded by a run
+  instead of computed on each copy's first record: a sample's profiling −47% of its instructions,
+  the same profiles ([above](#what-081-adds)).
 
 ### Training a database
 
@@ -291,6 +383,12 @@ gain is still to be measured, and a group that does not pay will leave the set, 
   ([features.md](features.md#the-polymorphic-sites-polymorphic-2026-10-09)). The in-silico strains put as many of their
   marker substitutions at their nearest congener's sites, with its base, as the real strains have there
   (`species_clouds.tsv` is now made before them; [report](claude/2026-10-09-r226-v19/README.md), section 7).
+- In 0.8.1: the column weights (`weights`, 91 default features) from GTDB's own alignments and tree,
+  the ancestry features on the sites the species' known genomes share, the fixed-site agreement as a
+  feature, alleles chosen for coverage, up to 16 of them; the finished database's alleles from every
+  genome, the training database's from half; `--insilico-strains auto` and more real strains
+  downloaded, so that real strains are about half of the simulated strains; the deep alleles' index
+  entries and the weighted site shift opt-in ([above](#what-081-adds)).
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;
   30% of the species held out; deeper design points) and the build faster (one simulation queue,
@@ -611,10 +709,11 @@ reflect the change from quality-0 to HiFi training reads and the knob curves.
 Accuracy on real samples (real samples were only timed, at r226); a 0.6.0a run at GTDB scale (its
 memory and index build there are estimates); 0.7.6 on the benchmark world (by its checks the same
 calls as 0.7.5 for short reads) and its memory at r226; strain mixtures and long-read strains of
-HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.0 were not run on the benchmark world either: their
+HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.1 were not run on the benchmark world either: their
 accuracy shows only in the r226 builds' test sets ([r226 v18](claude/2026-10-08-r226-v18/README.md),
-[r226 v19](claude/2026-10-09-r226-v19/README.md)), and no r226 build with 0.8.0's new features has
-been evaluated yet.
+[r226 v19](claude/2026-10-09-r226-v19/README.md), [r226 v21](claude/2026-10-09-r226-v21/README.md),
+[r226 v22](claude/2026-10-10-r226-v22/README.md), [r226 v23](claude/2026-10-11-r226-v23/README.md)),
+and no r226 build of 0.8.1 itself (the prebuilt ancestry sites, 16 alleles) has been evaluated yet.
 Every number above is from one laptop (6 threads) or one HPC node, on simulated worlds whose strains
 are 0.4-4% from their references at the markers.
 

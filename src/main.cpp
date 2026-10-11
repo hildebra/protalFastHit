@@ -1,4 +1,4 @@
-// protal 0.8.0. In 0.7 (since 0.6.0a):
+// protal 0.8.1. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -82,18 +82,7 @@
 //   species' polymorphic sites (--no_allele_scores), and the gaps to the congeners' copies (congener_gaps.tsv); a
 //   divergent read tries its genus's untried candidates (--adaptive_candidates, ZC); the ancestry sites are the
 //   congeners' consensus, chained across indels, with indel sites; 85 default features (gaps, untried, alleles,
-//   polymorphic), untested at r226. After 0.8.0 (2026-10-09, from a world grown on known trees,
-//   docs/claude/2026-10-09-ancestry-true-positive-test): the agreement at the fixed sites as a feature of its own (86),
-//   the alleles chosen for the sample's coverage instead of farthest first, the consensus tolerant of one congener
-//   with a base of its own from six compared, and the deep alleles' k-mers in the index (--index_alleles: a read of
-//   a deep strain finds its species; off by default since r226 v22, too little gain). 2026-10-10: the columns' conservation from the family (column_weights.tsv,
-//   --build --column_weights; ColumnWeights.h): per column -log(1 - p) within the genera and among the genus
-//   references, the amino acid per codon, the family's consensus base; five 'weights' features (91 default features:
-//   mismatches at conserved columns are errors or reads from afar), the ancestry sites of small genera polarised by
-//   the consensus; --no_site_weights (docs/claude/2026-10-09-site-weighted-evidence-plan). 2026-10-11: every copy's
-//   ancestry sites computed by --build (ancestry_sites.bin; --no_ancestry_sites) and decoded by a run instead of
-//   computed on its first record (half of a sample's profiling instructions, the same outputs), and
-//   --weighted_site_shift reaching the alignment threads (docs/claude/2026-10-11-r226-v23). The profile ends with the share of the genomes its species do not explain ("?",
+//   polymorphic), untested at r226. The profile ends with the share of the genomes its species do not explain ("?",
 //   from the genome sizes in species_priors.tsv; <profile>.composition; --no_unknown_share). Speed: ONT candidates
 //   refused by an exact indel-distance bound before WFA2 (-45% of the bench's ONT alignment instructions;
 //   --no_indel_bound), the seed lookup and syncmer scan in AVX-512 (PROTAL_SIMD; seeding -10% on Zen 4), BGZF input
@@ -102,6 +91,22 @@
 //   --outdir sorted into protal_db/, model_logs/, logs/, work/ (~118 files, not ~11,900), the build on many cores
 //   (setup as a graph, the derive on all cores, --profile-ahead, CPU logs), the composition checked against the
 //   truth, in-silico strains at congener sites. Fixed: a map run's relative output folder was used twice.
+// In 0.8.1: from a world grown on known trees (docs/claude/2026-10-09-ancestry-true-positive-test): the agreement at
+//   the fixed sites as a feature of its own (86), the alleles chosen for the sample's coverage instead of farthest
+//   first, the consensus tolerant of one congener with a base of its own from six compared, and the deep alleles'
+//   k-mers in the index (--index_alleles: a read of a deep strain finds its species; off by default since r226 v22,
+//   too little gain). The columns' conservation from the family (column_weights.tsv, --build --column_weights;
+//   ColumnWeights.h): per column -log(1 - p) within the genera and among them, from GTDB's own alignments and tree
+//   where the database folder has them, else the proteins aligned (--column_weights_alignment); the amino acid per
+//   codon, the family's consensus base; five 'weights' features (91 default features: mismatches at conserved columns
+//   are errors or reads from afar), the ancestry sites of small genera polarised by the consensus (--no_site_weights);
+//   the weighted site shift opt-in (--weighted_site_shift). The ancestry features count the sites the species' known
+//   genomes share, not its representative's own mutations. Every copy's ancestry sites computed by --build
+//   (ancestry_sites.bin; --no_ancestry_sites) and decoded by a run instead of computed on its first record (profiling
+//   -47% of its instructions, the same outputs). Up to 16 strain alleles per species and gene (4 before). The species'
+//   NCBI species taxids (ncbi_taxids.tsv, the converter's: the taxid most of its GTDB genomes have) and --ncbi_taxids,
+//   which adds them to the profiles. Builds: the finished database's alleles from every genome, the training
+//   database's from half (--final-allele-genome-share); --insilico-strains auto; more real strains downloaded.
 #include <iostream>
 #include "RunProtal.h"
 

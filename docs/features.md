@@ -36,12 +36,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `untried` | 0.8.0 (2026-10-07) | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
 | `alleles` | 0.8.0 (2026-10-08) | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
 | `polymorphic` | 0.8.0 (2026-10-09) | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
-| `weights` | 2026-10-10 | its mismatches against how conserved each column is in the species' family (`column_weights.tsv`): errors and reads from afar hit conserved columns, a relative's mutations avoid them; the amino-acid changes | yes, untested at r226 |
+| `weights` | 0.8.1 (2026-10-10) | its mismatches against how conserved each column is in the species' family (`column_weights.tsv`): errors and reads from afar hit conserved columns, a relative's mutations avoid them; the amino-acid changes | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
 `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights`
-(91 features since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening, 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+(91 features in 0.8.1, since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening; 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -517,7 +517,7 @@ is fixed it carries the congener's base less often (AUC 0.59-0.67;
 | `polymorphic_known_share` | of the polymorphic sites the taxon's kept records cover, the share where the read has a base (or an indel nearby) one of the alleles has: a known strain's variant |
 | `polymorphic_novel_share` | the share where it has another base or indel: the species varies there, but not as any known strain does |
 | `ancestry_fixed_gain` | the share of the species' base at the ancestry sites where the species is fixed, less that at all its ancestry sites, both weighted by the alleles covering each site (n of them: n/(n+1)) |
-| `ancestry_fixed_agreement` (2026-10-09, after 0.8.0) | that share at the fixed sites itself: a strain of the species near 1 however deep it sits in the species (its congener-like bases fall where the species varies), a novel congener at the fraction of the species' stem it shares. In a world grown on known trees the models could only rebuild it from `ancestry_agreement` and the gain ([report](claude/2026-10-09-ancestry-true-positive-test/README.md)) |
+| `ancestry_fixed_agreement` (0.8.1, 2026-10-09) | that share at the fixed sites itself: a strain of the species near 1 however deep it sits in the species (its congener-like bases fall where the species varies), a novel congener at the fraction of the species' stem it shares. In a world grown on known trees the models could only rebuild it from `ancestry_agreement` and the gain ([report](claude/2026-10-09-ancestry-true-positive-test/README.md)) |
 
 All four are -1 without the table and 0 without a site, a species without alleles too, as in the `alleles` group. The
 training table also has `allele_sites_per_kb` (the polymorphic sites per kb of the kept records) and `ancestry_fixed_share`
