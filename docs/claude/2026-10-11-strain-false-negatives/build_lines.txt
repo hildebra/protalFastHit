@@ -1,0 +1,30 @@
+== a16
+Strain alleles: 23460 alleles (386831 edits) of 3085 gene copies of 30 species, up to 16 each (of 111217 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 65590 identical to the representative's, 18980 repeated, 355 covering less than 0.5 of it or more than 0.1 apart, 2329 as far as the nearest congener's copy or farther; 23963 alleles offered): /home/falk/strainfn/db_a16/strain_alleles.tsv
+Strain alleles took 338ms
+Index alleles: none (--index_alleles 1)
+== a16i0
+Strain alleles: 23460 alleles (386831 edits) of 3085 gene copies of 30 species, up to 16 each (of 111217 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 65590 identical to the representative's, 18980 repeated, 355 covering less than 0.5 of it or more than 0.1 apart, 2329 as far as the nearest congener's copy or farther; 23963 alleles offered): /home/falk/strainfn/db_a16i0/strain_alleles.tsv
+Strain alleles took 372ms
+Index alleles: 600494 seeds of 23460 strain alleles at least 0 from the representative's copy, of 3085 gene copies, as non-unique entries under their species (--index_alleles; left out of the totals in unique_kmers.tsv)
+== a16i0n5
+Strain alleles: 9180 alleles (144316 edits) of 2896 gene copies of 30 species, up to 16 each (of 66859 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 54353 identical to the representative's, 2271 repeated, 119 covering less than 0.5 of it or more than 0.1 apart, 896 as far as the nearest congener's copy or farther; 9220 alleles offered): /home/falk/strainfn/db_a16i0n5/strain_alleles.tsv
+Strain alleles took 124ms
+Index alleles: 341718 seeds of 9180 strain alleles at least 0 from the representative's copy, of 2896 gene copies, as non-unique entries under their species (--index_alleles; left out of the totals in unique_kmers.tsv)
+== a4
+Strain alleles: 10687 alleles (133270 edits) of 3085 gene copies of 30 species, up to 4 each (of 111217 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 65590 identical to the representative's, 18980 repeated, 355 covering less than 0.5 of it or more than 0.1 apart, 2329 as far as the nearest congener's copy or farther; 23963 alleles offered): /home/falk/strainfn/db_a4/strain_alleles.tsv
+Strain alleles took 469ms
+Index alleles: none (--index_alleles 1)
+== a4i0
+Strain alleles: 10687 alleles (133270 edits) of 3085 gene copies of 30 species, up to 4 each (of 111217 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 65590 identical to the representative's, 18980 repeated, 355 covering less than 0.5 of it or more than 0.1 apart, 2329 as far as the nearest congener's copy or farther; 23963 alleles offered): /home/falk/strainfn/db_a4i0/strain_alleles.tsv
+Strain alleles took 338ms
+Index alleles: 360575 seeds of 10687 strain alleles at least 0 from the representative's copy, of 3085 gene copies, as non-unique entries under their species (--index_alleles; left out of the totals in unique_kmers.tsv)
+== a4i01
+Strain alleles: 10687 alleles (133270 edits) of 3085 gene copies of 30 species, up to 4 each (of 111217 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 65590 identical to the representative's, 18980 repeated, 355 covering less than 0.5 of it or more than 0.1 apart, 2329 as far as the nearest congener's copy or farther; 23963 alleles offered): /home/falk/strainfn/db_a4i01/strain_alleles.tsv
+Strain alleles took 451ms
+Index alleles: 257396 seeds of 3614 strain alleles at least 0.01 from the representative's copy, of 1565 gene copies, as non-unique entries under their species (--index_alleles; left out of the totals in unique_kmers.tsv)
+== oracle
+Strain alleles: 31341 alleles (496881 edits) of 3140 gene copies of 30 species, up to 16 each (of 171950 full-reference copies of the database's species and genes: 0 of genomes outside --allele_genome_share 1, 80234 identical to the representative's, 47240 repeated, 623 covering less than 0.5 of it or more than 0.1 apart, 3881 as far as the nearest congener's copy or farther; 39972 alleles offered): /home/falk/strainfn/db_oracle/strain_alleles.tsv
+Strain alleles took 638ms
+Index alleles: 699745 seeds of 31341 strain alleles at least 0 from the representative's copy, of 3140 gene copies, as non-unique entries under their species (--index_alleles; left out of the totals in unique_kmers.tsv)
+== reps
+Strain alleles: none (--strain_alleles 0)

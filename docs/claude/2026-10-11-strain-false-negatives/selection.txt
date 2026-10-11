@@ -1,0 +1,36 @@
+tight	s__Proteus faecis	mean ANI 99.20	21 congeners+1	34 strains	p__Pseudomonadota
+tight	s__Propionibacterium freudenreichii	mean ANI 99.04	6 congeners+1	40 strains	p__Actinomycetota
+tight	s__Dubosiella sp910585105	mean ANI 99.41	4 congeners+1	40 strains	p__Bacillota
+tight	s__Leptospira borgpetersenii	mean ANI 99.13	23 congeners+1	40 strains	p__Spirochaetota
+tight	s__Chlamydia trachomatis	mean ANI 99.38	4 congeners+1	40 strains	p__Chlamydiota
+tight	s__Muribaculum sp910589555	mean ANI 99.95	24 congeners+1	25 strains	p__Bacteroidota
+tight	s__Clostridium_H botulinum_A	mean ANI 99.38	16 congeners+1	34 strains	p__Bacillota
+tight	s__UBA2882 sp910574745	mean ANI 99.23	13 congeners+1	31 strains	p__Bacillota
+tight	s__Fusobacterium_A varium	mean ANI 99.07	20 congeners+1	25 strains	p__Fusobacteriota
+tight	s__Kineothrix sp910585965	mean ANI 99.39	27 congeners+1	40 strains	p__Bacillota
+mid	s__RUG572 sp900547945	mean ANI 98.25	25 congeners+1	26 strains	p__Verrucomicrobiota
+mid	s__Dorea_A amylophila	mean ANI 98.13	12 congeners+1	36 strains	p__Bacillota
+mid	s__Fusobacterium animalis	mean ANI 97.68	24 congeners+1	40 strains	p__Fusobacteriota
+mid	s__Weissella cibaria	mean ANI 98.21	28 congeners+1	40 strains	p__Bacillota
+mid	s__Hominenteromicrobium mulieris	mean ANI 98.12	11 congeners+1	40 strains	p__Bacillota
+mid	s__Pluralibacter gergoviae	mean ANI 98.92	2 congeners+1	30 strains	p__Pseudomonadota
+mid	s__Trueperella pyogenes	mean ANI 98.42	8 congeners+1	40 strains	p__Actinomycetota
+mid	s__Enterococcus_B durans	mean ANI 98.73	20 congeners+1	40 strains	p__Bacillota
+mid	s__Weizmannia coagulans	mean ANI 98.96	5 congeners+1	38 strains	p__Bacillota
+mid	s__Onthomorpha sp004551865	mean ANI 98.61	16 congeners+1	40 strains	p__Bacteroidota
+wide	s__Lautropia mirabilis	mean ANI 96.80	15 congeners+1	24 strains	p__Pseudomonadota
+wide	s__Metapseudomonas otitidis	mean ANI 97.13	18 congeners+1	40 strains	p__Pseudomonadota
+wide	s__Actinobacillus equuli	mean ANI 97.35	9 congeners+1	27 strains	p__Pseudomonadota
+wide	s__Finegoldia magna_H	mean ANI 97.41	11 congeners+1	27 strains	p__Bacillota
+wide	s__Snodgrassella alvi	mean ANI 97.47	13 congeners+1	40 strains	p__Pseudomonadota
+wide	s__Phil1 sp001940855	mean ANI 97.21	10 congeners+1	40 strains	p__Bacillota
+wide	s__Priestia megaterium_D	mean ANI 96.67	11 congeners+1	40 strains	p__Bacillota
+wide	s__Pelethenecus sp900540705	mean ANI 97.38	16 congeners+1	40 strains	p__Bacillota
+wide	s__Yersinia mollaretii	mean ANI 96.59	27 congeners+1	37 strains	p__Pseudomonadota
+wide	s__Elizabethkingia miricola	mean ANI 97.46	10 congeners+1	37 strains	p__Bacteroidota
+total: 30 genera, 449 species, 1071 strains, 1520 genomes
+reps: 120 marker files, 49770 records of 449 genomes
+all: 120 marker files, 172646 records of 1520 genomes
+alignments: 120 marker files, 53880 rows of 449 representatives
+tree copied
+taxonomy and metadata rows written

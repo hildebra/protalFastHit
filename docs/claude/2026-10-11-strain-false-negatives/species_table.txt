@@ -1,0 +1,32 @@
+| species | stratum | median ANI to rep | right pairs under MAPQ 4 (reps) | called: reps | called: a4 | called: a16i0 | called: oracle |
+|---|---|---|---|---|---|---|---|
+| Chlamydia trachomatis | tight | 0.9950 | 0.002 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Clostridium_H botulinum_A | tight | 0.9996 | 0.108 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Dubosiella sp910585105 | tight | 0.9996 | 0.000 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Fusobacterium_A varium | tight | 0.9946 | 0.050 | 19/20 | 19/20 | 19/20 | 19/20 |
+| Kineothrix sp910585965 | tight | 0.9975 | 0.004 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Leptospira borgpetersenii | tight | 0.9974 | 0.016 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Muribaculum sp910589555 | tight | 0.9992 | 0.017 | 19/20 | 19/20 | 19/20 | 19/20 |
+| Propionibacterium freudenreichii | tight | 0.9962 | 0.001 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Proteus faecis | tight | 0.9978 | 0.222 | 18/20 | 20/20 | 20/20 | 20/20 |
+| UBA2882 sp910574745 | tight | 0.9967 | 0.000 | 19/20 | 19/20 | 19/20 | 19/20 |
+| Dorea_A amylophila | mid | 0.9925 | 0.938 | 5/20 | 5/20 | 6/20 | 7/20 |
+| Enterococcus_B durans | mid | 0.9975 | 0.018 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Fusobacterium animalis | mid | 0.9881 | 0.117 | 18/20 | 19/20 | 18/20 | 18/20 |
+| Hominenteromicrobium mulieris | mid | 0.9888 | 0.339 | 17/20 | 17/20 | 18/20 | 19/20 |
+| Onthomorpha sp004551865 | mid | 0.9920 | 0.041 | 19/20 | 20/20 | 20/20 | 20/20 |
+| Pluralibacter gergoviae | mid | 0.9940 | 0.000 | 20/20 | 20/20 | 20/20 | 20/20 |
+| RUG572 sp900547945 | mid | 0.9932 | 0.232 | 17/20 | 18/20 | 18/20 | 18/20 |
+| Trueperella pyogenes | mid | 0.9894 | 0.003 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Weissella cibaria | mid | 0.9944 | 0.212 | 17/20 | 20/20 | 20/20 | 20/20 |
+| Weizmannia coagulans | mid | 0.9960 | 0.104 | 20/20 | 20/20 | 20/20 | 20/20 |
+| Actinobacillus equuli | wide | 0.9818 | 0.344 | 16/20 | 17/20 | 17/20 | 17/20 |
+| Elizabethkingia miricola | wide | 0.9860 | 0.357 | 14/20 | 17/20 | 17/20 | 17/20 |
+| Finegoldia magna_H | wide | 0.9878 | 0.093 | 14/20 | 16/20 | 18/20 | 19/20 |
+| Lautropia mirabilis | wide | 0.9801 | 0.371 | 9/20 | 14/20 | 16/20 | 17/20 |
+| Metapseudomonas otitidis | wide | 0.9875 | 0.017 | 15/20 | 18/20 | 20/20 | 20/20 |
+| Pelethenecus sp900540705 | wide | 0.9844 | 0.001 | 19/20 | 19/20 | 19/20 | 19/20 |
+| Phil1 sp001940855 | wide | 0.9852 | 0.152 | 16/20 | 19/20 | 19/20 | 19/20 |
+| Priestia megaterium_D | wide | 0.9895 | 0.906 | 1/20 | 5/20 | 4/20 | 5/20 |
+| Snodgrassella alvi | wide | 0.9854 | 0.025 | 18/20 | 18/20 | 19/20 | 18/20 |
+| Yersinia mollaretii | wide | 0.9813 | 0.198 | 8/20 | 16/20 | 16/20 | 16/20 |
