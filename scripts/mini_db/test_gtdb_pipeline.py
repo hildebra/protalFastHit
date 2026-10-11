@@ -242,12 +242,12 @@ class GtdbBuildTest(unittest.TestCase):
         # full reference, which lacks the held-out species; the finished database's before its models went in; every copy
         # listed; the full references gone after.
         self.assertRegex(self.text("out", "logs", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
-        # The strain alleles (--strain-alleles 4, --allele-genome-share 0.5): both builds took them from the genomes of the
+        # The strain alleles (--strain-alleles 16, --allele-genome-share 0.5): both builds took them from the genomes of the
         # allele share, which the genome table lost (none of them simulated), and indexed none of their k-mers
         # (--index-alleles, off by default since r226 v22).
         for log in ("index_and_package.log", "training_db_index.log"):
             self.assertRegex(self.text("out", "logs", log), r"Strain alleles: (\d+ alleles \(\d+ edits\) of \d+ gene copies of \d+ "
-                                                            r"species, up to 4 each|none) \(of \d+ full-reference copies")
+                                                            r"species, up to 16 each|none) \(of \d+ full-reference copies")
             self.assertIn("outside --allele_genome_share 0.5", self.text("out", "logs", log))
             if "Strain alleles: none" not in self.text("out", "logs", log):
                 self.assertIn("Index alleles: none (--index_alleles 1)", self.text("out", "logs", log))

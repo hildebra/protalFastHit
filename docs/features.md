@@ -463,8 +463,10 @@ full reference's marker genes, every species alike, and lists every copy (above)
 
 The missed species of the r226 builds are mostly strains of species the database knows from other genomes too: 60-80%
 of v18's false negatives ([report](claude/2026-10-08-r226-v18/README.md), section 5). `--build` keeps, per species' copy
-of each marker gene, up to 4 alleles of the species' other genomes in the full reference as edits of the representative's
-copy (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index)). A run uses them twice:
+of each marker gene, up to 16 alleles of the species' other genomes in the full reference as edits of the representative's
+copy (`strain_alleles.tsv`, [databases.md](databases.md#2-build-the-index); 4 until 2026-10-11: on a strain-rich GTDB
+world 16 called 6 more strains of 600, 1 fewer, [report](claude/2026-10-11-strain-false-negatives/README.md)). A run
+uses them twice:
 
 - **In the alignment scores.** Each candidate alignment of a short read gets a site shift against its species'
   alleles (`StrainAlleles.h` `ShiftOf`):

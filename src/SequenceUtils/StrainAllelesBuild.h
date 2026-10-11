@@ -35,7 +35,7 @@ namespace protal::strain_alleles {
     inline constexpr size_t kEndMatches = 10;      // an allele begins and ends with this many matches (Diff)
 
     struct Settings {
-        size_t alleles = 4;      // kept per copy (--strain_alleles; 0: none)
+        size_t alleles = 16;     // kept per copy (--strain_alleles; 0: none)
         size_t candidates = 16;  // distinct alleles sampled per copy, of the least hashes, to choose from
         double share = 1.0;      // of the genomes, those that may give alleles (--allele_genome_share)
     };

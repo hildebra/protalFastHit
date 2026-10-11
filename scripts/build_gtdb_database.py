@@ -2317,10 +2317,10 @@ def main():
                         "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3)")
-    p.add_argument("--strain-alleles", type=int, default=4,
+    p.add_argument("--strain-alleles", type=int, default=16,
                    help="up to this many strain alleles per species and gene in both databases (protal --build --strain_alleles: "
                         "the other genomes' copies in the full reference as edits of the representative's, for the alignment "
-                        "scores and the 'alleles' features; default 4, 0: none)")
+                        "scores and the 'alleles' features; default 16 since 2026-10-11, 4 before; 0: none)")
     p.add_argument("--allele-genome-share", type=float, default=0.5,
                    help="the share of each species' genomes that give strain alleles, by a hash of the accession "
                         "(protal --allele_genome_share); the genome table loses those but the representatives, so that no "
