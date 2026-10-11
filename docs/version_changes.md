@@ -1,7 +1,7 @@
-# What changed from protal 0.6.0a to 0.8.1
+# What changed from protal 0.6.0a to 0.8.2
 
 The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026), the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09) and 0.8.1 (2026-10-11, branch `audit-fixes`) are compared here:
+2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09), 0.8.1 and 0.8.2 (both 2026-10-11, branch `audit-fixes`) are compared here:
 what changed, and how every version scores on the same simulated data in detection, abundance,
 strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
@@ -23,6 +23,66 @@ for this page.
 | 0.7.9 | `ffbedb3` | 2026-10-07 | 37 | against false positives in complex communities: the reads' consistency, the genes' shape, the database's neighbourhood, the sample's complexity and the ancestry sites (which side a read takes where the species differs from its congeners) as default features, untested at r226 until the next build; strain MSAs packed (159 → 37 MB per dense sample), spilled to disk and merged over runs; builds keep the reads behind every model error (`--error-reads`, `--share-logs` with the ancestry report), calibrate the in-silico strains' dN/dS on real strains, vary the scenarios and choose the knob by bootstrap; `simulate_metagenomes` makes Illumina, Ultima and long reads itself and streams large samples; `--build` resumes, packs the index straight into `database.protal`; every test suite in CI |
 | 0.8.0 | `a82df8f` | 2026-10-09 | 39 | strains told from congeners: the species' other genomes as alleles of its marker genes (in the scores of the reads protal is unsure about, and as features), where the species varies, the congeners' gene copies (`congener_gaps.tsv`), a divergent read's untried candidates, ancestry sites by the congeners' consensus and across indels (85 default features, untested at r226); profiles end with the share of the genomes the called species do not explain (`?`); Nanopore candidates refused by an exact indel bound (−45% of the alignment's instructions), AVX-512 seeding, BGZF input on several threads; builds without the foreign leak, species complexes held out whole, ~118 output files instead of ~11,900, the build on many cores |
 | 0.8.1 | `b3ac271` | 2026-10-11 | 22 | 0.8.0's features measured at r226 (v21-v23: strain alleles and ancestry sites +0.001-0.002 of F1 each, the site groups together +0.001-0.003) and acted on: the ancestry sites prebuilt by `--build` (profiling −47% of its instructions, the same profiles) and counted where the species' known genomes share them; the columns' conservation in the family from GTDB's own alignments (`weights`, 91 default features); up to 16 strain alleles per gene, the finished database's from every genome; the deep alleles' index entries off; more real strains and fewer in-silico ones in training; NCBI species taxids in the database and the profiles (`--ncbi_taxids`) |
+
+## What 0.8.2 adds
+
+0.8.2 collects the 14 commits after 0.8.1: start-up, the aligner and its speed. No r226 build or cluster run
+of 0.8.2 has been measured yet; the numbers below come from r226's archaeal species, the small real world
+(six GTDB r226 families) and protal's own WFA2 calls replayed.
+
+### For everyone running protal
+
+- **No 12-s wait before the alignment.** At r226, 0.8.1 took 51 s for a paired-end sample that 0.7.8
+  took 33 s for; 12 s of it went to parsing `column_weights.tsv` on one thread before any read was
+  aligned. The tables only profiling reads now load beside the alignment; the column weights and
+  strain alleles are also binary members of `database.protal` (`column_weights.bin`,
+  `strain_alleles.bin`), read without parsing; every table is read once, on several threads; and a
+  table is read only where the run uses it. On all r226 archaeal species the column weights load in
+  622 M instructions instead of 3,018 M and the strain alleles in 134 M instead of 587 M, with
+  byte-identical outputs ([report](claude/2026-10-11-performance-audit/README.md)). A run with
+  `--no_profile` now aligns with the column weights as a profiled run does (its SAM differed).
+- **WFA2 faster, every alignment the same.** Four exact changes to WFA2-lib (loops that vectorize,
+  fewer end checks, AVX2 copies chosen at run time), a reset of its wavefront memory that touches only
+  what an alignment used, and the penalties halved (2/3/1) wherever X-drop cannot prune. On protal's
+  own WFA2 calls that is 26% fewer instructions for paired-end reads, 46-48% fewer for PacBio and
+  39-43% fewer for Nanopore, with the same outcome, score and CIGAR for every call; about −6% of
+  short-read and −23 to −40% of long-read alignment are expected at r226
+  ([report](claude/2026-10-11-wfa2-singletrack-speed/README.md)).
+- **The Singletrack traceback** (`--wfa_traceback`; López-Villellas et al. 2025) keeps only WFA2's
+  match wavefronts and recomputes a gap's steps while tracing back. It gives the same scores as the
+  classic traceback but may choose otherwise among equally good alignments: 0.01% of paired-end,
+  0.2-0.6% of PacBio and 47-49% of Nanopore records differed. With the changes above it needs
+  1.6-2.4% fewer WFA2 instructions than classic and 8-20% less time. `--build` aligns with it by
+  default and records it in `build_settings.tsv`; a run aligns as its database was built (classic for
+  a database built before) and is warned when told otherwise
+  ([report](claude/2026-10-11-singletrack/README.md)). WFA2-lib is now the fork that has Singletrack
+  (tmokveld/WFA2-lib), with three fixes of protal's.
+- **The weighted site shift on by default.** An unsure short read's site shift also discounts its
+  differences at the columns the family's genera change freely (`column_weights.tsv`): neutral to
+  +0.003 of F1 on the small real world, for ~1% of the alignment's instructions
+  ([report](claude/2026-10-11-r226-v23/README.md), section 8). `--no_weighted_site_shift` turns it off.
+
+### For anyone building a database
+
+- `--build` aligns with Singletrack unless `--wfa_traceback classic`, and writes `build_settings.tsv`,
+  `column_weights.bin` and `strain_alleles.bin`; `--compress_db` adds the binary tables to an existing
+  database. `build_gtdb_database.py` trains with the weighted site shift (`--no-weighted-site-shift`
+  leaves it out) and passes `--wfa-traceback` on to both builds.
+- `measure_performance.sh --sylph SYLPH_DB` profiles the same reads with sylph for comparison;
+  `--threads N` sets every run's threads.
+
+### Compatibility
+
+- 0.8.2 reads 0.8.1, 0.8.0 and 0.7 databases. Without the binary tables a run parses the text ones
+  (`protal --compress_db` adds them); a database without `build_settings.tsv` was built with the
+  classic traceback, and runs on it align classic.
+- A database built with 0.8.1 or earlier (r226 v23 and v24 among them) was trained without the
+  weighted site shift: profile it with `--no_weighted_site_shift` for the calls of its training.
+- A database built with 0.8.2 trains its models on Singletrack alignments, whose Nanopore records
+  differ from a classic database's in their choice among equally good alignments. No r226 build with
+  Singletrack has been evaluated yet.
+- `build_gtdb_database.py` refuses a protal or `simulate_metagenomes` binary of another version.
+  Rebuild both after updating a checkout.
 
 ## What 0.8.1 adds
 
@@ -709,11 +769,11 @@ reflect the change from quality-0 to HiFi training reads and the knob curves.
 Accuracy on real samples (real samples were only timed, at r226); a 0.6.0a run at GTDB scale (its
 memory and index build there are estimates); 0.7.6 on the benchmark world (by its checks the same
 calls as 0.7.5 for short reads) and its memory at r226; strain mixtures and long-read strains of
-HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.1 were not run on the benchmark world either: their
+HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.2 were not run on the benchmark world either: their
 accuracy shows only in the r226 builds' test sets ([r226 v18](claude/2026-10-08-r226-v18/README.md),
 [r226 v19](claude/2026-10-09-r226-v19/README.md), [r226 v21](claude/2026-10-09-r226-v21/README.md),
 [r226 v22](claude/2026-10-10-r226-v22/README.md), [r226 v23](claude/2026-10-11-r226-v23/README.md)),
-and no r226 build of 0.8.1 itself (the prebuilt ancestry sites, 16 alleles) has been evaluated yet.
+and no r226 build of 0.8.2 (Singletrack, the weighted site shift) has been evaluated yet.
 Every number above is from one laptop (6 threads) or one HPC node, on simulated worlds whose strains
 are 0.4-4% from their references at the markers.
 

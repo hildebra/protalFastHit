@@ -1,4 +1,4 @@
-// protal 0.8.1. In 0.7 (since 0.6.0a):
+// protal 0.8.2. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -107,7 +107,7 @@
 //   NCBI species taxids (ncbi_taxids.tsv, the converter's: the taxid most of its GTDB genomes have) and --ncbi_taxids,
 //   which adds them to the profiles. Builds: the finished database's alleles from every genome, the training
 //   database's from half (--final-allele-genome-share); --insilico-strains auto; more real strains downloaded.
-// After 0.8.1: the weighted site shift on by default (--no_weighted_site_shift; builds train with it, ~1% of the
+// In 0.8.2: the weighted site shift on by default (--no_weighted_site_shift; builds train with it, ~1% of the
 //   alignment's instructions), each alignment thread holding at most 1,024 copies' column weights.
 //   Start-up and memory (docs/claude/2026-10-11-performance-audit; at r226 0.8.1 took 51 s for the pe sample 0.7.8 took
 //   33 s in, 12 s of it reading column_weights.tsv): the tables only profiling reads load beside the alignment; the
@@ -121,6 +121,13 @@
 //   (its exit had raced the other loaders). A table is read only where the run reads it: the strain alleles and column
 //   weights before the alignment only for short reads scored with the alleles, else beside it for profiling, or not at
 //   all without profiling; the suspect copies not with --keep_suspect_copies.
+//   WFA2's Singletrack traceback (--wfa_traceback; docs/claude/2026-10-11-singletrack): WFA2-lib is now the fork that
+//   has it, with protal's three fixes; the same scores as classic, other choices among equally good alignments (ONT
+//   47-49% of records); --build aligns with it by default and records it in build_settings.tsv, and a run aligns as
+//   its database was built (classic without the file), warned when told otherwise. WFA2 faster with every alignment
+//   the same (docs/claude/2026-10-11-wfa2-singletrack-speed): four WFA2-lib patches (loops that vectorize, fewer end
+//   checks, x86-64-v3 clones), the slab's reset touching only what an alignment used, and the penalties halved
+//   (2/3/1) where X-drop cannot prune: WFA2 instructions -26% pe, -46..-48% PacBio, -39..-43% ONT on protal's calls.
 #include <iostream>
 #include "RunProtal.h"
 
