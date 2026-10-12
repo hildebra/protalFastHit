@@ -1,0 +1,45 @@
+31,940,728,161 (100.0%)  PROGRAM TOTALS
+ 4,172,483,404 (13.06%)  src/Classify.h:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::ProtalPairedOutputHandler<false
+ 4,172,209,944 (13.06%)  src/Classify.h:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::ProtalPairedOutputHandler<false
+ 1,238,115,825 ( 3.88%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult
+ 1,022,765,460 ( 3.20%)  src/SequenceUtils/KmerIterator.h:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::ProtalPairedO
+ 1,021,765,455 ( 3.20%)  src/SequenceUtils/KmerIterator.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::operator()(std::basic_string_view<char, std::char_traits<char> > const&, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<u
+ 1,009,965,455 ( 3.16%)  src/SequenceUtils/KmerIterator.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/seed/head/
+   588,791,993 ( 1.84%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult,
+   549,880,288 ( 1.72%)  src/Core/AlignmentStrategy.h:protal::SimpleAlignmentHandler::operator()(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::vector<protal::AlignmentResult, std::allocator<protal::AlignmentRes
+   507,189,679 ( 1.59%)  src/SequenceUtils/SeqReader.h:protal::SeqReaderPE::operator()(FastxRecord&, FastxRecord&) [/home/falk/seed/head/build/protal]
+   499,801,313 ( 1.56%)  src/SequenceUtils/KmerIterator.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillAvx2() [/home/falk/seed/head/build/protal]
+   398,424,631 ( 1.25%)  src/Hash/KmerLookup.h:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3] [/home/falk/seed/head/build/protal]
+   390,995,944 ( 1.22%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::PrepareLookups(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/seed/head/build/
+   366,338,704 ( 1.15%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::LookupKmers(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/seed/head/build/pro
+   269,328,876 ( 0.84%)  ???:operator new(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   256,556,248 ( 0.80%)  src/Hash/Seedmap.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::LookupKmers(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+   245,802,664 ( 0.77%)  src/SequenceUtils/KmerUtils.h:KmerUtils::ReverseComplementInto(std::basic_string_view<char, std::char_traits<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/seed/head/build/protal]
+   237,892,445 ( 0.74%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   182,881,529 ( 0.57%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   152,487,641 ( 0.48%)  ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   141,225,499 ( 0.44%)  src/Core/ChainAnchorFinder.h:protal::SharedSeeds::Sort(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> > const&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&) [/home/falk/seed/head/bu
+   131,800,000 ( 0.41%)  /usr/lib/gcc/x86_64-linux-gnu/13/include/avx2intrin.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+   128,238,849 ( 0.40%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    92,590,479 ( 0.29%)  src/Hash/Seedmap.h:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3]
+    84,331,193 ( 0.26%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindPairs(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAl
+    82,416,508 ( 0.26%)  src/Hash/FlexScan.h:protal::flex_scan::BestAvx2(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*) [/home/falk/seed/head/build/protal]
+    64,000,000 ( 0.20%)  /usr/lib/gcc/x86_64-linux-gnu/13/include/avxintrin.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+    62,524,643 ( 0.20%)  /usr/include/c++/13/bits/stl_algo.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::Lookup
+    49,816,540 ( 0.16%)  /usr/include/c++/13/bits/vector.tcc:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+    45,688,986 ( 0.14%)  lib/wfa2-lib/wavefront/wavefront_extend.c:wavefront_extend_endsfree [/home/falk/seed/head/build/protal]
+    42,852,498 ( 0.13%)  /usr/lib/gcc/x86_64-linux-gnu/13/include/avx2intrin.h:protal::flex_scan::BestAvx2(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*)
+    40,216,760 ( 0.13%)  ./malloc/./malloc/malloc.c:malloc_consolidate [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    33,451,465 ( 0.10%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor(protal::ChainAlignmentAnchor&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::GeneSequence cons
+    32,326,359 ( 0.10%)  src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::RecoverAnchors(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, tsl::robin_set<unsigned long, std::hash<unsigned lo
+29,125 ( 0.00%)    if (form->span == alignment_endsfree && wf_aligner->alignment_form.extension) {
+     .               form->pattern_begin_free = 0;
+     .               form->pattern_end_free = pattern_length;
+     .               form->text_begin_free = 0;
+     .               form->text_end_free = text_length;
+11,650 ( 0.00%)    if (form->span == alignment_endsfree) {
+29,125 ( 0.00%)      if (form->pattern_begin_free > pattern_length ||
+17,475 ( 0.00%)          form->pattern_end_free > pattern_length ||
+17,475 ( 0.00%)          form->text_begin_free > text_length ||
+ 5,825 ( 0.00%)          form->text_end_free > text_length) {
+     .                 fprintf(stderr,"[WFA] Ends-free parameters must be not larger than the sequences "

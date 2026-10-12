@@ -1,0 +1,3 @@
+Load Index took 4s 3ms
+Sample pe1m_1_R seeding: 44684844 k-mers looked up, 19180474 in the index, 19176120 blocks scanned with 77199506 flex cells (4.0 per block); by block size 1: 45.3% of blocks, 11.2% of cells, 2-15: 50.9% of blocks, 52.1% of cells, 16-255: 3.8% of blocks, 34.3% of cells, 256-4095: 0.0% of blocks, 2.3% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 24674902 seeds, 3119671 of them sharing their taxon and gene with another seed; 16 lookups dropped as too ubiquitous; 928104 anchors
+Aligning reads took 8s 101ms

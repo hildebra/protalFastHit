@@ -1,0 +1,3 @@
+Note: gene_table.bin in /home/falk/seed/db/database.protal is not used (it was made from other gene tables than the database's); the genes are read from reference.map in /home/falk/seed/db/database.protal
+index loaded in 10.4 s: 48933202 entries of 35 bits (taxid * 54 + gene 19, position 14, 2 flags) and their 32-bit flex cells, 44.69 bits per slot of the file: 0.4 GB; key map 3.2 GB
+500000 pairs, 22.4 k-mers a mate; 4 threads, 3 rounds, gaps 1500 and 6000 ns; flex scan AVX2

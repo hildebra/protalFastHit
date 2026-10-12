@@ -1,0 +1,14 @@
+variant	pairs	lookups	cells_per_lookup	seeds_per_lookup	ns_per_lookup	us_per_pair	relative	seeds_hash
+P0 as protal	186500	3508527	4.1	1.30	413.3	7.775	1.000	same
+P1 values a pair ahead	187496	3530495	4.1	1.30	419.8	7.904	1.016	same
+P2 whole blocks prefetched	188492	3553114	4.1	1.30	416.8	7.857	1.009	same
+P3 P1+P2	188988	3562178	4.2	1.30	422.4	7.962	1.022	same
+P4 four pairs together	188488	3554583	4.1	1.30	397.8	7.502	0.963	same
+B0 key map only	187492	3530561	4.2	0.00	196.2	3.695	0.475	-
+B1 key map + scans	186496	3509752	4.1	0.00	286.8	5.397	0.694	-
+B2 warm caches (compute)	186000	3496309	4.1	1.30	139.6	2.624	0.338	-
+
+block_size	lookups	cells	share_of_lookups_by_best_score(16 15 14 13 12 <=11)	share_of_cells_by_best_score(16 15 14 13 12 <=11)
+2-15	1767403	7246814	0.068 0.003 0.001 0.000 0.001 0.926	0.076 0.004 0.001 0.001 0.002 0.916
+16-255	136516	5215242	0.139 0.008 0.002 0.004 0.012 0.834	0.179 0.010 0.004 0.006 0.018 0.783
+256-4095	1283	450399	0.438 0.020 0.016 0.017 0.039 0.469	0.464 0.023 0.022 0.018 0.038 0.435

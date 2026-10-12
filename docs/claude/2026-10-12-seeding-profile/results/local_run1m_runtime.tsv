@@ -1,0 +1,14 @@
+stage	seconds	threads	seconds_per_thread
+Seeding	10.745037	4	2.686259
+Sorting Seeds	1.731792	4	0.432948
+Pairing	0.869233	4	0.217308
+Sorting Anchors	0.151288	4	0.037822
+Extending Anchors	1.415310	4	0.353828
+Sequence reader	4.944994	4	1.236249
+Retrieve k-mers	5.141815	4	1.285454
+Seed- and Anchor-finding	16.885550	4	4.221387
+Anchor recovery	0.348396	4	0.087099
+Alignment handler	5.402150	4	1.350537
+K-mer screen	1.720172	4	0.430043
+Joining alignment pairs and sorting	1.759243	4	0.439811
+Output handler	0.780433	4	0.195108
