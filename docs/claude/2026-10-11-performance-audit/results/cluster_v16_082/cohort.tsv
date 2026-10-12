@@ -1,0 +1,2 @@
+rep	samples	threads	wall_s	user_s	sys_s	max_rss_gb	load_index_s	profiling_s	strains_s	build_msa_s	qcmsa_s	species	raw_msas	filtered_msas
+1	2	8	21.78	98.44	12.29	10.2	NA	12.463	5.215	8.751	28.826	129	129	111

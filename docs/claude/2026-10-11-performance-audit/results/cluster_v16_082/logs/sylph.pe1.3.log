@@ -1,0 +1,7 @@
+2026-10-12T06:45:17.900Z INFO  [sylph::contain] Obtaining sketches...
+2026-10-12T06:45:21.922Z INFO  [sylph::contain] Finished obtaining genome sketches.
+2026-10-12T06:45:21.998Z INFO  [sylph::contain] Loaded 0 two-stage database(s) (0 genomes total) and 143614 plain genome sketch(es).
+2026-10-12T06:46:26.059Z INFO  [sylph::contain] /hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz taxonomic profiling; reassigning k-mers for 1847 genomes...
+2026-10-12T06:46:26.274Z INFO  [sylph::contain] /hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz has 470 genomes passing profiling threshold. 
+2026-10-12T06:46:26.276Z INFO  [sylph::contain] Finished paired sample /hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz.
+2026-10-12T06:46:26.276Z INFO  [sylph::contain] sylph finished.

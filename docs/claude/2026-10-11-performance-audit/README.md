@@ -527,6 +527,44 @@ and the logs say why: the start-up does not use the threads. Runs 2 (the databas
   ~1.7× and ~3.4× the wall. For HiFi the rest is mostly aligning (29.7 s, the alignment handler 29.4 s per thread)
   and the index.
 
+## 11. 0.8.2 on the v24 database, 8 threads (the 16th cluster run)
+
+SLURM 24186577, node `q512n10`, 0.8.2 (`4a42f3b`: sections 8 and 9, the WFA2 speed patches `aa36fc3`) on the **r226
+v24** database (built by 0.8.1 with Singletrack; it has `ancestry_sites.bin`, and the runs read its
+`column_weights.bin` and `strain_alleles.bin`, added after the build), 8 threads, the same samples
+([cluster_v16_082](results/cluster_v16_082/)). Against the 15th run (0.8.1, v23, 8 threads); runs 2. This is not a
+pure A/B: the code and the database both changed.
+
+| | pe 0.8.1 v23 | pe 0.8.2 v24 | HiFi 0.8.1 v23 | HiFi 0.8.2 v24 |
+|---|---|---|---|---|
+| **wall** | **126.0 s** | **115.5** (−8%) | **47.4** | **36.3** (−23%) |
+| what the alignment waits for: the tables (the preload inside, 3.1 s) | 13.91 | **3.13** | 13.89 | **3.13** |
+| the index, beside them | 9.44 | 9.03 | 9.47 | 9.05 |
+| so the alignment starts after | 13.9 | **9.0** | 13.9 | **9.0** |
+| aligning | 91.11 | 92.58 | 29.74 | 25.13 |
+| of it, per thread: seed and anchor finding; the alignment handler | 62.4; 12.8 | 62.2; 13.8 | –; 29.4 | –; 24.9 |
+| profiling | 18.92 | **12.23** | 2.32 | 1.06 |
+| max RSS | 44.0 GB | **37.5** | 44.1 | **36.7** |
+| user CPU; instructions | 981 s; 6,687 G | 925 s; 6,104 G | 363 s; 3,445 G | 307 s; 2,747 G |
+| the profile-only cohort of both: wall; peak | 40.7 s; 15.2 GB | **21.8 s; 10.2 GB** | | |
+
+- **The start-up did what section 10 expected at 8 threads.** The tables went 13.9 → 3.1 s (the column weights read
+  from `column_weights.bin`, 1.47 GB in memory; the deferred tables loaded in 1.1 s, never waited for). But the
+  alignment now waits for the index, 9.0 s at 8 threads. So the start-up gained 4.9 s, not the 11 s it gains at 32
+  threads, where the index takes 2.8 s.
+- **The profiling of pe: −6.7 s**, from v24's prebuilt ancestry sites (reading the SAM 14.4 → 7.8 s per thread).
+- **HiFi's aligning: −4.6 s**, the WFA2 patches (the alignment handler 29.4 → 24.9 s per thread).
+- **pe's aligning did not change** (+1.5 s). 62 s per thread of its 92.6 s is seed and anchor finding (seeding 44.2 s,
+  the k-mers 6.0 s, the k-mer screen 5.4 s), which neither round touched; WFA2 is a small part of short reads. The
+  alignment handler gained 1.0 s per thread: v24 has 9.2M strain alleles (v23 4.2M), and the weighted site shift is on.
+- **Memory: the peak is 7 GB lower** (44.0 → 37.5 GB), the column weights' load transient gone.
+- Against sylph on the same 8 threads: pe 115.5 s against 69.4 s (1.66×, was 1.81×), HiFi 36.3 against 12.5 s
+  (2.91×, was 3.81×).
+
+So at 8 threads, a pe run of this sample is now 80% aligning, and two thirds of that is finding seeds and anchors. That
+is the lever for short reads now. The next one is the index load (9 s at 8 threads, 8% of pe, 25% of HiFi), which is
+now on the start-up's path whenever few threads are used.
+
 ## How it was run
 
 Everything in WSL under `~/perf9` (removed afterwards), from the scripts in [scripts/](scripts/), in this order:
