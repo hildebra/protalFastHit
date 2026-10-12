@@ -96,6 +96,7 @@ namespace protal {
                 ("db", "Path to the protal database: a single-file database (database.protal, as --build writes it), or a folder holding one or the database's separate files. If not given, it is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
                 ("1,first", "Comma separated list of read files: the first-in-pair files of paired-end reads (the second-in-pair files go to -2/--second), or single-end reads when -2/--second is not given.", cxxopts::value<std::string>()->default_value(""))
                 ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Leave it out for single-end reads.", cxxopts::value<std::string>()->default_value(""))
+                ("one_sample", "The files of -1/--first (and -2/--second) are one sample's, its lanes or runs, read one after the other as one sample instead of a sample each; -1's and -2's pair up by position, and a lane whose two files hold different numbers of reads fails the sample. --prefix names it, else the longest beginning the files' names share (without a lane number such as _L001). In a map, a FIRST and SECOND cell lists a sample's files in the same way, comma-separated.")
                 ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi), ont (Oxford Nanopore long reads). Without it, pe with -2/--second; with one read file, its first reads decide, and protal says what it found: se for short reads, for long reads pb or ont by their names (PacBio movie/ZMW, the UUIDs of MinKNOW and dorado), else by their median read quality (pb from Q25 on, ont below; pb without qualities). A map gives it per sample in a READ_TYPE column. With --profile_only, the SAM's header names its reads, and --read_type replaces that (e.g. to profile a SAM with another read type's model); with --add_model, it names the model's reads (pe if not given).", cxxopts::value<std::string>()->default_value(""))
                 ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names: the longest common prefix of the two files of paired-end reads (which must then be in the same folder), the file name without its FASTQ/FASTA and compression extensions for single-end reads.", cxxopts::value<std::string>()->default_value(""))
                 ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'. With -1/-2: the folder of the SAM files and profiles, with 'strains' and 'misc' in it (default: the current folder).", cxxopts::value<std::string>())
@@ -534,6 +535,9 @@ namespace protal {
         static inline const std::string MAP_FIRST_READ = "FIRST";
         static inline const std::string MAP_SECOND_READ = "SECOND";
         static inline const std::string MAP_NO_SECOND_READ = "-";  // SECOND of a single-end sample
+        // A sample's read files, read one after the other as one sample (its lanes or runs): in a FIRST or SECOND
+        // cell, and with --one_sample in -1/-2, separated by commas; so kept in the lists of first and second files.
+        static constexpr char kReadFileSeparator = ',';
         static inline const std::string MAP_READ_TYPE = "READ_TYPE";
         // A sample's reads that seeded on taxa but aligned nowhere: an unmapped record each (write) or counted per taxon
         // in the SAM header (count); '-': as --write_unmapped_reads says for every sample.
@@ -1431,20 +1435,78 @@ namespace protal {
             return m_prefix_list.size();
         }
 
-        std::string GetFirstFile(int index) const {
-            if (index > m_first_list.size()) {
+        // A sample's read files as kept (kReadFileSeparator between them), one by one; none for an empty entry (the
+        // second files of single-end reads).
+        static std::vector<std::string> SplitReadFiles(std::string const& files) {
+            std::vector<std::string> list;
+            if (files.empty()) return list;
+            size_t begin = 0;
+            while (true) {
+                size_t const end = files.find(kReadFileSeparator, begin);
+                list.push_back(files.substr(begin, end == std::string::npos ? std::string::npos : end - begin));
+                if (end == std::string::npos) break;
+                begin = end + 1;
+            }
+            return list;
+        }
+
+        static std::string JoinReadFiles(std::vector<std::string> const& files) {
+            std::string joined;
+            for (auto const& file : files) joined += (joined.empty() ? "" : std::string(1, kReadFileSeparator)) + file;
+            return joined;
+        }
+
+        // The name a sample of several read files (its lanes or runs) gets without --prefix: the longest beginning
+        // their names share, without a lane number cut short (_L00 of _L001 and _L002) or separators at its end;
+        // empty if they share none.
+        static std::string LaneSamplePrefix(std::vector<std::string> const& names) {
+            if (names.empty()) return "";
+            std::string prefix = names.front();
+            for (auto const& name : names) {
+                size_t i = 0;
+                while (i < prefix.size() && i < name.size() && prefix[i] == name[i]) i++;
+                prefix.resize(i);
+            }
+            auto trim_separators = [&prefix] {
+                while (!prefix.empty() && (prefix.back() == '_' || prefix.back() == '.' || prefix.back() == '-')) prefix.pop_back();
+            };
+            trim_separators();
+            size_t digits = prefix.size();
+            while (digits > 0 && std::isdigit(static_cast<unsigned char>(prefix[digits - 1]))) digits--;
+            if (digits >= 2 && prefix[digits - 1] == 'L' && prefix[digits - 2] == '_') {
+                prefix.resize(digits - 2);
+                trim_separators();
+            }
+            return prefix;
+        }
+
+        // The first-in-pair read files of sample `index` (its single-end or long reads), one or several (its lanes),
+        // read one after the other.
+        std::vector<std::string> GetFirstFiles(int index) const {
+            if (index >= m_first_list.size()) {
                 std::cerr << "Cannot access index " << index << " of first files (Length: " << m_first_list.size() << ")" << std::endl;
                 exit(33);
             }
-            return m_first_list[index];
+            return SplitReadFiles(m_first_list[index]);
         }
 
-        std::string GetSecondFile(int index) const {
-            if (index > m_second_list.size()) {
+        // The second-in-pair read files of sample `index`, paired with its first by position; none for single-end
+        // and long reads.
+        std::vector<std::string> GetSecondFiles(int index) const {
+            if (index >= m_second_list.size()) {
                 std::cerr << "Cannot access index " << index << " of second files (Length: " << m_second_list.size() << ")" << std::endl;
                 exit(33);
             }
-            return m_second_list[index];
+            return SplitReadFiles(m_second_list[index]);
+        }
+
+        // The read files of sample `index` for messages: its first files, then its second ones.
+        std::string ReadFilesText(int index) const {
+            std::string text;
+            for (auto const& files : { GetFirstFiles(index), GetSecondFiles(index) }) {
+                for (auto const& file : files) text += (text.empty() ? "" : ", ") + file;
+            }
+            return text;
         }
 
         // The SAM file of sample `index`, and whether its name asks for compression (".gz" or ".zst",
@@ -1770,6 +1832,10 @@ FIRST and PREFIX are mandatory. SECOND holds the second-in-pair files of paired-
 sample with single-end reads (in FIRST) has '-' there, as SAMPLE4 above. Without a SECOND
 column, all samples are single-end. Single-end samples are profiled with the database's
 single-end model (model_se.xml, or --model_se).
+A sample sequenced in several lanes or runs lists its files in one cell, comma-separated, read
+one after the other as one sample: FIRST s_L001_R1.fq.gz,s_L002_R1.fq.gz and SECOND
+s_L001_R2.fq.gz,s_L002_R2.fq.gz (pairing up by position; a lane whose two files hold
+different numbers of reads fails the sample). A file name cannot contain a comma.
 An optional READ_TYPE column names each sample's reads: pe (paired-end), se (single-end), pb
 (PacBio) or ont (Oxford Nanopore long reads; pb and ont with '-' as SECOND), each profiled with
 its model (model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml). Without the column,
@@ -2066,10 +2132,37 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                                                  "' cannot name a file safely on Linux and macOS: " + problem);
                     }
                     auto prefix_path = path(global_output_dir).append(tokens[prefix_column]);
-                    auto first_path = path(input_dir).append(tokens[first_column]);
+                    // A cell may list several files, comma-separated, read one after the other as one sample (its lanes or
+                    // runs), each in INPUT_DIR; a paired-end sample's FIRST and SECOND files pair up by position.
+                    auto read_files = [&](int column, std::string& joined) {
+                        auto const files = SplitReadFiles(tokens[column]);
+                        std::vector<std::string> paths;
+                        for (auto const& file : files) {
+                            if (file.empty()) {
+                                std::cerr << "Line " << line_num << ": an empty file name in column " << column + 1 << " ("
+                                          << (column == first_column ? MAP_FIRST_READ : MAP_SECOND_READ) << ": '" << tokens[column]
+                                          << "'); a sample's files are separated by single commas" << std::endl;
+                                return false;
+                            }
+                            paths.push_back(path(input_dir).append(file).string());
+                        }
+                        joined = JoinReadFiles(paths);
+                        return true;
+                    };
+                    std::string first_path, second_path;
+                    if (!read_files(first_column, first_path)) return false;
                     // No second file ('-', or no SECOND column): single-end reads.
                     bool const single_end = second_column == -1 || tokens[second_column] == MAP_NO_SECOND_READ;
-                    auto second_path = single_end ? path() : path(input_dir).append(tokens[second_column]);
+                    if (!single_end) {
+                        if (!read_files(second_column, second_path)) return false;
+                        size_t const firsts = SplitReadFiles(first_path).size(), seconds = SplitReadFiles(second_path).size();
+                        if (firsts != seconds) {
+                            std::cerr << "Line " << line_num << ": " << MAP_FIRST_READ << " lists " << firsts << " file(s) and "
+                                      << MAP_SECOND_READ << " " << seconds << "; a sample's first and second files pair up "
+                                      << "by position (lanes: L001_R1,L002_R1 and L001_R2,L002_R2)" << std::endl;
+                            return false;
+                        }
+                    }
 
                     // mandatory
                     samplenames_list.emplace_back(sample_id);
@@ -2254,13 +2347,14 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     bool const single = i < m_second_list.size() && m_second_list[i].empty();
                     m_read_types[i] = given ? *given : single ? ReadType::Single : ReadType::Paired;
                     bool const in_run = std::find(m_range.begin(), m_range.end(), i) != m_range.end();
-                    if (!given && single && in_run && i < m_first_list.size()) {
-                        auto const guess = GuessReadType(SampleReads(m_first_list[i]), MAX_SHORT_READ_LENGTH);
+                    if (!given && single && in_run && i < m_first_list.size() && !m_first_list[i].empty()) {
+                        auto const first_file = SplitReadFiles(m_first_list[i]).front();  // of several (lanes), the first
+                        auto const guess = GuessReadType(SampleReads(first_file), MAX_SHORT_READ_LENGTH);
                         if (guess && guess->type != ReadType::Single) {
                             m_read_types[i] = guess->type;
                             if (note_log) {
                                 note_log->emplace_back("Sample " + (i < m_sampleid_list.size() ? m_sampleid_list[i] : m_prefix_list[i]) + ": " + ReadTypeName(guess->type) +
-                                                       " reads (" + guess->evidence + " in " + m_first_list[i] + "), aligned and profiled as such; "
+                                                       " reads (" + guess->evidence + " in " + first_file + "), aligned and profiled as such; "
                                                        "--read_type (or a map's READ_TYPE) sets the kind of reads");
                             }
                         }
@@ -2656,47 +2750,35 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 }
             }
 
-            // Check files
+            // Check files: each of a sample's (several: its lanes, read one after the other).
             for (auto i = 0; i < m_first_list.size(); i++) {
 
-                auto first = m_first_list[i];
-                auto second = m_second_list[i];
+                auto const firsts = SplitReadFiles(m_first_list[i]);
+                auto const seconds = SplitReadFiles(m_second_list[i]);  // none: single-end
                 auto sam = m_sam_list[i];
-
-                auto first_exists = std::filesystem::exists(first);
-                auto second_exists = second.empty() || std::filesystem::exists(second);  // none: single-end
                 auto sam_exists = std::filesystem::exists(sam);
 
-                if (!first_exists || !second_exists) {
-                    if (!force_read_check && sam_exists) {
-                        if (!first_exists) {
-                            std::string warning = "-1 file does not exist: " + first + " ( But .sam file does )";
-                            warning_log.emplace_back(warning);
-                        }
-                        if (!second_exists) {
-                            std::string warning = "-2 file does not exist: " + second + " ( But .sam file does )";
-                            warning_log.emplace_back(warning);
-                        }
-                    } else {
-                        if (!first_exists) {
-                            std::string error = "-1 file does not exist: " + first;
-                            error_log.emplace_back(error);
-                        }
-                        if (!second_exists) {
-                            std::string error = "-2 file does not exist: " + second;
-                            error_log.emplace_back(error);
+                if (firsts.empty()) {
+                    error_log.emplace_back("sample " + std::to_string(i + 1) + " has no read file (-1, or FIRST in a map)");
+                } else if (!seconds.empty() && seconds.size() != firsts.size()) {
+                    error_log.emplace_back("sample " + std::to_string(i + 1) + " has " + std::to_string(firsts.size()) +
+                                           " first-in-pair and " + std::to_string(seconds.size()) + " second-in-pair read files; "
+                                           "a sample's files pair up by position");
+                }
+                for (auto const& [flag, files] : { std::pair{ "-1", firsts }, std::pair{ "-2", seconds } }) {
+                    for (auto const& file : files) {
+                        if (!std::filesystem::exists(file)) {
+                            if (!force_read_check && sam_exists) {
+                                warning_log.emplace_back(std::string(flag) + " file does not exist: " + file + " ( But .sam file does )");
+                            } else {
+                                error_log.emplace_back(std::string(flag) + " file does not exist: " + file);
+                            }
+                        } else if (force_read_check || !sam_exists) {
+                            // A file that exists but cannot be read (permissions, a directory) would read as empty.
+                            std::string const problem = Unreadable(file);
+                            if (!problem.empty()) error_log.emplace_back(std::string(flag) + " file cannot be read: " + file + " (" + problem + ")");
                         }
                     }
-                }
-                // A file that exists but cannot be read (permissions, a directory) would read as empty.
-                if (force_read_check || !sam_exists) {
-                    auto check = [&](char const* flag, std::string const& path) {
-                        if (path.empty() || !std::filesystem::exists(path)) return;
-                        std::string const problem = Unreadable(path);
-                        if (!problem.empty()) error_log.emplace_back(std::string(flag) + " file cannot be read: " + path + " (" + problem + ")");
-                    };
-                    check("-1", first);
-                    check("-2", second);
                 }
             }
 
@@ -2719,11 +2801,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     }
                 }
                 for (auto i : m_range) {
-                    if (GetReadType(i) != ReadType::Single || i >= m_first_list.size()) continue;
-                    size_t const longest = LongestRead(m_first_list[i], 100);
+                    if (GetReadType(i) != ReadType::Single || i >= m_first_list.size() || m_first_list[i].empty()) continue;
+                    auto const first_file = SplitReadFiles(m_first_list[i]).front();  // of several (lanes), the first
+                    size_t const longest = LongestRead(first_file, 100);
                     if (longest > MAX_SHORT_READ_LENGTH) {
                         error_log.emplace_back("Sample " + GetSampleId(i) + " has reads of up to " + std::to_string(longest) +
-                                               " bp (first 100 of " + m_first_list[i] + "), too long for short reads: give "
+                                               " bp (first 100 of " + first_file + "), too long for short reads: give "
                                                "--read_type pb or ont (or in the map's READ_TYPE column) for PacBio or ONT reads");
                     }
                 }
@@ -3039,6 +3122,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             auto map_file = result.count("map") ? result["map"].as<std::string>() : "";
             auto first = result.count("first") ? result["first"].as<std::string>() : "";
             auto second = result.count("second") ? result["second"].as<std::string>() : "";
+            bool const one_sample = result.count("one_sample") > 0;
+            if (one_sample && !map_file.empty()) {
+                std::cerr << "--one_sample is for the read files of -1/-2; in a map, a sample's FIRST and SECOND cells list "
+                             "its files, comma-separated" << std::endl;
+                exit(2);
+            }
             auto sam_in = result.count("profile_only") ? result["profile_only"].as<std::string>() : "";
             auto universal_prefix = result.count("prefix") ? result["prefix"].as<std::string>() : "";
             auto output_dir = result.count("outdir") ? result["outdir"].as<std::string>() : "";
@@ -3124,6 +3213,17 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             } else {
                 LineSplitter::Split(first, ",", first_list);
                 LineSplitter::Split(second, ",", second_list);
+                // --one_sample: the files are one sample's (its lanes or runs), read one after the other.
+                if (one_sample && !first_list.empty()) {
+                    if (!second.empty() && first_list.size() != second_list.size()) {
+                        std::cerr << "With --one_sample, -1/--first and -2/--second must name the same number of files "
+                                     "(they pair up by position): -1 names " << first_list.size() << ", -2 "
+                                  << second_list.size() << std::endl;
+                        exit(31);
+                    }
+                    first_list = { JoinReadFiles(first_list) };
+                    second_list = { second.empty() ? std::string() : JoinReadFiles(second_list) };
+                }
                 // Without -2, the reads are single-end: no sample has a second file.
                 if (second.empty()) second_list.assign(first_list.size(), "");
                 LineSplitter::Split(universal_prefix, ",", prefix_list);
@@ -3254,6 +3354,27 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             } else {
                 if (prefix_list.empty()) {
                     for (int i = 0; i < first_list.size(); i++) {
+                        // A sample of several files (--one_sample): the beginning their names share, in one folder.
+                        auto const files = SplitReadFiles(first_list[i]), seconds = SplitReadFiles(second_list[i]);
+                        if (files.size() > 1) {
+                            std::vector<std::string> names;
+                            std::set<std::filesystem::path> folders;
+                            for (auto const& list : { files, seconds }) {
+                                for (auto const& file : list) {
+                                    names.push_back(Utils::ReadFileStem(std::filesystem::path(file).filename().string()));
+                                    folders.insert(std::filesystem::path(file).parent_path());
+                                }
+                            }
+                            auto const prefix = LaneSamplePrefix(names);
+                            if (folders.size() > 1 || prefix.empty()) {
+                                std::cerr << "Cannot name the sample of " << first_list[i] << " after its read files ("
+                                          << (folders.size() > 1 ? "they are in different folders" : "their names share no beginning")
+                                          << "); name it with --prefix" << std::endl;
+                                exit(32);
+                            }
+                            prefix_list.push_back(prefix);
+                            continue;
+                        }
                         auto first = std::filesystem::path(first_list[i]);
                         if (second_list[i].empty()) {
                             prefix_list.emplace_back(Utils::ReadFileStem(first.filename().string()));

@@ -709,8 +709,10 @@ namespace protal {
     // writer would wait for a reader forever.
     static bool ReadsArePiped(Options const& options, int index) {
         std::error_code ec;
-        for (auto const& file : {options.GetFirstFile(index), options.GetSecondFile(index)}) {
-            if (!file.empty() && std::filesystem::is_fifo(file, ec)) return true;
+        for (auto const& files : {options.GetFirstFiles(index), options.GetSecondFiles(index)}) {
+            for (auto const& file : files) {
+                if (std::filesystem::is_fifo(file, ec)) return true;
+            }
         }
         return false;
     }
@@ -902,8 +904,12 @@ namespace protal {
                     os << read_type_line;
                     full_header = os.str();
                 }
-                std::vector<std::string> read_file_list{ options.GetFirstFile(index) };
-                if (!single_file) read_file_list.push_back(options.GetSecondFile(index));
+                // A sample's reads: one file, or several (its lanes) read one after the other; paired-end reads, as many
+                // second files, paired with the first by position.
+                auto const first_files = options.GetFirstFiles(index);
+                auto const second_files = single_file ? std::vector<std::string>() : options.GetSecondFiles(index);
+                std::vector<std::string> read_file_list = first_files;
+                read_file_list.insert(read_file_list.end(), second_files.begin(), second_files.end());
                 SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header,
                                      sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads(index) ? 0 : genomes.GetGenomeMap().size()));
                 sam_output.SetUnmappedRecords(options.WriteUnmappedReads(index));
@@ -924,12 +930,11 @@ namespace protal {
                 std::string read_problem;   // why reading failed, if it says
                 size_t reads_read = 0;
                 size_t bases_read = 0;  // for the header's ScannedReadsLine
-                std::string const read_files = single_file ? options.GetFirstFile(index) :
-                                               options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
+                std::string const read_files = options.ReadFilesText(index);
                 // An input that cannot be opened reads as empty: say why instead.
-                auto cannot_read = [&](ThreadedGzIstream& is, std::string const& path) {
+                auto cannot_read = [&](ThreadedGzIstream& is) {
                     if (is.rdbuf()->is_open()) return false;
-                    RunStatus::Get().Fail("Cannot read " + path + " (sample " + options.GetSampleId(index) + "): " +
+                    RunStatus::Get().Fail("Cannot read " + is.rdbuf()->current_path() + " (sample " + options.GetSampleId(index) + "): " +
                                           is.rdbuf()->open_error() + "; no SAM file was written");
                     sam_output.Discard();
                     return true;
@@ -938,19 +943,19 @@ namespace protal {
                     auto const message = is.rdbuf()->read_error_message();
                     return message.empty() ? std::string() : ": " + message;
                 };
-                // With --verbose, how each input is inflated: a BGZF file on several threads, any other on one.
-                auto tell_input = [&](ThreadedGzIstream& is, std::string const& path) {
-                    if (!options.Verbose()) return;
-                    auto const* buf = is.rdbuf();
-                    std::cout << "Input " << path << ": "
-                              << (buf->opened_as_bgzf() ? "BGZF, inflated on " + std::to_string(buf->inflate_threads()) + " thread(s)"
-                                                        : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
-                              << std::endl;
-                };
+                // With --verbose, how each input is inflated as it is opened: a BGZF file on several threads, any other on one.
+                ThreadedGzStreambuf::OnOpen tell_input;
+                if (options.Verbose()) {
+                    tell_input = [](std::string const& path, ThreadedGzStreambuf const& buf) {
+                        std::cout << "Input " << path << ": "
+                                  << (buf.opened_as_bgzf() ? "BGZF, inflated on " + std::to_string(buf.inflate_threads()) + " thread(s)"
+                                                           : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
+                                  << std::endl;
+                    };
+                }
                 if (IsLongReadType(read_type)) {
-                    ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
-                    if (cannot_read(is, options.GetFirstFile(index))) continue;
-                    tell_input(is, options.GetFirstFile(index));
+                    ThreadedGzIstream is { first_files, tell_input };
+                    if (cannot_read(is)) continue;
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
@@ -976,8 +981,8 @@ namespace protal {
                     read_success = reader.Success();
                     is.close();
                 } else if (read_type == ReadType::Single) {
-                    ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
-                    if (cannot_read(is, options.GetFirstFile(index))) continue;
+                    ThreadedGzIstream is { first_files, tell_input };
+                    if (cannot_read(is)) continue;
                     // Reads longer than short reads are long reads given as single-end: the check
                     // before aligning sees only the first reads of the file.
                     SeqReaderSE reader{ is, FastaQualityChar(read_type), MAX_SHORT_READ_LENGTH };
@@ -1011,12 +1016,11 @@ namespace protal {
                     }
                     is.close();
                 } else {
-                    // Each file inflates in a thread of its own (ThreadedGzStream.h), outside the reader lock.
-                    ThreadedGzIstream is1 { options.GetFirstFile(index).c_str() };
-                    ThreadedGzIstream is2 { options.GetSecondFile(index).c_str() };
-                    if (cannot_read(is1, options.GetFirstFile(index)) || cannot_read(is2, options.GetSecondFile(index))) continue;
-                    tell_input(is1, options.GetFirstFile(index));
-                    tell_input(is2, options.GetSecondFile(index));
+                    // Each file inflates in a thread of its own (ThreadedGzStream.h), outside the reader lock. Of a sample's
+                    // lanes, the batches end with each lane's files, so a lane whose mates differ in number fails it.
+                    ThreadedGzIstream is1 { first_files, tell_input };
+                    ThreadedGzIstream is2 { second_files, tell_input };
+                    if (cannot_read(is1) || cannot_read(is2)) continue;
                     SeqReaderPE reader{ is1, is2, FastaQualityChar(read_type) };
                     Statistics protal_stats;
 
@@ -1056,6 +1060,10 @@ namespace protal {
                     read_problem = read_error(is1);
                     if (read_problem.empty()) read_problem = read_error(is2);
                     read_success = reader.Success();
+                    if (!read_success && read_problem.empty() && reader.MatesOutOfStep()) {
+                        read_problem = first_files.size() > 1 ? ": the two files of one of its lanes hold different numbers of reads"
+                                                              : ": the two files hold different numbers of reads";
+                    }
                     if (reader.NameMismatches() > 0 && read_success && !truncated) {
                         std::cerr << "Warning: sample " << options.GetSampleId(index) << ": the mates of " << reader.NameMismatches()
                                   << " read pair(s) have different names (e.g. " << reader.FirstNameMismatch()
@@ -3533,7 +3541,7 @@ namespace protal {
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
             // at the first read, deep inside the alignment.
-            ThreadedGzIstream is{ options.GetFirstFile(options.GetRange().front()).c_str() };
+            ThreadedGzIstream is{ options.GetFirstFiles(options.GetRange().front()) };
             SeqReader reader{ is };
             FastxRecord record;
             static const std::regex truth_name("^[0-9]+_[0-9]+([^0-9].*)?$");

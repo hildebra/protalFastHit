@@ -33,6 +33,12 @@ for this page.
   ([report](claude/2026-10-12-r226-v24b/README.md), section 4). `--weighted_site_shift` turns it on, and
   `build_gtdb_database.py --weighted-site-shift` trains with it. r226 v24b was built with 0.8.2's default:
   profile it with `--weighted_site_shift` for the calls of its training.
+- **A sample's lanes as one sample** (2026-10-12). A map's `FIRST` and `SECOND` cells list several files,
+  comma-separated, and `--one_sample` makes the files of `-1`/`-2` one sample's: they are read one after the
+  other as one stream, so the sample's depth and the features that depend on its size see all its reads
+  (each lane a sample of its own before). A lane whose mate files hold different numbers of reads fails the
+  sample. `protal_map_utils generate` makes Illumina's lane files of a sample one sample (`--split-lanes`: a
+  sample per lane, as before) ([running.md](running.md#several-files-of-one-sample)).
 
 ## What 0.8.2 adds
 

@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <istream>
 #include <memory>
 #include <mutex>
@@ -61,8 +62,16 @@ namespace protal {
     // everything before it read. One gzip member cannot be split this way (its deflate blocks are
     // found only by decoding it from the start, and refer back up to 32 KB): other gzip files
     // inflate on one thread.
+    //
+    // Several files (open with a list: a sample's lanes) read as one stream, one after the other, each in
+    // its own format: a file whose last line lacks its '\n' gets one, TakeLines ends a batch with its file
+    // (so that the mate files of lanes stay in step, see TakeLines), and a truncated or corrupt file, or one
+    // that cannot be opened when its turn comes, ends the stream there, named in read_error_message().
     class ThreadedGzStreambuf : public std::streambuf {
     public:
+        // Called as each file of the stream is opened (the first by open, the others as the stream reaches them).
+        using OnOpen = std::function<void(std::string const& path, ThreadedGzStreambuf const& buf)>;
+
         static constexpr size_t kBlockSize = size_t{1} << 20;  // inflated bytes per block
         static constexpr size_t kBlocks = 4;                   // with one inflating thread; 2 per worker + 2 with more
         static constexpr uint32_t kInputBuffer = 1u << 17;     // compressed bytes per read()
@@ -95,6 +104,35 @@ namespace protal {
 
         // False if the file cannot be read; open_error() then says why.
         bool open(char const* path) {
+            return open(std::vector<std::string>{ path });
+        }
+
+        // Several files, read one after the other as one stream; each is opened once the one before it has been read.
+        // False if the first cannot be read (open_error() says why); a later one that cannot be read ends the stream
+        // there (read_failed()).
+        bool open(std::vector<std::string> paths) {
+            if (is_open() || paths.empty()) return false;
+            m_paths = std::move(paths);
+            m_path = 0;
+            m_files_begun = 0;
+            m_last_byte = '\n';
+            return OpenFile(m_paths.front().c_str());
+        }
+
+        // set_on_open(f): f is called as each file is opened from the next open() on.
+        void set_on_open(OnOpen on_open) { m_on_open = std::move(on_open); }
+
+        // The file being read (the last one opened, or the one that could not be opened).
+        std::string const& current_path() const {
+            static std::string const none;
+            return m_path < m_paths.size() ? m_paths[m_path] : none;
+        }
+
+        // The files the stream reads (one, unless opened with a list).
+        size_t files() const { return m_paths.size(); }
+
+    private:
+        bool OpenFile(char const* path) {
             if (is_open()) return false;
             m_open_error.clear();
             m_fd = ::open(path, O_RDONLY | O_CLOEXEC);
@@ -145,9 +183,29 @@ namespace protal {
             } else {
                 m_thread = std::thread(&ThreadedGzStreambuf::Inflate, this);
             }
+            m_files_begun++;
+            m_last_byte = '\n';
+            if (m_on_open) m_on_open(path, *this);
             return true;
         }
 
+        // After the end of a file read whole, the next file of the stream: false after the last, after a file that ended
+        // in an error (nothing more is read), or if the next cannot be opened (an error, as for a damaged file).
+        bool NextFile() {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (!m_error.empty() || m_failed) return false;
+            }
+            if (m_path + 1 >= m_paths.size()) return false;
+            close();
+            m_path++;
+            if (OpenFile(m_paths[m_path].c_str())) return true;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_error = "it cannot be read (" + m_open_error + ")";
+            return false;
+        }
+
+    public:
         // The threads inflating BGZF blocks of the open file (1: the file's own thread).
         unsigned inflate_threads() const { return m_workers; }
 
@@ -185,20 +243,33 @@ namespace protal {
             return !m_error.empty();
         }
 
+        // Why reading failed; with several files, after the name of the file it failed in.
         std::string read_error_message() const {
             std::lock_guard<std::mutex> lock(m_mutex);
-            return m_error;
+            if (m_error.empty() || m_paths.size() < 2) return m_error;
+            return current_path() + ": " + m_error;
         }
 
         // Appends up to `lines` whole lines to out, each with its '\n' (a last line without one gets
         // it, as getline reads such a line too), and returns how many. The lines are found with
         // memchr in the inflated block and copied at once, so the reader lock is held for little
         // more than a copy (BufferedFastxReader::LoadBatch).
+        // Of several files, a batch ends with its file once it has a line: the batches of the mate files
+        // of a sample's lanes end with the same pair if the lanes' mates match, and otherwise a lane's
+        // extra reads fail the sample (SeqReaderPE) instead of pairing the next lane's reads wrongly.
         size_t TakeLines(size_t lines, std::string& out) {
             size_t taken = 0;
             bool partial = false;  // out ends inside a line
+            bool ending = false;   // the file ended inside out's last line: the batch ends with that line
             while (taken < lines) {
-                if (gptr() == egptr() && traits_type::eq_int_type(underflow(), traits_type::eof())) break;
+                if (gptr() == egptr()) {
+                    size_t const files = m_files_begun;
+                    if (traits_type::eq_int_type(underflow(), traits_type::eof())) break;
+                    if (m_files_begun != files) {  // the next file
+                        if (partial) ending = true;    // its line gets the '\n' the last file lacked
+                        else if (taken > 0) break;
+                    }
+                }
                 char* const begin = gptr();
                 char* const end = egptr();
                 char* p = begin;
@@ -214,6 +285,7 @@ namespace protal {
                 out.append(begin, static_cast<size_t>(p - begin));
                 partial = p[-1] != '\n';
                 gbump(static_cast<int>(p - begin));
+                if (ending && !partial) break;
             }
             if (partial && taken < lines) {
                 out.push_back('\n');
@@ -223,8 +295,26 @@ namespace protal {
         }
 
     protected:
+        // The current file's next block; at its end the next file's (NextFile), after a '\n' if the file's
+        // last line lacked one.
         int_type underflow() override {
             if (gptr() < egptr()) return traits_type::to_int_type(*gptr());
+            if (egptr() > eback()) m_last_byte = egptr()[-1];
+            while (is_open()) {
+                int_type const next = UnderflowFile();
+                if (!traits_type::eq_int_type(next, traits_type::eof())) return next;
+                bool const open_line = m_last_byte != '\n';
+                if (!NextFile()) break;
+                if (open_line) {
+                    setg(m_newline, m_newline, m_newline + 1);
+                    return traits_type::to_int_type('\n');
+                }
+            }
+            return traits_type::eof();
+        }
+
+    private:
+        int_type UnderflowFile() {
             if (!is_open()) return traits_type::eof();
             std::unique_lock<std::mutex> lock(m_mutex);
             if (m_current != kNone) {
@@ -719,6 +809,12 @@ namespace protal {
         }
 
         enum class Mode { Look, Gzip, Zstd, Copy };
+        std::vector<std::string> m_paths;                // the stream's files, read one after the other
+        size_t m_path = 0;                               // the one open (or that could not be opened)
+        size_t m_files_begun = 0;                        // files opened so far (TakeLines ends a batch at a new one)
+        char m_last_byte = '\n';                         // the last byte the reader took of the open file
+        char m_newline[1] = { '\n' };                    // the get area of the '\n' a file's open last line gets
+        OnOpen m_on_open;
         bool m_bgzf = false;                             // read with FillBgzf, else FillStream
         int m_fd = -1;
         std::string m_open_error;
@@ -761,9 +857,14 @@ namespace protal {
     // The istream for ThreadedGzStreambuf, a drop-in for igzstream when reading.
     class ThreadedGzIstream : public std::istream {
     public:
-        explicit ThreadedGzIstream(char const* path) : std::istream(nullptr) {
+        explicit ThreadedGzIstream(char const* path) : ThreadedGzIstream(std::vector<std::string>{ path }) {}
+
+        // Several files read one after the other as one stream (ThreadedGzStreambuf::open); on_open, if given, is
+        // called as each is opened.
+        explicit ThreadedGzIstream(std::vector<std::string> paths, ThreadedGzStreambuf::OnOpen on_open = {}) : std::istream(nullptr) {
             std::istream::rdbuf(&m_buf);  // clears the badbit of the null buffer
-            if (!m_buf.open(path)) setstate(std::ios::badbit);
+            m_buf.set_on_open(std::move(on_open));
+            if (!m_buf.open(std::move(paths))) setstate(std::ios::badbit);
         }
 
         ThreadedGzStreambuf* rdbuf() { return &m_buf; }

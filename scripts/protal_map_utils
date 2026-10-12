@@ -18,6 +18,10 @@ MAP_PROFILE_TRUTH = "PROFILE_TRUTH"
 MAP_HEADER_TO_SPECIES = "HEADER_TO_SPECIES"
 MAP_PREFIX = "PREFIX"
 MAP_NO_SECOND_READ = "-"  # SECOND of a single-end sample
+# A sample's files in a FIRST or SECOND cell, read one after the other as one sample (its lanes or runs; protal's
+# Options::kReadFileSeparator); a paired-end sample's FIRST and SECOND files pair up by position.
+READ_FILE_SEPARATOR = ","
+LANE = re.compile(r"^(.+)_L\d{3}$")  # a sample name with Illumina's lane number (x_S1_L001)
 SAM_ENDINGS = (".sam.zst", ".sam.gz", ".sam")
 
 MAP_VAR_INPUT_DIR = "#INPUT_DIR"
@@ -128,9 +132,17 @@ def resolve_path(base: Optional[str], value: str, fallback_base: str) -> str:
     return os.path.abspath(os.path.join(use_base, value))
 
 
+def read_files(cell: str) -> List[str]:
+    """The files of a FIRST or SECOND cell: one, or several (a sample's lanes), comma-separated; none for '-'."""
+    return [] if cell == MAP_NO_SECOND_READ else cell.split(READ_FILE_SEPARATOR)
+
+
 def resolve_read(base: Optional[str], value: str, fallback_base: str) -> str:
-    """A read file's path as protal resolves it; '-' (no second file: single-end reads) stays as it is."""
-    return value if value == MAP_NO_SECOND_READ else resolve_path(base, value, fallback_base)
+    """A FIRST or SECOND cell with its files' paths as protal resolves them (several: comma-separated); '-' (no second
+    file: single-end reads) stays as it is."""
+    if value == MAP_NO_SECOND_READ:
+        return value
+    return READ_FILE_SEPARATOR.join(resolve_path(base, f, fallback_base) for f in read_files(value))
 
 
 def existing_sam(map_file: MapFile, row: List[str]) -> Optional[str]:
@@ -185,14 +197,20 @@ def validate_map(path: str) -> int:
         if any(idx >= len(row) for idx in columns):
             missing.append(f"row {row_idx}: missing {'/'.join(map_file.header_cols[i] for i in columns)} value")
             continue
+        if second_idx is not None and row[second_idx] != MAP_NO_SECOND_READ and \
+                len(read_files(row[first_idx])) != len(read_files(row[second_idx])):
+            missing.append(f"row {row_idx}: {MAP_FIRST_READ} and {MAP_SECOND_READ} list different numbers of files "
+                           f"(a sample's lanes pair up by position)")
+            continue
         if existing_sam(map_file, row):
             continue
         for col_idx in columns:
             if row[col_idx] == MAP_NO_SECOND_READ and col_idx == second_idx:
                 continue
-            resolved = resolve_path(base_dir, row[col_idx], os.getcwd())
-            if not os.path.exists(resolved):
-                missing.append(f"row {row_idx}: {resolved}")
+            for name in read_files(row[col_idx]):
+                resolved = resolve_path(base_dir, name, os.getcwd())
+                if not name or not os.path.exists(resolved):
+                    missing.append(f"row {row_idx}: {resolved if name else 'an empty file name in ' + row[col_idx]}")
 
     if missing:
         sys.stderr.write("Missing read files:\n")
@@ -328,7 +346,40 @@ def generate_sample_name(read1: str, read2: str, indices: List[int], id_from_fol
     return prefix + ("_" if prefix else "") + base
 
 
-def generate_samples_from_reads(read_files: List[str], sam_suffix: str, id_from_folder: bool) -> List[Dict[str, str]]:
+def group_lanes(samples: List[Dict[str, str]], sam_suffix: str) -> List[Dict[str, str]]:
+    """The lanes of a sample (x_S1_L001, x_S1_L002, ... in one folder) as one sample, x_S1, its files in lane order and
+    comma-separated, which protal reads one after the other as one sample; a sample of one lane keeps its name."""
+    groups: Dict[Tuple[str, str], List[Dict[str, str]]] = {}
+    order: List[Tuple[str, str]] = []
+    for idx, sample in enumerate(samples):
+        match = LANE.match(sample[MAP_SAMPLEID])
+        key = (os.path.dirname(sample[MAP_FIRST_READ]), match.group(1)) if match else ("", f"\0{idx}")
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(sample)
+    grouped: List[Dict[str, str]] = []
+    for key in order:
+        lanes = groups[key]
+        if len(lanes) == 1:
+            grouped.append(lanes[0])
+            continue
+        name = key[1]
+        grouped.append(
+            {
+                MAP_SAMPLEID: name,
+                MAP_FIRST_READ: READ_FILE_SEPARATOR.join(lane[MAP_FIRST_READ] for lane in lanes),
+                MAP_SECOND_READ: READ_FILE_SEPARATOR.join(lane[MAP_SECOND_READ] for lane in lanes),
+                MAP_SAM: f"{name}{sam_suffix}",
+                MAP_PROFILE: f"{name}.profile",
+                MAP_PREFIX: name,
+            }
+        )
+    return grouped
+
+
+def generate_samples_from_reads(read_files: List[str], sam_suffix: str, id_from_folder: bool,
+                                split_lanes: bool = False) -> List[Dict[str, str]]:
     read_files = sorted(read_files)
     indices = get_relevant_indices(read_files)
     samples: List[Dict[str, str]] = []
@@ -355,6 +406,9 @@ def generate_samples_from_reads(read_files: List[str], sam_suffix: str, id_from_
             continue
         i += 1
 
+    if not split_lanes:
+        samples = group_lanes(samples, sam_suffix)
+
     if not id_from_folder:
         seen: Dict[str, str] = {}
         for sample in samples:
@@ -370,7 +424,8 @@ def generate_samples_from_reads(read_files: List[str], sam_suffix: str, id_from_
     return samples
 
 
-def generate_map(input_dirs: List[str], output_dir: Optional[str], sam_suffix: str, id_from_folder: bool) -> None:
+def generate_map(input_dirs: List[str], output_dir: Optional[str], sam_suffix: str, id_from_folder: bool,
+                 split_lanes: bool = False) -> None:
     input_dirs_abs = [os.path.abspath(d) for d in input_dirs]
     input_dir = common_path(input_dirs_abs)
     if not input_dir:
@@ -385,7 +440,7 @@ def generate_map(input_dirs: List[str], output_dir: Optional[str], sam_suffix: s
         for path in all_reads
         if os.path.normpath(path).startswith(input_dir)
     ]
-    samples = generate_samples_from_reads(reads_rel, sam_suffix, id_from_folder)
+    samples = generate_samples_from_reads(reads_rel, sam_suffix, id_from_folder, split_lanes)
 
     seen_sample_ids: Dict[str, str] = {}
     seen_files: Dict[str, str] = {}
@@ -400,11 +455,12 @@ def generate_map(input_dirs: List[str], output_dir: Optional[str], sam_suffix: s
             value = sample.get(col, "")
             if not value:
                 continue
-            if value in seen_files:
-                raise ValueError(
-                    f"Duplicate {col} entry '{value}' in generate (rows {seen_files[value]} and {idx})"
-                )
-            seen_files[value] = str(idx)
+            for item in (read_files(value) if col in (MAP_FIRST_READ, MAP_SECOND_READ) else [value]):
+                if item in seen_files:
+                    raise ValueError(
+                        f"Duplicate {col} entry '{item}' in generate (rows {seen_files[item]} and {idx})"
+                    )
+                seen_files[item] = str(idx)
 
     header_cols = [
         MAP_SAMPLEID,
@@ -522,7 +578,7 @@ def merge_maps(
 
             first_abs = resolve_read(base_dir, out_row[out_first_idx], fallback_base)
             second_abs = resolve_read(base_dir, out_row[out_second_idx], fallback_base) if out_second_idx is not None else None
-            read_paths.extend(p for p in (first_abs, second_abs) if p and p != MAP_NO_SECOND_READ)
+            read_paths.extend(f for p in (first_abs, second_abs) if p for f in read_files(p))
 
             prefix_abs = resolve_path(out_dir, out_row[out_prefix_idx], fallback_base)
             prefix_paths.append(prefix_abs)
@@ -561,7 +617,7 @@ def merge_maps(
         for row in merged_rows:
             for idx in (out_first_idx, out_second_idx):
                 if idx is not None and row[idx] != MAP_NO_SECOND_READ:
-                    row[idx] = strip_prefix(row[idx], input_dir)
+                    row[idx] = READ_FILE_SEPARATOR.join(strip_prefix(f, input_dir) for f in read_files(row[idx]))
     if output_dir:
         for row in merged_rows:
             row[out_prefix_idx] = normalize_prefix(row[out_prefix_idx], output_dir)
@@ -629,11 +685,12 @@ def merge_maps(
             value = row[col_idx]
             if not value or (col_name == MAP_SECOND_READ and value == MAP_NO_SECOND_READ):
                 continue
-            if value in seen_files:
-                raise ValueError(
-                    f"Duplicate {col_name} entry '{value}' in merge (rows {seen_files[value]} and {idx})"
-                )
-            seen_files[value] = str(idx)
+            for item in (read_files(value) if col_name in (MAP_FIRST_READ, MAP_SECOND_READ) else [value]):
+                if item in seen_files:
+                    raise ValueError(
+                        f"Duplicate {col_name} entry '{item}' in merge (rows {seen_files[item]} and {idx})"
+                    )
+                seen_files[item] = str(idx)
     merged = MapFile(
         path="",
         vars={k: v for k, v in var_lines},
@@ -659,6 +716,9 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--input", required=True, nargs="+")
     generate.add_argument("--out", default=None)
     generate.add_argument("--id-from-folder", action="store_true")
+    generate.add_argument("--split-lanes", action="store_true",
+                          help="a sample per lane (x_S1_L001, x_S1_L002), as generate made up to 2026-10-12; by default "
+                               "a sample's lanes in one folder are one sample (x_S1), its files listed in lane order")
 
     merge = sub.add_parser(
         "merge",
@@ -700,7 +760,7 @@ def main() -> int:
             flatten_map(args.map, args.out)
             return 0
         if args.command == "generate":
-            generate_map(args.input, args.out, sam_suffix(args), args.id_from_folder)
+            generate_map(args.input, args.out, sam_suffix(args), args.id_from_folder, args.split_lanes)
             return 0
         if args.command == "merge":
             maps = [item for group in args.map for item in group]

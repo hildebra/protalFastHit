@@ -2034,6 +2034,53 @@ class MapUtilsTest(DbTest):
         rows = [line.split("\t") for line in out.splitlines() if line and not line.startswith("#")]
         self.assertEqual(sorted(row[0] for row in rows), sorted(expected.values()), out)
 
+    def test_generate_makes_a_samples_lanes_one_sample(self):
+        # Illumina's lane files of a sample in one folder (x_S1_L001_R1_001, x_S1_L002_R1_001) are one sample, x_S1,
+        # its files comma-separated in lane order, which protal reads one after the other; a sample of one lane keeps
+        # its name, and --split-lanes makes a sample per lane, as generate did up to 2026-10-12. validate and merge
+        # check and resolve each file of a cell.
+        tool = os.path.join(ROOT, "scripts", "protal_map_utils")
+        folder = self.path("lanes")
+        os.makedirs(folder)
+        names = [f"{s}_S{i}_L00{lane}_R{mate}_001.fastq.gz" for s, i, lanes in (("x", 1, (1, 2, 3)), ("y", 2, (1,)))
+                 for lane in lanes for mate in (1, 2)]
+        for name in names:
+            open(os.path.join(folder, name), "w").close()
+
+        def generated(*options):
+            rc, out = run(self.work, "generate", "--input", folder, *options, binary=tool)
+            self.assertEqual(rc, 0, out)
+            header = next(line for line in out.splitlines() if line.startswith("#SAMPLEID")).split("\t")
+            return out, {row["#SAMPLEID"]: row for row in (dict(zip(header, line.split("\t")))
+                                                          for line in out.splitlines() if line and not line.startswith("#"))}
+
+        out, rows = generated()
+        self.assertEqual(sorted(rows), ["x_S1", "y_S2_L001"])
+        self.assertEqual(rows["x_S1"]["FIRST"], ",".join(f"x_S1_L00{lane}_R1_001.fastq.gz" for lane in (1, 2, 3)))
+        self.assertEqual(rows["x_S1"]["SECOND"], ",".join(f"x_S1_L00{lane}_R2_001.fastq.gz" for lane in (1, 2, 3)))
+        self.assertEqual((rows["x_S1"]["PREFIX"], rows["x_S1"]["SAM"]), ("x_S1", "x_S1.sam.zst"))
+        _, split = generated("--split-lanes")
+        self.assertEqual(sorted(split), ["x_S1_L001", "x_S1_L002", "x_S1_L003", "y_S2_L001"])
+
+        with open(self.path("lanes.map"), "w") as fh:
+            fh.write(out)
+        rc, log = run(self.work, "validate", "--map", self.path("lanes.map"), binary=tool)
+        self.assertEqual(rc, 0, log)
+        os.remove(os.path.join(folder, "x_S1_L002_R2_001.fastq.gz"))
+        rc, log = run(self.work, "validate", "--map", self.path("lanes.map"), binary=tool)
+        self.assertEqual(rc, 1, log)
+        self.assertIn("x_S1_L002_R2_001.fastq.gz", log)
+
+        with open(self.path("other.map"), "w") as fh:
+            fh.write(f"#INPUT_DIR\t{self.work}\n#SAMPLEID\tFIRST\tSECOND\tSAM\tPROFILE\tPREFIX\n"
+                     f"z\tz_1.fq\tz_2.fq\tz.sam.zst\tz.profile\tz\n")
+        rc, merged = run(self.work, "merge", "--map", self.path("lanes.map"), self.path("other.map"), binary=tool)
+        self.assertEqual(rc, 0, merged)
+        variables = dict(line.split("\t", 1) for line in merged.splitlines() if line.startswith("#") and not line.startswith("#SAMPLEID"))
+        row = next(line.split("\t") for line in merged.splitlines() if line.startswith("x_S1\t"))
+        self.assertEqual([os.path.join(variables["#INPUT_DIR"], f) for f in row[1].split(",")],
+                         [os.path.join(folder, f"x_S1_L00{lane}_R1_001.fastq.gz") for lane in (1, 2, 3)])
+
     def test_merging_single_end_maps(self):
         # '-' as SECOND (single-end reads) stays '-', and a map without a SECOND column merges too.
         tool = os.path.join(ROOT, "scripts", "protal_map_utils")
@@ -2243,6 +2290,83 @@ class BadInputTest(DbTest):
             self.assertIn(f"-2 file cannot be read: {locked}", log)
         for out in ("out_dir", "out_locked"):
             self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no read may be aligned")
+
+
+class LaneFilesTest(DbTest):
+    """A sample sequenced in several lanes: its files, listed comma-separated in a map's FIRST and SECOND cells or
+    given with --one_sample, are read one after the other as one sample, which profiles as the reads in one pair of
+    files do; a lane whose two files hold different numbers of reads fails its sample (the others are profiled).
+    sa's reads in three lanes: plain, gzip (its first file's last line without '\\n') and zstd (or plain)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.zstd = shutil.which("zstd") is not None
+        records = {}
+        for mate in (1, 2):
+            with open(os.path.join(READS, f"sa_R{mate}.fq"), "rb") as fh:
+                lines = fh.read().splitlines(keepends=True)
+            records[mate] = [b"".join(lines[i:i + 4]) for i in range(0, len(lines), 4)]
+        n = len(records[1])
+        cuts = (0, n // 3, 2 * n // 3, n)
+        cls.lanes = {1: [], 2: []}
+        for lane in range(3):
+            for mate in (1, 2):
+                data = b"".join(records[mate][cuts[lane]:cuts[lane + 1]])
+                if lane == 0:
+                    name = f"sa_L001_R{mate}.fq"
+                elif lane == 1:
+                    name = f"sa_L002_R{mate}.fq.gz"
+                    data = gzip.compress(data[:-1] if mate == 1 else data, mtime=0)
+                elif cls.zstd:
+                    name = f"sa_L003_R{mate}.fq.zst"
+                    data = subprocess.run(["zstd", "-q", "-c"], input=data, check=True, stdout=subprocess.PIPE).stdout
+                else:
+                    name = f"sa_L003_R{mate}.fq"
+                path = os.path.join(cls.work, name)
+                with open(path, "wb") as fh:
+                    fh.write(data)
+                cls.lanes[mate].append(path)
+        # uneven: lane 1's first file has a read more than its second, lane 2's second one more: the totals agree.
+        uneven = {1: [], 2: []}
+        for mate, cut in ((1, n // 2 + 1), (2, n // 2)):
+            for lane, part in ((1, records[mate][:cut]), (2, records[mate][cut:])):
+                uneven[mate].append(os.path.join(cls.work, f"u_L00{lane}_R{mate}.fq"))
+                with open(uneven[mate][-1], "wb") as fh:
+                    fh.write(b"".join(part))
+        cls.map = os.path.join(cls.work, "lanes.map")
+        with open(cls.map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\tout_map\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n")
+            fh.write(f"lanes\tlanes\t{','.join(cls.lanes[1])}\t{','.join(cls.lanes[2])}\n")
+            fh.write(f"uneven\tuneven\t{','.join(uneven[1])}\t{','.join(uneven[2])}\n")
+        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", cls.map, "-t", "2", "--no_qcmsa", "--no_strains", timeout=300)
+        cls.cli_rc, cls.cli_log = run(cls.work, "--db", DB, "-1", ",".join(cls.lanes[1]), "-2", ",".join(cls.lanes[2]),
+                                      "--one_sample", "-o", "out_cli", "-t", "2", "--no_qcmsa", "--no_strains", timeout=300)
+
+    def test_a_maps_lanes_profile_as_one_pair_of_files(self):
+        # A map without SAM and PROFILE columns: <PREFIX>.profile in OUTPUT_DIR.
+        self.assertEqual(read_text(self.path("out_map", "lanes.profile")), baseline().text("sa.profile"))
+        if not self.zstd:
+            raise unavailable("the zstd command is needed to write zstd-compressed reads")
+
+    def test_lanes_on_the_command_line_are_one_sample(self):
+        # Named without --prefix after the files' common name, without the lane number: sa.
+        self.assertEqual(self.cli_rc, 0, self.cli_log[-3000:])
+        self.assertEqual(read_text(self.path("out_cli", "sa.profile")), baseline().text("sa.profile"))
+        self.assertEqual(len(glob.glob(self.path("out_cli", "*.profile"))), 1)
+
+    def test_a_lane_of_uneven_mates_fails_its_sample(self):
+        self.assertEqual(self.rc, 1, self.log[-3000:])
+        self.assertIn("Reading the FASTQ files of sample uneven failed", self.log)
+        self.assertIn("the two files of one of its lanes hold different numbers of reads", self.log)
+        self.assertFalse(glob.glob(self.path("out_map", "uneven.sam*")), "no SAM may be written")
+        self.assertTrue(glob.glob(self.path("out_map", "lanes.sam*")), "the other sample is aligned")
+
+    def test_one_sample_needs_as_many_second_files(self):
+        rc, log = run(self.work, "--db", DB, "-1", ",".join(self.lanes[1]), "-2", self.lanes[2][0], "--one_sample",
+                      "-o", "out_bad")
+        self.assertEqual(rc, 31, log[-3000:])
+        self.assertIn("With --one_sample, -1/--first and -2/--second must name the same number of files", log)
 
 
 def is_seekable(path):

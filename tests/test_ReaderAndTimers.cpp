@@ -691,6 +691,142 @@ TEST(ThreadedGzStream, TakeLinesCutsWholeLinesAcrossBlocks) {
     }
 }
 
+// A sample's lanes: several files read one after the other as one stream, each in its own format (plain, gzip, BGZF
+// on one thread or several, zstd), an empty one among them, and a '\n' after a file whose last line lacks it.
+TEST(ThreadedGzStream, SeveralFilesReadAsOneStream) {
+    ScratchDir dir;
+    auto const a = Fastq(20000, "a"), b = Fastq(3000, "b"), c = Fastq(15000, "c"), d = Fastq(500, "d");
+    std::string const b_open = b.substr(0, b.size() - 1);  // its last line without '\n'
+    for (unsigned const threads : { 1u, 3u }) {
+        SCOPED_TRACE("BGZF threads " + std::to_string(threads));
+        ThreadedGzStreambuf::SetBgzfThreads(threads);
+        std::vector<std::string> const files{ dir.Write("a.fq", a), Gzip(dir, "b.fq.gz", b_open), dir.Write("empty.fq", ""),
+                                              Bgzf(dir, "c.fq.gz", c), dir.Write("d.fq.zst", ZstdBytes(d)) };
+        std::vector<std::string> opened;
+        ThreadedGzIstream is(files, [&opened](std::string const& path, ThreadedGzStreambuf const&) { opened.push_back(path); });
+        EXPECT_EQ(ReadAllOf(is), a + b + c + d);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+        EXPECT_EQ(opened, files);
+        EXPECT_EQ(is.rdbuf()->files(), files.size());
+        EXPECT_EQ(is.rdbuf()->current_path(), files.back());
+
+        ThreadedGzIstream by_line(files);  // getline (FASTA's way) through the same stream
+        std::stringstream reference(a + b + c + d);
+        EXPECT_EQ(Lines(by_line), Lines(reference));
+    }
+    ThreadedGzStreambuf::SetBgzfThreads(1);
+}
+
+// Of several files, a batch ends with its file once it holds a line, so that the mate files of lanes stay in step
+// (SeqReaderPE); one that begins at a file's end goes on into the next file, and a file's open last line ends its
+// batch with the '\n' it lacked.
+TEST(ThreadedGzStream, ABatchEndsWithItsFile) {
+    ScratchDir dir;
+    auto const a = Fastq(10, "a"), b = Fastq(7, "b"), c = Fastq(5, "c");
+    std::vector<std::string> const files{ dir.Write("a.fq", a), Gzip(dir, "b.fq.gz", b.substr(0, b.size() - 1)),
+                                          dir.Write("empty.fq", ""), dir.Write("c.fq", c) };
+    ThreadedGzIstream is(files);
+    std::vector<std::string> batches;
+    std::vector<size_t> counts;
+    while (true) {
+        std::string batch;
+        size_t const n = is.rdbuf()->TakeLines(4 * 32, batch);
+        if (n == 0) break;
+        counts.push_back(n);
+        batches.push_back(batch);
+    }
+    EXPECT_EQ(counts, (std::vector<size_t>{ 40, 28, 20 }));
+    EXPECT_EQ(batches, (std::vector<std::string>{ a, b, c }));
+
+    // Batches of 3 lines: the file's last batch is short, and the next file's begins with its first line.
+    ThreadedGzIstream again(files);
+    std::string all;
+    counts.clear();
+    for (size_t n; (n = again.rdbuf()->TakeLines(12, all)) > 0;) counts.push_back(n);
+    EXPECT_EQ(counts, (std::vector<size_t>{ 12, 12, 12, 4, 12, 12, 4, 12, 8 }));
+    EXPECT_EQ(all, a + b + c);
+}
+
+// Of several files, one that is cut or corrupt, or cannot be read when its turn comes, ends the stream there: what
+// came before it is read, nothing after it, and the error names the file. A first file that cannot be read fails
+// the open, as one file does.
+TEST(ThreadedGzStream, AFileOfSeveralThatFailsEndsTheStream) {
+    ScratchDir dir;
+    auto const a = Fastq(2000, "a"), b = Fastq(20000, "b"), c = Fastq(2000, "c");
+    auto const good_a = dir.Write("a.fq", a), good_c = dir.Write("c.fq", c);
+    auto const gz = FileBytes(Gzip(dir, "full.fq.gz", b));
+    auto const cut = dir.Write("cut.fq.gz", gz.substr(0, gz.size() / 2));
+    auto const missing = (dir.path / "missing.fq").string();
+    auto const npos = std::string::npos;
+    {
+        ThreadedGzIstream is(std::vector<std::string>{ good_a, cut, good_c });
+        auto const text = ReadAllOf(is);
+        EXPECT_EQ(text.compare(0, a.size(), a), 0);
+        EXPECT_LT(text.size(), a.size() + b.size());
+        EXPECT_EQ(text.find("@c0/1"), npos);
+        ASSERT_TRUE(is.rdbuf()->read_failed());
+        EXPECT_EQ(is.rdbuf()->read_error_message().rfind(cut + ": ", 0), 0u) << is.rdbuf()->read_error_message();
+    }
+    {
+        ThreadedGzIstream is(std::vector<std::string>{ good_a, missing, good_c });
+        EXPECT_EQ(ReadAllOf(is), a);
+        ASSERT_TRUE(is.rdbuf()->read_failed());
+        EXPECT_EQ(is.rdbuf()->read_error_message(), missing + ": it cannot be read (" + std::strerror(ENOENT) + ")");
+    }
+    ThreadedGzIstream first_missing(std::vector<std::string>{ missing, good_a });
+    EXPECT_FALSE(first_missing.rdbuf()->is_open());
+    EXPECT_EQ(first_missing.rdbuf()->current_path(), missing);
+    EXPECT_EQ(first_missing.rdbuf()->open_error(), std::strerror(ENOENT));
+}
+
+// Read pairs of a sample's lanes (two files a mate, matched by position) on several threads: every pair once and
+// in step; a lane whose mates differ in number fails the reader, even where the totals agree, instead of pairing
+// the next lane's reads with the wrong mates.
+TEST(SeqReader, PairsOfLanesStayInStep) {
+    ScratchDir dir;
+    auto r1 = std::vector<std::string>{ Gzip(dir, "l1_r1.fq.gz", Fastq(30000, "x")), dir.Write("l2_r1.fq", Fastq(20000, "y")) };
+    auto r2 = std::vector<std::string>{ dir.Write("l1_r2.fq", Fastq(30000, "x")), Gzip(dir, "l2_r2.fq.gz", Fastq(20000, "y")) };
+    ThreadedGzIstream is1(r1), is2(r2);
+    SeqReaderPE reader_global{ is1, is2 };
+    std::vector<std::string> ids;
+    size_t out_of_step = 0;
+#pragma omp parallel num_threads(4) shared(reader_global, ids, out_of_step) default(none)
+    {
+        SeqReaderPE reader{ reader_global };
+        FastxRecord record1, record2;
+        std::vector<std::string> mine;
+        size_t mismatches = 0;
+        while (reader(record1, record2)) {
+            mismatches += record1.id != record2.id || record1.sequence != record2.sequence;
+            mine.push_back(record1.id);
+        }
+#pragma omp critical(test_ids)
+        {
+            ids.insert(ids.end(), mine.begin(), mine.end());
+            out_of_step += mismatches;
+            reader_global.UpdateSuccess(reader);
+        }
+    }
+    EXPECT_EQ(out_of_step, 0u);
+    EXPECT_TRUE(reader_global.Success());
+    EXPECT_FALSE(reader_global.MatesOutOfStep());
+    EXPECT_EQ(ids.size(), 50000u);
+    EXPECT_EQ(std::set<std::string>(ids.begin(), ids.end()).size(), 50000u);
+
+    // Lane 1's first file has a read more, lane 2's second file one: 53 reads a side.
+    ThreadedGzIstream uneven1(std::vector<std::string>{ dir.Write("u1_r1.fq", Fastq(33, "p")), dir.Write("u2_r1.fq", Fastq(20, "q")) });
+    ThreadedGzIstream uneven2(std::vector<std::string>{ dir.Write("u1_r2.fq", Fastq(32, "p")), dir.Write("u2_r2.fq", Fastq(21, "q")) });
+    testing::internal::CaptureStderr();
+    SeqReaderPE reader{ uneven1, uneven2 };
+    FastxRecord record1, record2;
+    size_t pairs = 0;
+    while (reader(record1, record2)) pairs++;
+    testing::internal::GetCapturedStderr();
+    EXPECT_FALSE(reader.Success());
+    EXPECT_TRUE(reader.MatesOutOfStep());
+    EXPECT_LT(pairs, 53u);
+}
+
 namespace {
     std::vector<std::string> Records(std::function<bool(FastxRecord&)> const& next) {
         std::vector<std::string> records;

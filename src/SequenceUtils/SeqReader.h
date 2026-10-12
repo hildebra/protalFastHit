@@ -232,8 +232,12 @@ namespace protal {
             return m_success;
         }
 
+        // Whether the two files (of one lane, if several) ran out of reads at different points.
+        bool MatesOutOfStep() const { return m_error_code != NO_ERROR; }
+
         void UpdateSuccess(SeqReaderPE const& other) {
             m_success &= other.m_success;
+            if (other.m_error_code != NO_ERROR) m_error_code = other.m_error_code;
             if (m_first_mismatch.empty()) m_first_mismatch = other.m_first_mismatch;
             m_name_mismatches += other.m_name_mismatches;
         }

@@ -140,6 +140,55 @@ TEST(SampleMap, SingleEndSamplesHaveNoSecondFile) {
     EXPECT_EQ(typed.seconds[1], "");
 }
 
+// A sample sequenced in several lanes lists its files in one cell, comma-separated, each in INPUT_DIR: one sample,
+// its first and second files paired by position.
+TEST(SampleMap, ACellListsASamplesLanes) {
+    ScratchDir dir;
+    auto const out = dir.path / "out", in = dir.path / "in";
+    auto const header = "#OUTPUT_DIR\t" + out.string() + "\n#INPUT_DIR\t" + in.string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n";
+    MapLists lanes;
+    ASSERT_TRUE(lanes.Load(dir.Write("lanes.map", header + "s\ts\ts_L001_R1.fq.gz,s_L002_R1.fq.gz\ts_L001_R2.fq.gz,s_L002_R2.fq.gz\n"
+                                                           "t\tt\tt.fq,/abs/t2.fq\t-\nu\tu\tu_1.fq\tu_2.fq\n")));
+    EXPECT_EQ(lanes.names, (Tokens{ "s", "t", "u" }));
+    EXPECT_EQ(Options::SplitReadFiles(lanes.firsts[0]), (Tokens{ (in / "s_L001_R1.fq.gz").string(), (in / "s_L002_R1.fq.gz").string() }));
+    EXPECT_EQ(Options::SplitReadFiles(lanes.seconds[0]), (Tokens{ (in / "s_L001_R2.fq.gz").string(), (in / "s_L002_R2.fq.gz").string() }));
+    EXPECT_EQ(Options::SplitReadFiles(lanes.firsts[1]), (Tokens{ (in / "t.fq").string(), "/abs/t2.fq" }));
+    EXPECT_EQ(lanes.seconds[1], "");
+    EXPECT_EQ(lanes.firsts[2], (in / "u_1.fq").string());
+
+    testing::internal::CaptureStderr();
+    MapLists uneven;
+    EXPECT_FALSE(uneven.Load(dir.Write("uneven.map", header + "s\ts\ta_1.fq,b_1.fq\ta_2.fq\n")));
+    MapLists empty_item;
+    EXPECT_FALSE(empty_item.Load(dir.Write("empty.map", header + "s\ts\ta_1.fq,,b_1.fq\ta_2.fq,x,b_2.fq\n")));
+    auto const log = testing::internal::GetCapturedStderr();
+    EXPECT_NE(log.find("Line 4: FIRST lists 2 file(s) and SECOND 1; a sample's first and second files pair up by position"),
+              std::string::npos) << log;
+    EXPECT_NE(log.find("Line 4: an empty file name in column 3 (FIRST: 'a_1.fq,,b_1.fq')"), std::string::npos) << log;
+}
+
+// A sample of several files: the files split as protal keeps them, for messages too, and its name without --prefix.
+TEST(Options, ASamplesSeveralReadFiles) {
+    EXPECT_EQ(Options::SplitReadFiles(""), Tokens{});
+    EXPECT_EQ(Options::SplitReadFiles("a.fq"), (Tokens{ "a.fq" }));
+    EXPECT_EQ(Options::JoinReadFiles({ "a.fq", "b.fq" }), "a.fq,b.fq");
+    OptionsData data;
+    data.first_list = { "l1_1.fq,l2_1.fq", "s.fq" };
+    data.second_list = { "l1_2.fq,l2_2.fq", "" };
+    data.prefix_list = { "l", "s" };
+    Options options(data);
+    EXPECT_EQ(options.GetFirstFiles(0), (Tokens{ "l1_1.fq", "l2_1.fq" }));
+    EXPECT_EQ(options.GetSecondFiles(0), (Tokens{ "l1_2.fq", "l2_2.fq" }));
+    EXPECT_EQ(options.GetSecondFiles(1), Tokens{});
+    EXPECT_EQ(options.ReadFilesText(0), "l1_1.fq, l2_1.fq, l1_2.fq, l2_2.fq");
+    EXPECT_EQ(options.ReadFilesText(1), "s.fq");
+
+    EXPECT_EQ(Options::LaneSamplePrefix({ "x_S1_L001_R1_001", "x_S1_L001_R2_001", "x_S1_L002_R1_001", "x_S1_L002_R2_001" }), "x_S1");
+    EXPECT_EQ(Options::LaneSamplePrefix({ "x_L1_R1", "x_L2_R1" }), "x");
+    EXPECT_EQ(Options::LaneSamplePrefix({ "run_1", "run_2" }), "run");
+    EXPECT_EQ(Options::LaneSamplePrefix({ "a_1", "b_1" }), "");
+}
+
 TEST(SampleMap, UnmappedReadsChoosePerSample) {
     ScratchDir dir;
     auto const header = "#OUTPUT_DIR\t" + (dir.path / "out").string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tUNMAPPED_READS\n";

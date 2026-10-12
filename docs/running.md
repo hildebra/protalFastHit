@@ -48,6 +48,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   `.sam`. A rerun also takes a plain `P.sam` from an earlier run as the SAM of `P.sam.zst`.
   `protal_map_utils generate` names a sample after its read files without the mate number, an `R`
   before it and Illumina's chunk number (`x_R1.fq` is `x`, `x_S1_L001_R1_001.fastq.gz` is `x_S1_L001`).
+  A sample's lanes in one folder (`x_S1_L001_...`, `x_S1_L002_...`) become one sample, `x_S1`, with
+  its files listed in lane order ([Read files](#several-files-of-one-sample)); a sample of one lane
+  keeps its name, and `--split-lanes` makes a sample of each lane, as `generate` did up to 2026-10-12.
   `protal_map_utils merge` keeps the SAMs the merged maps' runs wrote, by their absolute paths, so a
   run of the merged map profiles them instead of aligning again
   ([strains.md](strains.md#strain-msas-over-several-runs)).
@@ -213,6 +216,31 @@ or when a single-end read is longer than 1,000 bp (below). A sample without read
 whose mates' names differ (other than in a last `1` and `2`, as in `r/1` and `r/2`), get a
 warning: the files of a pair may not be in the same order.
 
+### Several files of one sample
+
+A sample sequenced in several lanes or runs is one sample, not one per lane: its depth, the
+features that depend on the sample's size and the read EM need all its reads. Give its files in
+one map cell, comma-separated, in the same order in `FIRST` and `SECOND` (they pair up by position):
+
+```
+#SAMPLEID	PREFIX	FIRST	SECOND
+x	x	x_L001_R1.fq.gz,x_L002_R1.fq.gz	x_L001_R2.fq.gz,x_L002_R2.fq.gz
+```
+
+or on the command line with `--one_sample`, which makes all files of `-1` (and `-2`) one sample:
+`-1 x_L001_R1.fq.gz,x_L002_R1.fq.gz -2 x_L001_R2.fq.gz,x_L002_R2.fq.gz --one_sample`. Without
+`--prefix`, such a sample is named after the beginning its files' names share, without a lane
+number (`x_S1_L001_R1_001` and `x_S1_L002_R1_001` give `x_S1`); the files must then be in one folder.
+The files are read one after the other as one stream, each in its own format (a gzip lane beside a
+zstd one is fine), each relative to the map's `#INPUT_DIR`; a file whose last line lacks its
+newline gets one. The profile is the one the reads would give in one pair of files. A lane whose
+two files hold different numbers of reads fails the sample ("the two files of one of its lanes hold
+different numbers of reads"), even where the sample's totals agree, instead of pairing the next
+lane's reads with the wrong mates. A file that is truncated or corrupt fails the sample as a single
+file does, and the message names it. A file name cannot contain a comma. `protal_map_utils
+generate` writes such cells for Illumina's lane files, and `validate`, `flatten` and `merge`
+handle them.
+
 ## The kind of reads
 
 `--read_type` (or a map's `READ_TYPE` column) names the kind of a sample's reads: `pe`, `se`, `pb`
@@ -307,6 +335,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [databases.md](databases.md#the-presence-model) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
+| `--one_sample` | off | the files of `-1` (and `-2`) are one sample's, its lanes or runs, read one after the other ([Several files of one sample](#several-files-of-one-sample)); in a map, a `FIRST` and `SECOND` cell lists a sample's files, comma-separated |
 | `--no_strains` | off | no MSAs or SNP tables (profiles are the same). The other strain options are in [strains.md](strains.md#options) |
 | `--keep_foreign_genes` | off | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way |
 | `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [databases.md](databases.md#the-files-of-a-database) |
