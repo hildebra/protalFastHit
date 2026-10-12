@@ -1,0 +1,86 @@
+A = local/v24b/protal0.8.1_r226_v24
+B = local/v25/protal0.8.1_r226_v25
+
+# pe
+rows: A 366944, B 390514, both 360683; only A 6261 (29 present), only B 29831 (435 present)
+features that differ on shared rows (share of rows): sample_log_fragments 99.87%, sample_low_identity 99.41%, sample_log_taxa 99.32%, sample_identity 82.01%, relative_spill 58.57%, relative_skew 58.04%, fragments 55.12%, mean_mapq 38.47%, em_fragments 35.94%, breadth_ratio 26.77%, conserved_fast_kept_ratio 26.65%, identity 26.42%, depth 26.08%, gene_presence_ratio 25.93%, depth_cv 25.28%, and 68 more
+fragments B - A on shared rows:
+  present  rows   76453, changed 57.93%; of the changed: median +3.72, mean +38.39; A <= 2 and B >= 3: 1659; A <= 2 and fragments_all >= 3: 2048
+  absent   rows  284230, changed 54.34%; of the changed: median +2.00, mean +10.67; A <= 2 and B >= 3: 32396; A <= 2 and fragments_all >= 3: 52137
+
+pe, species held out: 396775 rows (76917 present) in 359 samples
+  knob 0.5: A F1 0.9487 (TP 73735, FP 4795, FN 3182), B F1 0.9490 (TP 74086, FP 5135, FN 2831); B - A +0.0003 [-0.0004, +0.0011], B better in 80%
+  the builds' knobs 0.72/0.72: A F1 0.9533 (TP 72638, FP 2837, FN 4279), B F1 0.9541 (TP 72932, FP 3027, FN 3985); B - A +0.0008 [+0.0002, +0.0014], B better in 100%
+  best knobs: A 0.74 F1 0.9534, B 0.78 F1 0.9543; B - A +0.0008 [+0.0002, +0.0015], B better in 100%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed       198729     242     204     534     612
+    fragments the same      198046     411      98     250     512
+  present, A fragments <= 2, fragments_all >= 3: 2048 rows; FN A 495, B 464 (knob 0.5)
+  absent, the same fragments: 52137 rows; FP A 502, B 519
+
+pe, independent test set: 20516 rows (4101 present) in 77 samples
+  knob 0.5: A F1 0.9623 (TP 3921, FP 127, FN 180), B F1 0.9653 (TP 3959, FP 143, FN 142); B - A +0.0029 [+0.0009, +0.0052], B better in 100%
+  the builds' knobs 0.72/0.72: A F1 0.9608 (TP 3870, FP 85, FN 231), B F1 0.9666 (TP 3908, FP 77, FN 193); B - A +0.0058 [+0.0034, +0.0082], B better in 100%
+
+# se
+rows: A 204262, B 217887, both 203487; only A 775 (2 present), only B 14400 (254 present)
+features that differ on shared rows (share of rows): sample_log_fragments 99.86%, sample_log_taxa 99.49%, sample_low_identity 98.66%, sample_identity 86.61%, relative_spill 56.10%, relative_skew 55.38%, fragments 55.11%, em_fragments 30.65%, mean_mapq 25.32%, conserved_fast_kept_ratio 24.29%, breadth_ratio 24.25%, gene_presence_ratio 23.99%, identity 23.97%, depth 23.84%, depth_cv 23.11%, and 63 more
+fragments B - A on shared rows:
+  present  rows   53210, changed 58.47%; of the changed: median +3.00, mean +35.48; A <= 2 and B >= 3: 1040; A <= 2 and fragments_all >= 3: 1231
+  absent   rows  150277, changed 53.92%; of the changed: median +2.00, mean +13.66; A <= 2 and B >= 3: 17153; A <= 2 and fragments_all >= 3: 27691
+
+se, species held out: 218662 rows (53466 present) in 339 samples
+  knob 0.5: A F1 0.9569 (TP 51323, FP 2484, FN 2143), B F1 0.9576 (TP 51548, FP 2648, FN 1918); B - A +0.0007 [-0.0001, +0.0017], B better in 95%
+  the builds' knobs 0.7/0.65: A F1 0.9587 (TP 50681, FP 1579, FN 2785), B F1 0.9594 (TP 51070, FP 1922, FN 2396); B - A +0.0007 [-0.0002, +0.0018], B better in 94%
+  best knobs: A 0.71 F1 0.9587, B 0.72 F1 0.9596; B - A +0.0009 [+0.0002, +0.0019], B better in 99%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed       112139     172     123     256     332
+    fragments the same      106523     269      93     191     279
+  present, A fragments <= 2, fragments_all >= 3: 1231 rows; FN A 295, B 273 (knob 0.5)
+  absent, the same fragments: 27691 rows; FP A 204, B 230
+
+se, independent test set: 17349 rows (3977 present) in 77 samples
+  knob 0.5: A F1 0.9579 (TP 3763, FP 117, FN 214), B F1 0.9635 (TP 3811, FP 123, FN 166); B - A +0.0056 [+0.0024, +0.0091], B better in 100%
+  the builds' knobs 0.7/0.65: A F1 0.9558 (TP 3718, FP 85, FN 259), B F1 0.9619 (TP 3770, FP 92, FN 207); B - A +0.0061 [+0.0037, +0.0087], B better in 100%
+
+# pb
+rows: A 100019, B 100019, both 100019; only A 0 (0 present), only B 0 (0 present)
+features that differ on shared rows (share of rows): fragments 14.82%
+fragments B - A on shared rows:
+  present  rows   51254, changed  2.69%; of the changed: median +1.88, mean +11.91; A <= 2 and B >= 3: 288; A <= 2 and fragments_all >= 3: 374
+  absent   rows   48765, changed 27.56%; of the changed: median +2.00, mean +7.11; A <= 2 and B >= 3: 3849; A <= 2 and fragments_all >= 3: 5305
+
+pb, species held out: 100019 rows (51254 present) in 235 samples
+  knob 0.5: A F1 0.9714 (TP 49546, FP 1206, FN 1708), B F1 0.9710 (TP 49518, FP 1225, FN 1736); B - A -0.0005 [-0.0008, -0.0001], B better in 1%
+  the builds' knobs 0.5/0.5: A F1 0.9714 (TP 49546, FP 1206, FN 1708), B F1 0.9710 (TP 49518, FP 1225, FN 1736); B - A -0.0005 [-0.0008, -0.0001], B better in 1%
+  best knobs: A 0.48 F1 0.9716, B 0.46 F1 0.9711; B - A -0.0004 [-0.0008, +0.0000], B better in 3%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed        14821      15      24      22      24
+    fragments the same       85198      85     104      79      96
+  present, A fragments <= 2, fragments_all >= 3: 374 rows; FN A 142, B 145 (knob 0.5)
+  absent, the same fragments: 5305 rows; FP A 39, B 40
+
+pb, independent test set: 2504 rows (1494 present) in 40 samples
+  knob 0.5: A F1 0.9842 (TP 1462, FP 15, FN 32), B F1 0.9832 (TP 1461, FP 17, FN 33); B - A -0.0010 [-0.0038, +0.0014], B better in 27%
+  the builds' knobs 0.5/0.5: A F1 0.9842 (TP 1462, FP 15, FN 32), B F1 0.9832 (TP 1461, FP 17, FN 33); B - A -0.0010 [-0.0038, +0.0013], B better in 26%
+
+# ont
+rows: A 113451, B 113451, both 113451; only A 0 (0 present), only B 0 (0 present)
+features that differ on shared rows (share of rows): fragments 17.89%
+fragments B - A on shared rows:
+  present  rows   52131, changed  3.97%; of the changed: median +1.00, mean +7.80; A <= 2 and B >= 3: 405; A <= 2 and fragments_all >= 3: 511
+  absent   rows   61320, changed 29.71%; of the changed: median +1.93, mean +5.52; A <= 2 and B >= 3: 4817; A <= 2 and fragments_all >= 3: 7075
+
+ont, species held out: 113451 rows (52131 present) in 235 samples
+  knob 0.5: A F1 0.9649 (TP 50073, FP 1590, FN 2058), B F1 0.9650 (TP 50093, FP 1594, FN 2038); B - A +0.0002 [-0.0003, +0.0006], B better in 76%
+  the builds' knobs 0.5/0.5: A F1 0.9649 (TP 50073, FP 1590, FN 2058), B F1 0.9650 (TP 50093, FP 1594, FN 2038); B - A +0.0002 [-0.0002, +0.0006], B better in 77%
+  best knobs: A 0.53 F1 0.9649, B 0.53 F1 0.9650; B - A +0.0001 [-0.0004, +0.0006], B better in 67%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed        20291      30      27      31      28
+    fragments the same       93160     122     105     142     149
+  present, A fragments <= 2, fragments_all >= 3: 511 rows; FN A 161, B 168 (knob 0.5)
+  absent, the same fragments: 7075 rows; FP A 54, B 50
+
+ont, independent test set: 2981 rows (1527 present) in 40 samples
+  knob 0.5: A F1 0.9732 (TP 1470, FP 24, FN 57), B F1 0.9736 (TP 1473, FP 26, FN 54); B - A +0.0004 [-0.0014, +0.0024], B better in 70%
+  the builds' knobs 0.5/0.5: A F1 0.9732 (TP 1470, FP 24, FN 57), B F1 0.9736 (TP 1473, FP 26, FN 54); B - A +0.0004 [-0.0015, +0.0023], B better in 68%

@@ -1,0 +1,59 @@
+### pe: hard (seed 1) against soft (seed 1)
+A = /home/falk/v25abl/out/pe_hard_s1
+B = /home/falk/v25abl/out/pe_soft_s1
+
+species held out: 366944 rows (76482 present) in 359 samples
+  knob 0.5: A F1 0.9514 (FP 4821, FN 2710), B F1 0.9513 (FP 4804, FN 2744); B - A -0.0001 [-0.0005, +0.0002], B better in 21%
+  the refits' knobs 0.72/0.72: A F1 0.9560 (FP 2841, FN 3846), B F1 0.9561 (FP 2845, FN 3831); B - A +0.0001 [-0.0003, +0.0004], B better in 63%
+  best knobs: A 0.76 F1 0.9563, B 0.72 F1 0.9561; B - A -0.0002 [-0.0007, +0.0002], B better in 13%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed       200230     105     122     286     294
+    fragments the same      166714      65      82     207     182
+  present, A <= 2 and B >= 3 fragments: 1616 rows; FN A 349, B 342 (knob 0.5)
+  present, A <= 2 and B >= 3 fragments: 1616 rows; FN A 464, B 445 (knob best)
+  absent, A <= 2 and B >= 3 fragments: 31243 rows; FP A 324, B 337 (knob 0.5)
+  absent, A <= 2 and B >= 3 fragments: 31243 rows; FP A 137, B 167 (knob best)
+
+independent test set: 19096 rows (4064 present) in 77 samples
+  knob 0.5: A F1 0.9667 (FP 127, FN 143), B F1 0.9657 (FP 140, FN 139); B - A -0.0010 [-0.0031, +0.0011], B better in 16%
+  the refits' knobs 0.72/0.72: A F1 0.9653 (FP 83, FN 195), B F1 0.9656 (FP 90, FN 186); B - A +0.0003 [-0.0012, +0.0019], B better in 66%
+
+### pe: hard (seed 1) against hard (seed 2): the trainer seed noise
+A = /home/falk/v25abl/out/pe_hard_s1
+B = /home/falk/v25abl/out/pe_hard_s2
+
+species held out: 366944 rows (76482 present) in 359 samples
+  knob 0.5: A F1 0.9514 (FP 4821, FN 2710), B F1 0.9513 (FP 4812, FN 2741); B - A -0.0002 [-0.0006, +0.0002], B better in 22%
+  the refits' knobs 0.72/0.72: A F1 0.9560 (FP 2841, FN 3846), B F1 0.9561 (FP 2850, FN 3824); B - A +0.0001 [-0.0005, +0.0006], B better in 63%
+  best knobs: A 0.76 F1 0.9563, B 0.75 F1 0.9561; B - A -0.0002 [-0.0007, +0.0003], B better in 24%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed            0       0       0       0       0
+    fragments the same      366944     200     231     565     556
+  present, A <= 2 and B >= 3 fragments: 0 rows; FN A 0, B 0 (knob 0.5)
+  present, A <= 2 and B >= 3 fragments: 0 rows; FN A 0, B 0 (knob best)
+  absent, A <= 2 and B >= 3 fragments: 0 rows; FP A 0, B 0 (knob 0.5)
+  absent, A <= 2 and B >= 3 fragments: 0 rows; FP A 0, B 0 (knob best)
+
+independent test set: 19096 rows (4064 present) in 77 samples
+  knob 0.5: A F1 0.9667 (FP 127, FN 143), B F1 0.9660 (FP 138, FN 138); B - A -0.0007 [-0.0025, +0.0011], B better in 22%
+  the refits' knobs 0.72/0.72: A F1 0.9653 (FP 83, FN 195), B F1 0.9644 (FP 82, FN 203); B - A -0.0009 [-0.0028, +0.0010], B better in 17%
+
+### se: hard (seed 1) against soft (seed 1)
+A = /home/falk/v25abl/out/se_hard_s1
+B = /home/falk/v25abl/out/se_soft_s1
+
+species held out: 204262 rows (53212 present) in 339 samples
+  knob 0.5: A F1 0.9590 (FP 2508, FN 1880), B F1 0.9591 (FP 2499, FN 1875); B - A +0.0001 [-0.0004, +0.0006], B better in 72%
+  the refits' knobs 0.5/0.67: A F1 0.9590 (FP 2508, FN 1880), B F1 0.9612 (FP 1685, FN 2411); B - A +0.0022 [+0.0013, +0.0030], B better in 100%
+  best knobs: A 0.68 F1 0.9610, B 0.68 F1 0.9613; B - A +0.0002 [-0.0004, +0.0008], B better in 80%
+  calls that flip, A -> B at knob 0.5:   rows  FN->TP  TP->FN  FP->TN  TN->FP
+    fragments changed       112316      77      74     147     138
+    fragments the same       91946      61      59     115     115
+  present, A <= 2 and B >= 3 fragments: 1030 rows; FN A 210, B 212 (knob 0.5)
+  present, A <= 2 and B >= 3 fragments: 1030 rows; FN A 245, B 251 (knob best)
+  absent, A <= 2 and B >= 3 fragments: 16701 rows; FP A 138, B 137 (knob 0.5)
+  absent, A <= 2 and B >= 3 fragments: 16701 rows; FP A 82, B 83 (knob best)
+
+independent test set: 15690 rows (3919 present) in 77 samples
+  knob 0.5: A F1 0.9674 (FP 107, FN 147), B F1 0.9661 (FP 117, FN 148); B - A -0.0014 [-0.0033, +0.0004], B better in 6%
+  the refits' knobs 0.5/0.67: A F1 0.9674 (FP 107, FN 147), B F1 0.9652 (FP 79, FN 190); B - A -0.0022 [-0.0044, -0.0001], B better in 2%

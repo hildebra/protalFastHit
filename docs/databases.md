@@ -341,8 +341,10 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
   got reads counted as present. The simulator counts each genome's reads that overlap a marker gene
   (`simulate_metagenomes --gene_positions`, the release's `gene_positions.tsv`; the manifests'
   `marker_read_pairs` and `marker_first_reads`), the training tables carry them as
-  `meta_marker_reads`, and a species of the database with such reads but no row is in
-  `<table>.unseen.tsv` and counts as missed. At r226 v24b 60-76% of the false negatives had at most
+  `meta_marker_reads`, and a species of the training database with such reads but no row is in
+  `<table>.unseen.tsv` and counts as missed. The species held out of the training database are not:
+  protal cannot report them (until 2026-10-12 they counted, which put r226 v25's marker-truth F1 far
+  too low, [report](claude/2026-10-12-r226-v25/README.md)). At r226 v24b 60-76% of the false negatives had at most
   two reads of their own on the taxon ([report](claude/2026-10-12-r226-v24b-errors/README.md)): this
   F1 tells the method's errors from what the reads cannot show. `summary.txt` has its rows
   (`marker truth: ...`).

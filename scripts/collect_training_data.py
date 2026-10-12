@@ -326,7 +326,8 @@ INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its 
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
 # <table>.unseen.tsv (--gene_positions): the present species of the database with reads on a marker gene that have no
-# row (protal reported nothing of them): misses that the table's rows cannot show.
+# row (protal reported nothing of them): misses that the table's rows cannot show. Not the species held out of the
+# database (--novel_species): see unseen_species.
 UNSEEN_COLUMNS = ["meta_design", "meta_sample", "meta_scenario", "taxon_name", "marker_reads"]
 MARKER_READS = "marker_reads.tsv"  # a long-read unit's sim folder: its genomes' reads on a marker gene, by sample
 
@@ -567,6 +568,22 @@ def taxon_markers(genomes, counts):
     sum, or "" if any is not counted."""
     values = [counts.get(g) for g in genomes]
     return "" if not values or any(v is None for v in values) else str(sum(values))
+
+
+def unseen_species(in_sample, seen, db_lineages, novel, counts):
+    """<table>.unseen.tsv's species of a sample: [(species, meta_marker_reads)] of those simulated in it (in_sample:
+    species -> genomes) with reads on a marker gene (counts, as taxon_markers) and no row (not in `seen`), that the
+    profiling database has: named by the taxonomy (db_lineages) and not held out of the database (novel, the
+    --novel_species). The taxonomy is the whole release's, so it also names the held-out species, which protal cannot
+    report: they are absent taxa, not misses."""
+    unseen = []
+    for taxon in sorted(set(in_sample) - seen):
+        if taxon not in db_lineages or taxon in novel:
+            continue
+        markers = taxon_markers(in_sample[taxon], counts)
+        if markers and int(markers) > 0:
+            unseen.append((taxon, markers))
+    return unseen
 
 
 def species_domains(genome_table):
@@ -1753,12 +1770,11 @@ def write_table(read_type, units, opts, context):
                         strains += rep == "0"
                         congeners += congener and not is_present
                         attributed[level] += bool(level)
-                # The database's species simulated here, with reads on a marker gene, that protal reported nothing of.
-                for taxon in sorted(set(in_sample) - seen):
-                    markers = taxon_markers(in_sample[taxon], sample_markers)
-                    if taxon in db_lineages and markers and int(markers) > 0:
-                        unseen_writer.writerow([unit["name"], sample, unit.get("scenario", ""), taxon, markers])
-                        unseen += 1
+                # The database's species simulated here, with reads on a marker gene, that protal reported nothing of
+                # (not the species held out of it).
+                for taxon, markers in unseen_species(in_sample, seen, db_lineages, novel, sample_markers):
+                    unseen_writer.writerow([unit["name"], sample, unit.get("scenario", ""), taxon, markers])
+                    unseen += 1
             by_level = ", ".join(f"{n} to {rank}" for rank, n in sorted(attributed.items()) if rank)
             print(f"{unit['name']}: {present} present ({strains} from other genomes than the representative) and "
                   f"{absent} absent taxa ({congeners} congeners of species the database lacks; closest to a species "

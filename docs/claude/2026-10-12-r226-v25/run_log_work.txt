@@ -1,0 +1,60 @@
+samples: A 1482, B 1482, both 1482
+
+## Work: samples whose count is identical in both builds, and B/A of the sums
+type         reads        kmers         flex        tried     screened        indel  from_anchor      windows         made      records
+pe         100.0%       100.0%       100.0%        41.6%        70.9%       100.0%        42.0%        98.5%       100.0%       100.0%   (identical)
+            1.0000       1.0000       1.0000       1.0000       1.0000          nan       1.0001       1.0000       1.0000       1.0000  (B/A)
+se         100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   (identical)
+            1.0000       1.0000       1.0000       1.0000       1.0000          nan       1.0000       1.0000       1.0000       1.0000  (B/A)
+pb         100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   (identical)
+            1.0000       1.0000       1.0000       1.0000       1.0000          nan       1.0000       1.0000       1.0000       1.0000  (B/A)
+ont        100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   (identical)
+            1.0000       1.0000       1.0000       1.0000          nan       1.0000       1.0000       1.0000       1.0000       1.0000  (B/A)
+
+## Time, B/A: sums and the median of per-sample ratios (samples over 1 s in A)
+pe: 457 samples
+  align_s                                    A     953.4 s  B    1088.7 s  B/A  1.142  per-sample median  1.118 (n=104)
+  profile_s                                  A     526.9 s  B     808.5 s  B/A  1.534  per-sample median  1.533 (n=79)
+  prof congener distances                    A     116.1 s  B     198.0 s  B/A  1.705  per-sample median  1.609 (n=27)
+  prof processing                            A       2.9 s  B       7.5 s  B/A  2.586  per-sample median    nan (n=0)
+  prof read EM                               A      32.7 s  B      59.2 s  B/A  1.810  per-sample median  1.364 (n=1)
+  prof reading the SAM                       A     238.4 s  B     318.5 s  B/A  1.336  per-sample median  1.295 (n=64)
+  prof record evidence and sample context    A     219.0 s  B     354.4 s  B/A  1.618  per-sample median  1.640 (n=44)
+  prof scoring                               A       6.6 s  B      13.6 s  B/A  2.061  per-sample median    nan (n=0)
+  prof writing the profile                   A       8.6 s  B      16.3 s  B/A  1.895  per-sample median    nan (n=0)
+se: 429 samples
+  align_s                                    A     627.9 s  B     877.8 s  B/A  1.398  per-sample median  1.404 (n=68)
+  profile_s                                  A     257.2 s  B     476.8 s  B/A  1.854  per-sample median  1.554 (n=48)
+  prof congener distances                    A      47.1 s  B      86.0 s  B/A  1.826  per-sample median  1.551 (n=15)
+  prof processing                            A       1.5 s  B       3.0 s  B/A  2.000  per-sample median    nan (n=0)
+  prof read EM                               A      12.5 s  B      32.4 s  B/A  2.592  per-sample median    nan (n=0)
+  prof reading the SAM                       A     118.2 s  B     162.7 s  B/A  1.376  per-sample median  1.290 (n=34)
+  prof record evidence and sample context    A      98.1 s  B     238.5 s  B/A  2.431  per-sample median  1.590 (n=20)
+  prof scoring                               A       1.4 s  B       3.5 s  B/A  2.500  per-sample median    nan (n=0)
+  prof writing the profile                   A       4.0 s  B       8.5 s  B/A  2.125  per-sample median    nan (n=0)
+pb: 298 samples
+  align_s                                    A     852.6 s  B    1318.8 s  B/A  1.547  per-sample median  1.580 (n=87)
+  profile_s                                  A     162.7 s  B     256.5 s  B/A  1.577  per-sample median  1.542 (n=48)
+  prof congener distances                    A      16.7 s  B      27.9 s  B/A  1.671  per-sample median  1.389 (n=4)
+  prof processing                            A       0.4 s  B       3.1 s  B/A  7.750  per-sample median    nan (n=0)
+  prof read EM                               A       9.0 s  B      20.6 s  B/A  2.289  per-sample median    nan (n=0)
+  prof reading the SAM                       A      73.4 s  B     103.8 s  B/A  1.414  per-sample median  1.353 (n=21)
+  prof record evidence and sample context    A      55.5 s  B     101.4 s  B/A  1.827  per-sample median  1.495 (n=8)
+  prof scoring                               A       0.7 s  B       3.2 s  B/A  4.571  per-sample median    nan (n=0)
+  prof writing the profile                   A       4.7 s  B      10.7 s  B/A  2.277  per-sample median    nan (n=0)
+ont: 298 samples
+  align_s                                    A     917.6 s  B    1423.6 s  B/A  1.551  per-sample median  1.520 (n=86)
+  profile_s                                  A     232.3 s  B     353.1 s  B/A  1.520  per-sample median  1.551 (n=60)
+  prof congener distances                    A      28.8 s  B      40.5 s  B/A  1.406  per-sample median  1.326 (n=6)
+  prof processing                            A       9.8 s  B      14.4 s  B/A  1.469  per-sample median    nan (n=0)
+  prof read EM                               A      10.9 s  B      15.6 s  B/A  1.431  per-sample median    nan (n=0)
+  prof reading the SAM                       A      96.5 s  B     131.5 s  B/A  1.363  per-sample median  1.290 (n=32)
+  prof record evidence and sample context    A      68.0 s  B     103.1 s  B/A  1.516  per-sample median  1.442 (n=9)
+  prof scoring                               A       5.3 s  B      10.0 s  B/A  1.887  per-sample median    nan (n=0)
+  prof writing the profile                   A       8.9 s  B      15.0 s  B/A  1.685  per-sample median  0.071 (n=1)
+
+## Aligning time per unit of work (B/A), samples with identical work counts
+pe: 3 samples, aligning 5.1 -> 5.6 s, B/A 1.110
+se: 68 samples, aligning 585.4 -> 817.5 s, B/A 1.396
+pb: 87 samples, aligning 790.0 -> 1208.0 s, B/A 1.529
+ont: 86 samples, aligning 864.3 -> 1330.5 s, B/A 1.539

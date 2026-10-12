@@ -1,0 +1,12 @@
+== pb
+100019 rows, 14821 with soft != kept
+  all rows: |error| < 0.01 in 95.7%, < 0.5 in 99.6%; median error +0.000, mean -0.008; Spearman-like rank r 0.9999
+  rows the soft count moved: |error| < 0.01 in 71.0%, < 0.5 in 97.0%; median error +0.000, mean -0.057; Spearman-like rank r 0.9991
+  present, moved rows 1380: true soft - kept mean 11.91, approximation's 11.87
+  absent, moved rows 13441: true soft - kept mean 7.11, approximation's 7.05
+== ont
+113451 rows, 20291 with soft != kept
+  all rows: |error| < 0.01 in 94.8%, < 0.5 in 99.5%; median error +0.000, mean -0.008; Spearman-like rank r 0.9999
+  rows the soft count moved: |error| < 0.01 in 70.8%, < 0.5 in 97.2%; median error +0.000, mean -0.047; Spearman-like rank r 0.9991
+  present, moved rows 2072: true soft - kept mean 7.80, approximation's 7.75
+  absent, moved rows 18219: true soft - kept mean 5.52, approximation's 5.47

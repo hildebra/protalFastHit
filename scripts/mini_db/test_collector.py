@@ -834,6 +834,21 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {})[0], "class")
         self.assertEqual(collect.relation(taxon, {}, {})[0], "none")
 
+    def test_unseen_species(self):
+        # <table>.unseen.tsv: the database's species with reads on a marker gene and no row. Not one held out of the
+        # database, though the taxonomy names it (r226 v25 counted 78,388 such species as missed), nor one with a row,
+        # without marker reads, with an uncounted genome, or that the taxonomy does not name.
+        in_sample = {"s__G a": ["g1"], "s__G b": ["g2", "g3"], "s__G held": ["g4"], "s__G row": ["g5"],
+                     "s__G none": ["g6"], "s__G uncounted": ["g7"], "s__X foreign": ["g8"]}
+        db_lineages = {s: {"species": s} for s in in_sample if s != "s__X foreign"}
+        counts = {"g1": 3, "g2": 1, "g3": 2, "g4": 5, "g5": 4, "g6": 0, "g8": 2}
+        novel = {"s__G held": ("species", "s__G held")}
+        self.assertEqual(collect.unseen_species(in_sample, {"s__G row"}, db_lineages, novel, counts),
+                         [("s__G a", "3"), ("s__G b", "3")])
+        # without a held-out list, the held-out species would count
+        self.assertEqual(collect.unseen_species(in_sample, {"s__G row"}, db_lineages, {}, counts),
+                         [("s__G a", "3"), ("s__G b", "3"), ("s__G held", "5")])
+
     def test_sample_relations_as_relation(self):
         # SampleRelations gives what relation() gives, for every taxon of a sample at once (a soil scenario's 10,000
         # species would otherwise cost each taxon 10,000 comparisons).
