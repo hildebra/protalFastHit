@@ -574,13 +574,14 @@ class CompleteRunTest(DbTest):
             self.assertTrue(os.path.isfile(base.path("strains", msa.replace(".raw.msa.fna", ".raw.partition.txt"))), msa)
 
     def test_the_run_cpu_table(self):
-        # misc/cpu.tsv: each stage's wall-clock and CPU seconds, one after the other (the start-up, each sample's
-        # alignment, the profiling stage, the rest of the run), which build_gtdb_database.py's collector gathers to tell
-        # the stages that leave cores idle (docs/claude/2026-10-09-build-parallelism).
+        # misc/cpu.tsv: each stage's wall-clock and CPU seconds, one after the other (the start-up, the index and the
+        # genome preload, each sample's alignment, the profiling stage, the rest of the run), which build_gtdb_database.py's
+        # collector gathers to tell the stages that leave cores idle (docs/claude/2026-10-09-build-parallelism).
         header, rows = read_table(self.base.path("misc", "cpu.tsv"))
         self.assertEqual(header, ["stage", "wall_seconds", "cpu_seconds", "threads"])
         self.assertEqual([r[0] for r in rows],
-                         ["start-up", *(f"aligning {s}" for s in self.base.SAMPLES), "profiling", "rest of the run"])
+                         ["start-up", "index and genomes", *(f"aligning {s}" for s in self.base.SAMPLES), "profiling",
+                          "rest of the run"])
         for stage, wall, cpu, threads in rows:
             self.assertGreaterEqual(float(wall), 0, stage)
             self.assertGreaterEqual(float(cpu), 0, stage)

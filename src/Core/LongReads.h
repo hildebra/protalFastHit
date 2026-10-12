@@ -525,6 +525,7 @@ namespace protal {
             // failed candidates. A read kept is seeded and aligned as without it.
             if constexpr (requires { m_anchor_finder.SparseFirst(); }) {
                 if (m_anchor_finder.SparseFirst()) {
+                    m_anchor_finder.m_bm_sparse.Start();
                     uint32_t hits = 0;
                     for (auto const& chunk : chunks) {
                         m_chunk.assign(read, chunk.offset, chunk.length);
@@ -533,6 +534,7 @@ namespace protal {
                         hits += m_anchor_finder.SparseHits(m_kmers, m_sparse_hits - hits);
                         if (hits >= m_sparse_hits) break;
                     }
+                    m_anchor_finder.m_bm_sparse.Stop();
                     m_anchor_finder.m_seeding.sparse_reads++;
                     if (hits < m_sparse_hits) {
                         m_anchor_finder.m_seeding.sparse_given_up++;

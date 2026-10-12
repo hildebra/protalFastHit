@@ -637,6 +637,9 @@ namespace protal {
         Benchmark m_bm_extend_anchors{"Extending Anchors", 0, Benchmark::kPerRead};
         Benchmark m_bm_sorting_anchors{"Sorting Anchors", 0, Benchmark::kPerRead};
         Benchmark m_bm_recovering_anchors{"Recovering Anchors", 0, Benchmark::kPerRead};
+        // --sparse_first's own time: a short read's SparsePrepare and SparseScore, a long read's gate (its chunks' k-mers
+        // and SparseHits, LongReadAligner); a row of misc/<sample>_runtime.tsv when the option is on.
+        Benchmark m_bm_sparse{"Sparse first", 0, Benchmark::kPerRead};
 
         size_t recovered_count = 0;
         size_t total_count = 0;
@@ -962,6 +965,7 @@ namespace protal {
         // read has been read, scored (SparseScore): how many are hits, counted up to `enough`. The lookups made are
         // counted in m_seeding.sparse_lookups.
         void SparsePrepare(KmerList& kmer_list) {
+            m_bm_sparse.Start();
             m_sparse_lookups.clear();
             for (size_t j = 0; j < kmer_list.size(); j++) {
                 if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) < m_sparse_level) continue;
@@ -969,13 +973,16 @@ namespace protal {
             }
             for (auto const& lookup : m_sparse_lookups) KmerLookup::PrefetchValues(lookup);
             m_seeding.sparse_lookups += m_sparse_lookups.size();
+            m_bm_sparse.Stop();
         }
         uint32_t SparseScore(uint32_t enough) {
+            m_bm_sparse.Start(false);
             uint32_t hits = 0;
             for (auto const& lookup : m_sparse_lookups) {
                 if (hits >= enough) break;
                 hits += SparseScoreOf(lookup) >= m_sparse_score;
             }
+            m_bm_sparse.Stop();
             return hits;
         }
 

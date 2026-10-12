@@ -75,7 +75,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   (`malloc_trim`) after each sample's profile but the run's last, and not while another sample's is
   doing it: at r226 it took 0.4-0.5 s of a paired-end sample.
 - `misc/cpu.tsv` (since 2026-10-09) has a row per stage of the run, one after the other: the start-up
-  (loading the database), each sample's alignment (`aligning <sample>`, up to its SAM written), the
+  (loading the database's tables), `index and genomes` (the rest of the index load and the genome
+  preload; since 2026-10-12, before which the first sample's row held them), each sample's alignment
+  (`aligning <sample>`, up to its SAM written), the
   profiling stage and the rest of the run, with its wall-clock seconds, the CPU seconds the whole
   process used meanwhile (all threads, user and system time) and `-t`. CPU over wall is how many cores
   the stage kept busy. With `--profile_ahead` the profiling worker's time falls into the samples' rows.

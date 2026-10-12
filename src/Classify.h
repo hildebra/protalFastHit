@@ -50,6 +50,10 @@ namespace protal::classify {
                                &anchor_finder_global.m_bm_extend_anchors }) {
             row(*bm);
         }
+        // --sparse_first's own time (ChainAnchorFinder::m_bm_sparse), only with the option, so the table is as before without.
+        if constexpr (requires { anchor_finder_global.m_bm_sparse; anchor_finder_global.SparseFirst(); }) {
+            if (anchor_finder_global.SparseFirst()) row(anchor_finder_global.m_bm_sparse);
+        }
         for (Benchmark* bm : stages) {
             row(*bm);
         }
@@ -270,6 +274,7 @@ namespace protal::classify {
                 anchor_finder_global.m_bm_pairing.Join(anchor_finder.m_bm_pairing);
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
+                anchor_finder_global.m_bm_sparse.Join(anchor_finder.m_bm_sparse);
 
                 reader_global.UpdateSuccess(reader);
 
@@ -428,6 +433,7 @@ namespace protal::classify {
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
                 aligner_global.GetAlignmentHandler().JoinCounts(aligner.GetAlignmentHandler());
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
+                anchor_finder_global.m_bm_sparse.Join(anchor_finder.m_bm_sparse);
                 chunked_reads += aligner.ChunkedReads();
                 ambiguous_segments += aligner.AmbiguousSegments();
                 settled_segments += aligner.SettledSegments();
@@ -924,6 +930,8 @@ namespace protal::classify {
                 anchor_finder_global.m_bm_recovering_anchors.Join(anchor_finder2.m_bm_recovering_anchors, false);
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder1.m_bm_extend_anchors);
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder2.m_bm_extend_anchors, false);
+                anchor_finder_global.m_bm_sparse.Join(anchor_finder1.m_bm_sparse);
+                anchor_finder_global.m_bm_sparse.Join(anchor_finder2.m_bm_sparse, false);
                 anchor_finder_global.recovered_count += anchor_finder1.recovered_count;
                 anchor_finder_global.recovered_count += anchor_finder2.recovered_count;
                 anchor_finder_global.total_count += anchor_finder1.total_count;

@@ -884,6 +884,10 @@ namespace protal {
 //            using AnchorFinder = NaiveAnchorFinder<KmerLookupSM>;
 
 
+            // misc/cpu.tsv: the index (loaded beside the start-up, waited for above) and the genome preload get a row of
+            // their own, so that a sample's row is its alignment only.
+            CpuLog::Get().Mark("index and genomes");
+
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
             stage1_probe::EnabledFlag() = options.Stage1Probe();  // read by Classify's loops

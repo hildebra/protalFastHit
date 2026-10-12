@@ -15,7 +15,9 @@
 # their taxon and gene with another, the lookups dropped as too ubiquitous, the anchors), the candidates the
 # indel bound refused (ONT reads; NA for a protal from before 2026-10-09) and, last, the start-up's tables (tables_s:
 # what the alignment waits for; profiling_tables_s, profiling_tables_wait_s: the tables loaded beside the alignment
-# since 2026-10-11, and how long the profiling waited for them; NA before)), cohort.tsv (one
+# since 2026-10-11, and how long the profiling waited for them; NA before) and the alignment's CPU seconds, the cores
+# it kept busy and the seconds a thread spent getting reads (aligning_cpu_s, aligning_cores, reader_s_per_thread, from
+# misc/cpu.tsv and misc/<prefix>_runtime.tsv: few cores and much reader time mean the input's inflating is the limit)), cohort.tsv (one
 # line per cohort run: profiling, strain MSAs, building the MSAs, qcMSA, species), stages.tsv (each
 # run's misc/<prefix>_runtime.tsv: the alignment stage's timers per thread and the profiling steps'
 # wall times), logs/, and prints medians.
@@ -36,9 +38,11 @@
 # up by 1/C of its k-mer cores first and given up without a near-exact hit; ChainAnchorFinder::SetSparseFirst): C = 1, 2,
 # 4, 8 for short reads (SPARSE_SHORT), 4, 8, 16, 32 for long reads (SPARSE_LONG); not counted in runs.tsv. A line each in
 # sparse.tsv: times, memory, perf counters, the reads given up and the sampled lookups, the records written against the
-# last timed run's, and its profile against that run's (species called by both, lost, gained, Bray-Curtis of the
-# abundances); the profiles in sparse/<sample>.c<C>.profile beside sparse/<sample>.plain.profile, the logs in
-# logs/<sample>.sparse<C>.log. Printed last: each level's wall and aligning time against the timed runs' medians.
+# last timed run's, its profile against that run's (species called by both, lost, gained, Bray-Curtis of the
+# abundances as written and over the species alone, the two unknown shares), the alignment's CPU, cores and reader time as in runs.tsv, and the gate's own seconds a thread (protal's
+# "Sparse first" timer, from 2026-10-12; NA before); each level's stage timers in sparse_stages.tsv (as stages.tsv, with
+# the level for the rep); the profiles in sparse/<sample>.c<C>.profile beside sparse/<sample>.plain.profile, the logs in
+# logs/<sample>.sparse<C>.log. Printed last: each level's wall, aligning and CPU time against the timed runs' medians.
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -117,6 +121,16 @@ fi
 mkdir -p "$out/logs"
 runs=${RUN_DIR:-$out}; mkdir -p "$runs/protal" || { echo "cannot make $runs/protal (RUN_DIR)" >&2; exit 1; }
 abs() { case $1 in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; esac; }
+# A read file's format by its first bytes, as protal tells them apart (ThreadedGzStreambuf): BGZF (inflated on several
+# threads), gzip, zstd (each on one thread) or plain.
+input_format() {
+    local h; h=$(head -c 16 "$1" 2> /dev/null | od -An -tx1 | tr -d ' \n')
+    if [ "${h:0:8}" = 1f8b0804 ] && [ "${h:24:4}" = 4243 ]; then echo BGZF
+    elif [ "${h:0:4}" = 1f8b ]; then echo gzip
+    elif [ "${h:0:8}" = 28b52ffd ]; then echo zstd
+    elif [ -n "$h" ]; then echo plain
+    else echo unreadable; fi
+}
 
 use_time=0; [ -x /usr/bin/time ] && use_time=1
 use_perf=0
@@ -136,6 +150,9 @@ qcmsa=${QCMSA:-1}
     echo "transparent huge pages: $(cat /sys/kernel/mm/transparent_hugepage/enabled 2> /dev/null)"
     echo "perf stat: $([ $use_perf = 1 ] && echo yes || echo "no (not installed or not allowed: perf_event_paranoid $(cat /proc/sys/kernel/perf_event_paranoid 2> /dev/null))")"
     echo "samples: $*"
+    printf 'read files:'; for spec in "$@"; do IFS=: read -r _ f1 f2 <<< "$spec"
+        printf ' %s %s' "$(basename "$f1")" "$(input_format "$f1")"; [ -n "$f2" ] && printf ', %s %s' "$(basename "$f2")" "$(input_format "$f2")"; printf ';'
+    done; echo
     if [ $cohort = 1 ]; then
         # qcmsa as protal finds it (RunProtal.h, FindQCMSAScript): PROTAL_QCMSA_SCRIPT, qcmsa next to protal, qcmsa on
         # $PATH, then qcmsa.py next to protal, in its scripts/ or in the scripts/ beside its folder (a source checkout).
@@ -181,6 +198,17 @@ number_after() {
 peak_after() {
     number_after "^Memory after $1: " 'peak' "$2"
 }
+# A run's alignment, from the misc tables of its output folder $1 and sample $2: "CPU seconds<TAB>cores busy<TAB>Sequence
+# reader seconds per thread" (misc/cpu.tsv's "aligning <sample>" row, its CPU over its wall time; misc/<sample>_runtime.tsv;
+# NA where missing). Few cores busy and much reader time: the threads wait for the input's inflating thread(s).
+aligning_cpu() {
+    local cpu_cores=$'NA\tNA' reader=NA
+    [ -e "$1/misc/cpu.tsv" ] && cpu_cores=$(awk -F'\t' '$1 ~ /^aligning / { c = $3; w = $2 }
+        END { if (c == "") { printf "NA\tNA"; exit } cores = w > 0 ? c / w : 0; printf "%.1f\t%.1f", c, cores }' "$1/misc/cpu.tsv")
+    [ -e "$1/misc/$2_runtime.tsv" ] && reader=$(awk -F'\t' '$1 == "Sequence reader" { v = $4 }
+        END { if (v == "") print "NA"; else printf "%.2f\n", v }' "$1/misc/$2_runtime.tsv")
+    printf '%s\t%s' "$cpu_cores" "$reader"
+}
 # The last timed run's perf counters (with use_perf=1, else NA): sets ins cyc miss ipc.
 perf_counters() {
     ins=NA; cyc=NA; miss=NA; ipc=NA
@@ -205,28 +233,39 @@ timed() {
     return $status
 }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\taligning_cpu_s\taligning_cores\treader_s_per_thread\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 # The tables of the steps this run leaves out, left in OUT_DIR by an earlier run there: removed, so that neither the
 # summary below nor a reader takes them for this run's (a run without --sylph printed the sylph medians of an older one).
 [ -n "$sylph" ] || rm -rf "$out/sylph.tsv" "$out/sylph" "$out"/logs/sylph.*.log
 [ $stage1_probe = 1 ] || rm -rf "$out/probe.tsv" "$out/stage1_probe" "$out"/logs/*.probe.log
-[ $test_sparse = 1 ] || rm -rf "$out/sparse.tsv" "$out/sparse" "$out"/logs/*.sparse*.log
+[ $test_sparse = 1 ] || rm -rf "$out/sparse.tsv" "$out/sparse_stages.tsv" "$out/sparse" "$out"/logs/*.sparse*.log
 if [ $stage1_probe = 1 ]; then
     mkdir -p "$out/stage1_probe"
     printf 'sample\ttype\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tprobe_reads\tprobe_reads_with_records\tprofile_identical\n' > "$out/probe.tsv"
 fi
 if [ $test_sparse = 1 ]; then
     mkdir -p "$out/sparse"
-    printf 'sample\ttype\tthreads\tsparse_first\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tinstructions\tcycles\tipc\treads\tgiven_up\tgiven_up_share\tsampled_lookups\tkmers_kept_reads\twritten\twritten_plain\tspecies_plain\tspecies\tspecies_both\tspecies_lost\tspecies_gained\tbray_curtis\n' > "$out/sparse.tsv"
+    printf 'sample\ttype\tthreads\tsparse_first\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tinstructions\tcycles\tipc\treads\tgiven_up\tgiven_up_share\tsampled_lookups\tkmers_kept_reads\twritten\twritten_plain\tspecies_plain\tspecies\tspecies_both\tspecies_lost\tspecies_gained\tbray_curtis\tbray_curtis_species\tunknown_plain\tunknown\taligning_cpu_s\taligning_cores\treader_s_per_thread\tgate_s_per_thread\n' > "$out/sparse.tsv"
+    printf 'sample\tsparse_first\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/sparse_stages.tsv"
 fi
-# Two profiles' species (their lineage column) and abundances: "plain sparse both lost gained bray_curtis" (tab-separated),
-# lines of 3 fields or more, the "?" line and comments left out.
+# Two profiles' species (their lineage column) and abundances, tab-separated: "plain sparse both lost gained bray_curtis
+# bray_curtis_species unknown_plain unknown": the species of each, of both, lost and gained, Bray-Curtis of the abundances
+# as written, the same over the species alone (each profile's species scaled to sum 1: a change of the unknown share
+# alone moves the first, not this), and each profile's unknown share (its "?" line; NA without). Lines of 3 fields or
+# more, comments left out. Membership is tested before a[] is read: reading an awk array element creates it (every
+# species counted as in both before 2026-10-12's fix).
 compare_profiles() {
-    awk -F'\t' 'FNR == 1 { f++ } NF >= 3 && $1 != "?" && $1 !~ /^#/ { a[f, $2] = $3 + 0; seen[$2]; n[f]++ }
-        END { for (s in seen) { x = a[1, s] + 0; y = a[2, s] + 0; d += (x > y ? x - y : y - x); t += x + y
-                  if ((1, s) in a && (2, s) in a) both++; else if ((1, s) in a) lost++; else gained++ }
-              printf "%d\t%d\t%d\t%d\t%d\t%s\n", n[1], n[2], both, lost, gained, (t > 0 ? sprintf("%.4f", d / t) : "NA") }' "$1" "$2"
+    awk -F'\t' 'FNR == 1 { f++ } NF >= 3 && $1 == "?" { u[f] = $3 + 0; next }
+        NF >= 3 && $1 !~ /^#/ { a[f, $2] = $3 + 0; seen[$2]; n[f]++; sum[f] += $3 }
+        END { for (s in seen) { in1 = ((1, s) in a); in2 = ((2, s) in a); x = in1 ? a[1, s] : 0; y = in2 ? a[2, s] : 0
+                  d += (x > y ? x - y : y - x); t += x + y
+                  xs = sum[1] > 0 ? x / sum[1] : 0; ys = sum[2] > 0 ? y / sum[2] : 0; ds += (xs > ys ? xs - ys : ys - xs)
+                  if (in1 && in2) both++; else if (in1) lost++; else gained++ }
+              # (the comparisons before printf: a ">" among its arguments would redirect its output)
+              bc = t > 0 ? sprintf("%.4f", d / t) : "NA"; bcs = (sum[1] > 0 && sum[2] > 0) ? sprintf("%.4f", ds / 2) : "NA"
+              u1 = (1 in u) ? sprintf("%.4f", u[1]) : "NA"; u2 = (2 in u) ? sprintf("%.4f", u[2]) : "NA"
+              printf "%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", n[1], n[2], both, lost, gained, bc, bcs, u1, u2 }' "$1" "$2"
 }
 sams=$runs/protal/sams; mkdir -p "$sams"
 cohort_map_rows=()
@@ -269,12 +308,12 @@ for spec in "$@"; do
         later="^Loading the profiling's tables beside the alignment took "
         tables=$(printf '%s\t%s\t%s' "$(took 'Loading the taxonomy, models and tables' "$log")" "$(number_after "$later" 'took' "$log")" \
                  "$(number_after "$later" 'waited' "$log")")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
             "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" \
             "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" \
             "$(peak_after 'the genome preload' "$log")" "$(peak_after 'loading the index' "$log")" "$(peak_after aligning "$log")" \
-            "$(peak_after profiling "$log")" "$seed_fates" "$indel" "$tables" >> "$out/runs.tsv"
+            "$(peak_after profiling "$log")" "$seed_fates" "$indel" "$tables" "$(aligning_cpu "$run" "$name")" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
         echo "$name run $rep: ${wall} s"
@@ -347,14 +386,22 @@ for spec in "$@"; do
             sampled=$(grep -m1 -E "$sparseline" "$log" | grep -oE '[0-9]+ sampled lookups' | grep -oE '^[0-9]+' || echo NA)
             share=$(awk -v g="$given" -v t="$total" 'BEGIN { print (g == "NA" || t == "NA" || t == 0) ? "NA" : sprintf("%.4f", g / t) }')
             written=$(grep -m1 "^Sample $name: .* candidate alignments tried" "$log" | grep -oE '[0-9]+ records written' | grep -oE '^[0-9]+' || echo NA)
-            species=$(printf 'NA\tNA\tNA\tNA\tNA\tNA')
+            species=$(printf 'NA\tNA\tNA\tNA\tNA\tNA\tNA\tNA\tNA')
             if [ -e "$run/$name.profile" ]; then
                 cp "$run/$name.profile" "$out/sparse/$name.c$c.profile"
                 [ -e "$out/sparse/$name.plain.profile" ] && species=$(compare_profiles "$out/sparse/$name.plain.profile" "$run/$name.profile")
             fi
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$threads" "$c" \
+            # The run's stage timers (misc/<sample>_runtime.tsv; "Sparse first" is the gate's own time, within "Seed- and
+            # Anchor-finding" for short reads and "Alignment handler" for long reads).
+            gate=NA
+            if [ -e "$run/misc/${name}_runtime.tsv" ]; then
+                awk -v s="$name" -v c="$c" 'NR > 1 { print s "\t" c "\t" $0 }' "$run/misc/${name}_runtime.tsv" >> "$out/sparse_stages.tsv"
+                gate=$(awk -F'\t' '$1 == "Sparse first" { v = $4 } END { if (v == "") print "NA"; else printf "%.2f\n", v }' "$run/misc/${name}_runtime.tsv")
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$threads" "$c" \
                 "$wall" "$user" "$sys" "$rss" "$(took 'Aligning reads' "$log")" "$ins" "$cyc" "$ipc" "${total:-NA}" "${given:-NA}" "$share" \
-                "${sampled:-NA}" "$(number_after "^Sample $name seeding: " 'seeding:' "$log")" "${written:-NA}" "$written_plain" "$species" >> "$out/sparse.tsv"
+                "${sampled:-NA}" "$(number_after "^Sample $name seeding: " 'seeding:' "$log")" "${written:-NA}" "$written_plain" "$species" \
+                "$(aligning_cpu "$run" "$name")" "$gate" >> "$out/sparse.tsv"
             echo "$name --sparse_first $c: ${wall} s, given up $given of $total, records $written (timed runs: $written_plain)"
             [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
         done
@@ -511,14 +558,17 @@ if [ $test_sparse = 1 ] && [ "$(wc -l < "$out/sparse.tsv")" -gt 1 ]; then
             for (r = 1; r <= c[k]; r++) if (x[k, r] != "NA") a[++n] = x[k, r] + 0
             return n ? median(a, n) : 0 }
         function change(v, m) { return (m > 0 && v != "NA") ? sprintf("%+.1f%%", 100 * (v / m - 1)) : "NA" }
-        FNR == 1 { t = FILENAME ~ /sparse\.tsv$/ ? "sparse" : "runs"; next }
-        t == "runs" { k = $1; r = ++c[k]; wall[k, r] = $5; aligning[k, r] = $11; next }
-        { k = $1; mw = med(wall, k); ma = med(aligning, k)
+        function field(name) { return (name in col) ? $(col[name]) : "NA" }
+        FNR == 1 { t = FILENAME ~ /sparse\.tsv$/ ? "sparse" : "runs"; if (t == "runs") for (i = 1; i <= NF; i++) col[$i] = i; next }
+        t == "runs" { k = $1; r = ++c[k]; wall[k, r] = $5; aligning[k, r] = $11
+                      cpu[k, r] = field("aligning_cpu_s"); reader[k, r] = field("reader_s_per_thread"); next }
+        { k = $1; mw = med(wall, k); ma = med(aligning, k); mc = med(cpu, k); mr = med(reader, k)
           # (the comparisons before printf: a ">" among its arguments would redirect its output)
-          dw = change($5, mw); da = change($9, ma); share = $15 == "NA" ? "NA" : sprintf("%.1f%%", 100 * $15)
+          dw = change($5, mw); da = change($9, ma); dc = change($29, mc); share = $15 == "NA" ? "NA" : sprintf("%.1f%%", 100 * $15)
           records = ($18 != "NA" && $19 != "NA" && $19 > 0) ? sprintf("%s of %s (%+.2f%%)", $18, $19, 100 * ($18 / $19 - 1)) : $18 " of " $19
-          printf "%s --sparse_first %s: wall %s s (%s), aligning %s s (%s), given up %s, records %s, species %s (lost %s, gained %s), Bray-Curtis %s\n",
-              k, $4, $5, dw, $9, da, share, records, $21, $23, $24, $25 }' \
+          timed_reader = mr > 0 ? sprintf("%.2f", mr) : "NA"
+          printf "%s --sparse_first %s: wall %s s (%s), aligning %s s (%s), given up %s, records %s, species %s (lost %s, gained %s), Bray-Curtis %s (species alone %s, unknown %s -> %s); aligning CPU %s s (%s) on %s cores, reader %s s a thread (timed runs: %s), gate %s s a thread\n",
+              k, $4, $5, dw, $9, da, share, records, $21, $23, $24, $25, $26, $27, $28, $29, dc, $30, $31, timed_reader, $32 }' \
         "$out/runs.tsv" "$out/sparse.tsv"
 fi
-echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,")$([ $test_sparse = 1 ] && echo " sparse.tsv, sparse/,") environment.txt, logs/)."
+echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,")$([ $test_sparse = 1 ] && echo " sparse.tsv, sparse_stages.tsv, sparse/,") environment.txt, logs/)."

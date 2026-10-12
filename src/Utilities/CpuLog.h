@@ -1,7 +1,8 @@
 // CpuLog.h - misc/cpu.tsv of a run: for each stage, its wall-clock seconds and the CPU seconds the whole process used
 // meanwhile (all threads, user and system time), so that cpu / wall tells how many cores a stage kept busy. The stages
-// follow each other without gaps: the start-up (from the process's start: the database's index and tables loaded), each
-// sample's alignment (up to its SAM written), the profiling stage, and the rest of the run (the strains, the outputs).
+// follow each other without gaps: the start-up (from the process's start: the database's tables loaded), "index and
+// genomes" (the rest of the index load, the genome preload), each sample's alignment (up to its SAM written), the
+// profiling stage, and the rest of the run (the strains, the outputs).
 // With --profile_ahead the profiling worker's time falls into the samples' rows. A file of its own, not on the console:
 // build_gtdb_database.py's collector copies it into its protal runs' CPU table (docs/claude/2026-10-09-build-parallelism),
 // where a stage that leaves cores idle on a 120-core node shows.

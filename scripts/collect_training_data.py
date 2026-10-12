@@ -681,8 +681,8 @@ def run_protal(command, log, samples, companions=()):
 
 # ---- CPU time of the protal runs (OUT/protal_cpu.tsv) -------------------------------------------------------
 # How busy each protal run kept its cores, for the build's analysis (not its log: nothing of it is printed): a row of
-# the whole process, then protal's own rows by stage (misc/cpu.tsv of the run's folder: start-up, aligning <sample>,
-# profiling, after profiling), which an older protal does not write.
+# the whole process, then protal's own rows by stage (misc/cpu.tsv of the run's folder: start-up, index and genomes
+# (since 2026-10-12), aligning <sample>, profiling, after profiling), which an older protal does not write.
 
 CPU_TABLE = "protal_cpu.tsv"
 CPU_COLUMNS = ("run", "stage", "wall_seconds", "cpu_seconds", "threads", "cores_busy")
