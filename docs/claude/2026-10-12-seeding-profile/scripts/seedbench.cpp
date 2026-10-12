@@ -13,7 +13,7 @@
 // lookups ahead, GetFromLookup until enough seeds); then the rest of the pair (GAP2: ~6 us at r226). The gaps are
 // spins that touch no memory.
 //
-//   P0 as protal
+//   P0 as protal before 2026-10-12 (the first line of each block's flex cells and entries prefetched)
 //   P1 the lookups made one pair earlier: values prefetched a whole pair ahead, keys two pairs ahead      (exact)
 //   P2 as protal, every line of a block prefetched (its flex cells and entries, up to kWholeBlockLines)   (exact)
 //   P3 P1 and P2                                                                                          (exact)
@@ -93,7 +93,10 @@ namespace {
 
         void PrefetchValues(LookupPointer const& l) const {
             if (!whole_blocks) {
-                KmerLookupSM::PrefetchValues(l);
+                // protal before 2026-10-12: the first line of the flex cells and of the entries (P0, B1); since then
+                // KmerLookupSM::PrefetchValues fetches whole blocks, as P2 does.
+                if (l.flex != nullptr) __builtin_prefetch(l.flex);
+                __builtin_prefetch(l.entries);
                 return;
             }
             // The block's flex cells and entries are one stretch: from the flex cells' start (or the entries') to the
@@ -337,7 +340,7 @@ int main(int argc, char** argv) {
                         double t0 = ThreadSeconds();
                         s.LookupKmers(mates1[p], cur[0].lookups);
                         s.LookupKmers(mates2[p], cur[1].lookups);
-                        if (v == 6) for (auto& m : cur) for (auto const& l : m.lookups) KmerLookupSM::PrefetchValues(l);
+                        if (v == 6) for (auto& m : cur) for (auto const& l : m.lookups) s.PrefetchValues(l);
                         busy += ThreadSeconds() - t0;
                         Spin(gap1);
                         t0 = ThreadSeconds();

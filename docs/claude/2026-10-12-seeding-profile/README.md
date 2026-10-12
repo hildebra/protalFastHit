@@ -14,8 +14,9 @@
     1M simulated pairs of 150 bp from 120 species with strains and congeners, and their first 100,000.
 - **Machine**: WSL2 on the Core Ultra 7 258V (AVX2, no AVX-512, no `perf`), jobs pinned to cores 0-3. Other sessions
   ran builds and tests meanwhile (load 4-7); the instruction counts do not mind, the local wall times do.
-- **Status**: the local part and the cluster job are done ([results](#results-at-r226-the-cluster-job-2026-10-12)).
-  Nothing in protal is changed yet.
+- **Status**: the local part and the cluster job are done ([results](#results-at-r226-the-cluster-job-2026-10-12));
+  whole blocks are prefetched since ([implemented](#implemented-whole-blocks-prefetched-2026-10-12)); the give-up rule
+  waits for the stage-1 probe's counts.
 
 ## Summary
 
@@ -254,6 +255,27 @@ freed. THP is `always` on the node and both arrays are `madvise`d; the script no
   score of each of its first lookups, and whether it was written). A rule that gives up none of those would change no
   alignment; the full sample's outputs and the r226 F1 benchmark then confirm it.
 
+## Implemented: whole blocks prefetched (2026-10-12)
+
+P2 in protal: `KmerLookupSM::PrefetchValues` fetches every cache line of a lookup's block, its flex cells and its entries,
+up to 32 lines (`kPrefetchLines`), where it fetched the first line of each. Its callers are unchanged: `PrepareLookups`
+for every lookup of the next pair, `FindSeeds` for the lookup 16 ahead, for short and long reads alike. To know a
+block's end, `Seedmap::PackedBlock` carries its byte span (`span`, set by `BlockOfSlots` from the entry width; it fits
+the struct's padding, so `LookupPointer` stays 48 bytes). seedbench's P0 keeps the old prefetch, so that it still
+measures against it.
+
+Checked (WSL, `a315c72` with the change against `a315c72`, [p2_check.sh](scripts/p2_check.sh)): unit tests 516 run, 513
+passed, 3 skipped; e2e 155 OK on a fresh mini database; the same outputs as before (SAM records sorted, profiles) for
+the archaea world's 1M pairs and the small real world's pe, se, PacBio and ONT samples. The local world cannot show the
+gain (4 cells a block, mostly a single line).
+
+At r226 the benchmark predicts −10% of the seeding: ~4.4 s per thread of a pe run on 8 threads (~4% of it), ~1.2 s
+on 32. The next cluster run shows it: `measure_performance.sh` as for the 16th run, on this commit.
+
+**The per-mate count for giving up** is part of another session's `--stage1_probe` (in progress when this was written,
+uncommitted): per mate, the best score among its first 1, 2, 4, 8 and all lookups, by whether the mate aligns, only its
+fragment does, or neither. Its output on the r226 sample decides the give-up rule; this report takes it up then.
+
 ## Options, with what the earlier rounds did
 
 From the GTDB-scale report's list (`../2026-10-04-performance-gtdb-scale`, "The seeding: how a lookup works"):
@@ -265,7 +287,7 @@ From the GTDB-scale report's list (`../2026-10-04-performance-gtdb-scale`, "The 
 | huge pages for the key map and the values (`madvise`) | done; whether r226's 30 GB get them is still to see (the job read them at the wrong moment) |
 | more threads (the node has 84 cores) | a user's choice; a lookup costs 3% more on 32 threads than on 8 (the benchmark) |
 | more misses in flight (several pairs interleaved; the lookups a pair earlier) | measured: −5% (P4), −6% (P1); not worth more than P2 |
-| **more of each block prefetched** | **measured: −10% (P2), exact; to do** |
+| **more of each block prefetched** | **measured −10% (P2), exact; implemented (whole blocks, up to 32 lines)** |
 | large blocks grouped by flex bases, the best found without a full scan | rejected: 75% of the lookups into large blocks score ≤ 11 and would scan them all |
 | small blocks next to their key (one miss instead of two) | not worth it: the key map is 11% of a lookup |
 | fewer lookups: **giving up on a mate whose lookups match by chance**; sparser syncmers; a lower seed target | not exact; the first is the large lever (up to ~70% of the seeding), to count first (the mates that align: how their lookups score) |

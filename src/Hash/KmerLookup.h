@@ -224,15 +224,22 @@ namespace protal {
         }
 
         // What Get and GetFromLookup will read, fetched ahead (Seedmap::PrefetchKey): the key map's block of a
-        // k-mer, and the first cache line of a lookup's values and of its flex cells.
+        // k-mer, and a lookup's values (PrefetchValues).
         inline void PrefetchKey(size_t kmer) {
             m_sm.PrefetchKey(kmer);
         }
 
-        // What GetFromLookup reads first: the flex cells (if the key has them) and the entries.
+        // What GetFromLookup reads: the lookup's block, its flex cells (if the key has them) and its entries, every cache
+        // line of it up to kPrefetchLines. Only the first line of each was fetched before; the block's later lines then
+        // came from memory while it was scored. At GTDB r226 (70 cells a block, ~10 lines) the seeding took 10% less with
+        // the whole blocks fetched, the same seeds (docs/claude/2026-10-12-seeding-profile, P2).
+        static constexpr size_t kPrefetchLines = 32;
         static inline void PrefetchValues(LookupPointer const& pointers) {
-            if (pointers.flex != nullptr) __builtin_prefetch(pointers.flex);
-            __builtin_prefetch(pointers.entries);
+            uint8_t const* const first = pointers.flex != nullptr ? pointers.flex : pointers.entries;
+            uintptr_t const begin = reinterpret_cast<uintptr_t>(first) & ~uintptr_t{ 63 };
+            uintptr_t const end = std::min(reinterpret_cast<uintptr_t>(first) + std::max<uint32_t>(pointers.span, 1),
+                                           begin + 64 * kPrefetchLines);
+            for (uintptr_t line = begin; line < end; line += 64) __builtin_prefetch(reinterpret_cast<void const*>(line));
         }
 
         // Entry i of a lookup's (or a core's) values as a ValueEntry (Seedmap::EntryValue).

@@ -429,6 +429,7 @@ namespace protal {
             uint8_t const* flex = nullptr;     // flex cell i: 32 bits at bit flex_shift + 32 i from here; nullptr if the key has one value
             uint32_t entry_shift = 0, flex_shift = 0;  // 0-7
             uint32_t size = 0;                 // entries
+            uint32_t span = 0;                 // bytes from the block's first (its flex cells', else its entries') past its last entry
         };
 
         Seedmap() {
@@ -543,11 +544,13 @@ namespace protal {
                 uint64_t const entry_bit = bit + 32 * entries;
                 block.entries = m_packed + (entry_bit >> 3);
                 block.entry_shift = static_cast<uint32_t>(entry_bit & 7);
+                block.span = static_cast<uint32_t>(((entry_bit + entries * m_entry_bits + 7) >> 3) - (bit >> 3));
             } else {
                 block.size = static_cast<uint32_t>(slots);
                 block.flex = nullptr;
                 block.entries = m_packed + (bit >> 3);
                 block.entry_shift = static_cast<uint32_t>(bit & 7);
+                block.span = static_cast<uint32_t>(((bit + slots * m_entry_bits + 7) >> 3) - (bit >> 3));
             }
         }
 
