@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev zstd \
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev nasm zstd \
             python3 python3-numpy python3-pandas python3-sklearn python3-joblib
 
       - name: Configure
@@ -64,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev nasm
 
       # Debug: asserts on. ASan + UBSan with leak checking. PROTAL_NO_CLONES compiles the hot functions once, for plain
       # x86-64 (src/Utilities/TargetClones.h): the copies a CPU without AVX2 runs, which the Release job on a runner with

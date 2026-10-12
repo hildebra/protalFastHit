@@ -24,7 +24,7 @@ dependencies:
   - cmake >=3.22
   - make
   - zstd                  # the library, and the zstd CLI the end-to-end tests use
-  - isa-l                 # gzip as protal reads and writes it (ISA-L); zlib-ng is vendored
+  - nasm                  # ISA-L's assembly (lib/isa-l: gzip as protal reads and writes it); zlib-ng is vendored too
   # pbsim3 for its .model files (simulate_metagenomes reads QSHMM-ONT-HQ.model; pbsim3 itself is not run)
   - pbsim3                # its QSHMM-ONT-HQ.model for the Nanopore training reads (--read_types ont)
   - pigz                  # optional: download_gtdb.py unpacks GTDB's archives faster with it

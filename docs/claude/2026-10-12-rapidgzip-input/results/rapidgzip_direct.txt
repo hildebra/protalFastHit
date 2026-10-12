@@ -1,0 +1,60 @@
+# rapidgzip's ParallelGzipReader on its own (scripts/bench_rgz.cpp, scripts/rgz_bench2.sh and rgz_bench3.sh),
+# ~/gzpar/data/R1.member.gz (1,681,851,361 bytes of simulated 150 bp FASTQ as one gzip member, 397,409,724 bytes),
+# WSL2 on the Core Ultra 7 258V, taskset -c 0-3, 2026-10-12. x86-64: -march=x86-64 (as protal); native: -march=native.
+
+## rgz_bench2.sh: rapidgzip's statistics, 3 threads, 4 MiB chunks, 4 MiB reads (excerpt)
+    Time spent allocating and copying        : 0.549252 s
+    Time spent applying the last window      : 0.711967 s
+    Time spent computing the checksum        : 0.0677836 s
+    Total decompressed bytes                 : 1'681'851'361
+    Non-marker symbols                       : 18'088'032 (1.07548 %)
+    Replaced marker symbol buffers           : 1'663'763'329 (98.9245 %)
+    Thread Pool Utilization:
+        Total Real Decode Duration    : 1.72083 s
+        Pool Efficiency (Fill Factor) : 96.925 %
+    BlockFetcher: Parallelization 3, Blocks Total Existing 384, Total Fetched 95, Prefetched 94
+    Time spent in: decodeBlock 4.22398 s
+    SharedFileReader: read the file 1.0318 times, time spent seeking and reading: 0.0397306 s
+threads 3 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.740 s, cpu 5.150 s, 0.967 GB/s, maxrss 669 MB
+
+## rgz_bench2.sh: two rounds
+x86-64: threads 1 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.376 s, cpu 1.372 s, 1.222 GB/s, maxrss 301 MB
+x86-64: threads 3 chunk 4.0 MiB read 1.0 MiB: 1681851361 bytes, wall 1.861 s, cpu 5.470 s, 0.904 GB/s, maxrss 697 MB
+x86-64: threads 3 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.879 s, cpu 5.539 s, 0.895 GB/s, maxrss 693 MB
+x86-64: threads 3 chunk 4.0 MiB read 16.0 MiB: 1681851361 bytes, wall 1.802 s, cpu 5.263 s, 0.933 GB/s, maxrss 668 MB
+x86-64: threads 3 chunk 8.0 MiB read 8.0 MiB: 1681851361 bytes, wall 1.881 s, cpu 5.492 s, 0.894 GB/s, maxrss 1287 MB
+x86-64: threads 3 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.784 s, cpu 5.205 s, 0.943 GB/s, maxrss 185 MB
+x86-64: threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.560 s, cpu 5.578 s, 1.078 GB/s, maxrss 744 MB
+native: threads 1 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.426 s, cpu 1.422 s, 1.179 GB/s, maxrss 301 MB
+native: threads 3 chunk 4.0 MiB read 1.0 MiB: 1681851361 bytes, wall 1.721 s, cpu 5.116 s, 0.977 GB/s, maxrss 653 MB
+native: threads 3 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.891 s, cpu 5.543 s, 0.889 GB/s, maxrss 727 MB
+native: threads 3 chunk 4.0 MiB read 16.0 MiB: 1681851361 bytes, wall 1.904 s, cpu 5.552 s, 0.883 GB/s, maxrss 668 MB
+native: threads 3 chunk 8.0 MiB read 8.0 MiB: 1681851361 bytes, wall 1.948 s, cpu 5.596 s, 0.863 GB/s, maxrss 1355 MB
+native: threads 3 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.766 s, cpu 5.150 s, 0.952 GB/s, maxrss 180 MB
+native: threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.557 s, cpu 5.431 s, 1.080 GB/s, maxrss 746 MB
+x86-64: threads 1 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.409 s, cpu 1.401 s, 1.194 GB/s, maxrss 301 MB
+x86-64: threads 3 chunk 4.0 MiB read 1.0 MiB: 1681851361 bytes, wall 1.844 s, cpu 5.457 s, 0.912 GB/s, maxrss 673 MB
+x86-64: threads 3 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.763 s, cpu 5.207 s, 0.954 GB/s, maxrss 666 MB
+x86-64: threads 3 chunk 4.0 MiB read 16.0 MiB: 1681851361 bytes, wall 2.083 s, cpu 6.061 s, 0.808 GB/s, maxrss 669 MB
+x86-64: threads 3 chunk 8.0 MiB read 8.0 MiB: 1681851361 bytes, wall 1.921 s, cpu 5.656 s, 0.875 GB/s, maxrss 1310 MB
+x86-64: threads 3 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.038 s, cpu 5.898 s, 0.825 GB/s, maxrss 182 MB
+x86-64: threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.612 s, cpu 5.893 s, 1.043 GB/s, maxrss 736 MB
+native: threads 1 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.399 s, cpu 1.392 s, 1.202 GB/s, maxrss 301 MB
+native: threads 3 chunk 4.0 MiB read 1.0 MiB: 1681851361 bytes, wall 1.771 s, cpu 5.208 s, 0.950 GB/s, maxrss 675 MB
+native: threads 3 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.855 s, cpu 5.435 s, 0.907 GB/s, maxrss 682 MB
+native: threads 3 chunk 4.0 MiB read 16.0 MiB: 1681851361 bytes, wall 1.930 s, cpu 5.592 s, 0.871 GB/s, maxrss 658 MB
+native: threads 3 chunk 8.0 MiB read 8.0 MiB: 1681851361 bytes, wall 2.018 s, cpu 5.911 s, 0.833 GB/s, maxrss 1304 MB
+native: threads 3 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.003 s, cpu 5.756 s, 0.840 GB/s, maxrss 190 MB
+native: threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.550 s, cpu 5.754 s, 1.085 GB/s, maxrss 750 MB
+
+## rgz_bench3.sh: chunk sizes (x86-64), two rounds
+threads 4 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.586 s, cpu 5.387 s, 1.060 GB/s, maxrss 206 MB
+threads 4 chunk 2.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.459 s, cpu 5.130 s, 1.153 GB/s, maxrss 389 MB
+threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.441 s, cpu 5.338 s, 1.167 GB/s, maxrss 777 MB
+threads 2 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.474 s, cpu 4.829 s, 0.680 GB/s, maxrss 173 MB
+threads 2 chunk 2.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.525 s, cpu 4.982 s, 0.666 GB/s, maxrss 323 MB
+threads 4 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.522 s, cpu 5.283 s, 1.105 GB/s, maxrss 201 MB
+threads 4 chunk 2.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.502 s, cpu 5.199 s, 1.120 GB/s, maxrss 417 MB
+threads 4 chunk 4.0 MiB read 4.0 MiB: 1681851361 bytes, wall 1.468 s, cpu 5.205 s, 1.146 GB/s, maxrss 792 MB
+threads 2 chunk 1.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.475 s, cpu 4.821 s, 0.680 GB/s, maxrss 169 MB
+threads 2 chunk 2.0 MiB read 4.0 MiB: 1681851361 bytes, wall 2.420 s, cpu 4.796 s, 0.695 GB/s, maxrss 322 MB

@@ -51,6 +51,14 @@ for this page.
   strain whose reads tie with a congener's reference is not counted as nothing;
   `build_gtdb_database.py --fragment-count soft` builds and trains with it. The default stays `mapq`. Untested
   at r226.
+- **gzip files that are not BGZF on several threads, and ISA-L built with protal** (2026-10-12). A gzip
+  read file of one member (as `gzip` writes it) is inflated by rapidgzip (vendored, `lib/rapidgzip`) on 8 to 16
+  threads per file in runs with 16 or more threads per file (a paired-end run on 32 or more), else by ISA-L on
+  one thread as before; on FASTQ rapidgzip costs about four times ISA-L's CPU (0.3 GB/s per thread against
+  1.2-1.6 GB/s on one), so BGZF input stays the fastest
+  ([report](claude/2026-10-12-rapidgzip-input/README.md)). rapidgzip needs a few changes to ISA-L, so ISA-L 2.32.1
+  with them is now in `lib/isa-l` and built with protal (static and not): a build needs nasm instead of an
+  installed ISA-L. The outputs are the same.
 
 ## What 0.8.2 adds
 

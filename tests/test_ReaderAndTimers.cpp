@@ -437,23 +437,32 @@ TEST(ThreadedGzStream, WhatFollowsAGzipMemberMustBeAMember) {
 }
 
 namespace {
-    // Sets the BGZF inflating threads for files opened in its scope; back to one after.
-    struct BgzfThreads {
-        explicit BgzfThreads(unsigned n) { ThreadedGzStreambuf::SetBgzfThreads(n); }
-        ~BgzfThreads() { ThreadedGzStreambuf::SetBgzfThreads(1); }
+    // Sets the inflating threads for gzip files opened in its scope, BGZF (protal's) and not (rapidgzip's); back to
+    // one after.
+    struct InflateThreads {
+        explicit InflateThreads(unsigned n) {
+            ThreadedGzStreambuf::SetInflateThreads(n);
+            ThreadedGzStreambuf::SetGzipThreads(n);
+        }
+        ~InflateThreads() {
+            ThreadedGzStreambuf::SetInflateThreads(1);
+            ThreadedGzStreambuf::SetGzipThreads(1);
+        }
     };
 
     struct ReadResult {
         std::string text, error;
         bool failed = false;
         unsigned threads = 0;
+        bool parallel = false;  // a gzip file on rapidgzip's threads
     };
 
     ReadResult ReadWithThreads(std::string const& path, unsigned threads) {
-        BgzfThreads const setting(threads);
+        InflateThreads const setting(threads);
         ThreadedGzIstream is(path.c_str());
         ReadResult r;
         r.threads = is.rdbuf()->inflate_threads();
+        r.parallel = is.rdbuf()->parallel_gzip();
         r.text = ReadAllOf(is);
         r.failed = is.rdbuf()->read_failed();
         r.error = is.rdbuf()->read_error_message();
@@ -490,10 +499,217 @@ TEST(ThreadedGzStream, BgzfOnSeveralThreadsReadsAsOnOne) {
             EXPECT_FALSE(r.failed) << r.error;
         }
     }
-    // A file that is not BGZF inflates on its own thread whatever the setting.
-    auto const gzip = Gzip(dir, "plain.fq.gz", small);
-    EXPECT_EQ(ReadWithThreads(gzip, 4).threads, 1u);
-    EXPECT_EQ(ReadWithThreads(gzip, 4).text, small);
+    // A file that is not gzip inflates on its own thread whatever the setting (gzip of another kind: rapidgzip's, below).
+    for (auto const& path : { dir.Write("plain.fq", small), dir.Write("small.fq.zst", ZstdBytes(small)) }) {
+        EXPECT_EQ(ReadWithThreads(path, 4).threads, 1u);
+        EXPECT_EQ(ReadWithThreads(path, 4).text, small);
+    }
+}
+
+namespace {
+    // A FASTQ file of n reads of random bases and qualities: it compresses about 3x (Fastq's repeats compress
+    // ~100x), so that a gzip file of a few MB of it spans many of rapidgzip's pieces.
+    std::string RandomFastq(size_t n, std::string const& prefix, unsigned seed) {
+        std::mt19937 rng(seed);
+        std::string text;
+        for (size_t i = 0; i < n; i++) {
+            size_t const length = 100 + rng() % 101;
+            text += '@' + prefix + std::to_string(i) + "/1\n";
+            for (size_t j = 0; j < length; j++) text += "ACGT"[rng() % 4];
+            text += "\n+\n";
+            for (size_t j = 0; j < length; j++) text += static_cast<char>('#' + rng() % 40);
+            text += '\n';
+        }
+        return text;
+    }
+}
+
+// A gzip file that is not BGZF, inflated by rapidgzip on several threads (ParallelGzip), gives the bytes ISA-L gives
+// on one: one member of many of rapidgzip's pieces (at gzip's default level, the fastest, stored blocks), a header
+// with every optional field, members of several sizes one after the other, gzip followed by BGZF blocks, and a tiny
+// file. A file ending in four zero bytes (zero padding after the last member, which rapidgzip fails on; an empty last
+// member) is read on one thread, as ISA-L reads it.
+TEST(ThreadedGzStream, GzipOnSeveralThreadsReadsAsOnOne) {
+    ScratchDir dir;
+    auto const big = RandomFastq(40000, "r", 1);  // ~12 MB, ~4.5 MB as gzip: ~9 pieces of 512 KB
+    auto const small = Fastq(30, "s");
+    std::string several_text, several_bytes;
+    std::mt19937 rng(3);
+    for (int m = 0; m < 25; m++) {
+        auto const part = RandomFastq(1 + rng() % 3000, "m" + std::to_string(m) + "_", static_cast<unsigned>(m));
+        several_text += part;
+        several_bytes += GzipBytes(part);
+    }
+    std::vector<std::pair<std::string, std::string>> const files = {  // (path, content)
+        { dir.Write("big.fq.gz", GzipBytes(big)), big },
+        { dir.Write("fast.fq.gz", GzipBytes(big, false, 1)), big },
+        { dir.Write("stored.fq.gz", GzipBytes(big.substr(0, 3000000), false, 0)), big.substr(0, 3000000) },
+        { dir.Write("header.fq.gz", GzipBytes(big, true)), big },
+        { dir.Write("several.fq.gz", several_bytes), several_text },
+        { dir.Write("then_bgzf.fq.gz", GzipBytes(small) + FileBytes(Bgzf(dir, "b.fq.gz", big))), small + big },
+        { dir.Write("tiny.fq.gz", GzipBytes(small)), small },
+        { dir.Write("padded.fq.gz", GzipBytes(big) + GzipBytes(small) + std::string(70000, '\0')), big + small },
+        { dir.Write("empty.fq.gz", GzipBytes("")), "" },
+        { dir.Write("empty_last.fq.gz", GzipBytes(big) + GzipBytes("")), big },
+    };
+    for (auto const& [path, content] : files) {
+        ASSERT_FALSE(bgzf::StartsAsBgzf(path));
+        bool const zero_tail = FileBytes(path).ends_with(std::string(4, '\0'));
+        auto const one = ReadWithThreads(path, 1);
+        EXPECT_EQ(one.threads, 1u);
+        EXPECT_FALSE(one.parallel);
+        EXPECT_TRUE(one.text == content) << path;
+        EXPECT_FALSE(one.failed) << path << ": " << one.error;
+        for (unsigned threads : { 2u, 3u, 4u, 7u }) {
+            SCOPED_TRACE(path + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            EXPECT_EQ(r.parallel, !zero_tail);
+            EXPECT_EQ(r.threads, zero_tail ? 1u : threads);
+            EXPECT_EQ(r.text.size(), content.size());
+            EXPECT_TRUE(r.text == content);
+            EXPECT_FALSE(r.failed) << r.error;
+        }
+    }
+}
+
+// A damaged gzip file fails on several threads as on one: cut in a member or in its trailer, a corrupt member, a
+// wrong CRC-32 or length (ISIZE), a damaged second member header, data after the last member. What is read before a
+// cut is the file's; a corrupt member may give wrong bytes before the damage shows, on one thread too (ISA-L checks
+// the CRC-32 at the member's end).
+TEST(ThreadedGzStream, ADamagedGzipFileFailsOnSeveralThreads) {
+    ScratchDir dir;
+    auto const content = RandomFastq(30000, "d", 7);
+    std::string const good = GzipBytes(content), small = GzipBytes(Fastq(3000, "n"));
+    struct Variant {
+        std::string name, bytes;
+        bool prefix = false;  // what is read is a prefix of the content
+    };
+    std::vector<Variant> variants{
+        { "cut in half", good.substr(0, good.size() / 2), true },
+        { "cut in the trailer", good.substr(0, good.size() - 4), true },
+        { "no trailer", good.substr(0, good.size() - 8), true },
+    };
+    for (size_t at : { good.size() / 5, good.size() / 2, good.size() - 3000 }) {
+        std::string corrupt = good;
+        for (size_t i = at; i < at + 16; i++) corrupt[i] = static_cast<char>(corrupt[i] ^ 0x5a);
+        variants.push_back({ "corrupt at " + std::to_string(at), corrupt });
+    }
+    std::string crc = good;
+    crc[crc.size() - 6] = static_cast<char>(crc[crc.size() - 6] ^ 1);
+    variants.push_back({ "wrong CRC-32", crc });
+    std::string length = good;
+    length[length.size() - 2] = static_cast<char>(length[length.size() - 2] ^ 1);
+    variants.push_back({ "wrong length", length });
+    std::string damaged = small;
+    damaged[1] = 'X';
+    variants.push_back({ "damaged second header", good + damaged, true });
+    variants.push_back({ "data after the last member", good + small + "not gzip", true });
+    variants.push_back({ "a byte after the last member", good + "x", true });
+    for (size_t v = 0; v < variants.size(); v++) {
+        auto const path = dir.Write("damaged" + std::to_string(v) + ".fq.gz", variants[v].bytes);
+        auto const one = ReadWithThreads(path, 1);
+        EXPECT_TRUE(one.failed) << variants[v].name;
+        for (unsigned threads : { 2u, 4u }) {
+            SCOPED_TRACE(variants[v].name + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            EXPECT_TRUE(r.parallel);
+            EXPECT_EQ(r.threads, threads);
+            EXPECT_TRUE(r.failed);
+            EXPECT_NE(r.error.find("corrupt gzip data"), std::string::npos) << r.error;
+            if (variants[v].prefix) {
+                size_t const n = std::min(r.text.size(), content.size());
+                EXPECT_EQ(content.compare(0, n, r.text, 0, n), 0);
+            }
+        }
+    }
+}
+
+// A gzip file cut anywhere fails on several threads: rapidgzip alone reads many cut files as shorter ones, some as
+// empty ones (ParallelGzip checks that the file ends with a whole member). Files of 100 KB to 5 MB of FASTQ at
+// gzip levels 1, 6 and 9, cut at several places.
+TEST(ThreadedGzStream, ACutGzipFileAlwaysFailsOnSeveralThreads) {
+    ScratchDir dir;
+    auto const text = RandomFastq(16000, "c", 13);  // ~5 MB
+    int file = 0, parallel = 0, reads = 0;
+    for (size_t const bytes : { size_t{100000}, size_t{500000}, size_t{2000000}, text.size() }) {
+        auto const content = text.substr(0, bytes);
+        for (int const level : { 1, 6, 9 }) {
+            std::string const whole = GzipBytes(content, false, level);
+            for (double const at : { 0.0, 0.25, 0.5, 0.9, 0.999 }) {
+                size_t const cut = std::max<size_t>(20, static_cast<size_t>(static_cast<double>(whole.size()) * at));
+                auto const path = dir.Write("cut" + std::to_string(file++) + ".fq.gz", whole.substr(0, cut));
+                for (unsigned threads : { 2u, 4u }) {
+                    SCOPED_TRACE(std::to_string(bytes) + " bytes, level " + std::to_string(level) + ", cut at " +
+                                 std::to_string(cut) + " of " + std::to_string(whole.size()) + ", " + std::to_string(threads) + " threads");
+                    auto const r = ReadWithThreads(path, threads);
+                    EXPECT_TRUE(r.failed) << r.text.size() << " bytes read, " << (r.parallel ? "rapidgzip" : "ISA-L");
+                    size_t const n = std::min(r.text.size(), content.size());
+                    EXPECT_EQ(content.compare(0, n, r.text, 0, n), 0);
+                    parallel += r.parallel;
+                    reads++;
+                }
+            }
+        }
+    }
+    // A file cut into its header, or ending in four zero bytes, is read on one thread; the others on rapidgzip's.
+    EXPECT_GT(parallel, reads * 3 / 4);
+}
+
+// A pipe is read on one thread whatever the setting: rapidgzip would have to keep what it read of it.
+TEST(ThreadedGzStream, AGzipPipeIsInflatedOnOneThread) {
+    ScratchDir dir;
+    std::signal(SIGPIPE, SIG_IGN);
+    auto const content = RandomFastq(5000, "p", 2);
+    std::string const bytes = GzipBytes(content);
+    auto const fifo = (dir.path / "reads.fifo").string();
+    ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+    std::thread writer([&fifo, &bytes] { std::ofstream(fifo, std::ios::binary) << bytes; });
+    {
+        InflateThreads const setting(4);
+        ThreadedGzIstream is(fifo.c_str());
+        EXPECT_EQ(is.rdbuf()->inflate_threads(), 1u);
+        EXPECT_FALSE(is.rdbuf()->parallel_gzip());
+        EXPECT_EQ(ReadAllOf(is), content);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    }
+    writer.join();
+}
+
+// Read pairs taken by several threads from two gzip files inflated by rapidgzip on several threads each: every pair once.
+TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceFromParallelGzip) {
+    ScratchDir dir;
+    size_t const n = 30000;
+    std::mt19937 rng(11);
+    std::string r1, r2;
+    for (size_t i = 0; i < n; i++) {
+        std::string seq(100 + i % 50, 'A');
+        for (auto& c : seq) c = "ACGT"[rng() % 4];
+        r1 += "@r" + std::to_string(i) + "/1\n" + seq + "\n+\n" + std::string(seq.size(), 'I') + "\n";
+        r2 += "@r" + std::to_string(i) + "/2\n" + seq + "\n+\n" + std::string(seq.size(), 'J') + "\n";
+    }
+    auto const p1 = dir.Write("R1.fq.gz", GzipBytes(r1)), p2 = dir.Write("R2.fq.gz", GzipBytes(r2));
+    InflateThreads const setting(3);
+    ThreadedGzIstream is1(p1.c_str()), is2(p2.c_str());
+    ASSERT_TRUE(is1.rdbuf()->parallel_gzip());
+    ASSERT_EQ(is1.rdbuf()->inflate_threads(), 3u);
+    SeqReaderPE global(is1, is2);
+    std::vector<std::vector<size_t>> taken(4);
+#pragma omp parallel num_threads(4)
+    {
+        SeqReaderPE reader(global);
+        FastxRecord a, b;
+        auto& mine = taken[static_cast<size_t>(omp_get_thread_num())];
+        while (reader(a, b)) {
+            if (a.id.substr(0, a.id.size() - 2) == b.id.substr(0, b.id.size() - 2)) mine.push_back(std::stoul(a.id.substr(1)));
+        }
+    }
+    std::vector<size_t> all;
+    for (auto const& t : taken) all.insert(all.end(), t.begin(), t.end());
+    std::sort(all.begin(), all.end());
+    ASSERT_EQ(all.size(), n);
+    for (size_t i = 0; i < n; i++) ASSERT_EQ(all[i], i);
+    EXPECT_FALSE(is1.rdbuf()->read_failed()) << is1.rdbuf()->read_error_message();
+    EXPECT_FALSE(is2.rdbuf()->read_failed()) << is2.rdbuf()->read_error_message();
 }
 
 // A cut or corrupt BGZF file reads the same on several threads as on one: the same bytes up to the damage, the same
@@ -546,7 +762,7 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceFromParallelBgzf) {
         r2 += "@r" + std::to_string(i) + "/2\n" + seq + "\n+\n" + std::string(seq.size(), 'J') + "\n";
     }
     auto const p1 = Bgzf(dir, "R1.fq.gz", r1), p2 = Bgzf(dir, "R2.fq.gz", r2);
-    BgzfThreads const setting(3);
+    InflateThreads const setting(3);
     ThreadedGzIstream is1(p1.c_str()), is2(p2.c_str());
     ASSERT_EQ(is1.rdbuf()->inflate_threads(), 3u);
     SeqReaderPE global(is1, is2);
@@ -567,13 +783,21 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceFromParallelBgzf) {
     for (size_t i = 0; i < n; i++) ASSERT_EQ(all[i], i);
 }
 
-TEST(ThreadedGzStream, BgzfThreadsFollowTheRunsThreads) {
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(1, 2), 1u);
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(8, 2), 1u);
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(16, 2), 2u);
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(32, 2), 4u);
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(128, 2), 4u);
-    EXPECT_EQ(ThreadedGzStreambuf::BgzfThreadsFor(12, 1), 3u);
+TEST(ThreadedGzStream, InflateThreadsFollowTheRunsThreads) {
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(1, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(8, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(16, 2), 2u);
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(32, 2), 4u);
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(128, 2), 4u);
+    EXPECT_EQ(ThreadedGzStreambuf::InflateThreadsFor(12, 1), 3u);
+    // rapidgzip only with 8 or more per file (fewer are slower than ISA-L on one), at most 16.
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(8, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(16, 2), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(32, 2), 8u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(48, 2), 12u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(128, 2), 16u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(8, 1), 1u);
+    EXPECT_EQ(ThreadedGzStreambuf::GzipThreadsFor(16, 1), 8u);
 }
 
 TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
@@ -586,14 +810,24 @@ TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
         EXPECT_EQ(line, "@c0/1");
         if (i % 2) is.close();  // else the destructor closes it
     }
-    // A BGZF file on several threads: the dispatcher and the workers blocked or busy when it is closed.
+    // A BGZF file on several threads: the dispatcher and the workers blocked or busy when it is closed; a gzip file
+    // on rapidgzip's threads alike.
     auto const bgzf = Bgzf(dir, "reads.bgzf.gz", Fastq(40000, "b"));
-    BgzfThreads const setting(4);
+    auto const parallel = dir.Write("random.fq.gz", GzipBytes(RandomFastq(40000, "g", 4)));
+    InflateThreads const setting(4);
     for (int i = 0; i < 20; i++) {
         ThreadedGzIstream is(bgzf.c_str());
         std::string line;
         ASSERT_TRUE(std::getline(is, line));
         EXPECT_EQ(line, "@b0/1");
+        if (i % 2) is.close();
+    }
+    for (int i = 0; i < 20; i++) {
+        ThreadedGzIstream is(parallel.c_str());
+        ASSERT_TRUE(is.rdbuf()->parallel_gzip());
+        std::string line;
+        ASSERT_TRUE(std::getline(is, line));
+        EXPECT_EQ(line, "@g0/1");
         if (i % 2) is.close();
     }
 }
@@ -698,8 +932,9 @@ TEST(ThreadedGzStream, SeveralFilesReadAsOneStream) {
     auto const a = Fastq(20000, "a"), b = Fastq(3000, "b"), c = Fastq(15000, "c"), d = Fastq(500, "d");
     std::string const b_open = b.substr(0, b.size() - 1);  // its last line without '\n'
     for (unsigned const threads : { 1u, 3u }) {
-        SCOPED_TRACE("BGZF threads " + std::to_string(threads));
-        ThreadedGzStreambuf::SetBgzfThreads(threads);
+        SCOPED_TRACE("inflate threads " + std::to_string(threads));
+        ThreadedGzStreambuf::SetInflateThreads(threads);
+        ThreadedGzStreambuf::SetGzipThreads(threads);
         std::vector<std::string> const files{ dir.Write("a.fq", a), Gzip(dir, "b.fq.gz", b_open), dir.Write("empty.fq", ""),
                                               Bgzf(dir, "c.fq.gz", c), dir.Write("d.fq.zst", ZstdBytes(d)) };
         std::vector<std::string> opened;
@@ -714,7 +949,8 @@ TEST(ThreadedGzStream, SeveralFilesReadAsOneStream) {
         std::stringstream reference(a + b + c + d);
         EXPECT_EQ(Lines(by_line), Lines(reference));
     }
-    ThreadedGzStreambuf::SetBgzfThreads(1);
+    ThreadedGzStreambuf::SetInflateThreads(1);
+    ThreadedGzStreambuf::SetGzipThreads(1);
 }
 
 // Of several files, a batch ends with its file once it holds a line, so that the mate files of lanes stay in step

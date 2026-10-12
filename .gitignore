@@ -12,6 +12,8 @@
 .fleet
 *.C.o
 *.csv
+# but rapidgzip's lookup table, which its DynamicHuffman.hpp #includes
+!/lib/rapidgzip/src/rapidgzip/blockfinder/NEXT_DYNAMIC_DEFLATE_CANDIDATE_LUT_15.csv
 *.zip
 *.html
 *.doctree

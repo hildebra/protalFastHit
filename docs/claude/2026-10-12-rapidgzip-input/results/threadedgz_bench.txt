@@ -1,0 +1,12 @@
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 1	parallel 0	bytes 1681851361	wall 1.051	cpu 1.132	GB/s 1.600	maxrss_mb 10	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 2	parallel 1	bytes 1681851361	wall 2.544	cpu 5.109	GB/s 0.661	maxrss_mb 629	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 3	parallel 1	bytes 1681851361	wall 1.798	cpu 5.379	GB/s 0.935	maxrss_mb 667	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 4	parallel 1	bytes 1681851361	wall 1.939	cpu 7.197	GB/s 0.867	maxrss_mb 726	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 1	parallel 0	bytes 1681851361	wall 1.221	cpu 1.320	GB/s 1.377	maxrss_mb 10	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 2	parallel 1	bytes 1681851361	wall 2.689	cpu 5.397	GB/s 0.625	maxrss_mb 628	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 3	parallel 1	bytes 1681851361	wall 2.021	cpu 6.036	GB/s 0.832	maxrss_mb 675	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 4	parallel 1	bytes 1681851361	wall 1.752	cpu 6.448	GB/s 0.960	maxrss_mb 748	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 1	parallel 0	bytes 1681851361	wall 1.136	cpu 1.214	GB/s 1.481	maxrss_mb 10	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 2	parallel 1	bytes 1681851361	wall 3.020	cpu 6.114	GB/s 0.557	maxrss_mb 634	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 3	parallel 1	bytes 1681851361	wall 2.019	cpu 6.041	GB/s 0.833	maxrss_mb 701	failed 0	check 29185675	
+threadedgz	/home/falk/gzpar/data/R1.member.gz	threads 4	parallel 1	bytes 1681851361	wall 1.897	cpu 6.826	GB/s 0.887	maxrss_mb 759	failed 0	check 29185675	

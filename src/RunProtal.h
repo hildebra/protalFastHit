@@ -999,9 +999,12 @@ namespace protal {
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
-                // A BGZF read file inflates on several threads, 1 to 4 per file by -t (ThreadedGzStream.h); other gzip
-                // files on one each.
-                ThreadedGzStreambuf::SetBgzfThreads(ThreadedGzStreambuf::BgzfThreadsFor(options.GetThreads(), single_file ? 1 : 2));
+                // A gzip read file inflates on several threads by -t (ThreadedGzStream.h): a BGZF one on 1 to 4 of protal's
+                // per file, another gzip file (a regular one) on 8 to 16 of rapidgzip's with 16 or more threads per file,
+                // else on one.
+                std::size_t const files = single_file ? 1 : 2;
+                ThreadedGzStreambuf::SetInflateThreads(ThreadedGzStreambuf::InflateThreadsFor(options.GetThreads(), files));
+                ThreadedGzStreambuf::SetGzipThreads(ThreadedGzStreambuf::GzipThreadsFor(options.GetThreads(), files));
 
                 // Main Run Call. This is where the reads are read and alignment happens
                 bool truncated = false;
@@ -1022,13 +1025,18 @@ namespace protal {
                     auto const message = is.rdbuf()->read_error_message();
                     return message.empty() ? std::string() : ": " + message;
                 };
-                // With --verbose, how each input is inflated as it is opened: a BGZF file on several threads, any other on one.
+                // With --verbose, how each input is inflated as it is opened: a gzip file on several threads (BGZF blocks on
+                // protal's, another gzip file on rapidgzip's), any other on one.
                 ThreadedGzStreambuf::OnOpen tell_input;
                 if (options.Verbose()) {
                     tell_input = [](std::string const& path, ThreadedGzStreambuf const& buf) {
+                        std::string const threads = std::to_string(buf.inflate_threads()) + " thread(s)";
                         std::cout << "Input " << path << ": "
-                                  << (buf.opened_as_bgzf() ? "BGZF, inflated on " + std::to_string(buf.inflate_threads()) + " thread(s)"
-                                                           : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
+                                  << (buf.opened_as_bgzf()  ? "BGZF, inflated on " + threads
+                                      : buf.parallel_gzip() ? "gzip (not BGZF), inflated on " + threads + " by rapidgzip"
+                                                            : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
+                                  << (buf.parallel_gzip_error().empty() ? std::string()
+                                                                        : " (rapidgzip: " + buf.parallel_gzip_error() + ")")
                                   << std::endl;
                     };
                 }
