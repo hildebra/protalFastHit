@@ -56,13 +56,20 @@ rm -rf "$tmp/run"
 perf stat -e cycles,instructions,cache-references,cache-misses,L1-dcache-loads,L1-dcache-load-misses,dTLB-loads,dTLB-load-misses \
     -o "$out/perf_stat.txt" "${run[@]}" > "$out/run.log" 2>&1 &
 pid=$!
-# the protal process (perf's child): its memory once the index is loaded
-for i in $(seq 1 600); do
-  child=$(pgrep -P "$pid" -f "build/protal" | head -1)
-  [ -n "$child" ] && grep -q "Load Index took" "$out/run.log" 2> /dev/null && break
-  sleep 1
+# The protal process (perf's child): its resident memory and huge pages, polled every 2 s while it runs, the reading
+# with the most resident memory kept (the index loaded; protal's log is buffered, so its lines come only at the end).
+best=0
+while kill -0 "$pid" 2> /dev/null; do
+  child=$(pgrep -P "$pid" | head -1)
+  if [ -n "$child" ] && [ -r "/proc/$child/smaps_rollup" ]; then
+    rss=$(awk '/^Rss:/ { print $2 }' "/proc/$child/smaps_rollup" 2> /dev/null)
+    if [ -n "$rss" ] && [ "$rss" -gt "$best" ]; then
+      best=$rss
+      grep -E "^(Rss|AnonHugePages|ShmemPmdMapped|FilePmdMapped):" "/proc/$child/smaps_rollup" > "$out/smaps.txt" 2> /dev/null
+    fi
+  fi
+  sleep 2
 done
-[ -n "${child:-}" ] && grep -E "^(Rss|AnonHugePages|ShmemPmdMapped|FilePmdMapped):" "/proc/$child/smaps_rollup" > "$out/smaps.txt" 2>&1
 wait "$pid"
 cat "$out/perf_stat.txt" "$out/smaps.txt"
 grep -E "seeding:|Aligning reads took|Load Index took|Index in memory" "$out/run.log" | cut -c1-600
@@ -79,7 +86,7 @@ for n in 1 2 3; do
   [ -z "$symbol" ] && continue
   echo "== annotate: $symbol" >> "$out/perf_annotate.txt"
   # the instructions by share of the symbol's samples, the hottest 60, with the source line each comes from
-  perf annotate -i "$out/perf.data" --stdio -l --no-source --symbol="$symbol" 2> /dev/null | grep -E "^ +[0-9]+\.[0-9]+ " | sort -rn | head -60 >> "$out/perf_annotate.txt"
+  perf annotate -i "$out/perf.data" --stdio -l --no-source --symbol="$symbol" 2> /dev/null | grep -E "^ *[0-9]+\.[0-9]+" | sort -rn | head -60 >> "$out/perf_annotate.txt"
   perf annotate -i "$out/perf.data" --stdio -l --symbol="$symbol" 2> /dev/null > "$out/perf_annotate_full_$n.txt"
 done
 head -80 "$out/perf_annotate.txt"

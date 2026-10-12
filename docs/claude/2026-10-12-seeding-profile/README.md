@@ -14,38 +14,44 @@
     1M simulated pairs of 150 bp from 120 species with strains and congeners, and their first 100,000.
 - **Machine**: WSL2 on the Core Ultra 7 258V (AVX2, no AVX-512, no `perf`), jobs pinned to cores 0-3. Other sessions
   ran builds and tests meanwhile (load 4-7); the instruction counts do not mind, the local wall times do.
-- **Status**: the local part is done. The r226 part needs a cluster job ([below](#the-cluster-job)), because the
-  local world cannot stand in for r226 here.
+- **Status**: the local part and the cluster job are done ([results](#results-at-r226-the-cluster-job-2026-10-12)).
+  Nothing in protal is changed yet.
 
 ## Summary
 
 1. **What the 62 s per thread are** (r226, pe, 8 threads): the k-mer lookups ("Seeding") 44.2 s (71%), extending the
    anchors 8.3 s (13%), sorting the seeds 4.3 s (7%), pairing 2.3 s, recovering anchors from the mate 2.1 s, sorting the
    anchors 0.6 s. Taking the k-mers ("Retrieve k-mers", 6.0 s) is timed apart.
-2. **A lookup costs ~159 ns of a thread**: 2.22G lookups, nearly every k-mer's core found in the index (99.2%), every
-   block scanned (the stop at 128 seeds never comes), 70.4 flex cells and 2.0 seeds per lookup. Its arithmetic is at
-   most ~60 ns (~400 instructions: the key map's control block, the AVX-512 scan of ~70 cells, two entries decoded and
-   emitted), so **about two thirds is waiting on memory**: a line of the 3.2 GB key map, ~5 lines of flex cells and
-   ~2 lines of entries in the ~18 GB of values, per lookup. Earlier rounds prefetch the key map a pair ahead and the
-   first line of each block's values just before seeding (`87b857e`), and vectorised the scan (`f53db5e`).
-3. **The local world cannot answer which of those waits dominate.** Its k-mer cores are in the index for 43% of the
-   k-mers (r226: 99.2%), and its blocks hold 4 cells (r226: 70). Its 3.2 GB key map and 0.4 GB of values are not r226's
-   3.2 + 18 GB either. What it gives exactly (callgrind, 100,000 pairs, one thread): **82 instructions to make a lookup
-   (per k-mer), 226 to score a block and emit its seeds** (with 3.2 cells), 47 of them the AVX2 scan; the seed and
-   anchor finding is 30% of the alignment loop's instructions, taking the k-mers 24%.
-4. **A benchmark of the seeding in parts and variants** ([seedbench.cpp](scripts/seedbench.cpp)) runs protal's own
-   lookups on a real database and real reads, in protal's pipeline. It times: the key map alone; adding the scans;
-   the whole seeding; the whole seeding with warm caches (the arithmetic); and four exact variants that put more misses
-   in flight. Every exact variant gives the same seeds (checked by a hash over all seeds). It also counts how often a
-   block's best score is 16 (the read's 16 flank bases occur exactly), which decides whether sorting the large blocks
-   by flex cell would pay. Locally it works, but here its numbers say nothing about r226.
-5. **Seen in passing** (exact, locally): ~17 heap allocations per pair (`operator new` with its `malloc`, and `free`:
-   ~0.45 G instructions, up to ~10% of the loop; a `resize` per read in the k-mer handler, the timers, the column-weights
-   cache), and taking the k-mers is 24% of the
-   loop's instructions (6.0 s per thread at r226, compute-bound). Both are smaller than the lookups' waits.
-
-**Next**: the cluster job below (one node, ~15 minutes). Its four numbers (the key map alone, plus the scans, the
-whole, warm) split the 159 ns, and the variants and the best-score counts say which of the options at the end pays.
+2. **A lookup costs ~175 ns of a thread** (the benchmark at r226; the run's own timer gives 159 ns): 2.22G lookups,
+   nearly every k-mer's core found in the index (99.2%), every block scanned (the stop at 128 seeds never comes), 70.4
+   flex cells and 2.0 seeds per lookup. Split ([results](#results-at-r226-the-cluster-job-2026-10-12)): **the key map
+   19.5 ns** (11%; prefetched a pair ahead, it is nearly free), **the flex cells 105 ns** (60%), the entries, the seeds
+   and the sort 50 ns (29%). With warm caches the whole lookup takes 75 ns: **~100 ns of each lookup waits on
+   memory**, mostly for the block's flex cells. On 32 threads a lookup costs 3% more: the limit is each thread's
+   misses in flight, not the node's memory.
+3. **Prefetching more pays a little, exactly**: every line of a block prefetched instead of the first (P2) −10%, the
+   lookups made a pair earlier as well −11%, four pairs interleaved −5%; the same seeds. The misses are not late, they
+   are many: ~10 lines a lookup, 22 lookups a mate.
+4. **95% of the lookups are chance matches.** For 94.9% of the lookups that scan flex cells (85% of the cells scanned)
+   no entry is within 5 bases of the read's 16 flank bases (best score ≤ 11); only 1-3% of the lookups into blocks
+   under 256 cells match exactly (15% of those into larger blocks). Nearly every 15-base core is in the r226 index, and
+   most of a metagenome's reads come from outside the marker genes: the sample's 101M mates gave 2.2M SAM records.
+   Their seeds still pair: 79% of the mates get an anchor, and the k-mer screen refuses 90% of the 177M candidates.
+   **Most of the seed and anchor finding (and of the screen) is spent on reads that will never align.**
+5. **So**:
+   - exact, now: prefetch whole blocks (capped), **−10% of the seeding**, ~4.4 s per thread of a pe run on 8 threads
+     (~4% of it);
+   - rejected: large blocks grouped by their first flex bases (to skip groups when the best is 15-16): 75% of the
+     lookups there score ≤ 11;
+   - **the large lever, not exact: give up on a mate whose lookups score low** (e.g. no best score above 11 among its
+     first few). It would cut most of the seeding, the seed sort, the pairing and the screen's refusals. It first needs
+     a count of how the lookups of mates that end up aligned score (none of them should be given up), then the outputs
+     on the full sample and the r226 F1 benchmark.
+6. **Exact, locally** (callgrind on all r226 archaea, 100,000 pairs, one thread; that world is not r226's: 43% of its
+   cores in the index, 4 cells per block): **82 instructions to make a lookup (per k-mer), 226 to score a block and emit
+   its seeds** (3.2 cells), 47 of them the AVX2 scan. The seed and anchor finding is 30% of the alignment loop's
+   instructions, taking the k-mers 24%, and ~17 heap allocations per pair cost up to ~10% (`operator new` with its
+   `malloc`, and `free`: a `resize` per read in the k-mer handler, the timers, the column-weights cache).
 
 ## Where the 62 s go at r226
 
@@ -82,7 +88,7 @@ Every closed syncmer of a mate is a 31-mer: a 15-base core and 8 flank bases on 
    each, after the flex cells. Two per lookup on average, anywhere in the block's ~370 bytes of entries: ~1-2 lines.
    The first line of the entries is prefetched with the flex cells; the best ones are known only after the scan.
 
-So a lookup reads ~8 lines from ~21 GB of index: ~1.1 TB over the run's seeding, ~26 GB/s on 8 threads. That is far
+So a lookup reads ~8 lines from ~30 GB of index: ~1.1 TB over the run's seeding, ~26 GB/s on 8 threads. That is far
 from the node's bandwidth but near what one thread gets from its outstanding misses (~10 lines in flight, ~100 ns
 each: ~6 GB/s a thread, ~3.2 GB/s here). The arithmetic is ~400 instructions (below), ~60 ns at the run's IPC of 1.9.
 
@@ -116,7 +122,7 @@ the key map's 82, as estimated above. The cluster's warm-cache variant measures 
 | k-mers whose core is in the index | 43% | 99.2% |
 | flex cells per block | 4.0 | 70.4 |
 | blocks of 256-4,095 cells | 0.0% of blocks, 2.3% of cells | 5.5% of blocks, 41% of cells |
-| the index in memory | 3.2 GB key map, 0.4 GB values | 3.2 GB key map, ~18 GB values |
+| the index in memory | 3.2 GB key map, 0.4 GB values | 3.2 GB key map, 26.6 GB values |
 
 r226's 2.1G index entries cover nearly every 15-base core, so nearly every lookup reads values, and many cores are
 shared by thousands of species. The local world has neither. Its seedbench runs ([seedbench_local_run1.tsv](results/seedbench_local_run1.tsv),
@@ -181,6 +187,73 @@ sbatch --exclusive -c 32 --mem 100G --wrap "bash $D/seedbench_cluster.sh $PWD \
   reach it. That cuts 41% of the cells streamed. Exact, if the ties are emitted in entry order. If the best scores
   there are low (reads of species the database lacks), it would not pay.
 
+## Results at r226: the cluster job (2026-10-12)
+
+SLURM 24188138 on `q512n10` (the 16th run's node), `3931e48`, the r226 v24 database: seedbench on the first 1M pairs of
+B10, `perf` on the first 2M ([cluster_run1.txt](results/cluster_run1.txt)).
+
+| variant | 8 threads: ns per lookup | relative | 32 threads: ns per lookup | relative |
+|---|---|---|---|---|
+| P0 as protal | 174.6 | 1.000 | 180.4 | 1.000 |
+| P1 the lookups a pair earlier | 164.5 | 0.942 | 171.8 | 0.952 |
+| **P2 whole blocks prefetched** | **157.4** | **0.902** | 164.1 | 0.910 |
+| P3 P1 and P2 | 156.1 | 0.894 | 162.9 | 0.903 |
+| P4 four pairs interleaved | 166.5 | 0.954 | 174.2 | 0.965 |
+| B0 the key map only | 19.5 | 0.112 | 20.4 | 0.113 |
+| B1 the key map and the scans | 124.4 | 0.713 | 130.8 | 0.725 |
+| B2 warm caches (the arithmetic) | 74.8 | 0.428 | 69.1 | 0.383 |
+
+P0-P4 emitted the same seeds. The benchmark's 174.6 ns are close to the run's own 159 ns (its timer, its gaps).
+
+- **The key map: 19.5 ns** (11%). The pair-ahead prefetch of `87b857e` hides it.
+- **The flex cells: 105 ns** (B1 − B0, 60%). The AVX-512 arithmetic of ~70 cells is ~10-15 ns of it; the rest waits for
+  ~5 lines a lookup.
+- **The entries and seeds: 50 ns** (P0 − B1, 29%): the best cells' entries (lines of the block found only after the
+  scan), their decoding, the seeds emitted, the lookups sorted by block size.
+- **The arithmetic: 75 ns** (B2, 43%), with the data in cache. **~100 ns of a lookup (57%) wait on memory.**
+- **Prefetching more**: P2 (every line of each of the next 16 lookups' blocks, up to 32 lines, flex cells and entries,
+  instead of their first lines) −10%; P1 −6%; both −11%; four pairs interleaved −5%. The misses are not late, they are
+  many: 44 lookups a pair, ~10 lines each, and a core keeps only so many in flight. On 32 threads a lookup costs 3%
+  more and the variants pay the same: the limit is per thread, not the node's memory.
+
+**The blocks' best scores** (8 threads; the share of the lookups whose best flex cell shares 16, 15, ... of the read's
+16 flank bases):
+
+| block size | lookups | 16 | 15 | 14 | 13 | 12 | ≤ 11 | cells in lookups of ≤ 11 |
+|---|---|---|---|---|---|---|---|---|
+| 2-15 | 4.97M | 1.0% | 0.2% | 0.1% | 0.1% | 0.2% | **98.5%** | 98.2% |
+| 16-255 | 10.39M | 3.1% | 0.5% | 0.2% | 0.3% | 0.8% | **95.0%** | 93.4% |
+| 256-4,095 | 0.93M | 15.0% | 3.0% | 1.9% | 1.2% | 4.3% | **74.6%** | 73.3% |
+| all | 16.29M | | | | | | **94.9%** | 85.2% of all cells |
+
+Sixteen random bases share four with the read on average, and the best of 70 such cells ~9. So 95% of the lookups are
+matches of the core by chance: at r226 nearly every 15-base core is in the index (99.2% of the k-mers), and a
+metagenome's reads come mostly from outside the marker genes (101M mates, 2.2M SAM records written). Those lookups
+cost as much as any other. Their seeds pair by chance often enough that 79% of the mates get an anchor (79.5M of
+101.2M), and the k-mer screen then refuses 90% of the 176M candidates (159M).
+
+**`perf stat`** (protal on 2M pairs, the index load included, which dominates): IPC 2.42; 183M L2 TLB misses (page
+walks), ~2 per lookup if all were the seeding's. Whether the index lies on huge pages was not measured: the script read
+`smaps_rollup` when protal's (buffered) log reached the index line, which was at the run's end, after the index was
+freed. THP is `always` on the node and both arrays are `madvise`d; the script now polls `smaps_rollup` during the run.
+
+**`perf record`** (the same run): two thirds of the samples are the index load. Of the seeding's symbols,
+`flex_scan::ScanAvx512` is the largest (6.9% of all samples: its loads of the flex cells wait), then `PrepareLookups`
+1.6%, `GetFromLookup` 1.3%, the finder's `operator()` 1.2%, `FindSeeds` 1.0%, `SharedSeeds::Sort` 0.9%, the k-mers
+(`ScanWindowsAvx512`, `FillAvx512`) 1.4%.
+
+**What it means for a pe run on 8 threads** (seeding 44.2 s per thread, split as the benchmark splits it): the key map
+~5 s, the flex cells ~26.5 s, the entries and seeds ~12.6 s; about 25 s of the 44 are waits.
+
+- **Whole blocks prefetched (P2)**: −10% of the seeding, ~−4.4 s per thread, exact. A change to
+  `KmerLookupSM::PrefetchValues` (it needs the entry width, which the map has).
+- **Giving up on chance matches**: if the 95% of lookups that match by chance come from mates that never align, and such
+  a mate could be given up after ~4 of its 22 lookups, its seeding would fall by ~80%: the seeding by up to ~70%
+  (~30 s per thread), with the seed sort, the pairing, the extension and the screen of their anchors. An upper bound,
+  not exact: what decides it is how the lookups of the mates that do end up aligned score (counted per mate: the best
+  score of each of its first lookups, and whether it was written). A rule that gives up none of those would change no
+  alignment; the full sample's outputs and the r226 F1 benchmark then confirm it.
+
 ## Options, with what the earlier rounds did
 
 From the GTDB-scale report's list (`../2026-10-04-performance-gtdb-scale`, "The seeding: how a lookup works"):
@@ -189,13 +262,13 @@ From the GTDB-scale report's list (`../2026-10-04-performance-gtdb-scale`, "The 
 |---|---|
 | the flex scan vectorised | done: AVX2 `cbdb069`, the ties by masks, AVX-512 `f53db5e` |
 | prefetch: the key map a pair ahead, the values' first lines before seeding | done `87b857e` |
-| huge pages for the key map and the values (`madvise`) | done; whether r226's 21 GB get them is step 2 of the job |
-| more threads (the node has 84 cores) | a user's choice; the lookup's cost per thread barely rises with threads (159 ns on 8, 186 ns on 32) |
-| more misses in flight (several pairs interleaved) | open: P1, P4 |
-| more of each block prefetched | open: P2 |
-| large blocks grouped by flex bases, the best found without a full scan | open: the best-score counts |
-| small blocks next to their key (one miss instead of two) | open; 31% of r226's blocks have 2-15 cells, but a lookup's flex lines matter more there than its key line |
-| fewer lookups (sparser syncmers, a lower seed target) | not exact: changes sensitivity; after the exact ones |
+| huge pages for the key map and the values (`madvise`) | done; whether r226's 30 GB get them is still to see (the job read them at the wrong moment) |
+| more threads (the node has 84 cores) | a user's choice; a lookup costs 3% more on 32 threads than on 8 (the benchmark) |
+| more misses in flight (several pairs interleaved; the lookups a pair earlier) | measured: −5% (P4), −6% (P1); not worth more than P2 |
+| **more of each block prefetched** | **measured: −10% (P2), exact; to do** |
+| large blocks grouped by flex bases, the best found without a full scan | rejected: 75% of the lookups into large blocks score ≤ 11 and would scan them all |
+| small blocks next to their key (one miss instead of two) | not worth it: the key map is 11% of a lookup |
+| fewer lookups: **giving up on a mate whose lookups match by chance**; sparser syncmers; a lower seed target | not exact; the first is the large lever (up to ~70% of the seeding), to count first (the mates that align: how their lookups score) |
 
 ## How it was run
 

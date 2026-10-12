@@ -1,0 +1,90 @@
+seedbench_cluster.sh on the cluster (the user's run; the console output as the user sent it, the perf report's padding
+removed and its list cut after the seeding's symbols).
+
+date: 2026-10-12T08:40:52+01:00; host: q512n10; job: 24188138; checkout: 3931e48
+CPU(s): 84; AMD EPYC 9634 84-Core Processor; L3 cache: 384 MiB (12 instances); NUMA node(s): 1
+transparent huge pages: [always] madvise never
+protal v0.8.2 (commit 3931e48e986909335cea5e83b3532909787f14df, with uncommitted changes: the seedbench target)
+
+== seedbench, 1M pairs, 8 threads
+index loaded in 9.6 s: 2903557366 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 26.6 GB; key map 3.2 GB
+1000000 pairs, 22.1 k-mers a mate; 8 threads, 3 rounds, gaps 1500 and 6000 ns; flex scan AVX-512
+variant	pairs	kmers	lookups	cells_per_lookup	seeds_per_lookup	ns_per_kmer	ns_per_lookup	us_per_pair	relative	seeds_hash
+P0 as protal	374988	16599993	16450240	70.3	1.97	173.0	174.6	7.659	1.000	same
+P1 values a pair ahead	374988	16598659	16448112	70.4	1.97	163.0	164.5	7.213	0.942	same
+P2 whole blocks prefetched	374988	16604600	16453598	70.3	1.97	156.0	157.4	6.907	0.902	same
+P3 P1+P2	374988	16609951	16458415	70.3	1.97	154.7	156.1	6.851	0.894	same
+P4 four pairs together	374988	16613677	16462706	70.4	1.97	165.0	166.5	7.311	0.954	same
+B0 key map only	374988	16611205	16481535	71.0	0.00	19.3	19.5	0.857	0.112	-
+B1 key map + scans	374988	16610007	16480819	71.0	0.00	123.4	124.4	5.468	0.713	-
+B2 warm caches (compute)	374988	16604265	16455057	70.2	1.97	74.1	74.8	3.280	0.428	-
+
+block_size	lookups	cells	share_of_lookups_by_best_score(16 15 14 13 12 <=11)	share_of_cells_by_best_score(16 15 14 13 12 <=11)
+2-15	4965655	42126469	0.010 0.002 0.001 0.001 0.002 0.985	0.012 0.002 0.001 0.001 0.002 0.982
+16-255	10385551	641069810	0.031 0.005 0.002 0.003 0.008 0.950	0.041 0.007 0.002 0.004 0.012 0.934
+256-4095	933091	486441094	0.150 0.030 0.019 0.012 0.043 0.746	0.157 0.026 0.014 0.015 0.054 0.733
+
+== seedbench, 1M pairs, 32 threads
+index loaded in 3.6 s
+variant	pairs	kmers	lookups	cells_per_lookup	seeds_per_lookup	ns_per_kmer	ns_per_lookup	us_per_pair	relative	seeds_hash
+P0 as protal	374952	16601114	16451469	70.2	1.97	178.8	180.4	7.917	1.000	same
+P1 values a pair ahead	374952	16604278	16454683	70.3	1.97	170.2	171.8	7.538	0.952	same
+P2 whole blocks prefetched	374952	16604382	16454961	70.3	1.97	162.7	164.1	7.203	0.910	same
+P3 P1+P2	374952	16608603	16458781	70.4	1.97	161.4	162.9	7.151	0.903	same
+P4 four pairs together	374928	16607380	16457251	70.4	1.97	172.6	174.2	7.646	0.965	same
+B0 key map only	374952	16608676	16478595	71.1	0.00	20.2	20.4	0.894	0.113	-
+B1 key map + scans	374952	16602555	16472789	71.0	0.00	129.7	130.8	5.745	0.725	-
+B2 warm caches (compute)	374952	16601525	16450835	70.3	1.97	68.5	69.1	3.033	0.383	-
+
+block_size	lookups	cells	share_of_lookups_by_best_score(16 15 14 13 12 <=11)	share_of_cells_by_best_score(16 15 14 13 12 <=11)
+2-15	4958366	42085848	0.010 0.002 0.001 0.001 0.002 0.985	0.012 0.002 0.001 0.001 0.002 0.982
+16-255	10386285	640793947	0.032 0.005 0.002 0.003 0.008 0.950	0.042 0.007 0.003 0.004 0.012 0.933
+256-4095	931779	486626488	0.152 0.030 0.020 0.011 0.042 0.744	0.160 0.027 0.014 0.014 0.054 0.731
+
+== perf stat (protal -g build, the first 2M pairs, aligning only, 8 threads; the index load included)
+   447,659,786,871      cycles:u
+ 1,084,162,404,568      instructions:u                   #    2.42  insn per cycle
+    25,365,900,816      cache-references:u
+     1,498,793,577      cache-misses:u                   #    5.91% of all cache refs
+   348,364,666,047      L1-dcache-loads:u
+    14,802,707,384      L1-dcache-load-misses:u          #    4.25% of all L1-dcache accesses
+       781,607,444      dTLB-loads:u
+       182,993,745      dTLB-load-misses:u               #   23.41% of all dTLB cache accesses
+      13.841401821 seconds time elapsed; 122.536147000 seconds user; 7.648308000 seconds sys
+
+smaps_rollup (taken too late: at the run's end, after the index was freed; the script waited for a log line that
+protal's buffered stdout wrote only at exit):
+Rss:             1912200 kB
+AnonHugePages:   1574912 kB
+
+Index in memory: 2903557366 entries of 41 bits (taxid * 169 + gene 25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file: 26.6 GB; key map 3.2 GB
+Load Index took 9s 136ms
+Sample R seeding: 88563181 k-mers looked up, 87871762 in the index, 87762375 blocks scanned with 6175302391 flex cells (70.4 per block); by block size 1: 1.2% of blocks, 0.0% of cells, 2-15: 30.1% of blocks, 3.6% of cells, 16-255: 63.1% of blocks, 55.4% of cells, 256-4095: 5.6% of blocks, 41.0% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 172608921 seeds, 21813125 of them sharing their taxon and gene with another seed; 317069 lookups dropped as too ubiquitous; 8340164 anchors
+Aligning reads took 3s 829ms
+
+== perf record (the same run; cycles, user space; by symbol, the index load's first)
+    26.02%  protal::Seedmap::LoadColumns(...)::{lambda(void*, unsigned long, unsigned long const*, unsigned long)#1}::_FUN
+    25.72%  ZSTD_decompressSequences_bmi2.constprop.0
+     6.93%  protal::flex_scan::ScanAvx512(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*, unsigned int*)
+     5.31%  HUF_decompress4X1_usingDTable_internal_fast_asm_loop
+     4.43%  protal::index_codec::detail::DecodeChunk (.arch_x86_64_v3)
+     2.94%  ZSTD_XXH64_update
+     1.56%  protal::ChainAnchorFinder<protal::KmerLookupSM>::PrepareLookups
+     1.52%  protal::packed::PackAvx2
+     1.26%  protal::KmerLookupSM::GetFromLookup (.arch_x86_64_v3)
+     1.17%  protal::ChainAnchorFinder<protal::KmerLookupSM>::operator() (.arch_x86_64_v3)
+     1.07%  __memmove_avx512_unaligned_erms
+     1.02%  protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds
+     0.94%  ZSTD_buildFSETable_body_bmi2.isra.0
+     0.88%  protal::SharedSeeds::Sort
+     0.87%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx512
+     0.76%  protal::GeneSink::Copy
+     0.61%  protal::AlignmentScreen::SharesEnough
+     0.54%  protal::packed::UnpackAvx2
+     0.52%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillAvx512
+     0.47%  protal::AlignmentScreen::MayAlignPacked
+     0.42%  RunPairedEnd (the loop)
+     0.32%  std::__introsort_loop<LookupPointer, FindSeeds' sort by block size>
+     0.25%  RecoverAnchors; 0.25% FindPairs; 0.22% ExtendAnchor; 0.18% ExtractAnchor
+(perf annotate: the script's filter of the instructions matched nothing in this perf's output; the full annotations
+are in the job's perf_annotate_full_*.txt)
