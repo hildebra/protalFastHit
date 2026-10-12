@@ -3529,7 +3529,12 @@ def main():
         if not os.path.isfile(target) or os.path.getmtime(target) < os.path.getmtime(source) or \
                 os.path.getsize(target) != os.path.getsize(source):
             os.makedirs(samples_root, exist_ok=True)
-            shutil.copyfile(source, target + ".partial")
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(target + ".partial")
+            try:  # a hard link on the same disk (it outlives the source's removal), else a copy (~0.8 GB at r226)
+                os.link(source, target + ".partial")
+            except OSError:
+                shutil.copyfile(source, target + ".partial")
             os.replace(target + ".partial", target)
         return target
 
@@ -3781,8 +3786,10 @@ def main():
             keep = os.path.join(work, os.path.basename(opts.out))
             os.makedirs(keep, exist_ok=True)
             for table in TABLES.values():
-                if os.path.isfile(os.path.join(opts.out, table)):
-                    shutil.copy(os.path.join(opts.out, table), keep)
+                # and its present species without a row (collect_training_data.py --gene_positions), for the marker truth
+                for name in (table, table[:-len(".tsv")] + ".unseen.tsv"):
+                    if os.path.isfile(os.path.join(opts.out, name)):
+                        shutil.copy(os.path.join(opts.out, name), keep)
             # Each protal run's log (its stage timers: how long the alignment and the profiling stage took), which a
             # node's disk cleared after the job would lose, one after the other in logs/protal_runs_<collection>.log.
             def run_name(path):

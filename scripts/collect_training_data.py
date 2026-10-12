@@ -1670,10 +1670,12 @@ def write_table(read_type, units, opts, context):
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     table = os.path.join(opts.out, TABLES[read_type])
-    unseen_path = os.path.join(opts.out, unseen_table(read_type))
+    # <table>.unseen.tsv only with --gene_positions: without the simulator's counts there is nothing to write.
+    unseen_path = os.path.join(opts.out, unseen_table(read_type)) if getattr(opts, "gene_positions", None) else os.devnull
     genomes_of, markers_of = {}, {}
     distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
-    with open(table + ".partial", "w", newline="") as out, open(unseen_path + ".partial", "w", newline="") as unseen_out:
+    unseen_partial = unseen_path + ".partial" if unseen_path != os.devnull else os.devnull
+    with open(table + ".partial", "w", newline="") as out, open(unseen_partial, "w", newline="") as unseen_out:
         writer = csv.writer(out, delimiter="\t", lineterminator="\n")
         unseen_writer = csv.writer(unseen_out, delimiter="\t", lineterminator="\n")
         unseen_writer.writerow(UNSEEN_COLUMNS)
@@ -1763,10 +1765,12 @@ def write_table(read_type, units, opts, context):
                   flush=True)
             totals.update(present=present, absent=absent, samples=len(dumps_of(unit, opts)), unseen=unseen)
     os.replace(table + ".partial", table)
-    os.replace(unseen_path + ".partial", unseen_path)
+    if unseen_path != os.devnull:
+        os.replace(unseen_partial, unseen_path)
     print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
-          f"sample{'s' if totals['samples'] != 1 else ''}; {totals['unseen']} present species without a row but with "
-          f"reads on a marker gene ({unseen_path})", flush=True)
+          f"sample{'s' if totals['samples'] != 1 else ''}" +
+          (f"; {totals['unseen']} present species without a row but with reads on a marker gene ({unseen_path})"
+           if unseen_path != os.devnull else ""), flush=True)
 
 
 _TABLES_WORK = None  # (units, opts, context) of write_tables, set before its worker processes fork
