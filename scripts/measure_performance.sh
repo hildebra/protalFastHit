@@ -2,7 +2,7 @@
 # measure_performance.sh - time protal runs on a database and some read files: whole runs, protal's
 # stage timers and, where perf works, CPU counters. For comparing machines, builds and databases.
 #
-#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
+#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] [--stage1_probe] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
 # on N threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
@@ -26,6 +26,12 @@
 # the same reads, REPEATS times on N threads (sylph profile SYLPH_DB -1 R1 -2 R2, or -r R1 for se, pb and ont),
 # for comparison: sylph.tsv (one line per sylph run: times, memory, perf counters, the genomes in sylph's profile),
 # the profiles in sylph/, the logs in logs/sylph.*, and medians next to protal's. Its first run is the cold load too.
+# --stage1_probe: after a sample's timed runs, one more run with protal's --stage1_probe (Stage1Probe.h: what the first
+# stage of a two-stage protal would keep), not counted in runs.tsv: its tables in stage1_probe/<sample>_stage1_probe.tsv,
+# _stage1_probe_taxa.tsv and (short reads) _first_lookups_probe.tsv, its log in logs/<sample>.probe.log, and a line in
+# probe.tsv (times and memory, the probe's reads and reads with records, and whether its profile is byte-identical to the
+# last timed run's, as the option promises; a run whose profile differs is kept for a look). Printed last: each sample's
+# probe line and the probe run's wall time against the timed runs' median.
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -39,11 +45,12 @@
 #       r226_db pe:sample_R1.fq.gz:sample_R2.fq.gz ont:sample_ont.fq.gz"
 set -uo pipefail
 
-# --threads N (-t N, --threads=N) and --sylph SYLPH_DB (--sylph=SYLPH_DB) anywhere among the arguments; the rest are
-# positional. Without enough of them, the comment above.
-threads=; sylph_db=; positional=()
+# --threads N (-t N, --threads=N), --sylph SYLPH_DB (--sylph=SYLPH_DB) and --stage1_probe anywhere among the arguments;
+# the rest are positional. Without enough of them, the comment above.
+threads=; sylph_db=; stage1_probe=0; positional=()
 while [ $# -gt 0 ]; do
     case $1 in
+        --stage1_probe|--stage1-probe) stage1_probe=1; shift ;;
         -t|--threads) [ $# -ge 2 ] || { echo "$1 needs a number of threads" >&2; exit 1; }
                       threads=$2; shift 2 ;;
         --threads=*) threads=${1#--threads=}; shift ;;
@@ -63,6 +70,12 @@ cohort_repeats=${COHORT_REPEATS:-1}
 protal=${PROTAL:-build/protal}
 [ -x "$protal" ] || { echo "protal binary not found at $protal (set PROTAL)" >&2; exit 1; }
 [ -e "$db" ] || { echo "database not found: $db" >&2; exit 1; }
+if [ $stage1_probe = 1 ]; then
+    case $("$protal" --full_help 2>&1) in
+        *--stage1_probe*) ;;
+        *) echo "$protal has no --stage1_probe (a protal from before 2026-10-12)" >&2; exit 1 ;;
+    esac
+fi
 for spec in "$@"; do
     IFS=: read -r type r1 r2 <<< "$spec"
     case $type in pe) [ -n "$r2" ] || { echo "$spec: pe needs R1 and R2" >&2; exit 1; } ;;
@@ -113,6 +126,7 @@ qcmsa=${QCMSA:-1}
     else
         echo "sylph: none"
     fi
+    echo "stage-1 probe: $([ $stage1_probe = 1 ] && echo "one more run per sample with --stage1_probe" || echo none)"
     echo; lscpu 2> /dev/null | grep -E '^(Model name|Socket|Core|Thread|NUMA node\(s\)|L3|CPU max MHz)'
     echo; free -g 2> /dev/null
 } > "$out/environment.txt"
@@ -166,6 +180,10 @@ timed() {
 
 printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
+if [ $stage1_probe = 1 ]; then
+    mkdir -p "$out/stage1_probe"
+    printf 'sample\ttype\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tprobe_reads\tprobe_reads_with_records\tprofile_identical\n' > "$out/probe.tsv"
+fi
 sams=$out/sams; mkdir -p "$sams"
 cohort_map_rows=()
 n=0
@@ -224,8 +242,42 @@ for spec in "$@"; do
                                                           "$(abs "$sams/$(basename "$sam")")" "$name" "$type")")
             fi
         fi
+        # The last timed run's profile, which the --stage1_probe run's must equal.
+        [ $stage1_probe = 1 ] && [ "$rep" = "$repeats" ] && [ -e "$run/$name.profile" ] && cp "$run/$name.profile" "$out/stage1_probe/$name.plain.profile"
         [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
     done
+    # --stage1_probe: one more run, with the probe (outside runs.tsv); its tables, a line in probe.tsv, and its profile
+    # compared with the timed runs'.
+    if [ $stage1_probe = 1 ]; then
+        run=$out/run.$name.probe; log=$out/logs/$name.probe.log; rm -rf "$run"
+        cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --stage1_probe)
+        # shellcheck disable=SC2206
+        cmd+=(${PROTAL_ARGS:-})
+        if timed "$log" 0 "${cmd[@]}"; then
+            for table in stage1_probe stage1_probe_taxa first_lookups_probe; do
+                [ -e "$run/misc/${name}_$table.tsv" ] && cp "$run/misc/${name}_$table.tsv" "$out/stage1_probe/"
+            done
+            [ -e "$out/stage1_probe/${name}_stage1_probe.tsv" ] || echo "Warning: the --stage1_probe run of $name wrote no misc/${name}_stage1_probe.tsv (see $log)" >&2
+            identical=NA; plain=$out/stage1_probe/$name.plain.profile
+            if [ -e "$plain" ] && [ -e "$run/$name.profile" ]; then
+                if cmp -s "$plain" "$run/$name.profile"; then identical=yes; else identical=no; fi
+            fi
+            # "Sample <name> stage-1 probe: N reads (pairs as one), A with records; <rules>; ..."
+            probeline="^Sample $name stage-1 probe: "
+            with_records=$(grep -m1 -E "$probeline" "$log" | grep -oE '[0-9]+ with records' | grep -oE '^[0-9]+' || echo NA)
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$threads" "$wall" "$user" "$sys" "$rss" \
+                "$(took 'Aligning reads' "$log")" "$(number_after "$probeline" 'probe:' "$log")" "${with_records:-NA}" "$identical" >> "$out/probe.tsv"
+            echo "$name stage-1 probe run: ${wall} s, profile identical to the timed run's: $identical"
+            if [ "$identical" = no ]; then
+                echo "Warning: $name's profile with --stage1_probe differs from the timed run's: kept in $run" >&2
+            elif [ "${KEEP:-0}" != 1 ]; then
+                rm -rf "$run"
+            fi
+        else
+            echo "protal --stage1_probe failed on $name, see $log" >&2; tail -5 "$log" >&2
+            [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
+        fi
+    fi
 done
 
 # The cohort: every sample in one run from a map, their SAMs given (protal profiles them without aligning), so that the
@@ -348,4 +400,20 @@ awk -F'\t' "$median"'
     END { for (j = 1; j <= m; j++) { k = keys[j]; split("", a); for (i = 1; i <= n[k]; i++) a[i] = v[k, i]
             printf "%s\t%.2f\n", k, median(a, n[k]) } }' "$out/stages.tsv" |
     sort -t$'\t' -k1,1 -k3,3gr | awk -F'\t' '{ if (++c[$1] <= 6) printf "%s  %-40s %8s s per thread\n", $1, $2, $3 }'
-echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,") environment.txt, logs/)."
+# --stage1_probe: each sample's probe line, and the probe run against the timed runs' median wall time.
+if [ $stage1_probe = 1 ] && [ "$(wc -l < "$out/probe.tsv")" -gt 1 ]; then
+    echo
+    awk -F'\t' "$median"'
+        FNR == 1 { t = FILENAME ~ /probe\.tsv$/ ? "probe" : "runs"; next }
+        t == "runs" { k = $1; wall[k, ++c[k]] = $5; next }
+        { k = $1; split("", a); n = 0
+          for (r = 1; r <= c[k]; r++) if (wall[k, r] != "NA") a[++n] = wall[k, r] + 0
+          m = n ? median(a, n) : 0
+          printf "%s stage-1 probe run: wall %s s against %s s (median of the timed runs%s), max_rss_gb %s, profile identical: %s\n",
+              k, $4, n ? sprintf("%.2f", m) : "NA", m > 0 && $4 != "NA" ? sprintf(", %+.1f%%", 100 * ($4 / m - 1)) : "", $7, $11 }' \
+        "$out/runs.tsv" "$out/probe.tsv"
+    for log in "$out"/logs/*.probe.log; do
+        [ -e "$log" ] && grep -m1 -E '^Sample .* stage-1 probe: ' "$log" | sed -e 's/^Sample //' -e 's/ ([^()]*_stage1_probe\*\.tsv)$//'
+    done
+fi
+echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,") environment.txt, logs/)."
