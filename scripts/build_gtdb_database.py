@@ -1767,6 +1767,7 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("samples_streamed", getattr(args, "streaming", "")),
             ("weighted_site_shift", "on in the training runs: profile with protal --weighted_site_shift"
              if getattr(args, "weighted_site_shift", False) else "off (protal's default)"),
+            ("fragment_count", getattr(args, "fragment_count", "mapq") + " (build_settings.tsv; runs follow it)"),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
@@ -2060,6 +2061,7 @@ ALLELE_SHARE = 1.0
 # The WFA2 traceback of both protal --build runs (--wfa-traceback; empty: protal's default, singletrack since 0.8.2, classic before), set by main(). Each
 # database records it in its build_settings.tsv, and the collection's protal runs align with the training database's
 # (their --wfa_traceback is auto), so that the models learn from alignments made as the finished database's runs make them.
+# With --fragment-count soft also --fragment_count soft, recorded and followed the same way.
 TRACEBACK_ARGS = []
 
 
@@ -2392,6 +2394,12 @@ def main():
                         "weights, and by the collection's protal runs, which align as the training database was built. "
                         "singletrack gives the same scores but may choose otherwise among equally good alignments "
                         "(docs/claude/2026-10-11-singletrack)")
+    p.add_argument("--fragment-count", choices=["mapq", "soft"], default="mapq",
+                   help="how the models' fragments feature counts (protal --build --fragment_count, recorded in both "
+                        "databases' build_settings.tsv and followed by every run on them, the collections' included): "
+                        "mapq (default), the fragments the MAPQ and length filters keep; soft, those plus each dropped one "
+                        "by the share the read EM leaves the taxon, so that a divergent strain whose reads tie with a "
+                        "congener's reference (MAPQ 0) is not counted as nothing (docs/claude/2026-10-12-r226-v24b-errors)")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -2767,6 +2775,8 @@ def main():
     FINAL_ALLELE_ARGS[:] = ["--strain_alleles", str(args.strain_alleles), "--allele_genome_share",
                             f"{args.final_allele_genome_share:g}", "--index_alleles", f"{args.index_alleles:g}"]
     TRACEBACK_ARGS[:] = ["--wfa_traceback", args.wfa_traceback] if args.wfa_traceback else []
+    if args.fragment_count == "soft":  # recorded beside the traceback; mapq (the default) leaves the keys as they were
+        TRACEBACK_ARGS[:] += ["--fragment_count", "soft"]
     global ALLELE_SHARE
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every

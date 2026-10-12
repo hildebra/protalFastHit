@@ -45,6 +45,12 @@ for this page.
   F1 with only the species whose marker genes got reads present ([databases.md](databases.md#3-check-the-result)).
   At r226 v24b 60-76% of the false negatives had at most two reads of their own on the taxon
   ([report](claude/2026-10-12-r226-v24b-errors/README.md)). Untested at r226.
+- **A soft fragment count, opt-in** (2026-10-12). `--fragment_count soft` (recorded by `--build` in
+  `build_settings.tsv` and followed by the runs on the database) counts the model's `fragments` feature as the
+  fragments the MAPQ and length filters keep plus each dropped one by its read-EM share, so that a divergent
+  strain whose reads tie with a congener's reference is not counted as nothing;
+  `build_gtdb_database.py --fragment-count soft` builds and trains with it. The default stays `mapq`. Untested
+  at r226.
 
 ## What 0.8.2 adds
 

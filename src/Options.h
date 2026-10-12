@@ -131,6 +131,7 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (machine_learning_cmdline.py --depth-knobs; build_gtdb_database.py gives them to its PacBio and ONT models), the model's knob for each sample's depth; a --knob given applies to every sample. A model's calibrated calls (machine_learning_cmdline.py --fdr-calls) are used only with --fdr.", cxxopts::value<double>()->default_value("0.5"))
                 ("fdr", "Expected share of false calls, 0 to 1, for a model with calibrated calls (machine_learning_cmdline.py --fdr-calls; build_gtdb_database.py --call-mode fdr): each sample reports its highest-scoring taxa as long as the mean of their 1 - probability stays at or below this, the model's scores made probabilities by its calibration and adjusted to the share of present taxa among the sample's candidates (a deep sample, with many more absent candidates, needs higher scores). Off by default: without --fdr the model's knob curve or --knob applies even to a model with calibrated calls (at GTDB r226 they called 0.001-0.007 F1 below the curve for every read type). --fdr F uses them at F; 0: off. Not with --knob.", cxxopts::value<double>())
+                ("fragment_count", "How the model's `fragments` feature counts a taxon's fragments: mapq, those the MAPQ and length filters keep (as before 2026-10-12); soft, those plus each filtered one (a read whose best record is on the taxon) by the share the read EM leaves the taxon of the filtered records (em_own_share of the records the filters drop), so that a divergent strain whose reads tie with a congener's reference (MAPQ 0) is not counted as nothing; or auto (default): the database's. --build records its choice (auto: mapq) in build_settings.tsv, and its models must be trained on runs that count so (build_gtdb_database.py --fragment-count); a run that counts otherwise than its database is warned. Only the feature changes: the profile's fragments, depth, the sample's depth and the singleton rule keep the filters' count.", cxxopts::value<std::string>()->default_value("auto"))
                 ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. 0 (default): no such rule; on GTDB r226 training data the model called none of the taxa the rule would have vetoed, so it is off (docs/claude/2026-10-03-false-positive-anatomy). The training dump's prediction column and the trainer (machine_learning_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("0"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
@@ -345,6 +346,7 @@ namespace protal {
         bool max_score_ani_given = false;  // -a given: it applies to all read types
         size_t x_drop = DEFAULT_X_DROP;
         std::optional<WfaTraceback> wfa_traceback;  // --wfa_traceback; nothing: auto
+        std::optional<FragmentCount> fragment_count;  // --fragment_count; nothing: auto
         size_t max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -490,6 +492,8 @@ namespace protal {
         size_t m_x_drop = DEFAULT_X_DROP;
         std::optional<WfaTraceback> m_wfa_traceback_given;            // --wfa_traceback; nothing: auto
         WfaTraceback m_wfa_traceback = WfaTraceback::Singletrack;      // what aligns: given, else --build's singletrack, or the database's (SetWfaTraceback)
+        std::optional<FragmentCount> m_fragment_count_given;          // --fragment_count; nothing: auto
+        FragmentCount m_fragment_count = FragmentCount::Mapq;          // given, else --build's mapq, or the database's (SetFragmentCount)
         size_t m_max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t m_max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t m_min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -667,6 +671,8 @@ namespace protal {
                 m_x_drop(d.x_drop),
                 m_wfa_traceback_given(d.wfa_traceback),
                 m_wfa_traceback(d.wfa_traceback.value_or(WfaTraceback::Singletrack)),
+                m_fragment_count_given(d.fragment_count),
+                m_fragment_count(d.fragment_count.value_or(FragmentCount::Mapq)),
                 m_max_key_ubiquity(d.max_key_ubiquity),
                 m_max_seed_size(d.max_seed_size),
                 m_min_successful_lookups(d.min_successful_lookups),
@@ -772,6 +778,8 @@ namespace protal {
             result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
             result_str << "WFA2 traceback:      " << (m_wfa_traceback_given ? std::string(WfaTracebackName(*m_wfa_traceback_given)) :
                                                       m_build ? "singletrack (auto)" : "auto (the database's)") << '\n';
+            result_str << "fragment count:      " << (m_fragment_count_given ? std::string(FragmentCountName(*m_fragment_count_given)) :
+                                                      m_build ? "mapq (auto)" : "auto (the database's)") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
             if (long_reads) {
@@ -1783,6 +1791,20 @@ namespace protal {
 
         void SetWfaTraceback(WfaTraceback traceback) {
             m_wfa_traceback = traceback;
+        }
+
+        // --fragment_count as given; nothing for auto (the database's).
+        std::optional<FragmentCount> FragmentCountGiven() const {
+            return m_fragment_count_given;
+        }
+
+        // How the model's `fragments` feature counts: given, else --build's mapq, or the database's (SetFragmentCount).
+        FragmentCount GetFragmentCount() const {
+            return m_fragment_count;
+        }
+
+        void SetFragmentCount(FragmentCount count) {
+            m_fragment_count = count;
         }
 
         size_t GetMaxKeyUbiquity() const {
@@ -3071,6 +3093,14 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     exit(2);
                 }
             }
+            std::optional<FragmentCount> fragment_count;
+            if (auto const name = result["fragment_count"].as<std::string>(); name != "auto") {
+                fragment_count = ParseFragmentCount(name);
+                if (!fragment_count) {
+                    std::cerr << "Error: --fragment_count must be auto, mapq or soft, not '" << name << "'" << std::endl;
+                    exit(2);
+                }
+            }
             size_t max_key_ubiquity = result["max_key_ubiquity"].as<size_t>();
             size_t min_successful_lookups = result["min_successful_lookups"].as<size_t>();
             size_t max_seed_size = result["max_seed_size"].as<size_t>();
@@ -3522,6 +3552,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.snp_max_alleles          = snp_max_alleles;
             d.x_drop                   = x_drop;
             d.wfa_traceback            = wfa_traceback;
+            d.fragment_count           = fragment_count;
             d.max_key_ubiquity         = max_key_ubiquity;
             d.min_successful_lookups   = min_successful_lookups;
             d.max_seed_size            = max_seed_size;

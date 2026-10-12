@@ -2508,12 +2508,14 @@ namespace protal::build {
         return std::min<int>(bits, static_cast<int>(main_bits) - 3 - 6);
     }
 
-    // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, which runs on the database follow
-    // (--wfa_traceback auto) or are warned about. Exits 8 if it cannot be written.
+    // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, and how the models' `fragments`
+    // feature is to count (--fragment_count), which runs on the database follow (auto) or are warned about. Exits 8 if
+    // it cannot be written.
     static void WriteBuildSettings(protal::Options const& options) {
         std::string const target = options.GetBuildSettingsFile();
         build_settings::Settings settings;
         settings.wfa_traceback = options.GetWfaTraceback();
+        settings.fragment_count = options.GetFragmentCount();
         std::ofstream out(target);
         build_settings::Write(out, settings);
         out.close();
@@ -2521,7 +2523,8 @@ namespace protal::build {
             std::cerr << "Cannot write " << target << std::endl;
             exit(8);
         }
-        std::cout << "WFA2 traceback: " << WfaTracebackName(options.GetWfaTraceback()) << " (" << target << ")" << std::endl;
+        std::cout << "WFA2 traceback: " << WfaTracebackName(options.GetWfaTraceback()) << ", fragment count: "
+                  << FragmentCountName(options.GetFragmentCount()) << " (" << target << ")" << std::endl;
     }
 
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once

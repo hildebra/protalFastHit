@@ -1108,6 +1108,8 @@ namespace protal {
                                               // of the genes' length: ~1 for its own reads, up to 2 for spilled-over ones
             double em_own_share = 1;       // of its best records, the share the abundance-weighted assignment leaves it
             double em_kept_own_share = 1;  // the same of the records the MAPQ and length filters keep
+            double soft_fragments = -1;    // --fragment_count soft: the fragments the filters keep, plus each one they
+                                           // drop by its EM share (MicrobialProfile::SoftFragments); -1: the filters' count
             size_t genus_top = 0;          // the most fragments of a congener in the sample
             bool vetoed = false;           // the singleton rule: one fragment beside a congener of many, that looks like the
                                            // congener's (EM share or identity low; context::kSingletonCongener): never reported
@@ -2567,7 +2569,9 @@ namespace protal {
             // with protal does not use them; they are in the training dump for the next one.
             size_t const covered = taxon.CoveredBases();
             auto per_covered_kb = [covered](double count) { return covered == 0 ? 0.0 : count * 1000.0 / static_cast<double>(covered); };
-            f.emplace_back("fragments", taxon.Fragments());
+            // With --fragment_count soft (the database's build_settings.tsv), the filtered fragments by their EM share.
+            double const soft = taxon.GetSampleEvidence().soft_fragments;
+            f.emplace_back("fragments", soft >= 0 ? soft : static_cast<double>(taxon.Fragments()));
             f.emplace_back("depth", taxon.VerticalCoverage());
             f.emplace_back("hit_gene_fraction", taxon.HitGeneFraction());
             f.emplace_back("gene_presence_ratio", taxon.GenePresenceRatio());
@@ -3678,6 +3682,30 @@ namespace protal {
                 m_singleton_congener = fragments;
             }
 
+            // --fragment_count soft: the model's `fragments` feature counts the filtered fragments by their EM share
+            // (SampleEvidence::soft_fragments, set by ApplySampleContext).
+            void SetSoftFragments(bool on) {
+                m_soft_fragments = on;
+            }
+
+            // The fragments the MAPQ and length filters keep, plus each fragment they drop whose best record is on the
+            // taxon (fragments_all - kept) by the share the read EM leaves the taxon of the dropped records: of its best
+            // records the EM leaves it em_all, of the kept em_kept, so of the dropped (em_all x records - em_kept x kept)
+            // / (records - kept). A divergent strain whose reads tie with an absent congener's reference (MAPQ 0) keeps
+            // most of them; reads that a more abundant congener explains as well go mostly to that congener.
+            static double SoftFragments(size_t kept_fragments, size_t all_fragments, context::RecordCounts const& records,
+                                        double em_all, double em_kept) {
+                double const kept = static_cast<double>(kept_fragments);
+                double const dropped = std::max(0.0, static_cast<double>(all_fragments) - kept);
+                if (dropped == 0) return kept;
+                double share = em_all;  // without dropped records counted: the share of all of them
+                if (records.records > records.kept) {
+                    double const own = em_all * static_cast<double>(records.records) - em_kept * static_cast<double>(records.kept);
+                    share = std::clamp(own / static_cast<double>(records.records - records.kept), 0.0, 1.0);
+                }
+                return kept + share * dropped;
+            }
+
             // How `taxon`'s reads lie on the genes its reference shares with a relative's (`pair`, by gene): of its
             // fragments on those genes, the share on the closer half of them (the genes of lowest distance, at least half
             // of them by count), over the closer half's share of their summed length. A species' own reads fall on its
@@ -3882,6 +3910,13 @@ namespace protal {
                     if (auto const found = shares.find(e.id); found != shares.end()) {
                         s.em_own_share = found->second.all;
                         s.em_kept_own_share = found->second.kept;
+                    }
+                    if (m_soft_fragments) {
+                        auto const& taxon = m_taxa.at(e.id);
+                        auto const counted = record_counts.find(e.id);
+                        s.soft_fragments = SoftFragments(e.n, taxon.FragmentsAll(),
+                                                         counted != record_counts.end() ? counted->second : context::RecordCounts{},
+                                                         s.em_own_share, s.em_kept_own_share);
                     }
                     s.vetoed = m_singleton_congener > 0 && e.n <= 1 && genus_top >= m_singleton_congener &&
                                (s.em_own_share < context::kSingletonOwnShare ||
@@ -4563,6 +4598,7 @@ namespace protal {
             std::shared_ptr<std::vector<uint32_t> const> m_families;  // taxid -> family (0: none); see SetFamilies
             std::shared_ptr<context::CongenerDistances> m_distances;  // see SetCongenerDistances
             size_t m_singleton_congener = context::kSingletonCongener;  // see SetSingletonCongener
+            bool m_soft_fragments = false;  // see SetSoftFragments
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
 

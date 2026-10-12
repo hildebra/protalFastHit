@@ -160,6 +160,20 @@ TEST(SampleContext, TheEditRatioIsTheTaxonsOwnDivergence) {
     EXPECT_NEAR(ctx::EditRatio({ 10, 10, 90, 100 }), 0.25, 1e-12);
 }
 
+// --fragment_count soft (MicrobialProfile::SoftFragments): the fragments the filters keep, plus those they drop by the
+// share the EM leaves the taxon of the dropped records.
+TEST(SampleContext, SoftFragmentsAddTheDroppedOnesByTheirShare) {
+    using profiler::MicrobialProfile;
+    // 10 kept of 20 fragments; of its 40 best records (20 kept) the EM leaves it 0.75, of the kept 1.0: of the 20
+    // dropped records (30 - 20) / 20 = 0.5, so 10 + 0.5 x 10.
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(10, 20, { 40, 20, 0, 0 }, 0.75, 1.0), 15.0, 1e-12);
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(10, 10, { 40, 20, 0, 0 }, 0.75, 1.0), 10.0, 1e-12);  // none dropped
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(0, 12, { 24, 0, 0, 0 }, 0.9, 1.0), 10.8, 1e-12);  // a strain at MAPQ 0
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(5, 8, {}, 0.5, 1.0), 6.5, 1e-12);  // no record counts: all records' share
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(5, 8, { 16, 10, 0, 0 }, 0.1, 1.0), 5.0, 1e-12);  // a share below 0: 0
+    EXPECT_NEAR(MicrobialProfile::SoftFragments(5, 3, { 16, 10, 0, 0 }, 0.5, 1.0), 5.0, 1e-12);  // fewer best than kept
+}
+
 // A taxon whose reads all fit a congener a hundred times as abundant one edit worse holds the congener's reads; one
 // whose reads fit it five edits worse, or have no alternative, keeps them.
 TEST(SampleContext, AnAbundantCongenerTakesTheReadsItFitsNearlyAsWell) {

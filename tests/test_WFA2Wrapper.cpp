@@ -284,6 +284,31 @@ TEST(BuildSettings, UnknownSettingsSkippedBadValuesRefused) {
     EXPECT_NE(build_settings::Read(untabbed, settings).find("no tab"), std::string::npos);
 }
 
+// The fragment count (--fragment_count, 2026-10-12): written and read back beside the traceback; a file without it
+// says nothing (mapq); a value other than mapq or soft is refused.
+TEST(BuildSettings, FragmentCountWrittenAndReadBack) {
+    EXPECT_EQ(ParseFragmentCount("soft"), FragmentCount::Soft);
+    EXPECT_EQ(ParseFragmentCount(FragmentCountName(FragmentCount::Mapq)), FragmentCount::Mapq);
+    EXPECT_FALSE(ParseFragmentCount("auto"));
+    for (auto const count : { FragmentCount::Mapq, FragmentCount::Soft }) {
+        build_settings::Settings written;
+        written.wfa_traceback = WfaTraceback::Singletrack;
+        written.fragment_count = count;
+        std::stringstream file;
+        build_settings::Write(file, written);
+        build_settings::Settings read;
+        EXPECT_EQ(build_settings::Read(file, read), "");
+        EXPECT_EQ(read.fragment_count, count);
+        EXPECT_EQ(read.wfa_traceback, WfaTraceback::Singletrack);
+    }
+    build_settings::Settings older;
+    std::istringstream before("wfa_traceback\tsingletrack\n");
+    EXPECT_EQ(build_settings::Read(before, older), "");
+    EXPECT_FALSE(older.fragment_count);
+    std::istringstream bad("fragment_count\thard\n");
+    EXPECT_NE(build_settings::Read(bad, older).find("mapq or soft"), std::string::npos);
+}
+
 // A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's first 18 bases are free
 // (dovetail), the rest must align. Without X-drop it aligns over the whole read. WFA2-lib v2.3.6 with X-drop 50 reports
 // it completed, with operations for 151 read bases where the read has 150: the wrapper reports it failed, and so does a

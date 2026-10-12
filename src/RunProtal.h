@@ -352,8 +352,9 @@ namespace protal {
     // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
     // with (build_settings.tsv; classic for a database built before 2026-10-11). Warns when the run aligns otherwise than
     // the database was built: its strain alleles, congener gaps and column weights, and the runs its models were trained
-    // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Exits 8 if
-    // build_settings.tsv cannot be read.
+    // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Also how the
+    // model's `fragments` feature counts (--fragment_count, else the database's). Exits 8 if build_settings.tsv cannot
+    // be read.
     static void SetWfaTraceback(Options& options, std::ostream& out = std::cout) {
         if (options.BuildMode()) return;
         auto const file = options.BuildSettingsDbFile();
@@ -384,6 +385,19 @@ namespace protal {
                       << "same alignment scores, but among equally good alignments they may choose differently, so the SAM "
                       << "records, and the features the database's models were trained on, can differ slightly from a run "
                       << "that aligns as the database was built. Leave out --wfa_traceback (auto) to align as it was built."
+                      << std::endl;
+        }
+        // How the model's `fragments` feature counts (--fragment_count): given, else (auto) as the database records it
+        // (mapq when it does not say). Its models were trained on runs that counted so.
+        FragmentCount const recorded = settings.fragment_count.value_or(FragmentCount::Mapq);
+        FragmentCount const count = options.FragmentCountGiven().value_or(recorded);
+        options.SetFragmentCount(count);
+        out << "fragment count: " << FragmentCountName(count) << (options.FragmentCountGiven() ? " (--fragment_count)" : "")
+            << "; the database's models were trained with " << FragmentCountName(recorded) << std::endl;
+        if (count != recorded) {
+            std::cerr << "Warning: this run counts the model's fragments " << FragmentCountName(count) << " (--fragment_count), "
+                      << "but the database's models were trained with " << FragmentCountName(recorded) << " counts: their "
+                      << "calls are not those of training. Leave out --fragment_count (auto) to count as they were trained."
                       << std::endl;
         }
     }
@@ -1495,6 +1509,7 @@ namespace protal {
             profile.SetFamilies(families);
             profile.SetCongenerDistances(distances);
             profile.SetSingletonCongener(options.GetSingletonCongener());
+            profile.SetSoftFragments(options.GetFragmentCount() == FragmentCount::Soft);
             profile.SetDropForeignGenes(options.DropForeignGenes());
             // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
             profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));

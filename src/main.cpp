@@ -130,6 +130,8 @@
 //   (2/3/1) where X-drop cannot prune: WFA2 instructions -26% pe, -46..-48% PacBio, -39..-43% ONT on protal's calls.
 // After 0.8.2: the weighted site shift off by default again (--weighted_site_shift; docs/claude/2026-10-12-r226-v24b):
 //   at r226 it lowered short-read depths by 1-2% without a measurable F1 gain. r226 v24b's models were trained with it.
+//   --fragment_count soft (opt-in, recorded in build_settings.tsv and followed by runs): the model's `fragments` feature
+//   counts the fragments the MAPQ and length filters drop by their read-EM share (docs/claude/2026-10-12-r226-v24b-errors).
 #include <iostream>
 #include "RunProtal.h"
 
