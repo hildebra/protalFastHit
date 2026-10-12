@@ -1464,6 +1464,9 @@ class ScratchDirTest(DbTest):
             _, runtime = read_table(self.path("scratched", "misc", f"{sample}_runtime.tsv"))
             self.assertIn("Profiling: after the profile", [row[0] for row in runtime])
             self.assertRegex(log, rf"Sample {sample} after its profile: [0-9.]+ s \(.*malloc_trim")
+        # The freed memory goes back to the system after the first sample's profile, not after the run's last.
+        self.assertEqual(log.count("returning freed memory (malloc_trim)"), 1, log[-3000:])
+        self.assertEqual(log.count("malloc_trim skipped: the run's last profile"), 1, log[-3000:])
 
     def test_sams_stay_with_strain_msas(self):
         log = self.run_samples("kept", "--scratch_dir", self.path("scratch_kept"))

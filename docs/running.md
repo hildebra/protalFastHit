@@ -71,7 +71,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   protal prints in one line per sample too; a rerun that profiles the sample again replaces them. Since
   2026-10-12 a last row, "Profiling: after the profile", times what follows (the unreported species,
   freeing the sample's read data and evidence, spilling its strain evidence, returning freed memory),
-  each part in the log line `Sample <name> after its profile: ...`.
+  each part in the log line `Sample <name> after its profile: ...`. Freed memory goes back to the system
+  (`malloc_trim`) after each sample's profile but the run's last, and not while another sample's is
+  doing it: at r226 it took 0.4-0.5 s of a paired-end sample.
 - `misc/cpu.tsv` (since 2026-10-09) has a row per stage of the run, one after the other: the start-up
   (loading the database), each sample's alignment (`aligning <sample>`, up to its SAM written), the
   profiling stage and the rest of the run, with its wall-clock seconds, the CPU seconds the whole

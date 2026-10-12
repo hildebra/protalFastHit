@@ -1381,10 +1381,14 @@ namespace protal {
         std::vector<std::optional<profiler::MicrobialProfile>> profile_slots;
         std::vector<std::vector<UnreportedTaxon>> unreported_slots;
         DeferredTables* deferred = nullptr;  // the tables still loading beside the alignment, if any (ProfileSample waits)
+        // The samples whose profiling has not reached its end yet, and whether one is returning freed memory to the
+        // system (malloc_trim): ProfileSample skips it after the run's last profile, and while another's runs.
+        std::atomic<size_t> profiles_left;
+        std::atomic<bool> trimming{ false };
 
         ProfilingContext(Options& options, ProtalDB& db, ReadTypeModels const& models) :
                 options(options), genomes(db.GetGenomes()), models(models), range(options.GetRange()),
-                profile_slots(range.size()), unreported_slots(range.size()) {
+                profile_slots(range.size()), unreported_slots(range.size()), profiles_left(range.size()) {
             if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
             taxonomy = &db.GetTaxonomy();
             genera = profiler::GeneraOf(*taxonomy);
@@ -1780,12 +1784,26 @@ namespace protal {
                 }
                 part_done("spilling the strain evidence");
             }
+            bool const last_profile = ctx.profiles_left.fetch_sub(1) == 1;  // the run's last sample to get here
 #ifdef __GLIBC__
             // The sample's reads' records are freed, but glibc keeps the pages of its arenas that the blocks which stay
             // (what the profile keeps, made after the records) leave partly used; returned, a cohort's memory grows by
-            // what its samples keep only (docs/claude/2026-10-07-sam-combine).
-            malloc_trim(0);
-            part_done("returning freed memory (malloc_trim)");
+            // what its samples keep only (docs/claude/2026-10-07-sam-combine). malloc_trim walks every arena on this
+            // thread, 0.4-0.5 s for an r226 paired-end sample (docs/claude/2026-10-12-feature-cost-vs-f1.md), so it is
+            // left out where it returns nothing worth the time: after the run's last profile (no other sample's records
+            // come to take the pages; the strain stage reuses the freed blocks), and while another sample's trim runs
+            // (it walks every arena already; a second one would wait for their locks, and the samples' threads with it).
+            if (last_profile) {
+                part_done("malloc_trim skipped: the run's last profile");
+            } else if (ctx.trimming.exchange(true)) {
+                part_done("malloc_trim skipped: another sample's runs");
+            } else {
+                malloc_trim(0);
+                ctx.trimming = false;
+                part_done("returning freed memory (malloc_trim)");
+            }
+#else
+            (void)last_profile;
 #endif
             bm_after.Stop();
             AppendProfilingTime(options, i, bm_after);

@@ -277,3 +277,16 @@ node's speed now.
 
 `ProfileSample` passes its `threads_per_sample`. A unit test releases 40 taxa (every other one entering the MSAs) on 1
 and on 4 threads and finds the same taxa, MSA items, SNP counts and coverage.
+
+**Then (the user asked what can be done about `malloc_trim`).** glibc has no cheaper or parallel form: `malloc_trim(0)`
+walks every arena on the calling thread and returns its free pages with one `madvise` per run of them, 0.39-0.48 s for
+pe1 here. What it is for is a cohort: between samples, so that the next sample's records do not add to the pages the
+last one left (docs/claude/2026-10-07-sam-combine). It now runs only where that can happen:
+- **Not after the run's last profile** (`ProfilingContext::profiles_left`, counted down as each sample reaches the
+  end of its profiling): no other sample's records follow, and the strain stage reuses the freed blocks. This covers
+  every one-sample run, as the benchmark's.
+- **Not while another sample's runs** (`ProfilingContext::trimming`): one trim walks every arena, so a second one at
+  the same time would only wait for the arenas' locks, and the threads of the samples still parsing with it.
+
+The log names which: `malloc_trim skipped: the run's last profile` or `... another sample's runs`. A cohort keeps the
+memory behaviour of 2026-10-07 except for the last sample, whose freed pages stay with the process for the strain stage.
