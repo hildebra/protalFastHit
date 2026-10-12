@@ -236,7 +236,8 @@ cost as much as any other. Their seeds pair by chance often enough that 79% of t
 **`perf stat`** (protal on 2M pairs, the index load included, which dominates): IPC 2.42; 183M L2 TLB misses (page
 walks), ~2 per lookup if all were the seeding's. Whether the index lies on huge pages was not measured: the script read
 `smaps_rollup` when protal's (buffered) log reached the index line, which was at the run's end, after the index was
-freed. THP is `always` on the node and both arrays are `madvise`d; the script now polls `smaps_rollup` during the run.
+freed. THP is `always` on the node and both arrays are `madvise`d; the script now polls `smaps_rollup` during the run, and
+the second run found 97.5% of protal's 32.6 GB in 2 MB pages (below).
 
 **`perf record`** (the same run): two thirds of the samples are the index load. Of the seeding's symbols,
 `flex_scan::ScanAvx512` is the largest (6.9% of all samples: its loads of the flex cells wait), then `PrepareLookups`
@@ -272,6 +273,16 @@ gain (4 cells a block, mostly a single line).
 At r226 the benchmark predicts −10% of the seeding: ~4.4 s per thread of a pe run on 8 threads (~4% of it), ~1.2 s
 on 32. The next cluster run shows it: `measure_performance.sh` as for the 16th run, on this commit.
 
+**The second cluster run** (SLURM 24189283, [cluster_run2.txt](results/cluster_run2.txt)) was meant to measure this
+commit but reused the first run's build in the same output folder (protal reports `3931e48`): the script built only
+when it found no binaries. It now builds in a folder per commit (`build-<commit>`). What the run still shows:
+
+- **The benchmark repeats**: P0 172.9 ns (174.6), P2 0.915 (0.902), P3 0.908 (0.894) on 8 threads; on 32, P2 0.910 and
+  P3 0.902 again.
+- **The index lies on huge pages**: protal at its largest held 32.6 GB, 31.8 GB of it (97.5%) in 2 MB pages
+  (`AnonHugePages`). The ~2 page walks per lookup are walks of 2 MB pages, whose tables fit the caches: the TLB is
+  not what the seeding waits on.
+
 **The per-mate count for giving up** is part of another session's `--stage1_probe` (in progress when this was written,
 uncommitted): per mate, the best score among its first 1, 2, 4, 8 and all lookups, by whether the mate aligns, only its
 fragment does, or neither. Its output on the r226 sample decides the give-up rule; this report takes it up then.
@@ -284,7 +295,7 @@ From the GTDB-scale report's list (`../2026-10-04-performance-gtdb-scale`, "The 
 |---|---|
 | the flex scan vectorised | done: AVX2 `cbdb069`, the ties by masks, AVX-512 `f53db5e` |
 | prefetch: the key map a pair ahead, the values' first lines before seeding | done `87b857e` |
-| huge pages for the key map and the values (`madvise`) | done; whether r226's 30 GB get them is still to see (the job read them at the wrong moment) |
+| huge pages for the key map and the values (`madvise`) | done; r226: 97.5% of protal's 32.6 GB on 2 MB pages (second cluster run) |
 | more threads (the node has 84 cores) | a user's choice; a lookup costs 3% more on 32 threads than on 8 (the benchmark) |
 | more misses in flight (several pairs interleaved; the lookups a pair earlier) | measured: −5% (P4), −6% (P1); not worth more than P2 |
 | **more of each block prefetched** | **measured −10% (P2), exact; implemented (whole blocks, up to 32 lines)** |

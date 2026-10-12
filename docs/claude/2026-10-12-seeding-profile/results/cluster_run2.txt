@@ -1,0 +1,49 @@
+seedbench_cluster.sh on the cluster, the second run (the user's; console output as sent, the perf report left out:
+it matches the first run's within 0.1 point per symbol). The script was e04f4a1's (huge pages polled during the run), but
+it reused the first run's build in the same OUT_DIR (protal --version: 3931e48), so seedbench and protal are the first
+run's binaries: the whole-block prefetch of e04f4a1 is not in this run's protal.
+
+date: 2026-10-12T09:43:08+01:00; host: q512n10; job: 24189283; checkout: e04f4a1
+protal v0.8.2 (commit 3931e48e986909335cea5e83b3532909787f14df, with uncommitted changes: the seedbench target)
+
+== seedbench, 1M pairs, 8 threads
+variant	pairs	kmers	lookups	cells_per_lookup	seeds_per_lookup	ns_per_kmer	ns_per_lookup	us_per_pair	relative	seeds_hash
+P0 as protal	374988	16599993	16450240	70.3	1.97	171.3	172.9	7.584	1.000	same
+P1 values a pair ahead	374988	16598659	16448112	70.4	1.97	163.7	165.2	7.247	0.956	same
+P2 whole blocks prefetched	374988	16604600	16453598	70.3	1.97	156.7	158.2	6.940	0.915	same
+P3 P1+P2	374988	16609951	16458415	70.3	1.97	155.5	157.0	6.889	0.908	same
+P4 four pairs together	374988	16613677	16462706	70.4	1.97	165.7	167.2	7.341	0.967	same
+B0 key map only	374988	16611205	16481535	71.0	0.00	19.4	19.5	0.859	0.113	-
+B1 key map + scans	374988	16610007	16480819	71.0	0.00	123.9	124.9	5.488	0.722	-
+B2 warm caches (compute)	374988	16604265	16455057	70.2	1.97	68.8	69.4	3.045	0.401	-
+(best scores by block size: as in the first run)
+
+== seedbench, 1M pairs, 32 threads
+variant	pairs	kmers	lookups	cells_per_lookup	seeds_per_lookup	ns_per_kmer	ns_per_lookup	us_per_pair	relative	seeds_hash
+P0 as protal	374952	16601114	16451469	70.2	1.97	178.7	180.3	7.910	1.000	same
+P1 values a pair ahead	374952	16604278	16454683	70.3	1.97	170.1	171.7	7.533	0.952	same
+P2 whole blocks prefetched	374952	16604382	16454961	70.3	1.97	162.6	164.1	7.202	0.910	same
+P3 P1+P2	374952	16608603	16458781	70.4	1.97	161.1	162.6	7.135	0.902	same
+P4 four pairs together	374928	16607380	16457251	70.4	1.97	172.5	174.1	7.642	0.966	same
+B0 key map only	374952	16608676	16478595	71.1	0.00	20.2	20.4	0.894	0.113	-
+B1 key map + scans	374952	16602555	16472789	71.0	0.00	129.6	130.6	5.738	0.724	-
+B2 warm caches (compute)	374952	16601525	16450835	70.3	1.97	68.5	69.2	3.035	0.384	-
+
+== perf stat (the first run's protal, 2M pairs, aligning only, 8 threads; the index load included)
+   447,141,400,676      cycles:u
+ 1,084,313,071,407      instructions:u                   #    2.42  insn per cycle
+    25,370,462,512      cache-references:u
+     1,500,064,365      cache-misses:u                   #    5.91% of all cache refs
+   347,838,071,028      L1-dcache-loads:u
+    14,823,864,241      L1-dcache-load-misses:u          #    4.26% of all L1-dcache accesses
+       761,768,995      dTLB-loads:u
+       183,193,937      dTLB-load-misses:u               #   24.05% of all dTLB cache accesses
+      13.766944409 seconds time elapsed; 122.473059000 seconds user; 7.357523000 seconds sys
+
+smaps_rollup, polled during the run, the reading with the most resident memory:
+Rss:            32581816 kB
+AnonHugePages:  31758336 kB
+ShmemPmdMapped:        0 kB
+FilePmdMapped:         0 kB
+
+Load Index took 9s 95ms; Aligning reads took 3s 840ms; the seeding line as in the first run.

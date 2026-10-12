@@ -5,7 +5,7 @@
 #
 # Needs seedbench.cpp and seedbench_build.sh beside this script, cmake and a compiler as for protal, and perf. Builds
 # protal at the checkout's HEAD with -g (the same code, with debug info for perf's source lines) and seedbench beside it,
-# in OUT_DIR/src and OUT_DIR/build; then, with the database:
+# in OUT_DIR/src-<commit> and OUT_DIR/build-<commit>; then, with the database:
 #   1. seedbench on the first 1M pairs: 8 threads, then 32 (seedbench_8.tsv, seedbench_32.tsv): protal's seeding and
 #      its variants, ns per lookup, and the blocks' best scores by size;
 #   2. protal on the first 2M pairs, aligning only (--no_profile), 8 threads: perf stat with cache and TLB events
@@ -26,15 +26,19 @@ echo "date: $(date -Iseconds); host: $(hostname); job: ${SLURM_JOB_ID:-none}; ch
 lscpu | grep -E "Model name|^CPU\(s\)|L3 cache|NUMA node\(s\)"
 cat /sys/kernel/mm/transparent_hugepage/enabled
 
-# The build: the checkout's HEAD, Release with -g, protal and seedbench.
-if [ ! -x "$out/build/seedbench" ] || [ ! -x "$out/build/protal" ]; then
-  rm -rf "$out/src"; mkdir -p "$out/src"
-  git -C "$checkout" archive HEAD | tar -x -C "$out/src"
-  EXTRA_CMAKE="-DCMAKE_CXX_FLAGS=-g -DCMAKE_C_FLAGS=-g" bash "$here/seedbench_build.sh" "$here/seedbench.cpp" "$out/src" "$out/build" "$jobs" \
-      > "$out/build.log" 2>&1 || { echo "seedbench build failed:"; tail -30 "$out/build.log"; exit 1; }
-  cmake --build "$out/build" -j "$jobs" --target protal >> "$out/build.log" 2>&1 || { echo "protal build failed"; tail -30 "$out/build.log"; exit 1; }
+# The build: the checkout's HEAD, Release with -g, protal and seedbench, in folders named after the commit (src-<commit>,
+# build-<commit>): a run on another commit builds its own, one on the same commit reuses it. (Before 2026-10-12 one
+# build/ was reused whatever the commit, so a second run in the same OUT_DIR measured the first run's binaries.)
+commit=$(git -C "$checkout" rev-parse --short HEAD)
+src=$out/src-$commit; B=$out/build-$commit
+if [ ! -x "$B/seedbench" ] || [ ! -x "$B/protal" ]; then
+  mkdir -p "$src"
+  git -C "$checkout" archive HEAD | tar -x -C "$src"
+  EXTRA_CMAKE="-DCMAKE_CXX_FLAGS=-g -DCMAKE_C_FLAGS=-g" bash "$here/seedbench_build.sh" "$here/seedbench.cpp" "$src" "$B" "$jobs" \
+      > "$out/build-$commit.log" 2>&1 || { echo "seedbench build failed:"; tail -30 "$out/build-$commit.log"; exit 1; }
+  cmake --build "$B" -j "$jobs" --target protal >> "$out/build-$commit.log" 2>&1 || { echo "protal build failed"; tail -30 "$out/build-$commit.log"; exit 1; }
 fi
-"$out/build/protal" --version 2>&1 | head -1
+"$B/protal" --version 2>&1 | head -1
 
 # The first 2M pairs, on node-local disk.
 tmp=${TMPDIR:-/tmp}/seedbench_$$; mkdir -p "$tmp"
@@ -45,12 +49,12 @@ zcat "$r2" | head -8000000 | gzip -1 > "$tmp/R2.fq.gz"
 # 1. seedbench.
 for t in 8 32; do
   echo "== seedbench, 1M pairs, $t threads"
-  "$out/build/seedbench" "$db" "$tmp/R1.fq.gz" "$tmp/R2.fq.gz" 1000000 "$t" 3 > "$out/seedbench_$t.tsv" 2> "$out/seedbench_$t.log"
+  "$B/seedbench" "$db" "$tmp/R1.fq.gz" "$tmp/R2.fq.gz" 1000000 "$t" 3 > "$out/seedbench_$t.tsv" 2> "$out/seedbench_$t.log"
   echo "exit $?"; cat "$out/seedbench_$t.log" "$out/seedbench_$t.tsv"
 done
 
 # 2. perf stat, the huge pages, the seeding line.
-run=("$out/build/protal" --db "$db" -1 "$tmp/R1.fq.gz" -2 "$tmp/R2.fq.gz" -o "$tmp/run" -t 8 --no_profile)
+run=("$B/protal" --db "$db" -1 "$tmp/R1.fq.gz" -2 "$tmp/R2.fq.gz" -o "$tmp/run" -t 8 --no_profile)
 echo "== perf stat"
 rm -rf "$tmp/run"
 perf stat -e cycles,instructions,cache-references,cache-misses,L1-dcache-loads,L1-dcache-load-misses,dTLB-loads,dTLB-load-misses \
