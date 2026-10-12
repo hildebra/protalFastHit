@@ -48,7 +48,10 @@ class GtdbBuildTest(unittest.TestCase):
       test_c  a copy of the full build with another seed: the finished database kept, the training database built
               again, the samples simulated again; stopped by SIGTERM, the run leaves no command running
       test_f  scenarios with host reads, the feature sets chosen by the trainers, the reads behind the models' errors
-      test_g  the full build's samples profiled as they are simulated: the same tables
+      test_g  the full build's samples profiled as they are simulated: the same tables (in a copy of the full build
+              without its samples, whose databases it takes)
+      test_h  the full build's samples streamed into protal: the same tables (likewise)
+      test_i  no species held out: the models trained on a training database of their own
     Needs $PROTAL, $SIMULATE and a Python with scikit-learn ($PROTAL_TRAIN_PYTHON, default this one)."""
 
     full = None  # full_build()'s run, once made
@@ -99,9 +102,10 @@ class GtdbBuildTest(unittest.TestCase):
         (scenarios.py) have the depths of real studies, so the runs but test_f's (which defines small ones) have none;
         only test_f keeps the reads of the models' errors; zstd level 1 for both databases, whose content is the same at
         any level. The runs scan the full references for the foreign rates (--foreign-rates, off by default), so that
-        their tables compare; test_f has the default, no scan."""
+        their tables compare; test_f has the default, no scan, and so do test_b and test_i, which do not look at them.
+        On 4 threads (the runs take ~15% less time than on 2, the tables are the same on any)."""
         command = [cls.python, BUILD, "--inputs", cls.inputs, "--outdir", os.path.join(cls.tmp.name, out),
-                   "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "2",
+                   "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "4",
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
@@ -120,8 +124,8 @@ class GtdbBuildTest(unittest.TestCase):
     def full_build(cls):
         """The build of every gene into out (its samples on the scratch disk tmp/scratch, both collections profiled in one
         protal run, the genes ranked: --rank-genes), made once for the class -> its run. Its tables are copied to
-        full_tables (test_g compares its own with them), and out and scratch as they are to full_copy (test_c runs
-        another seed there): test_a builds out again."""
+        full_tables (test_g and test_h compare theirs with them), and out and scratch as they are to full_snapshot, which
+        copy_of_full copies for test_c, test_g and test_h: test_a builds out again."""
         if cls.full is None:
             scratch = os.path.join(cls.tmp.name, "scratch")
             cls.full = cls.build("out", "--scratch", scratch, "--profile-blocks", "0", "--rank-genes")
@@ -131,10 +135,26 @@ class GtdbBuildTest(unittest.TestCase):
                     for table in ("training_data.tsv", "training_data_se.tsv"):
                         shutil.copy(os.path.join(cls.tmp.name, "out", "work", collection, table),
                                     os.path.join(cls.tmp.name, "full_tables", collection))
-                shutil.copytree(os.path.join(cls.tmp.name, "out"), os.path.join(cls.tmp.name, "full_copy", "out"),
+                shutil.copytree(os.path.join(cls.tmp.name, "out"), os.path.join(cls.tmp.name, "full_snapshot", "out"),
                                 symlinks=True)
-                shutil.copytree(scratch, os.path.join(cls.tmp.name, "full_copy", "scratch"), symlinks=True)
+                shutil.copytree(scratch, os.path.join(cls.tmp.name, "full_snapshot", "scratch"), symlinks=True)
         return cls.full
+
+    @classmethod
+    def copy_of_full(cls, name, collections=True):
+        """The full build's OUTDIR and scratch disk as it left them (full_snapshot) copied to tmp/<name>/out and
+        tmp/<name>/scratch -> (the OUTDIR as build() takes it, the scratch disk). collections=False: without the training
+        data and the independent test set (their tables and samples) and the genome store, so that a run there simulates
+        and profiles them again and takes the rest from the full build: the conversion, both databases and their foreign
+        scans (the in-silico strains are made again, the same: their stage names the scratch disk's folder)."""
+        snapshot, copy = os.path.join(cls.tmp.name, "full_snapshot"), os.path.join(cls.tmp.name, name)
+        for part in ("out", "scratch"):
+            shutil.copytree(os.path.join(snapshot, part), os.path.join(copy, part), symlinks=True)
+        if not collections:
+            for path in (("out", "work", "training"), ("out", "work", "test"), ("scratch", "training"), ("scratch", "test"),
+                         ("scratch", "genome_store")):
+                shutil.rmtree(os.path.join(copy, *path), ignore_errors=True)
+        return os.path.join(name, "out"), os.path.join(copy, "scratch")
 
     def text(self, *path):
         with open(os.path.join(self.tmp.name, *path)) as fh:
@@ -544,7 +564,7 @@ class GtdbBuildTest(unittest.TestCase):
         os.chmod(failing, 0o755)
         started = time.time()
         result = self.build("out_fail", "--insilico-strains", "0", "--no-gene-neighbours", "--n-genes", "3",
-                            "--gene-ranking", given, protal=failing)
+                            "--gene-ranking", given, protal=failing, foreign=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Command failed (3)", result.stdout)
         self.assertIn("index_and_package.log", result.stdout)
@@ -563,7 +583,7 @@ class GtdbBuildTest(unittest.TestCase):
         # finished database would have the subset's genes): the release is converted again. Stopped once it says.
         console = os.path.join(out, "console.log")
         seen = os.path.getsize(console)
-        full = self.build("out_fail", "--insilico-strains", "0", "--no-gene-neighbours", wait=False)
+        full = self.build("out_fail", "--insilico-strains", "0", "--no-gene-neighbours", wait=False, foreign=False)
         said, deadline = "", time.time() + 600
         while full.poll() is None and time.time() < deadline and \
                 not any(s in said for s in ("converting GTDB", "holds the release converted by an earlier run")):
@@ -584,14 +604,14 @@ class GtdbBuildTest(unittest.TestCase):
         # the run leaves no command running.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
-        out = os.path.join(self.tmp.name, "full_copy", "out")
+        copy, scratch = self.copy_of_full("full_copy")
+        out = os.path.join(self.tmp.name, copy)
         stages = os.path.join(out, "work", "stages")
         final = [os.path.join(out, "protal_db", "database.protal"), os.path.join(stages, "protal_db.json")]
         before = {path: os.stat(path).st_mtime_ns for path in final + [os.path.join(stages, "training_db.json")]}
         with open(os.path.join(out, "model_logs", "heldout_species.txt")) as fh:
             held_out = fh.read()
-        run_ = self.build(os.path.join("full_copy", "out"), "--scratch", os.path.join(self.tmp.name, "full_copy", "scratch"),
-                          "--profile-blocks", "0", "--rank-genes", "--seed", "2", wait=False)
+        run_ = self.build(copy, "--scratch", scratch, "--profile-blocks", "0", "--rank-genes", "--seed", "2", wait=False)
         simulation = os.path.join(out, "logs", "training_data_simulation.log")
 
         def resimulated():
@@ -895,43 +915,47 @@ class GtdbBuildTest(unittest.TestCase):
     def test_g_profiled_as_simulated(self):
         # The full build's samples profiled as they are simulated (--profile-blocks, here a few kB: a protal run as soon
         # as anything is simulated), the two collections' runs taking turns: the same tables as full_build()'s one
-        # protal run; every read removed once profiled (the SAMs, profiles and dumps kept). Its models are not evaluated:
-        # what the run profiled is in the tables.
+        # protal run; every read removed once profiled (the SAMs, profiles and dumps kept). In a copy of the full build
+        # without its collections: its databases taken as they are, not built again. Its models are not evaluated: what
+        # the run profiled is in the tables.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
-        scratch = os.path.join(self.tmp.name, "follow_scratch")
-        result = self.build("follow", "--scratch", scratch, "--profile-blocks", "0.00001", "--keep-free", "1",
+        follow, scratch = self.copy_of_full("follow", collections=False)
+        result = self.build(follow, "--scratch", scratch, "--profile-blocks", "0.00001", "--keep-free", "1",
                             "--evaluation", "none")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertNotRegex(result.stdout, r"built (protal|training)_db")
         self.assertIn("profiled as its simulations go on, in protal runs of 1e-05 GB of reads or more", result.stdout)
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
-                self.assertEqual(self.text("follow", "work", collection, table), self.text("full_tables", collection, table),
+                self.assertEqual(self.text(follow, "work", collection, table), self.text("full_tables", collection, table),
                                  f"{collection}/{table}")
             points = os.path.join(scratch, collection, "points")
             self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*.fq.*")), [])
             self.assertTrue(glob.glob(os.path.join(points, "*", "sim", "reads_removed.txt")))
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
-        log = self.text("follow", "logs", "training_data.log")
+        log = self.text(follow, "logs", "training_data.log")
         self.assertRegex(log, r"protal run 1: \d+ design points, [\d.]+ GB of reads; the simulations (go on|have ended)")
         self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
-        self.assertIn("keeping 1 GB free on", self.text("follow", "logs", "training_data_simulation.log"))
+        self.assertIn("keeping 1 GB free on", self.text(follow, "logs", "training_data_simulation.log"))
 
     def test_h_streamed(self):
         # Every design point streamed (--stream-above, here a few bytes): protal reads each point's samples from named
         # pipes as simulate_metagenomes makes them (pe, then se from a run that writes only read 1s), as plain FASTQ, a
         # protal run per point, no read on the disk; the genomes from a genome store on the scratch disk
-        # (--genome-store auto): the same tables as full_build()'s one protal run.
+        # (--genome-store auto): the same tables as full_build()'s one protal run. In a copy of the full build without
+        # its collections, as test_g.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
-        scratch = os.path.join(self.tmp.name, "stream_scratch")
-        result = self.build("stream", "--scratch", scratch, "--profile-blocks", "20", "--stream-above", "0.000000001",
+        stream, scratch = self.copy_of_full("stream", collections=False)
+        result = self.build(stream, "--scratch", scratch, "--profile-blocks", "20", "--stream-above", "0.000000001",
                             "--evaluation", "none", "--genome-store", "auto")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertNotRegex(result.stdout, r"built (protal|training)_db")
         self.assertTrue(glob.glob(os.path.join(scratch, "genome_store", "*.g2b")), "the genomes in the store")
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
-                self.assertEqual(self.text("stream", "work", collection, table), self.text("full_tables", collection, table),
+                self.assertEqual(self.text(stream, "work", collection, table), self.text("full_tables", collection, table),
                                  f"{collection}/{table}")
             points = os.path.join(scratch, collection, "points")
             self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*")), [], "no reads, no pipes left")
@@ -939,7 +963,7 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertTrue(glob.glob(os.path.join(points, "*", "stream_pe.log")), "the simulators' logs kept")
             self.assertTrue(glob.glob(os.path.join(points, "*", "streamed.json")))
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
-        log = self.text("stream", "logs", "training_data.log")
+        log = self.text(stream, "logs", "training_data.log")
         self.assertRegex(log, r"\d+ simulations streamed into protal \(a sample above 1e-09 GB\)")
         # The streamed points whose communities are there share a protal run (--profile-block-max, 200 GB): here both.
         self.assertRegex(log, r"protal run 1: 2 simulations streamed \(rl100_p1000, rl100_p4000; 4 design points, \d+ "
@@ -951,9 +975,9 @@ class GtdbBuildTest(unittest.TestCase):
         # No species held out, but the finished database's strain alleles come from every genome
         # (--final-allele-genome-share 1) and the training database's from half (--allele-genome-share 0.5): the models
         # are trained on a training database of its own, never on the finished one, whose alleles include the strains
-        # the samples are simulated from.
+        # the samples are simulated from. No foreign scans (test_a's runs have them).
         result = self.build("noheld", "--holdout", "0", "--holdout-clades", "none", "--read-types", "pe",
-                            "--test-samples", "0", "--evaluation", "none", "--insilico-strains", "0")
+                            "--test-samples", "0", "--evaluation", "none", "--insilico-strains", "0", foreign=False)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertIn("training database (training_db, training_db_index.log): no species left out, its strain alleles "
                       "from 0.5 of the genomes (the finished database's from 1, --final-allele-genome-share)", result.stdout)

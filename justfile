@@ -195,7 +195,7 @@ strain-clean:
 # ---- mini DB: sparse synthetic GTDB release (3 species) -> protal DB -----------
 # Writes {{mini_db_dir}}/gtdb_r226 (GTDB-layout release) and
 # {{mini_db_dir}}/protal_db (use with --db), holding the single-file database.protal
-# (~1 MB; raw, index.prx would be ~3 GB regardless of size). PROTAL_BUILD_ARGS=--no_bundle
+# (~1.6 MB; raw, index.prx would be ~3 GB regardless of size). PROTAL_BUILD_ARGS=--no_bundle
 # keeps separate compressed files, --no_compress builds it raw.
 mini_db_dir := "data/mini_db"
 mini-db: baseline
@@ -212,7 +212,7 @@ mini-db-test:
     python3 -m unittest scripts/mini_db/test_*.py
     python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
         scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
-        scripts/test_foreign_rates.py
+        scripts/test_foreign_rates.py scripts/test_ancestry_sites.py
 
 # Checks that the presence model's PMML export scores as scikit-learn does, of the trainer and of the rules it shares
 # with protal (tests/data/golden_model_rules.tsv); needs numpy, pandas, joblib and scikit-learn (skipped without them,

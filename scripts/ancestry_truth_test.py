@@ -35,7 +35,8 @@ databases, reads and protal runs, and the four levels of evaluation.
   python3 scripts/ancestry_truth_test.py evaluate --outdir OUT
 
 --train-python (default $PROTAL_TRAIN_PYTHON, else this Python) needs scikit-learn and pandas; without them the models
-(L3) are left out. --quick makes two small worlds (simulate_ancestry_world.py --quick), for the tests.
+(L3) are left out. --quick makes two small worlds (simulate_ancestry_world.py --quick), their databases at zstd level 1
+(the same content as at --build's level 19, in seconds instead of half a minute), for the tests.
 """
 
 import argparse
@@ -238,7 +239,8 @@ def run_world(opts, name):
                      os.path.join(paths.world, "simulation", "genomes.tsv")], os.path.join(paths.logs, "neighbours.log"))
 
     def build():
-        run_command([opts.protal, "--build", "--no_profile", "-t", t, "--db", paths.db, "--reference",
+        level = ["--compress_level", "1"] if opts.quick else []
+        run_command([opts.protal, "--build", "--no_profile", "-t", t, *level, "--db", paths.db, "--reference",
                      os.path.join(paths.db, "reference.fna"), "--full_reference",
                      os.path.join(paths.db, "full_reference.fna"), "--strain_alleles", opts.strain_alleles,
                      "--allele_genome_share", "1"], os.path.join(paths.logs, "build.log"))

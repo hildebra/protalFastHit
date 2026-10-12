@@ -8,8 +8,10 @@
 #   protal_db/   the protal database; use it with --db or $PROTAL_DB_PATH
 #   build.log    protal --build output
 # The protal binary is $PROTAL (default: build/protal); $PROTAL_BUILD_ARGS adds options
-# to protal --build (e.g. --no_bundle, --no_compress). By default the build packs the
-# database into protal_db/database.protal (~1 MB here; full_reference.fna, gene2geneid.tsv
+# to protal --build (e.g. --no_bundle, --no_compress, or -t and --compress_level again: the
+# last wins). The build runs on 4 threads at zstd level 3 (~4 s; on 1 thread at --build's
+# level 19, ~13 s, the file ~1.1 MB). By default the build packs the
+# database into protal_db/database.protal (~1.6 MB here; full_reference.fna, gene2geneid.tsv
 # and genome2tiid.tsv stay next to it); --no_bundle keeps separate compressed files
 # (index.prx.zst, reference.fna.zst, ...). Uncompressed, index.prx is ~3 GB whatever the
 # reference size (the k-mer key map is a fixed 2^30 slots).
@@ -35,7 +37,7 @@ rm -rf "$gtdb" "$db"
 
 # --no_profile: without it, build mode falls through to profiling an empty sample list.
 # shellcheck disable=SC2086
-"$protal" --build --no_profile -t 1 ${PROTAL_BUILD_ARGS:-} \
+"$protal" --build --no_profile -t 4 --compress_level 3 ${PROTAL_BUILD_ARGS:-} \
     --db "$db" \
     --reference "$db/reference.fna" \
     --full_reference "$db/full_reference.fna" \

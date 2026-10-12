@@ -892,6 +892,10 @@ class TrainerScenariosTest(unittest.TestCase):
         columns = [c for name in model_features.AUTO_CANDIDATES for c in model_features.feature_set_columns(name)]
         columns = list(dict.fromkeys(columns))
 
+        # The features in steps of 0.1: a column of 255 values or fewer is binned at the midpoints between them. With
+        # more, scikit-learn 1.8 and later bins a weighted fit (the scenario rows weigh 0.25, --scenario-weight) by
+        # computing its 254 weighted percentiles one at a time, which made this class take 5 minutes instead of about one
+        # (docs/claude/2026-10-12-test-suite-speed).
         def table(path, samples, seed, scenario_of):
             rng = np.random.default_rng(seed)
             rows = []
@@ -899,10 +903,10 @@ class TrainerScenariosTest(unittest.TestCase):
                 scenario = scenario_of(sample)
                 for taxon in range(20):
                     present = taxon < 6
-                    row = {c: rng.normal(0, 1) for c in columns}
+                    row = {c: round(rng.normal(0, 1), 1) for c in columns}
                     # the signal in a normalized feature and in the depth feature's group, so that the sets differ
-                    row["hit_gene_fraction"] = 1.2 * present + rng.normal(0, 0.6)
-                    row["sample_log_fragments"] = 0.8 * present + rng.normal(0, 0.6)
+                    row["hit_gene_fraction"] = round(1.2 * present + rng.normal(0, 0.6), 1)
+                    row["sample_log_fragments"] = round(0.8 * present + rng.normal(0, 0.6), 1)
                     row.update({"truth": int(present), "taxon": 100 + (taxon + 3 * sample) % 50, "taxon_name": "t",
                                 "meta_sample": f"{scenario or 'design'}{seed}_{sample}", "fragments": 10.0,
                                 "meta_scenario": scenario, "meta_novel_level": "species" if taxon in (7, 8) else "",

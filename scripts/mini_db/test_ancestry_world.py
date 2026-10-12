@@ -46,8 +46,21 @@ class WorldTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.out = os.path.join(cls.tmp.name, "world")
-        subprocess.run([sys.executable, GENERATOR, "--outdir", cls.out, "--quick", "--seed", "5"], check=True,
-                       capture_output=True)
+        # The same world a second time, for test_the_same_seed_makes_the_same_world, made beside the first (the generator
+        # runs on one core).
+        cls.again = os.path.join(cls.tmp.name, "again")
+        cls.second_log = os.path.join(cls.tmp.name, "again.log")
+        with open(cls.second_log, "w") as log:
+            cls.second = subprocess.Popen([sys.executable, GENERATOR, "--outdir", cls.again, "--quick", "--seed", "5"],
+                                          stdout=log, stderr=subprocess.STDOUT)
+        try:
+            subprocess.run([sys.executable, GENERATOR, "--outdir", cls.out, "--quick", "--seed", "5"], check=True,
+                           capture_output=True)
+        except BaseException:
+            cls.second.kill()
+            cls.second.wait()
+            cls.tmp.cleanup()
+            raise
         sim = os.path.join(cls.out, "simulation")
         cls.genera = {int(r["genus"]): r for r in rows(os.path.join(sim, "genera.tsv"))}
         cls.roles = rows(os.path.join(sim, "roles.tsv"))
@@ -56,6 +69,9 @@ class WorldTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if cls.second.poll() is None:
+            cls.second.kill()
+        cls.second.wait()
         cls.tmp.cleanup()
 
     def test_release_holds_only_the_database_genomes(self):
@@ -158,9 +174,10 @@ class WorldTest(unittest.TestCase):
             self.assertTrue(all(r[column] for r in manifest))
 
     def test_the_same_seed_makes_the_same_world(self):
-        other = os.path.join(self.tmp.name, "again")
-        subprocess.run([sys.executable, GENERATOR, "--outdir", other, "--quick", "--seed", "5"], check=True,
-                       capture_output=True)
+        other = self.again
+        self.second.wait()
+        with open(self.second_log) as fh:
+            self.assertEqual(self.second.returncode, 0, fh.read()[-3000:])
         for name in ("roles.tsv", "genera.tsv", "imports.tsv"):
             with open(os.path.join(self.out, "simulation", name)) as a, \
                  open(os.path.join(other, "simulation", name)) as b:

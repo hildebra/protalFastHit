@@ -18,7 +18,7 @@
 #              PYTHON  python 3 interpreter (default: python3; standard library only)
 #              THREADS protal threads (default: 4)
 #              PROTAL_BUILD_ARGS  extra protal --build options, e.g. --no_bundle or --no_compress
-# By default the DB is the single, zstd-compressed file protal_db/database.protal (~1 MB); the checks
+# By default the DB is the single, zstd-compressed file protal_db/database.protal (~1.6 MB); the checks
 # read its files from WORKDIR/db_files (protal --unpack_db). With --no_compress, index.prx alone is
 # ~3.2 GB (fixed-size key map). checksums.md5 needs the zstd CLI for --no_bundle databases.
 # Exits 0 if all checks pass, 1 otherwise.

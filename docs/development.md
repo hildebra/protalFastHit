@@ -16,7 +16,7 @@ Build requirements are in [installation.md](installation.md#building-from-source
 ## Unit tests
 
 `tests/test_*.cpp`, one file per unit (the file's first lines say what it covers), build as one
-binary, `protal_tests`: about 400 tests, 10 seconds on 4 cores. Most compare protal's code with an
+binary, `protal_tests`: about 510 tests, 10 seconds on 4 cores. Most compare protal's code with an
 independent oracle: libzstd and zlib-ng's readers, WFA2 alignments, brute-force definitions (syncmers,
 flex neighbours, the alignment screen), the text tables against the binary gene table, serial against
 parallel profiling. Their seeds are fixed. The helpers they share are in `tests/TestUtil.h` (scratch
@@ -73,7 +73,7 @@ computed by hand. It covers paired-end, single-end, PacBio and ONT reads and pha
 
 The tests are written for the mini database (`just mini-db`): they name its species, taxids and
 genes, so another database fails them. They need Linux, numpy and the `zstd` CLI (or Python 3.14),
-and take about 1.5 minutes on 4 cores, 3.5 GB of memory and 3-4 GB of `/tmp`:
+and take about a minute on 4 cores, 3.5 GB of memory and 3-4 GB of `/tmp`:
 
 ```bash
 PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
@@ -82,26 +82,28 @@ PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulat
 
 A test whose prerequisite is missing (the database, a binary, the `zstd` CLI) is
 skipped; `PROTAL_TESTS_REQUIRED=1` makes it an error instead, as CI runs them. The tests that need no
-database (the version, the simulator, qcmsa's contract, small builds, gene neighbours) run without
-`PROTAL_TEST_DB`.
+database (the version, the simulator, qcmsa's contract, small builds, gene neighbours, the WFA2
+traceback) run without `PROTAL_TEST_DB`.
 
 ## Script tests
 
 `scripts/mini_db/test_*.py` test the mini database scripts (`test_mini_db.py`), the GTDB downloads
 (`test_downloads.py`), the training data collector and its scenarios (`test_collector.py`), the gene
-neighbours (`test_gene_neighbours.py`), the build script's parts (`test_gtdb_build.py`) and the GTDB
-build end to end (`test_gtdb_pipeline.py`); `scripts/test_*.py` the trainer and the model's PMML
-export (`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`,
-`composition_accuracy.py`, the profile scripts and the strain test scripts. A test whose prerequisite is missing is skipped;
-`PROTAL_TESTS_REQUIRED=1` makes it fail instead (`scripts/prerequisites.py`). With everything present
-they run in about 4 minutes on 4 cores, the GTDB build 3 of them:
+neighbours (`test_gene_neighbours.py`), the build script's parts (`test_gtdb_build.py`), the GTDB
+build end to end (`test_gtdb_pipeline.py`) and the ancestry true-positive test's worlds, oracle and
+quick run (`test_ancestry_world.py`); `scripts/test_*.py` the trainer and the model's PMML export
+(`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`,
+`composition_accuracy.py`, the profile scripts, the strain test scripts, `ancestry_sites.py` and
+`foreign_rates.py`. A test whose prerequisite is missing is skipped; `PROTAL_TESTS_REQUIRED=1` makes it
+fail instead (`scripts/prerequisites.py`). With everything present they run in about 6 minutes on 4
+cores, the GTDB build 3 of them:
 
 ```bash
 PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes PROTAL_TESTS_REQUIRED=1 \
     python3 -m unittest scripts/mini_db/test_*.py
 python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
     scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
-    scripts/test_model_pmml.py
+    scripts/test_ancestry_sites.py scripts/test_foreign_rates.py scripts/test_model_pmml.py
 ```
 
 **The GTDB build end to end** (`test_gtdb_pipeline.py`, `GtdbBuildTest`) needs `$PROTAL`, `$SIMULATE`,
@@ -124,17 +126,23 @@ and NCBI, each build serves every check of what it does:
   trainers chose and why, the reads behind each model's errors (`model_logs/error_reads/`), and the
   host scenario left out without a host genome. The other builds pass `--scenarios none` and
   `--error-reads none`;
-- the full build's samples profiled as they are simulated (`--profile-blocks` of a few kB): the same
-  tables.
+- the full build's samples profiled as they are simulated (`--profile-blocks` of a few kB), and
+  streamed into protal (`--stream-above`): the same tables. Both run in copies of the full build
+  without its samples, whose databases they take as they are;
+- no species held out: the models trained on a training database of their own.
 
-`build_gtdb_releases.py` is tested with a stand-in of the build script (`test_gtdb_build.py`).
+The runs use 4 threads. `build_gtdb_releases.py` is tested with a stand-in of the build script
+(`test_gtdb_build.py`).
 The trainer's tests fit on one thread (`OMP_NUM_THREADS=1`): on every core of a busy machine,
-gradient boosting made `test_model_pmml.py` take 20 minutes (scikit-learn 1.9.1).
+gradient boosting made `test_model_pmml.py` take 20 minutes (scikit-learn 1.9.1). The features of
+`TrainerScenariosTest`'s tables take 255 values or fewer: with more, scikit-learn 1.8 and later bins a
+weighted fit (the scenario rows weigh 0.25) by computing each of its 254 weighted percentiles on its
+own, which made one test take 4 minutes instead of 20 s.
 
 ## Mini databases
 
 `scripts/mini_db/` builds a small database from a synthetic GTDB release (3 species, 3 genomes each
-by default), to test without the full database. It is about 1 MB as `database.protal`
+by default), to test without the full database. It is about 1.6 MB as `database.protal`
 (`PROTAL_BUILD_ARGS=--no_bundle` or `--no_compress` for separate files; a raw `index.prx` is 3 GB
 whatever the reference, since the k-mer key map has a fixed size):
 
@@ -144,7 +152,8 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
 ```
 
 `build_mini_db.sh` runs the same steps as a GTDB database ([databases.md](databases.md#step-by-step)):
-the release, the converter, the gene neighbours, `protal --build`. The scripts:
+the release, the converter, the gene neighbours, `protal --build` (on 4 threads at zstd level 3, ~4 s).
+The scripts:
 
 | Script | |
 |---|---|
@@ -253,8 +262,9 @@ without `art_seed` (the ART days) replays the composition with fresh reads (pass
 pandas, scikit-learn and joblib from the distribution; the `zstd` CLI), with
 `PROTAL_TESTS_REQUIRED=1`, so that a test whose prerequisite is missing fails instead of passing unseen
 as a skip:
-- a Release build with the unit tests, the mini database, the end-to-end tests, `just example`'s
-  accuracy check, the script tests including the GTDB build end to end, and the trainer's tests;
+- a Release build with the unit tests, `just example`'s accuracy check (its mini database, built in
+  `data/mini_db`, is the one the end-to-end tests use), the end-to-end tests, the script tests including
+  the GTDB build end to end, and the trainer's tests;
 - the unit tests of a Debug build under ASan and UBSan, with `-DPROTAL_NO_CLONES`.
 
 ## Strain test harness

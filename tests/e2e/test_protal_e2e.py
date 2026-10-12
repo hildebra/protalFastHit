@@ -18,21 +18,23 @@ The tests are written for the mini database of scripts/mini_db/build_mini_db.sh:
 PROTAL_TEST_DB         protal database (only read): the single file database.protal (or its folder), or separate raw
                        or zstd-compressed files (index.prx.zst, reference.fna.zst). Tests that read the database's
                        files get them unpacked (protal --unpack_db) into a temporary folder. Without it the tests that
-                       need it are skipped; VersionTest, SimulatorTest, QcmsaContractTest, BuildIndexTest and
-                       GeneNeighboursTest need none.
+                       need it are skipped; VersionTest, SimulatorTest, QcmsaContractTest, BuildIndexTest,
+                       GeneNeighboursTest and WfaTracebackTest need none.
 PROTAL                 protal binary (default: build/protal)
 SIMULATE               simulate_metagenomes binary (default: build/simulate_metagenomes)
 PROTAL_TESTS_REQUIRED  1: a missing prerequisite (the database, a binary, the zstd CLI, numpy) fails
                        the tests that need it instead of skipping them, as CI wants
 PROTAL_TEST_KEEP       set: keep the temporary folders
 
-What it costs: about 1.5 minutes on 4 cores, 3 GB of memory and of /tmp at a time. Whatever the reference, every
-protal run that loads an index, and every build, handles its fixed-size key map (~3 GB raw): a second or more each.
-So one paired-end run aligns the module's samples (baseline()), and tests that change only the profiling profile its
-SAMs again (--profile_only, or the SAMs copied to where a run looks for them), which loads no index; the read types
-share one map run (read_type_run()); builds compress fast (FAST_BUILD), and four builds remain.
+What it costs: about a minute on 4 cores, 3 GB of memory and of /tmp at a time. Whatever the reference, every protal
+run that loads an index, and every build, handles its fixed-size key map (~3 GB raw): a second or more each. So one paired-end run aligns the module's samples
+(baseline()), and tests that change only the profiling profile its SAMs again (--profile_only, or the SAMs copied to
+where a run looks for them), which loads no index; the read types share one map run (read_type_run()); builds
+compress fast (FAST_BUILD), and five builds remain (GeneConservationTest's, OperonRelease's for two classes,
+BuildIndexTest's three).
 """
 
+import concurrent.futures
 import csv
 import filecmp
 import functools
@@ -1224,49 +1226,80 @@ class GeneConservationTest(DbTest):
         self.assertIn("--gene_conservation does not exist: no_such.tsv", log)
 
 
-class GeneNeighboursTest(WorkDir):
-    """A database of a synthetic release whose markers lie in operon-like clusters (simulate_gtdb_release.py
-    --operons), with the gene neighbours of its genomes (gene_neighbours.py: the per-clade frequencies and where
-    each gene lies in each genome), which --build checks and packs; read pairs drawn from the genomes span
-    neighbouring genes. protal pairs mates across them (a proper pair on two references) and gives the adjacency
-    features, from database.protal alone; --no_gene_neighbours does neither. (Needs protal, not the test database.)"""
+class OperonRelease:
+    """A database of its own, not the test database: a synthetic release whose markers lie in operon-like clusters
+    (simulate_gtdb_release.py --operons; a genome of 200 kb in one contig per species), with the gene neighbours of its
+    genomes (gene_neighbours.py: the per-clade frequencies and where each gene lies in each genome), built with the
+    defaults (FAST_BUILD), and 8,000 read pairs drawn from its genomes (s_R1.fq, s_R2.fq). GeneNeighboursTest and
+    WfaTracebackTest share it (each made one of its own until 2026-10-12)."""
 
-    @classmethod
-    def setUpClass(cls):
+    def __init__(self):
         require_binary(PROTAL, "protal", "PROTAL")
-        super().setUpClass()
+        self.work = scratch("protal_e2e_operons_")
         scripts = os.path.join(ROOT, "scripts", "mini_db")
-        cls.gtdb, cls.db = os.path.join(cls.work, "gtdb"), os.path.join(cls.work, "db")
-        python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--operons", "--genome_length",
+        self.gtdb, self.db = os.path.join(self.work, "gtdb"), os.path.join(self.work, "db")
+        python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", self.gtdb, "--operons", "--genome_length",
                "200000", "--genomes_per_species", "1", "--contigs", "1")
-        python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
-        genomes = os.path.join(cls.gtdb, "simulation", "genomes.tsv")
-        python(os.path.join(scripts, "gene_neighbours.py"), "--db", cls.db, "--genome_table", genomes)
-        cls.table = read_text(os.path.join(cls.db, "gene_neighbours.tsv"))
-        cls.positions = read_text(os.path.join(cls.db, "gene_positions.tsv"))
-        cls.inputs = os.path.join(cls.work, "inputs")  # the converted files, for builds of their own
-        shutil.copytree(cls.db, cls.inputs)
-        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
-                                "--reference", os.path.join(cls.db, "reference.fna"))
+        python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", self.gtdb, "--outdir", self.db)
+        genomes = os.path.join(self.gtdb, "simulation", "genomes.tsv")
+        python(os.path.join(scripts, "gene_neighbours.py"), "--db", self.db, "--genome_table", genomes)
+        self.table = read_text(os.path.join(self.db, "gene_neighbours.tsv"))
+        self.positions = read_text(os.path.join(self.db, "gene_positions.tsv"))
+        self.inputs = os.path.join(self.work, "inputs")  # the converted files, for builds of their own
+        shutil.copytree(self.db, self.inputs)
+        rc, self.build_log = run(self.work, "--build", "--no_profile", *FAST_BUILD, "--db", self.db,
+                                 "--reference", os.path.join(self.db, "reference.fna"))
         if rc != 0:
-            raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])
+            raise RuntimeError("protal --build failed:\n" + self.build_log[-3000:])
         with open(genomes) as fh:
             accessions = [row["accession"] for row in csv.DictReader(fh, delimiter="\t")]
-        community = os.path.join(cls.work, "community.tsv")
+        community = os.path.join(self.work, "community.tsv")
         with open(community, "w") as fh:
             fh.write("accession\trelative_abundance\n")
             fh.writelines(f"{a}\t1\n" for a in accessions)
         python(os.path.join(scripts, "simulate_reads.py"), "--genomes", genomes, "--community", community,
-               "--out_prefix", os.path.join(cls.work, "s"), "--pairs", "8000", "--seed", "5")
-        with open(os.path.join(cls.inputs, "internal_taxonomy.dmp")) as fh:  # --build packed the database's copy
+               "--out_prefix", os.path.join(self.work, "s"), "--pairs", "8000", "--seed", "5")
+        self.reads = (os.path.join(self.work, "s_R1.fq"), os.path.join(self.work, "s_R2.fq"))
+        with open(os.path.join(self.inputs, "internal_taxonomy.dmp")) as fh:  # --build packed the database's copy
             next(fh)
-            cls.species = [r[0] for r in (line.split("\t") for line in fh) if r[4] == "species"]
+            self.species = [r[0] for r in (line.split("\t") for line in fh) if r[4] == "species"]
+
+
+_operon_release = None
+
+
+def operon_release():
+    """The module's OperonRelease, made once on first use."""
+    global _operon_release
+    if _operon_release is None:
+        try:
+            _operon_release = OperonRelease()
+        except Exception as e:  # unittest.SkipTest too
+            _operon_release = e
+    if isinstance(_operon_release, Exception):
+        raise type(_operon_release)(*_operon_release.args)
+    return _operon_release
+
+
+class GeneNeighboursTest(WorkDir):
+    """The operon release's database (OperonRelease): --build checks and packs the gene neighbours; read pairs drawn
+    from the genomes span neighbouring genes. protal pairs mates across them (a proper pair on two references) and gives
+    the adjacency features, from database.protal alone; --no_gene_neighbours does neither. (Needs protal, not the test
+    database.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        release = operon_release()
+        cls.db, cls.inputs, cls.reads = release.db, release.inputs, release.reads
+        cls.table, cls.positions, cls.build_log, cls.species = release.table, release.positions, release.build_log, \
+            release.species
 
     def profile(self, name, *extra, db=None):
         truth = self.path("truth.tsv")
         with open(truth, "w") as fh:
             fh.write("\n".join(self.species) + "\n")
-        rc, log = run(self.work, "--db", db or self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "s",
                       "-o", name, "-t", "2", "--no_strains", "--profile_truth", truth, *extra)
         self.assertEqual(rc, 0, log[-3000:])
         records = sam_records(find_sams(self.path(name, "s.sam"))[0])
@@ -2380,7 +2413,8 @@ class CompressedDatabaseTest(DbTest):
     """Raw, seekable (--compress_db --no_bundle, loaded in parallel), single-frame (zstd CLI) and
     single-file (--compress_db: database.protal) copies of the database give identical results,
     with one thread or several. The raw index (~3 GB, a fixed-size key map) lives only while setUpClass makes the
-    copies and the raw run; its digest stands for it after."""
+    copies and the raw run; its digest, taken meanwhile, stands for it after. The copies compress at level 1 in frames
+    of 1 MB: the frames are what the test needs, the level changes only their size."""
 
     KINDS = ("raw", "seekable", "single", "bundle")
     FILES = ("index.prx", "reference.fna", "reference.map", "internal_taxonomy.dmp", "unique_kmers.tsv", "model_pe.xml")
@@ -2407,26 +2441,28 @@ class CompressedDatabaseTest(DbTest):
         if cls.decompress_rc != 0:
             raise RuntimeError("protal --decompress_db failed:\n" + cls.decompress_log[-3000:])
         raw_index = os.path.join(cls.dbs["raw"], "index.prx")
-        cls.raw_digest = digest(raw_index)
-        cls.raw_files = {name: (os.path.isfile(os.path.join(cls.dbs["raw"], name)),
-                                os.path.lexists(os.path.join(cls.dbs["raw"], name + ".zst"))) for name in cls.BIG}
-        for name in cls.BIG:
-            raw = os.path.join(cls.dbs["raw"], name)
-            # One frame, no seek table (-f: raw may be a symlink, which the zstd CLI skips otherwise).
-            subprocess.run(["zstd", "-q", "-f", "-1", "-T0", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
-                           check=True)
-            os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
-            os.symlink(raw, os.path.join(cls.dbs["bundle"], name))
-        # --compress_db --no_bundle turns the symlinked raw files into .zst files (removing the
-        # links): the index in the column format, the reference seekable. Without --no_bundle, it
-        # packs all database files into database.protal.
-        small = ("--compress_level", "3", "--compress_frame_mb", "1")
-        cls.compress_rc, cls.compress_log = run(cls.work, "--compress_db", "--no_bundle", "--db", cls.dbs["seekable"],
-                                                "-t", "4", *small)
-        cls.bundle_rc, cls.bundle_log = run(cls.work, "--compress_db", "--db", cls.dbs["bundle"], "-t", "4", *small)
-        cls.bundle = os.path.join(cls.dbs["bundle"], "database.protal")
-        cls.raw_kept = {name: os.path.exists(os.path.join(cls.dbs["raw"], name)) for name in cls.BIG}
-        cls.expected = cls.result(cls.dbs["raw"], "out_raw_1", 1)
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            raw_digest = pool.submit(digest, raw_index)  # ~2 s, beside the copies below, which read it too
+            cls.raw_files = {name: (os.path.isfile(os.path.join(cls.dbs["raw"], name)),
+                                    os.path.lexists(os.path.join(cls.dbs["raw"], name + ".zst"))) for name in cls.BIG}
+            for name in cls.BIG:
+                raw = os.path.join(cls.dbs["raw"], name)
+                # One frame, no seek table (-f: raw may be a symlink, which the zstd CLI skips otherwise).
+                subprocess.run(["zstd", "-q", "-f", "-1", "-T0", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
+                               check=True)
+                os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
+                os.symlink(raw, os.path.join(cls.dbs["bundle"], name))
+            # --compress_db --no_bundle turns the symlinked raw files into .zst files (removing the
+            # links): the index in the column format, the reference seekable. Without --no_bundle, it
+            # packs all database files into database.protal.
+            small = ("--compress_level", "1", "--compress_frame_mb", "1")
+            cls.compress_rc, cls.compress_log = run(cls.work, "--compress_db", "--no_bundle", "--db", cls.dbs["seekable"],
+                                                    "-t", "4", *small)
+            cls.bundle_rc, cls.bundle_log = run(cls.work, "--compress_db", "--db", cls.dbs["bundle"], "-t", "4", *small)
+            cls.bundle = os.path.join(cls.dbs["bundle"], "database.protal")
+            cls.raw_kept = {name: os.path.exists(os.path.join(cls.dbs["raw"], name)) for name in cls.BIG}
+            cls.expected = cls.result(cls.dbs["raw"], "out_raw_1", 1)
+            cls.raw_digest = raw_digest.result()
         os.remove(raw_index)
 
     @classmethod
@@ -3989,34 +4025,17 @@ class SimulatorTest(WorkDir):
 class WfaTracebackTest(WorkDir):
     """--wfa_traceback: a database built with the default, the Singletrack traceback (since 0.8.2), records it in
     build_settings.tsv (packed into database.protal); a run aligns with the database's unless told otherwise, and is
-    warned when it aligns with another; a database without the file was built classic. (Needs protal, not the test
-    database.)"""
+    warned when it aligns with another; a database without the file was built classic. On the operon release's database
+    (built with the default traceback) and reads (OperonRelease). (Needs protal, not the test database.)"""
 
     @classmethod
     def setUpClass(cls):
-        require_binary(PROTAL, "protal", "PROTAL")
         super().setUpClass()
-        scripts = os.path.join(ROOT, "scripts", "mini_db")
-        cls.gtdb, cls.db = os.path.join(cls.work, "gtdb"), os.path.join(cls.work, "db")
-        python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--genome_length", "200000",
-               "--genomes_per_species", "1", "--contigs", "1")
-        python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
-        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD,  # the default traceback
-                                "--db", cls.db, "--reference", os.path.join(cls.db, "reference.fna"))
-        if rc != 0:
-            raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])
-        genomes = os.path.join(cls.gtdb, "simulation", "genomes.tsv")
-        with open(genomes) as fh:
-            accessions = [row["accession"] for row in csv.DictReader(fh, delimiter="\t")]
-        community = os.path.join(cls.work, "community.tsv")
-        with open(community, "w") as fh:
-            fh.write("accession\trelative_abundance\n")
-            fh.writelines(f"{a}\t1\n" for a in accessions)
-        python(os.path.join(scripts, "simulate_reads.py"), "--genomes", genomes, "--community", community,
-               "--out_prefix", os.path.join(cls.work, "s"), "--pairs", "4000", "--seed", "3")
+        release = operon_release()
+        cls.db, cls.build_log, cls.reads = release.db, release.build_log, release.reads
 
     def align(self, name, *extra, db=None):
-        rc, log = run(self.work, "--db", db or self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "s",
                       "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
         self.assertEqual(rc, 0, log[-3000:])
         return log
@@ -4052,7 +4071,7 @@ class WfaTracebackTest(WorkDir):
         self.assertIn("Warning: this run aligns with the singletrack WFA2 traceback", log)
 
     def test_an_unknown_traceback_stops_the_run(self):
-        rc, log = run(self.work, "--db", self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "s",
                       "-o", "bad", "--wfa_traceback", "fast")
         self.assertEqual(rc, 2, log[-3000:])
         self.assertIn("--wfa_traceback must be auto, classic or singletrack, not 'fast'", log)

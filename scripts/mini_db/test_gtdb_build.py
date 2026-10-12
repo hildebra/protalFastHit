@@ -860,8 +860,8 @@ class GeneSubsetTest(unittest.TestCase):
             prerequisites.missing("$PROTAL names no protal binary")
         from gtdb_to_protal_db import full_reference_path
 
-        def build_db(folder, *extra):  # zstd level 1 without long-distance matching: the database's content is the same
-            return subprocess.run([protal, "--build", "--no_profile", "-t", "2", "--no_bundle", "--compress_level", "1",
+        def build_db(folder, *extra):  # zstd level 1 without long-distance matching, 4 threads: the same content
+            return subprocess.run([protal, "--build", "--no_profile", "-t", "4", "--no_bundle", "--compress_level", "1",
                                    "--compress_window_log", "0", "--db", folder, "--reference",
                                    os.path.join(folder, "reference.fna"), "--full_reference", full_reference_path(folder),
                                    *extra], capture_output=True, text=True)

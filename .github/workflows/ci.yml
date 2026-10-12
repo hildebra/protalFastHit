@@ -30,8 +30,10 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure -j4
 
-      - name: Mini database
-        run: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
+      # The mini database (scripts/mini_db/build_mini_db.sh), built by the example into data/mini_db, and protal's accuracy
+      # on reads of a mock community drawn from it; the end-to-end tests use the same database (one build for both).
+      - name: Mini database and accuracy on a mock community
+        run: PROTAL=build/protal THREADS=4 bash examples/mini_db/run.sh data/mini_db
 
       - name: End-to-end tests
         env:
@@ -39,9 +41,6 @@ jobs:
           PROTAL: ${{ github.workspace }}/build/protal
           SIMULATE: ${{ github.workspace }}/build/simulate_metagenomes
         run: python3 -m unittest -v tests/e2e/test_protal_e2e.py
-
-      - name: Accuracy on a mock community
-        run: PROTAL=build/protal THREADS=4 bash examples/mini_db/run.sh "$RUNNER_TEMP/mini_db_example"
 
       # The mini database scripts, the GTDB downloads, collector and scenarios, the build script, and the GTDB build end
       # to end (test_gtdb_pipeline.py, about 3 minutes; two protal builds of 3.5 GB each at most at once).
@@ -55,7 +54,7 @@ jobs:
         run: |
           python3 -m unittest -v scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
             scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
-            scripts/test_model_pmml.py
+            scripts/test_ancestry_sites.py scripts/test_foreign_rates.py scripts/test_model_pmml.py
 
   sanitizers:
     runs-on: ubuntu-24.04
