@@ -84,10 +84,22 @@ A weighted fit now takes what an unweighted one does.
 
 - A trainer run on a real table before and after. Each fit's binning shrinks as above; how much of a whole training
   that is depends on how much of it is fitting.
-- A trainer run as a script with `--fold-jobs` above 1, confirming that its workers import `hgb_binning` (loky passes
-  them the parent's `sys.path`). `FoldJobsTest` covers the trainer imported as a module. Either way, a worker that
-  cannot import it fits correctly, only slower.
 - scikit-learn 1.8 and 1.10 are not installed here. `install()`'s check is what stands for them.
+
+## Which runs get it
+
+`protal --build` uses no scikit-learn. The models of a GTDB database are trained by `build_gtdb_database.py`, which
+runs `machine_learning_cmdline.py` as a script, as does `ancestry_truth_test.py`, so both get it with no change of
+their own. Every other fit in the repository is in the analysis scripts under `docs/claude/`.
+
+With many threads the trainer fits the folds in loky worker processes (`--fold-jobs`, by default `--threads` / 2 at
+most `--folds`). Checked as a GTDB build runs it: the trainer as a script on a table of 1,200 rows, 240 of them a
+scenario's, with `--fold-jobs 2`. A `sitecustomize.py` on `PYTHONPATH` wrote, at each process's exit, which function
+scikit-learn's binning module held. The trainer and both workers held `hgb_binning`'s. The workers import it in
+`make_model`.
+
+The binning runs once per fit, before the boosting, so its cost does not grow with the rounds. The builds' 250 rounds
+(`TRAINER_ROUNDS`) gain less in proportion than the 30 rounds above, but the same seconds per fit.
 
 The whole module's tests and the GTDB build end to end were not rerun. The models are bit-identical by construction
 and by the checks above.
