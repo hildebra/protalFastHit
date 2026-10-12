@@ -61,6 +61,7 @@ import collections
 import concurrent.futures
 import contextlib
 import csv
+import functools
 import glob
 import hashlib
 import io
@@ -179,6 +180,14 @@ def parse_args(argv=None):
                    help="protal --weighted_site_shift in this collection's protal runs: an unsure read's site shift also "
                         "discounts its differences at the columns its family's genera change freely (column_weights.tsv); "
                         "off by default, as in protal (its default 2026-10-11 to 2026-10-12)")
+    p.add_argument("--sparse_first_levels", type=sparse_first_levels, default={},
+                   metavar="READ_TYPE:C/C/...,...",
+                   help="sparse-first gates (protal --sparse_first) to profile every sample of these read types at too, "
+                        "beside the database's gate, in the same protal runs (the map's SPARSE_FIRST column), e.g. "
+                        "pe:0/2/4,pb:0/4/16 (0: ungated): a sample's runs at gate C write to <point>/protal_c<C> "
+                        "(protal_se_c<C>) as <sample>__c<C>, and their tables go to OUT/c_gates/c<C>/ (meta_sample the "
+                        "sample's own), with samples_<read type>.txt listing the samples. Samples streamed into protal "
+                        "through pipes are profiled once (build_gtdb_database.py --test-c-gates)")
     p.add_argument("--gene_positions",
                    help="a gene_positions.tsv of every genome simulated (the release's, held-out species included): "
                         "simulate_metagenomes counts each genome's reads that overlap a marker gene, and the tables get "
@@ -335,9 +344,36 @@ MARKER_READS = "marker_reads.tsv"  # a long-read unit's sim folder: its genomes'
 def unseen_table(read_type):
     """The file of a read type's present species without a row (<table>.unseen.tsv)."""
     return TABLES[read_type][:-len(".tsv")] + ".unseen.tsv"
-MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE", "UNMAPPED_READS"]
+MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE", "UNMAPPED_READS",
+               "SPARSE_FIRST"]
 # A map row without a column (one of an older collector's map, --also_profile) takes its default.
-MAP_DEFAULTS = {"UNMAPPED_READS": "count"}
+MAP_DEFAULTS = {"UNMAPPED_READS": "count", "SPARSE_FIRST": "-"}
+# --sparse_first_levels: a sample profiled at another sparse-first gate C is <sample>__c<C>, in <profile dir>_c<C>; its
+# tables are in OUT/c_gates/c<C>/.
+LEVEL_SUFFIX = "__c"
+LEVELS_DIR = "c_gates"
+
+
+def sparse_first_levels(text):
+    """--sparse_first_levels "pe:0/2/4,pb:0/4/16" -> {"pe": [0, 2, 4], "pb": [0, 4, 16]}; "" -> {}."""
+    levels = {}
+    for item in filter(None, (s.strip() for s in str(text).split(","))):
+        read_type, sep, values = item.partition(":")
+        if not sep or read_type not in READ_TYPES:
+            raise argparse.ArgumentTypeError(f"expected READ_TYPE:C/C/... with a read type of {', '.join(READ_TYPES)}, "
+                                             f"got {item!r}")
+        gates = set()
+        for value in values.split("/"):
+            if not value.isdigit() or int(value) > 32 or int(value) & (int(value) - 1):
+                raise argparse.ArgumentTypeError(f"a gate is 0, 1, 2, 4, 8, 16 or 32, not {value!r} (in {item!r})")
+            gates.add(int(value))
+        levels[read_type] = sorted(gates)
+    return levels
+
+
+def levels_text(levels):
+    """{"pe": [0, 2]} -> "pe:0/2", as --sparse_first_levels takes it."""
+    return ",".join(f"{t}:{'/'.join(map(str, cs))}" for t, cs in levels.items())
 
 
 def congener_spec(text):
@@ -1017,6 +1053,27 @@ def dumps_of(unit, opts):
     return sorted(glob.glob(os.path.join(profile_dir(unit, opts), "**", "*.truth_annotated"), recursive=True))
 
 
+def unit_levels(unit, opts):
+    """The sparse-first gates a unit's samples are profiled at besides the database's (--sparse_first_levels)."""
+    return (getattr(opts, "sparse_first_levels", None) or {}).get(unit["type"], [])
+
+
+def level_dir(unit, opts, level):
+    """Where a unit's samples profiled at sparse-first gate `level` go: beside its profile folder (dumps_of does not
+    see them)."""
+    return profile_dir(unit, opts) + f"_c{level}"
+
+
+def level_dumps(unit, opts, level):
+    return sorted(glob.glob(os.path.join(level_dir(unit, opts, level), "**", "*.truth_annotated"), recursive=True))
+
+
+def base_sample(sample, level):
+    """A sample's own name from its name at sparse-first gate `level` (<sample>__c<level>)."""
+    suffix = f"{LEVEL_SUFFIX}{level}"
+    return sample[:-len(suffix)] if level is not None and sample.endswith(suffix) else sample
+
+
 # ---- simulation -------------------------------------------------------------------------------------------
 
 def abundance_args(text):
@@ -1577,10 +1634,27 @@ def map_rows(meta):
 
 
 def unit_map_rows(unit, opts):
-    """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to."""
+    """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to; with
+    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST; `_level_of` names the sample, which
+    profile_map leaves out with the sample's reads coming through a pipe)."""
     rows, dirs = unit_map_rows_of(unit, opts)
     unmapped = "write" if writes_unmapped(unit, opts) else "count"
-    return [{**row, "UNMAPPED_READS": unmapped} for row in rows], dirs
+    rows = [{**row, "UNMAPPED_READS": unmapped} for row in rows]
+    levels = []
+    for level in unit_levels(unit, opts):
+        out = level_dir(unit, opts, level)
+        sams, profiles = os.path.join(out, "alignments"), os.path.join(out, "profiles")
+        dirs = dirs + [sams, profiles]
+        for row in rows:
+            name = row["SAMPLEID"] + f"{LEVEL_SUFFIX}{level}"
+            sam = row.get("SAM", "-")
+            # The sample's SAM's extension (.sam.gz, .sam.zst), or protal's default name where it gives none.
+            base = os.path.basename(sam)
+            ext = base[base.index(row["SAMPLEID"]) + len(row["SAMPLEID"]):] if row["SAMPLEID"] in base else ".sam.gz"
+            levels.append({**row, "SAMPLEID": name, "SAM": "-" if sam in ("", "-") else os.path.join(sams, name + ext),
+                           "PREFIX": os.path.join(out, name), "PROFILE": os.path.join(profiles, name + ".profile"),
+                           "UNMAPPED_READS": "count", "SPARSE_FIRST": str(level), "_level_of": row["SAMPLEID"]})
+    return rows + levels, dirs
 
 
 def unit_map_rows_of(unit, opts):
@@ -1631,6 +1705,8 @@ def profile_map(units, opts, path, paths_of=None):
         unit_rows, dirs = unit_map_rows(unit, opts)
         for d in dirs:
             os.makedirs(d, exist_ok=True)
+        # A sample whose reads come through a pipe is profiled once: its rows at other gates are left out.
+        unit_rows = [row for row in unit_rows if not (paths_of and row.get("_level_of") in paths_of)]
         rows += [{**row, **dict(zip(("FIRST", "SECOND"), paths_of[row["SAMPLEID"]]))}
                  if paths_of and row["SAMPLEID"] in paths_of else row for row in unit_rows]
     write_map(path, rows)
@@ -1684,13 +1760,24 @@ def community_of(unit, sample, opts):
     sys.exit(f"{sample}: not in the samples of {unit['name']}")
 
 
-def write_table(read_type, units, opts, context):
-    """Joins the dumps of a read type's units into its table."""
+def write_table(read_type, units, opts, context, gate=None):
+    """Joins the dumps of a read type's units into its table; with `gate`, those of its samples profiled at that
+    sparse-first gate (--sparse_first_levels) into OUT/c_gates/c<gate>/, meta_sample the samples' own names, and their
+    names into samples_<read type>.txt there (units whose reads came through pipes have none)."""
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
-    table = os.path.join(opts.out, TABLES[read_type])
+    if gate is None:
+        table = os.path.join(opts.out, TABLES[read_type])
+        dumps = functools.partial(dumps_of, opts=opts)
+    else:
+        os.makedirs(os.path.join(opts.out, LEVELS_DIR, f"c{gate}"), exist_ok=True)
+        table = os.path.join(opts.out, LEVELS_DIR, f"c{gate}", TABLES[read_type])
+        units = [u for u in units if gate in unit_levels(u, opts)]
+        dumps = functools.partial(level_dumps, opts=opts, level=gate)
+    samples_written = []
     # <table>.unseen.tsv only with --gene_positions: without the simulator's counts there is nothing to write.
-    unseen_path = os.path.join(opts.out, unseen_table(read_type)) if getattr(opts, "gene_positions", None) else os.devnull
+    unseen_path = os.path.join(opts.out, unseen_table(read_type)) \
+        if getattr(opts, "gene_positions", None) and gate is None else os.devnull
     genomes_of, markers_of = {}, {}
     distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
     unseen_partial = unseen_path + ".partial" if unseen_path != os.devnull else os.devnull
@@ -1703,8 +1790,9 @@ def write_table(read_type, units, opts, context):
             present = absent = strains = congeners = unseen = 0
             attributed = collections.Counter()
             long_counts = long_marker_counts(unit, opts) if drawn(unit) else None
-            for dump in dumps_of(unit, opts):
-                sample = os.path.basename(dump).split(".profile")[0]
+            for dump in dumps(unit):
+                sample = base_sample(os.path.basename(dump).split(".profile")[0], gate)
+                samples_written.append(sample)
                 community_point, community = community_of(unit, sample, opts)
                 if community_point["name"] not in genomes_of:
                     genomes_of[community_point["name"]] = simulated_genomes(point_dirs(community_point, opts)[0])
@@ -1776,12 +1864,26 @@ def write_table(read_type, units, opts, context):
                     unseen_writer.writerow([unit["name"], sample, unit.get("scenario", ""), taxon, markers])
                     unseen += 1
             by_level = ", ".join(f"{n} to {rank}" for rank, n in sorted(attributed.items()) if rank)
-            print(f"{unit['name']}: {present} present ({strains} from other genomes than the representative) and "
+            at_gate = "" if gate is None else f" at sparse-first gate {gate}"
+            print(f"{unit['name']}{at_gate}: {present} present ({strains} from other genomes than the representative) and "
                   f"{absent} absent taxa ({congeners} congeners of species the database lacks; closest to a species "
-                  f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps_of(unit, opts))} samples" +
+                  f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps(unit))} samples" +
                   (f"; {unseen} present species of the database with reads on a marker gene and no row" if unseen else ""),
                   flush=True)
-            totals.update(present=present, absent=absent, samples=len(dumps_of(unit, opts)), unseen=unseen)
+            totals.update(present=present, absent=absent, samples=len(dumps(unit)), unseen=unseen)
+    if gate is not None:
+        # A gate's table (" (sparse-first gate C)": build_gtdb_database.py counts the "N taxa in TABLE: " lines of the
+        # main tables only), and its samples; none without a sample (all streamed).
+        if header is None:
+            os.remove(table + ".partial")
+            print(f"no samples of {read_type} at sparse-first gate {gate} (their reads came through pipes)", flush=True)
+            return
+        os.replace(table + ".partial", table)
+        with open(os.path.join(os.path.dirname(table), f"samples_{read_type}.txt"), "w") as fh:
+            fh.writelines(s + "\n" for s in samples_written)
+        print(f"{rows} taxa in {table} (sparse-first gate {gate}): {totals['present']} present, {totals['absent']} "
+              f"absent, from {totals['samples']} sample{'s' if totals['samples'] != 1 else ''}", flush=True)
+        return
     os.replace(table + ".partial", table)
     if unseen_path != os.devnull:
         os.replace(unseen_partial, unseen_path)
@@ -1794,14 +1896,15 @@ def write_table(read_type, units, opts, context):
 _TABLES_WORK = None  # (units, opts, context) of write_tables, set before its worker processes fork
 
 
-def _table_in_worker(read_type):
-    """write_table of one read type in a worker process forked by write_tables (which set _TABLES_WORK). -> (what it
-    printed, None or why it stopped: sys.exit's message, or an exception's traceback)."""
+def _table_in_worker(job):
+    """write_table of one read type (and sparse-first gate, or None) in a worker process forked by write_tables (which
+    set _TABLES_WORK). -> (what it printed, None or why it stopped: sys.exit's message, or an exception's traceback)."""
+    read_type, level = job
     units, opts, context = _TABLES_WORK
     printed = io.StringIO()
     try:
         with contextlib.redirect_stdout(printed):
-            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
+            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context, level)
     except SystemExit as stopped:
         return printed.getvalue(), 1 if stopped.code is None else stopped.code
     except Exception:  # the collector stops with its traceback, as it would have without the worker
@@ -1817,20 +1920,22 @@ def write_tables(read_types, units, opts, context, processes):
     are those of the tables written one after the other; what each worker printed is printed once it has ended, in the
     read types' order, so that the log has the lines of the serial run in their order (build_gtdb_database.py reads its
     "N taxa in TABLE" lines). A table that fails stops the collector once the lines of those before it, and its own,
-    are printed (the tables after it may have been written). One read type, one process, or no fork(): one table after
-    the other, here."""
+    are printed (the tables after it may have been written). One table, one process, or no fork(): one table after
+    the other, here. With --sparse_first_levels, the tables of each read type's other gates come after the main ones."""
     global _TABLES_WORK
-    if processes <= 1 or len(read_types) <= 1 or "fork" not in multiprocessing.get_all_start_methods():
-        for read_type in read_types:
-            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context)
+    levels = getattr(opts, "sparse_first_levels", None) or {}
+    jobs = [(t, None) for t in read_types] + [(t, c) for t in read_types for c in levels.get(t, [])]
+    if processes <= 1 or len(jobs) <= 1 or "fork" not in multiprocessing.get_all_start_methods():
+        for read_type, level in jobs:
+            write_table(read_type, [u for u in units if u["type"] == read_type], opts, context, level)
         return
     sys.stdout.flush()  # nothing buffered that a worker would write again when it ends
     sys.stderr.flush()
     _TABLES_WORK = (units, opts, context)
     try:
-        with concurrent.futures.ProcessPoolExecutor(min(processes, len(read_types)),
+        with concurrent.futures.ProcessPoolExecutor(min(processes, len(jobs)),
                                                     mp_context=multiprocessing.get_context("fork")) as pool:
-            futures = [pool.submit(_table_in_worker, read_type) for read_type in read_types]
+            futures = [pool.submit(_table_in_worker, job) for job in jobs]
             for future in futures:
                 printed, stopped = future.result()
                 sys.stdout.write(printed)
@@ -2037,14 +2142,19 @@ def profile_keys(units, opts, keys):
     # Only a unit that writes unmapped records has it in its key: the others' profiles stay valid.
     return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"],
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
-                        **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {})}
+                        **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {}),
+                        **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {})}
             for u in units}
 
 
 def profiled(unit, opts, key):
-    """Whether a unit is profiled with this key, all its samples' dumps there."""
-    return same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and \
-        len(dumps_of(unit, opts)) >= unit["samples"]
+    """Whether a unit is profiled with this key, all its samples' dumps there, and at its other sparse-first gates
+    (--sparse_first_levels) too unless its reads came through pipes."""
+    if not (same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and
+            len(dumps_of(unit, opts)) >= unit["samples"]):
+        return False
+    return streamed_here(unit, opts) or all(len(level_dumps(unit, opts, c)) >= unit["samples"]
+                                            for c in unit_levels(unit, opts))
 
 
 def unit_reads(unit, opts):
@@ -2097,6 +2207,8 @@ def start_profiling(units, opts, key_of):
                 print(f"{unit['name']} was profiled against another database or with another protal (or by an older "
                       "collector): profiling it again", flush=True)
             shutil.rmtree(folder, ignore_errors=True)
+            for other in glob.glob(folder + "_c*"):  # its samples at other sparse-first gates (--sparse_first_levels)
+                shutil.rmtree(other, ignore_errors=True)
             os.makedirs(folder)
             write_key(os.path.join(folder, "profiling.json"), key)
 

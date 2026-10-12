@@ -350,13 +350,64 @@ namespace protal {
         exit(2);
     }
 
+    // Each read type's sparse-first gate (--sparse_first): given, else (auto) as the database records it (off where it
+    // does not say), and the gates' score and hits likewise; a map's SPARSE_FIRST sets a sample's own. The reads a gate
+    // gives up count no failed candidates, which the models' failed_candidate_rate uses: the database's models were
+    // trained on runs gated as it records, and a run gated otherwise (a read type's gate, or a sample's) is warned.
+    // --stage1_probe measures what a gate would give up: the database's gates are not used with it.
+    static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, std::ostream& out = std::cout) {
+        std::array<size_t, kReadTypeCount> gates{};
+        for (size_t t = 0; t < kReadTypeCount; t++) {
+            auto const& given = options.SparseFirstGiven()[t];
+            gates[t] = given ? *given : options.Stage1Probe() ? 0 : settings.sparse_first[t].value_or(0);
+        }
+        size_t const recorded_score = settings.sparse_first_score.value_or(14);
+        size_t const recorded_hits = settings.sparse_first_hits.value_or(1);
+        options.SetSparseFirst(gates, options.SparseFirstScoreGiven().value_or(recorded_score),
+                               options.SparseFirstHitsGiven().value_or(recorded_hits));
+        bool const recorded_any = std::any_of(settings.sparse_first.begin(), settings.sparse_first.end(),
+                                              [](auto const& g) { return g && *g > 0; });
+        if (!recorded_any && !options.AnySparseFirst()) return;  // ungated database and run: nothing to say
+        // The read types of this run's samples, as the run gates them and as the database does; the samples gated
+        // otherwise than the database gates their read type (a read type's gate, or the map's SPARSE_FIRST).
+        std::string run, database;
+        size_t others = 0;
+        std::string example;
+        for (auto const& info : kReadTypes) {
+            if (!options.AnySample(info.type)) continue;
+            size_t const t = static_cast<size_t>(info.type);
+            auto const level = [](size_t c) { return c ? std::to_string(c) : std::string("off"); };
+            run += (run.empty() ? "" : ", ") + info.token + " " + level(gates[t]);
+            database += (database.empty() ? "" : ", ") + info.token + " " + level(settings.sparse_first[t].value_or(0));
+        }
+        for (auto index : options.GetRange()) {
+            size_t const t = static_cast<size_t>(options.GetReadType(index));
+            if (options.GetSparseFirst(index) == settings.sparse_first[t].value_or(0)) continue;
+            if (others++ == 0) example = options.GetSampleId(index);
+        }
+        bool const score_differs = options.AnySparseFirst() &&
+                                   (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
+        out << "sparse first: " << run << (options.SparseFirstGiven() != SparseFirstGates() ? " (--sparse_first)" : "")
+            << ", score " << options.GetSparseFirstScore() << ", " << options.GetSparseFirstHits() << " hit(s)"
+            << "; the database's models were trained with " << database << ", score " << recorded_score << ", "
+            << recorded_hits << " hit(s)" << std::endl;
+        if ((others > 0 || score_differs) && !options.ProfileOnly()) {
+            std::cerr << "Warning: " << (others > 0 ? std::to_string(others) + " sample(s) of this run (e.g. " + example +
+                                                      ") are gated otherwise (--sparse_first or the map's SPARSE_FIRST)"
+                                                    : std::string("this run's sparse-first gates score otherwise"))
+                      << " than the database's models were trained with: the reads a gate gives up count no failed "
+                      << "candidates, so their calls are not those of training. Leave out --sparse_first (auto) to gate as "
+                      << "they were trained." << std::endl;
+        }
+    }
+
     // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
     // with (build_settings.tsv; classic for a database built before 2026-10-11). Warns when the run aligns otherwise than
     // the database was built: its strain alleles, congener gaps and column weights, and the runs its models were trained
     // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Also how the
-    // model's `fragments` feature counts (--fragment_count, else the database's). Exits 8 if build_settings.tsv cannot
-    // be read.
-    static void SetWfaTraceback(Options& options, std::ostream& out = std::cout) {
+    // model's `fragments` feature counts (--fragment_count, else the database's), and each read type's sparse-first gate
+    // (--sparse_first, else the database's). Exits 8 if build_settings.tsv cannot be read.
+    static void ApplyBuildSettings(Options& options, std::ostream& out = std::cout) {
         if (options.BuildMode()) return;
         auto const file = options.BuildSettingsDbFile();
         build_settings::Settings settings;
@@ -401,6 +452,7 @@ namespace protal {
                       << "calls are not those of training. Leave out --fragment_count (auto) to count as they were trained."
                       << std::endl;
         }
+        ApplySparseFirst(options, settings, out);
     }
 
     // The species' NCBI taxids (ncbi_taxids.tsv, NcbiTaxids.h) for the profiles' last columns, with --ncbi_taxids. Exits 2
@@ -673,7 +725,7 @@ namespace protal {
         if (seeding.sparse_reads > 0) {  // --sparse_first: the reads given up after their sampled lookups
             auto const reads = static_cast<double>(seeding.sparse_reads);
             std::cout << std::fixed << std::setprecision(2) << "Sample " << options.GetSampleId(index) << " sparse first (1/"
-                      << options.GetSparseFirst() << " of the cores, score " << options.GetSparseFirstScore() << ", "
+                      << options.GetSparseFirst(index) << " of the cores, score " << options.GetSparseFirstScore() << ", "
                       << options.GetSparseFirstHits() << " hit(s)): " << seeding.sparse_given_up << " of " << seeding.sparse_reads
                       << (read_type == ReadType::Paired ? " pairs" : " reads") << " given up ("
                       << 100.0 * static_cast<double>(seeding.sparse_given_up) / reads << "%), " << seeding.sparse_lookups
@@ -943,9 +995,10 @@ namespace protal {
                 AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(),
                                            IsLongReadType(read_type) ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
                 // --sparse_first: reads judged by a sample of their lookups first (ChainAnchorFinder::SetSparseFirst; long
-                // reads over all their chunks, LongReadAligner).
-                if (options.GetSparseFirst() > 0) {
-                    anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(options.GetSparseFirst())),
+                // reads over all their chunks, LongReadAligner), as the sample's read type is gated (or the map's
+                // SPARSE_FIRST says).
+                if (size_t const sparse_first = options.GetSparseFirst(index); sparse_first > 0) {
+                    anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
                                                  static_cast<uint32_t>(options.GetSparseFirstScore()));
                 }
                 // AlignmentHandler approach
@@ -3439,7 +3492,7 @@ namespace protal {
             return RunStatus::Get().Finish();
         }
 
-        SetWfaTraceback(options);
+        ApplyBuildSettings(options);
 
         // Directories that outputs are written into without creating them first (per-species strain
         // files, misc statistics). Created here so that a run started with -1/-2/-o, not a map, has them.

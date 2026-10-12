@@ -309,6 +309,60 @@ TEST(BuildSettings, FragmentCountWrittenAndReadBack) {
     EXPECT_NE(build_settings::Read(bad, older).find("mapq or soft"), std::string::npos);
 }
 
+// The sparse-first gates (--sparse_first, 2026-10-12): auto, one C for every read type, or read types and theirs; a C
+// is 0 (off) or a power of two up to 32. Written per read type with their score and hits, read back; a later
+// version's read type is skipped, a bad C refused; a file without them says nothing (off).
+TEST(BuildSettings, SparseFirstGatesParsedWrittenAndReadBack) {
+    auto const index = [](ReadType type) { return static_cast<size_t>(type); };
+    auto const automatic = ParseSparseFirstGates("auto");
+    ASSERT_TRUE(automatic);
+    EXPECT_EQ(*automatic, SparseFirstGates());
+    auto const all = ParseSparseFirstGates("4");
+    ASSERT_TRUE(all);
+    for (auto const& gate : *all) EXPECT_EQ(gate, size_t{4});
+    auto const some = ParseSparseFirstGates("pe:1,pb:8,ont:0");
+    ASSERT_TRUE(some);
+    EXPECT_EQ((*some)[index(ReadType::Paired)], size_t{1});
+    EXPECT_FALSE((*some)[index(ReadType::Single)]);
+    EXPECT_EQ((*some)[index(ReadType::PacBio)], size_t{8});
+    EXPECT_EQ((*some)[index(ReadType::ONT)], size_t{0});
+    EXPECT_EQ(SparseFirstGatesText(*some), "pe 1, pb 8, ont off");
+    EXPECT_EQ(SparseFirstGatesText(SparseFirstGates()), "none");
+    for (char const* bad : { "3", "64", "-1", "", "pe", "pe:", "pe:3", "xx:2", "pe:2,", "pe:2;se:4", "auto,pe:2" }) {
+        EXPECT_FALSE(ParseSparseFirstGates(bad)) << bad;
+    }
+
+    build_settings::Settings written;
+    written.wfa_traceback = WfaTraceback::Singletrack;
+    written.sparse_first = *some;
+    written.sparse_first_score = 13;
+    written.sparse_first_hits = 2;
+    std::stringstream file;
+    build_settings::Write(file, written);
+    EXPECT_NE(file.str().find("sparse_first_pe\t1\nsparse_first_pb\t8\nsparse_first_ont\t0\nsparse_first_score\t13\n"
+                              "sparse_first_hits\t2\n"), std::string::npos) << file.str();
+    build_settings::Settings read;
+    EXPECT_EQ(build_settings::Read(file, read), "");
+    EXPECT_EQ(read.sparse_first, *some);
+    EXPECT_EQ(read.sparse_first_score, size_t{13});
+    EXPECT_EQ(read.sparse_first_hits, size_t{2});
+
+    build_settings::Settings later;
+    std::istringstream unknown("sparse_first_xr\t4\nsparse_first_se\t16\n");
+    EXPECT_EQ(build_settings::Read(unknown, later), "");
+    EXPECT_EQ(later.sparse_first[index(ReadType::Single)], size_t{16});
+    build_settings::Settings none;
+    std::istringstream older("wfa_traceback\tsingletrack\n");
+    EXPECT_EQ(build_settings::Read(older, none), "");
+    EXPECT_EQ(none.sparse_first, SparseFirstGates());
+    EXPECT_FALSE(none.sparse_first_score);
+    for (char const* bad : { "sparse_first_pe\t3\n", "sparse_first_score\t17\n", "sparse_first_hits\t0\n" }) {
+        std::istringstream is(bad);
+        build_settings::Settings settings;
+        EXPECT_NE(build_settings::Read(is, settings).find("line 1"), std::string::npos) << bad;
+    }
+}
+
 // A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's first 18 bases are free
 // (dovetail), the rest must align. Without X-drop it aligns over the whole read. WFA2-lib v2.3.6 with X-drop 50 reports
 // it completed, with operations for 151 read bases where the read has 150: the wrapper reports it failed, and so does a

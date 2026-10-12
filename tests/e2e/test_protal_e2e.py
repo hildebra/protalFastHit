@@ -4126,5 +4126,90 @@ class WfaTracebackTest(WorkDir):
         self.assertIn("--wfa_traceback must be auto, classic or singletrack, not 'fast'", log)
 
 
+class SparseFirstGatesTest(WorkDir):
+    """--sparse_first per read type (2026-10-12): --build records its gates (and their score and hits) in
+    build_settings.tsv; a run on the database gates each read type as it records, unless --sparse_first says otherwise,
+    and is warned then, as a sample given its own gate by the map's SPARSE_FIRST is; an ungated database's runs are
+    ungated. On the operon release's inputs (OperonRelease), built again with gates. (Needs protal, not the test
+    database.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        release = operon_release()
+        cls.plain_db, cls.reads = release.db, release.reads
+        cls.db = os.path.join(cls.work, "gated")
+        shutil.copytree(release.inputs, cls.db)
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
+                                "--reference", os.path.join(cls.db, "reference.fna"), "--sparse_first", "pe:2,se:4,pb:8,ont:1",
+                                "--sparse_first_score", "13")
+        if rc != 0:
+            raise RuntimeError("protal --build --sparse_first failed:\n" + cls.build_log[-3000:])
+
+    def align(self, name, *extra, db=None, rc_expected=0):
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", name,
+                      "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
+        self.assertEqual(rc, rc_expected, log[-3000:])
+        return log
+
+    def test_the_build_records_its_gates(self):
+        self.assertIn("sparse-first gates: pe 2, se 4, pb 8, ont 1, score 13, 1 hit(s)", self.build_log)
+        unpacked = self.path("unpacked")
+        rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        settings = read_text(os.path.join(unpacked, "build_settings.tsv"))
+        for line in ("sparse_first_pe\t2\n", "sparse_first_se\t4\n", "sparse_first_pb\t8\n", "sparse_first_ont\t1\n",
+                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n"):
+            self.assertIn(line, settings)
+
+    def test_a_run_follows_the_database_and_is_warned_otherwise(self):
+        log = self.align("auto")
+        self.assertIn("sparse first: pe 2, score 13, 1 hit(s); the database's models were trained with pe 2, score 13, "
+                      "1 hit(s)", log)
+        self.assertIn("Sample auto sparse first (1/2 of the cores, score 13, 1 hit(s))", log)
+        self.assertNotIn("gated otherwise", log)
+        log = self.align("off", "--sparse_first", "0")
+        self.assertIn("sparse first: pe off (--sparse_first)", log)
+        self.assertNotIn("Sample off sparse first (", log)
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. off) are gated otherwise", log)
+        log = self.align("four", "--sparse_first", "pe:4")
+        self.assertIn("Sample four sparse first (1/4 of the cores, score 13", log)
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. four) are gated otherwise", log)
+
+    def test_the_maps_sparse_first_gates_a_sample(self):
+        sams = self.path("map_out")
+        os.makedirs(sams, exist_ok=True)
+        rows = [("s_db", "-"), ("s_eight", "8"), ("s_off", "0")]
+        with open(self.path("gates.map"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{sams}\n#SAMPLEID\tFIRST\tSECOND\tPREFIX\tSPARSE_FIRST\n")
+            fh.writelines(f"{s}\t{self.reads[0]}\t{self.reads[1]}\t{s}\t{gate}\n" for s, gate in rows)
+        rc, log = run(self.work, "--db", self.db, "--map", self.path("gates.map"), "-t", "2", "--no_strains", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Sample s_db sparse first (1/2 of", log)
+        self.assertIn("Sample s_eight sparse first (1/8 of", log)
+        self.assertNotIn("Sample s_off sparse first (", log)
+        self.assertIn("Warning: 2 sample(s) of this run (e.g. s_eight) are gated otherwise", log)
+
+    def test_an_ungated_database_runs_ungated(self):
+        log = self.align("plain", db=self.plain_db)
+        self.assertNotIn("sparse first", log)
+        log = self.align("plain_gated", "--sparse_first", "2", db=self.plain_db)
+        self.assertIn("sparse first: pe 2 (--sparse_first), score 14, 1 hit(s); the database's models were trained with "
+                      "pe off, score 14, 1 hit(s)", log)
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. plain_gated) are gated otherwise", log)
+
+    def test_bad_gates_stop_the_run(self):
+        log = self.align("bad", "--sparse_first", "3", rc_expected=2)
+        self.assertIn("--sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs", log)
+        log = self.align("bad_type", "--sparse_first", "pe:2,xx:4", rc_expected=2)
+        self.assertIn("not 'pe:2,xx:4'", log)
+        with open(self.path("bad.map"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('bad_map')}\n#SAMPLEID\tFIRST\tSECOND\tPREFIX\tSPARSE_FIRST\n")
+            fh.write(f"s\t{self.reads[0]}\t{self.reads[1]}\ts\t5\n")
+        rc, log = run(self.work, "--db", self.db, "--map", self.path("bad.map"), "-t", "2", "--no_profile")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("SPARSE_FIRST is '5'; expected 0 (off), 1, 2, 4, 8, 16, 32 or -", log)
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())

@@ -36,7 +36,8 @@
 # probe line and the probe run's wall time against the timed runs' median.
 # --test_sparse: after a sample's timed runs, one run at each of four levels of protal's --sparse_first C (a read looked
 # up by 1/C of its k-mer cores first and given up without a near-exact hit; ChainAnchorFinder::SetSparseFirst): C = 1, 2,
-# 4, 8 for short reads (SPARSE_SHORT), 4, 8, 16, 32 for long reads (SPARSE_LONG); not counted in runs.tsv. A line each in
+# 4, 8 for short reads (SPARSE_SHORT), 4, 8, 16, 32 for long reads (SPARSE_LONG); not counted in runs.tsv. On a database that
+# records gates (build_settings.tsv, since 2026-10-12) the timed runs follow them: add 0 to the levels for an ungated run. A line each in
 # sparse.tsv: times, memory, perf counters, the reads given up and the sampled lookups, the records written against the
 # last timed run's, its profile against that run's (species called by both, lost, gained, Bray-Curtis of the
 # abundances as written and over the species alone, the two unknown shares), the alignment's CPU, cores and reader time as in runs.tsv, and the gate's own seconds a thread (protal's

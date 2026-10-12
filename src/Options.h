@@ -177,9 +177,9 @@ namespace protal {
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
-                ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). Reads given up count no failed candidates, which the models' failed_candidate_rate uses: a database's models are trained without it (docs/claude/2026-10-12-sparse-first). 0: off (the default).", cxxopts::value<size_t>()->default_value("0"))
-                ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count.", cxxopts::value<size_t>()->default_value("14"))
-                ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept.", cxxopts::value<size_t>()->default_value("1"))
+                ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A run gated otherwise than its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
+                ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count (default: the database's, else 14; --build records it with the gates).", cxxopts::value<size_t>())
+                ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept (default: the database's, else 1; --build records it with the gates).", cxxopts::value<size_t>())
                 ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
@@ -276,9 +276,9 @@ namespace protal {
         bool no_indel_bound = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
-        size_t sparse_first = 0;
-        size_t sparse_first_score = 14;
-        size_t sparse_first_hits = 1;
+        SparseFirstGates sparse_first;                // --sparse_first per read type; nothing: auto (the database's)
+        std::optional<size_t> sparse_first_score;     // --sparse_first_score; nothing: the database's, else 14
+        std::optional<size_t> sparse_first_hits;      // --sparse_first_hits; nothing: the database's, else 1
         bool stage1_probe = false;
         bool taxon_statistics = false;
         bool full_sam_header = false;
@@ -324,6 +324,7 @@ namespace protal {
         std::vector<std::string> profile_truth_list;
         std::vector<std::string> read_type_list;  // per sample: a ReadType token, or empty: pe or se by the second file
         std::vector<std::string> unmapped_reads_list;  // per sample, a map's UNMAPPED_READS: write, count or '-'
+        std::vector<std::string> sparse_first_list;    // per sample, a map's SPARSE_FIRST: C or '-'
         std::vector<size_t> range;
         // What reading the arguments found (patterns without a SAM, how samples were named), reported with the
         // other checks' errors and notes (PrepareAndCheckValidity).
@@ -424,7 +425,12 @@ namespace protal {
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_stage1_probe = false;  // --stage1_probe
-        size_t m_sparse_first = 0;    // --sparse_first: C, 0 off
+        // --sparse_first as given (per read type; nothing: auto), and as the run gates each read type (C, 0 off): given,
+        // else the database's (SetSparseFirst; --build: as given, 0 where not). Its score and hits likewise.
+        SparseFirstGates m_sparse_first_given;
+        std::array<size_t, kReadTypeCount> m_sparse_first{};
+        std::optional<size_t> m_sparse_first_score_given;
+        std::optional<size_t> m_sparse_first_hits_given;
         size_t m_sparse_first_score = 14;
         size_t m_sparse_first_hits = 1;
         bool m_taxon_statistics = false;
@@ -475,6 +481,9 @@ namespace protal {
         // Per sample, from a map's UNMAPPED_READS column: whether its unaligned reads get an unmapped record each
         // (empty without the column: --write_unmapped_reads for every sample).
         std::vector<char> m_unmapped_reads_list;
+        // Per sample, from a map's SPARSE_FIRST column: its gate (C, 0 off), or nothing: as its read type's (empty
+        // without the column).
+        std::vector<std::optional<size_t>> m_sparse_first_list;
         std::vector<std::string> m_input_errors;  // OptionsData::input_errors
         std::vector<std::string> m_input_notes;
 
@@ -568,6 +577,7 @@ namespace protal {
         static inline const std::string MAP_UNMAPPED_READS = "UNMAPPED_READS";
         static inline const std::string MAP_UNMAPPED_WRITE = "write";
         static inline const std::string MAP_UNMAPPED_COUNT = "count";
+        static inline const std::string MAP_SPARSE_FIRST = "SPARSE_FIRST";
         static inline const std::string MAP_SAM = "SAM";
         static inline const std::string MAP_PROFILE = "PROFILE";
         static inline const std::string MAP_PROFILE_TRUTH = "PROFILE_TRUTH";
@@ -626,9 +636,12 @@ namespace protal {
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_stage1_probe(d.stage1_probe),
-                m_sparse_first(d.sparse_first),
-                m_sparse_first_score(d.sparse_first_score),
-                m_sparse_first_hits(d.sparse_first_hits),
+                m_sparse_first_given(d.sparse_first),
+                m_sparse_first(GatesOrOff(d.sparse_first)),
+                m_sparse_first_score_given(d.sparse_first_score),
+                m_sparse_first_hits_given(d.sparse_first_hits),
+                m_sparse_first_score(d.sparse_first_score.value_or(14)),
+                m_sparse_first_hits(d.sparse_first_hits.value_or(1)),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_write_unmapped_reads(d.write_unmapped_reads),
@@ -667,6 +680,7 @@ namespace protal {
                 m_profile_truth(std::move(d.profile_truth)),
                 m_read_type_list(std::move(d.read_type_list)),
                 m_unmapped_reads_list(UnmappedReadsFlags(d.unmapped_reads_list, d.write_unmapped_reads)),
+                m_sparse_first_list(SparseFirstList(d.sparse_first_list)),
                 m_model(std::move(d.model)),
                 m_model_se(std::move(d.model_se)),
                 m_model_pb(std::move(d.model_pb)),
@@ -838,9 +852,13 @@ namespace protal {
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
             result_str << "profile truth:       " << (HasProfileTruths() ? "yes" : "no") << '\n';
             if (m_stage1_probe) result_str << "stage-1 probe:       yes (misc/<sample>_stage1_probe*.tsv)" << '\n';
-            if (m_sparse_first) {
-                result_str << "sparse first:        1/" << m_sparse_first << " of the cores, score " << m_sparse_first_score << ", "
-                           << m_sparse_first_hits << " hit(s) to keep a read" << '\n';
+            if (std::any_of(m_sparse_first_given.begin(), m_sparse_first_given.end(), [](auto const& g) { return g.has_value(); }) ||
+                m_sparse_first_score_given || m_sparse_first_hits_given || !m_sparse_first_list.empty()) {
+                result_str << "sparse first:        " << SparseFirstGatesText(m_sparse_first_given)
+                           << " (read types not listed: " << (m_build ? "off" : "the database's") << "), score "
+                           << (m_sparse_first_score_given ? std::to_string(*m_sparse_first_score_given) : "auto") << ", hits "
+                           << (m_sparse_first_hits_given ? std::to_string(*m_sparse_first_hits_given) : "auto")
+                           << (m_sparse_first_list.empty() ? "" : "; per sample: the map's SPARSE_FIRST") << '\n';
             }
             result_str << "^ output:            " << m_benchmark_alignment_output << '\n';
             result_str << "---------------------" << std::string(30, '-') << '\n';
@@ -1738,16 +1756,56 @@ namespace protal {
             return m_stage1_probe;
         }
 
-        // --sparse_first: C (1/C of a read's cores looked up first), 0 when off; its score and hits (ChainAnchorFinder::
-        // SetSparseFirst, Classify's short-read loops).
-        size_t GetSparseFirst() const {
-            return m_sparse_first;
+        // --sparse_first: the gate of sample `index` (C: 1/C of a read's cores looked up first, 0 off): the map's
+        // SPARSE_FIRST where it gives one, else its read type's (GetSparseFirst(ReadType)); its score and hits
+        // (ChainAnchorFinder::SetSparseFirst, Classify's short-read loops).
+        size_t GetSparseFirst(size_t index) const {
+            if (index < m_sparse_first_list.size() && m_sparse_first_list[index]) return *m_sparse_first_list[index];
+            return GetSparseFirst(GetReadType(index));
+        }
+        // The gate of a read type: --sparse_first's, else the database's (SetSparseFirst; --build: 0 where not given).
+        size_t GetSparseFirst(ReadType type) const {
+            return m_sparse_first[static_cast<size_t>(type)];
         }
         size_t GetSparseFirstScore() const {
             return m_sparse_first_score;
         }
         size_t GetSparseFirstHits() const {
             return m_sparse_first_hits;
+        }
+        // --sparse_first, --sparse_first_score and --sparse_first_hits as given (nothing: auto); what --build records.
+        SparseFirstGates const& SparseFirstGiven() const {
+            return m_sparse_first_given;
+        }
+        std::optional<size_t> SparseFirstScoreGiven() const {
+            return m_sparse_first_score_given;
+        }
+        std::optional<size_t> SparseFirstHitsGiven() const {
+            return m_sparse_first_hits_given;
+        }
+        // The run's gates by read type, score and hits, once the database's are known (RunProtal: ApplyBuildSettings).
+        void SetSparseFirst(std::array<size_t, kReadTypeCount> const& gates, size_t score, size_t hits) {
+            m_sparse_first = gates;
+            m_sparse_first_score = score;
+            m_sparse_first_hits = hits;
+        }
+        // Whether a sample of the run is gated (map rows included).
+        bool AnySparseFirst() const {
+            return std::any_of(m_range.begin(), m_range.end(), [&](size_t i) { return GetSparseFirst(i) > 0; });
+        }
+
+        // --sparse_first per read type with 0 where not given (--build, and a run until the database's are known).
+        static std::array<size_t, kReadTypeCount> GatesOrOff(SparseFirstGates const& gates) {
+            std::array<size_t, kReadTypeCount> levels{};
+            for (size_t t = 0; t < kReadTypeCount; t++) levels[t] = gates[t].value_or(0);
+            return levels;
+        }
+        // A map's SPARSE_FIRST values as gates: C, or nothing for '-' (LoadFromMap admits no other value).
+        static std::vector<std::optional<size_t>> SparseFirstList(std::vector<std::string> const& values) {
+            std::vector<std::optional<size_t>> list;
+            list.reserve(values.size());
+            for (auto const& value : values) list.push_back(value == "-" ? std::nullopt : ParseSparseFirstLevel(value));
+            return list;
         }
 
         // --taxon_statistics: one misc/<taxon>.statistics.tsv per taxon with reads (off by default).
@@ -1954,6 +2012,8 @@ An optional UNMAPPED_READS column says per sample what becomes of the reads that
 but aligned nowhere: write (an unmapped record each, with the taxa in its ZF tag, as
 --write_unmapped_reads writes them for all samples) or count (counted per taxon in the SAM
 header, the default); '-' leaves it to --write_unmapped_reads.
+An optional SPARSE_FIRST column gives a sample its own sparse-first gate (0 off, 1, 2, 4, 8, 16 or
+32; see --sparse_first); '-' leaves it to its read type's.
 SAM and PROFILE are optional and default to <PREFIX>.sam.zst (--sam_format) and <PREFIX>.profile,
 in OUTPUT_DIR. Every sample needs its own SAM and PROFILE file; protal stops if two samples share
 one. A sample whose SAM exists is not aligned again (unless --force), and a SAM given as an
@@ -2002,7 +2062,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                                 std::vector<std::string>& sam_list, std::vector<std::string>& profile_list,
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
                                 std::vector<std::string>& read_type_list, std::vector<std::string>& unmapped_reads_list,
-                                std::string const& sam_ending = kDefaultSamEnding, bool* sams_named = nullptr) {
+                                std::string const& sam_ending = kDefaultSamEnding, bool* sams_named = nullptr,
+                                std::vector<std::string>* sparse_first_list = nullptr) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -2030,6 +2091,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             int header_to_species_column = -1;
             int read_type_column = -1;
             int unmapped_reads_column = -1;
+            int sparse_first_column = -1;
 
             bool header = true;
             size_t line_num = 0;
@@ -2112,6 +2174,13 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                                     return false;
                                 }
                                 unmapped_reads_column = i;
+                            }
+                            if (token == MAP_SPARSE_FIRST) {
+                                if (sparse_first_column != -1) {
+                                    std::cerr << "Column '" << MAP_SPARSE_FIRST << "' is defined twice" << std::endl;
+                                    return false;
+                                }
+                                sparse_first_column = i;
                             }
                             if (token == MAP_HEADER_TO_SPECIES) {
                                 if (header_to_species_column != -1) {
@@ -2221,7 +2290,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     std::pair<int, std::string const*> const columns[] = {
                             { 0, &MAP_SAMPLEID }, { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
                             { sam_column, &MAP_SAM }, { profile_column, &MAP_PROFILE }, { profile_truth_column, &MAP_PROFILE_TRUTH },
-                            { read_type_column, &MAP_READ_TYPE }, { unmapped_reads_column, &MAP_UNMAPPED_READS } };
+                            { read_type_column, &MAP_READ_TYPE }, { unmapped_reads_column, &MAP_UNMAPPED_READS },
+                            { sparse_first_column, &MAP_SPARSE_FIRST } };
                     for (auto const& [column, name] : columns) {
                         if (column == -1) continue;
                         if (static_cast<size_t>(column) >= tokens.size() || tokens[column].empty()) {
@@ -2302,6 +2372,16 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                             return false;
                         }
                         unmapped_reads_list.emplace_back(value);
+                    }
+                    if (sparse_first_column != -1) {
+                        // A sample's gate (C), or '-': its read type's (--sparse_first, else the database's).
+                        auto const& value = tokens[sparse_first_column];
+                        if (value != MAP_NO_SECOND_READ && !ParseSparseFirstLevel(value)) {
+                            std::cerr << "Line " << line_num << ": " << MAP_SPARSE_FIRST << " is '" << value << "'; expected "
+                                      << "0 (off), 1, 2, 4, 8, 16, 32 or -" << std::endl;
+                            return false;
+                        }
+                        if (sparse_first_list) sparse_first_list->emplace_back(value);
                     }
                 }
             }
@@ -3266,6 +3346,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             std::vector<std::string> profile_truth_list;
             std::vector<std::string> read_type_list;
             std::vector<std::string> unmapped_reads_list;
+            std::vector<std::string> sparse_first_list;  // a map's SPARSE_FIRST
             std::vector<std::string> input_errors;  // reported by PrepareAndCheckValidity
             std::vector<std::string> input_notes;
 
@@ -3318,7 +3399,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending, &sams_named)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending, &sams_named, &sparse_first_list)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -3385,18 +3466,24 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
             bool stage1_probe = result.count("stage1_probe");
-            size_t const sparse_first = result["sparse_first"].as<size_t>();
-            size_t const sparse_first_score = result["sparse_first_score"].as<size_t>();
-            size_t const sparse_first_hits = result["sparse_first_hits"].as<size_t>();
-            if (sparse_first != 0 && (sparse_first > 32 || (sparse_first & (sparse_first - 1)) != 0)) {
-                std::cerr << "Error: --sparse_first must be 0 (off), 1, 2, 4, 8, 16 or 32, not " << sparse_first << std::endl;
+            auto const sparse_first = ParseSparseFirstGates(result["sparse_first"].as<std::string>());
+            if (!sparse_first) {
+                std::cerr << "Error: --sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs "
+                          << "(e.g. pe:1,se:1,pb:8,ont:1; read types " << ReadTypeTokens() << "), not '"
+                          << result["sparse_first"].as<std::string>() << "'" << std::endl;
                 exit(2);
             }
-            if (sparse_first_score > 16 || sparse_first_hits == 0) {
+            std::optional<size_t> const sparse_first_score =
+                result.count("sparse_first_score") ? std::optional<size_t>(result["sparse_first_score"].as<size_t>()) : std::nullopt;
+            std::optional<size_t> const sparse_first_hits =
+                result.count("sparse_first_hits") ? std::optional<size_t>(result["sparse_first_hits"].as<size_t>()) : std::nullopt;
+            if ((sparse_first_score && *sparse_first_score > 16) || (sparse_first_hits && *sparse_first_hits == 0)) {
                 std::cerr << "Error: --sparse_first_score is 0 to 16 (flank bases), --sparse_first_hits 1 or more" << std::endl;
                 exit(2);
             }
-            if (sparse_first != 0 && stage1_probe) {
+            // The probe measures what a gate would give up: a gate given with it is an error; the database's (auto) are
+            // not used then (ApplyBuildSettings).
+            if (stage1_probe && std::any_of(sparse_first->begin(), sparse_first->end(), [](auto const& g) { return g && *g > 0; })) {
                 std::cerr << "Error: --stage1_probe measures what --sparse_first would give up; give one of them" << std::endl;
                 exit(2);
             }
@@ -3605,7 +3692,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
             d.stage1_probe             = stage1_probe;
-            d.sparse_first             = sparse_first;
+            d.sparse_first             = *sparse_first;
             d.sparse_first_score       = sparse_first_score;
             d.sparse_first_hits        = sparse_first_hits;
             d.taxon_statistics         = taxon_statistics;
@@ -3659,6 +3746,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.profile_truth_list       = std::move(profile_truth_list);
             d.read_type_list           = std::move(read_type_list);
             d.unmapped_reads_list      = std::move(unmapped_reads_list);
+            d.sparse_first_list        = std::move(sparse_first_list);
             d.input_errors             = std::move(input_errors);
             d.input_notes              = std::move(input_notes);
             d.profile_truth            = profile_truth;

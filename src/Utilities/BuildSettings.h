@@ -1,17 +1,22 @@
 // BuildSettings.h - build_settings.tsv: the settings a database was built with that a run should match. --build writes
 // it into the database folder and packs it into database.protal; a run reads it before aligning. It holds the WFA2
 // traceback (WfaTraceback.h): the strain alleles, congener gaps and column weights are aligned with it, and the models
-// are trained on runs that align with it; and how the models' `fragments` feature counts (FragmentCount, since
-// 2026-10-12; mapq when not said). A database built before 2026-10-11 has no build_settings.tsv; it was built with the
-// classic traceback.
+// are trained on runs that align with it; how the models' `fragments` feature counts (FragmentCount, since
+// 2026-10-12; mapq when not said); and the sparse-first gate of each read type (--sparse_first, since 2026-10-12; off
+// when not said): the reads it gives up count no failed candidates, so the models are trained on runs gated alike. A
+// database built before 2026-10-11 has no build_settings.tsv; it was built with the classic traceback.
 #pragma once
 
+#include <array>
+#include <charconv>
+#include <cstddef>
 #include <istream>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
 
+#include "ReadType.h"
 #include "WfaTraceback.h"
 
 namespace protal {
@@ -29,17 +34,85 @@ namespace protal {
     inline std::string_view FragmentCountName(FragmentCount count) {
         return count == FragmentCount::Soft ? "soft" : "mapq";
     }
+
+    // The sparse-first gate (--sparse_first, ChainAnchorFinder::SetSparseFirst) of each read type, by ReadType's index:
+    // C (1/C of a read's cores looked up first), 0 off; nothing where not said.
+    using SparseFirstGates = std::array<std::optional<size_t>, kReadTypeCount>;
+
+    // A gate's C: 0 (off), 1, 2, 4, 8, 16 or 32.
+    inline std::optional<size_t> ParseSparseFirstLevel(std::string_view text) {
+        size_t value = 0;
+        auto const [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (error != std::errc() || end != text.data() + text.size() || value > 32 || (value & (value - 1)) != 0) {
+            return std::nullopt;
+        }
+        return value;
+    }
+
+    // --sparse_first's value (and a map's SPARSE_FIRST): "auto" (nothing given: every read type the database's), one C
+    // for every read type, or read types and their C, comma-separated ("pe:1,se:1,pb:8,ont:1"; a read type not listed
+    // stays as the database has it). Nothing if the text is none of these.
+    inline std::optional<SparseFirstGates> ParseSparseFirstGates(std::string_view text) {
+        SparseFirstGates gates;
+        if (text == "auto") return gates;
+        if (text.find(':') == std::string_view::npos) {
+            auto const level = ParseSparseFirstLevel(text);
+            if (!level) return std::nullopt;
+            gates.fill(level);
+            return gates;
+        }
+        while (!text.empty()) {
+            size_t const comma = text.find(',');
+            std::string_view const item = text.substr(0, comma);
+            text = comma == std::string_view::npos ? std::string_view() : text.substr(comma + 1);
+            if (comma != std::string_view::npos && text.empty()) return std::nullopt;  // a trailing comma
+            size_t const colon = item.find(':');
+            if (colon == std::string_view::npos) return std::nullopt;
+            auto const type = ReadTypeFromToken(std::string(item.substr(0, colon)));
+            auto const level = ParseSparseFirstLevel(item.substr(colon + 1));
+            if (!type || !level) return std::nullopt;
+            gates[static_cast<size_t>(*type)] = level;
+        }
+        return gates;
+    }
+
+    // "pe 1, se 1, pb 8, ont 1" (the read types given; "off" for 0), for messages; "none" if none is given.
+    inline std::string SparseFirstGatesText(SparseFirstGates const& gates) {
+        std::string text;
+        for (auto const& info : kReadTypes) {
+            auto const& gate = gates[static_cast<size_t>(info.type)];
+            if (!gate) continue;
+            text += (text.empty() ? "" : ", ") + info.token + " " + (*gate ? std::to_string(*gate) : std::string("off"));
+        }
+        return text.empty() ? "none" : text;
+    }
 }
 
 namespace protal::build_settings {
     inline const std::string kFileName = "build_settings.tsv";
     inline constexpr std::string_view kWfaTraceback = "wfa_traceback";
     inline constexpr std::string_view kFragmentCount = "fragment_count";
+    // sparse_first_pe, sparse_first_se, sparse_first_pb, sparse_first_ont: the read type's gate (C, 0 off); and the
+    // gates' flank score and hits.
+    inline constexpr std::string_view kSparseFirst = "sparse_first_";
+    inline constexpr std::string_view kSparseFirstScore = "sparse_first_score";
+    inline constexpr std::string_view kSparseFirstHits = "sparse_first_hits";
 
     struct Settings {
         std::optional<WfaTraceback> wfa_traceback;    // nothing if the file does not say
         std::optional<FragmentCount> fragment_count;  // nothing if the file does not say (mapq)
+        SparseFirstGates sparse_first;                // per read type; nothing if the file does not say (off)
+        std::optional<size_t> sparse_first_score;     // nothing if the file does not say (14)
+        std::optional<size_t> sparse_first_hits;      // nothing if the file does not say (1)
     };
+
+    // A whole number for a setting's value, or nothing.
+    inline std::optional<size_t> ParseCount(std::string_view text) {
+        size_t value = 0;
+        auto const [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (error != std::errc() || end != text.data() + text.size() || text.empty()) return std::nullopt;
+        return value;
+    }
 
     // build_settings.tsv: a line per setting, its name and value tab-separated; lines starting with '#' and empty lines
     // are skipped, as are settings of later protal versions this one does not know. Returns an error text, or "" when
@@ -69,6 +142,23 @@ namespace protal::build_settings {
                            std::string(value) + "'";
                 }
                 settings.fragment_count = count;
+            } else if (name == kSparseFirstScore || name == kSparseFirstHits) {
+                auto const count = ParseCount(value);
+                if (!count || (name == kSparseFirstScore ? *count > 16 : *count == 0)) {
+                    return "line " + std::to_string(number) + ": " + std::string(name) + " is " +
+                           (name == kSparseFirstScore ? "0 to 16" : "1 or more") + ", not '" + std::string(value) + "'";
+                }
+                (name == kSparseFirstScore ? settings.sparse_first_score : settings.sparse_first_hits) = count;
+            } else if (name.substr(0, kSparseFirst.size()) == kSparseFirst) {
+                // Another read type than protal knows (a later version's) is skipped, as other unknown settings are.
+                auto const type = ReadTypeFromToken(std::string(name.substr(kSparseFirst.size())));
+                if (!type) continue;
+                auto const level = ParseSparseFirstLevel(value);
+                if (!level) {
+                    return "line " + std::to_string(number) + ": " + std::string(name) + " is 0, 1, 2, 4, 8, 16 or 32, not '" +
+                           std::string(value) + "'";
+                }
+                settings.sparse_first[static_cast<size_t>(*type)] = level;
             }
         }
         return "";
@@ -78,5 +168,11 @@ namespace protal::build_settings {
         os << "# The settings this protal database was built with that a run should match (protal --build)\n";
         if (settings.wfa_traceback) os << kWfaTraceback << '\t' << WfaTracebackName(*settings.wfa_traceback) << '\n';
         if (settings.fragment_count) os << kFragmentCount << '\t' << FragmentCountName(*settings.fragment_count) << '\n';
+        for (auto const& info : kReadTypes) {
+            auto const& gate = settings.sparse_first[static_cast<size_t>(info.type)];
+            if (gate) os << kSparseFirst << info.token << '\t' << *gate << '\n';
+        }
+        if (settings.sparse_first_score) os << kSparseFirstScore << '\t' << *settings.sparse_first_score << '\n';
+        if (settings.sparse_first_hits) os << kSparseFirstHits << '\t' << *settings.sparse_first_hits << '\n';
     }
 }

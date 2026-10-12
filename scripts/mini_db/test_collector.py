@@ -734,6 +734,28 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(len(writers), 2)
         self.assertNotIn(str(os.getpid()), writers)  # forked workers, not this process
         self.assertEqual(tables(4), serial)
+        # --sparse_first_levels: the pe samples profiled at gate 2 too (<point>/protal_c2, <sample>__c2; here copies of
+        # their dumps): their table in OUT/c_gates/c2/, meta_sample the samples' own names, the same rows as the pe
+        # table's; the main tables as they were, one after the other or in workers.
+        for point in points:
+            base, _, _ = collect.point_dirs(point, opts)
+            os.makedirs(os.path.join(base, "protal_c2", "profiles"))
+            for s in (1, 2):
+                shutil.copy(os.path.join(base, "protal", "profiles", f"{point['name']}_s_{s}.profile.truth_annotated"),
+                            os.path.join(base, "protal_c2", "profiles", f"{point['name']}_s_{s}__c2.profile.truth_annotated"))
+        opts.sparse_first_levels = {"pe": [2]}
+        gated = tables(1)
+        self.assertEqual(gated[1], serial[1])
+        level = os.path.join(root, collect.LEVELS_DIR, "c2")
+        self.assertEqual(sorted(os.listdir(level)), ["samples_pe.txt", "training_data.tsv"])
+        with open(os.path.join(level, "samples_pe.txt")) as fh:
+            self.assertEqual(fh.read().split(), [f"rl100_p{n}_s_{s}" for n in (10, 20) for s in (1, 2)])
+        with open(os.path.join(level, "training_data.tsv"), "rb") as fh:
+            self.assertEqual(fh.read(), serial[1]["training_data.tsv"])
+        self.assertRegex(gated[0], r"rl100_p20 at sparse-first gate 2: .*\n32 taxa in \S+c2/training_data\.tsv "
+                                   r"\(sparse-first gate 2\): ")
+        self.assertEqual(tables(3), gated)
+        del opts.sparse_first_levels
         # A dump of other columns in the second se point: the pe table and the first se point's line, then the stop.
         bad = os.path.join(root, "points", "rl100_p20", "protal_se", "profiles", "rl100_p20_s_2_se.profile.truth_annotated")
         with open(bad, "w") as fh:
@@ -976,7 +998,9 @@ class CollectorTest(unittest.TestCase):
         path = os.path.join(self.tmp.name, "unmapped", "samples.map")
         collect.write_map(path, rows + [{c: v for c, v in rows[0].items() if c != "UNMAPPED_READS"}])
         with open(path) as fh:  # a row without the column (an older collector's map) counts them
-            self.assertEqual([line.rstrip("\n").split("\t")[-1] for line in fh][1:], ["UNMAPPED_READS", "write", "count"])
+            header, *cells = [line.rstrip("\n").split("\t") for line in fh][1:]
+        self.assertEqual([row[header.index("UNMAPPED_READS")] for row in cells], ["write", "count"])
+        self.assertEqual([row[header.index("SPARSE_FIRST")] for row in cells], ["-", "-"])  # the database's gate
         keys = {u["name"]: {"k": 1} for u in units}
         key_of = collect.profile_keys(units, argparse.Namespace(**{**vars(marked), "db": sim, "protal": path}), keys)
         self.assertEqual(key_of["sc_gut_pe_p20000000"].get("unmapped_reads"), "write")

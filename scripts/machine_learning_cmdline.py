@@ -196,6 +196,14 @@ TAXON_CLASSES = ["present, no congener held out", "present, beside a held-out co
                  "absent, congener of a held-out species", "absent, other"]
 
 
+def extra_test_spec(text):
+    """--extra-test-file LABEL=PATH -> (label, path)."""
+    label, sep, path = text.partition("=")
+    if not sep or not label or not path:
+        raise argparse.ArgumentTypeError(f"expected LABEL=PATH, got {text!r}")
+    return label, path
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
@@ -278,6 +286,11 @@ def parse_args(argv=None):
                         "over the species whose marker genes got reads (section Marker truth); auto (default): the file "
                         "beside --truth-file, if there; none: not counted")
     p.add_argument("--test-unseen-file", default="auto", help="as --unseen-file, of --test-file")
+    p.add_argument("--extra-test-file", action="append", type=extra_test_spec, default=[], metavar="LABEL=PATH",
+                   help="another test table of samples of --test-file, profiled otherwise (e.g. at another sparse-first "
+                        "gate: collect_training_data.py --sparse_first_levels; its meta_sample the --test-file sample's): "
+                        "scored with the fitted model as protal calls, its design's and scenarios' rows together, beside "
+                        "--test-file's rows of the same samples (section Extra test tables, JSON extra_tests); repeatable")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4,
                    help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
@@ -1504,6 +1517,42 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
     out.to_csv(prefix + ".test_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
 
 
+def extra_test_scores(rf, cols, table, opts, depth_knobs):
+    """The fitted forest's calls on a test table as protal makes them (the knob curve, or the knob; the singleton rule's
+    rows never called): its samples, taxa, TP, FP, FN, sensitivity, precision and F1."""
+    check_features(table, cols)
+    y = table["truth"].to_numpy()
+    cs = call_scores(table, rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1])
+    call = depth_knob_calls(cs, sample_depths(table), depth_knobs, opts.knob) if depth_knobs else cs >= opts.knob
+    tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+    return {"samples": int(table["meta_sample"].nunique()) if "meta_sample" in table else 1, "taxa": int(len(y)),
+            "present": int(y.sum()), "TP": tp, "FP": fp, "FN": fn,
+            "sensitivity": tp / (tp + fn) if tp + fn else None, "precision": tp / (tp + fp) if tp + fp else None,
+            "F1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None}
+
+
+def study_extra_tests(report, rf, cols, opts, depth_knobs, test):
+    """--extra-test-file: each table, samples of --test-file (`test`, all its rows) profiled otherwise (another
+    sparse-first gate, say), scored by the fitted forest as protal calls, beside --test-file's rows of the same samples
+    (meta_sample), so that the two differ only in how the samples were profiled."""
+    report.section("Extra test tables (samples of the test file, profiled otherwise)")
+    report.add(f"calls at the model's {knob_label(depth_knobs, opts.knob)}, the design's and the scenarios' rows together; "
+               "each table beside the test file's rows of the same samples")
+    rows, data = [], {}
+    for label, path in opts.extra_test_file:
+        extra = load_table(path, opts.taxonomy)
+        samples = set(extra["meta_sample"].astype(str)) if "meta_sample" in extra else set()
+        base = test[test["meta_sample"].astype(str).isin(samples)] if "meta_sample" in test else test
+        scores = extra_test_scores(rf, cols, extra, opts, depth_knobs)
+        same = extra_test_scores(rf, cols, base, opts, depth_knobs) if len(base) else None
+        data[label] = {"file": path, "scores": scores, "test_file_same_samples": same}
+        rows.append({"table": label, **scores})
+        if same:
+            rows.append({"table": f"{label}: test file, same samples", **same})
+    report.table(pd.DataFrame(rows))
+    report.data["extra_tests"] = data
+
+
 def study_threshold(report, df, y, p, opts, prefix):
     report.section("Threshold (species held out)")
     scores = held_out(p)
@@ -2159,6 +2208,11 @@ def train(opts):
     elif test_scenarios is not None:
         report.add("")
         report.add(f"{opts.test_file} holds the scenarios' hold-out samples only (no independent test set of the design)")
+    if opts.extra_test_file and opts.test_file:
+        t0 = time.time()
+        with sequential(rf):
+            study_extra_tests(report, rf, cols, opts, depth_knobs, test)
+        timing["extra_tests"] = time.time() - t0
     if (scenario_of(df) != "").any() or test_scenarios is not None:
         t0 = time.time()
         held_p = None

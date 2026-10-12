@@ -59,6 +59,16 @@ for this page.
   ([report](claude/2026-10-12-rapidgzip-input/README.md)). rapidgzip needs a few changes to ISA-L, so ISA-L 2.32.1
   with them is now in `lib/isa-l` and built with protal (static and not): a build needs nasm instead of an
   installed ISA-L. The outputs are the same.
+- **Sparse-first gates recorded by the database** (2026-10-12). `--sparse_first` takes a gate per read type
+  (`pe:1,se:1,pb:8,ont:1`), `--build` records them in `build_settings.tsv`, and runs follow the database's
+  gates unless told otherwise (`auto`, the default; a map's `SPARSE_FIRST` column gates one sample), saying
+  which they use and warning when a sample is gated otherwise than the models were trained.
+  `build_gtdb_database.py` builds with `--sparse-first pe:1,se:1,pb:8,ont:1` by default (at r226 paired-end
+  C = 1 cost 0.01% of the records for 35% less alignment time, HiFi C = 8 0.54% for 62% less;
+  [report](claude/2026-10-12-sparse-first/README.md)), so its models are trained on gated runs, and
+  `--test-c-gates` profiles the test samples at other gates too and writes their F1 and alignment CPU to
+  `model_logs/c_gates.tsv` ([databases.md](databases.md#choosing-the-sparse-first-gates)). Databases built
+  before stay ungated. Untested at r226.
 
 ## What 0.8.2 adds
 

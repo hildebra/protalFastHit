@@ -55,6 +55,16 @@ The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
 holds many more absent taxa with a few reads, and needs a higher threshold.
 
+Both databases record each read type's sparse-first gate (--sparse-first, default
+pe:1,se:1,pb:8,ont:1: protal --sparse_first, a read looked up by 1/C of its cores
+first and given up without a near-exact hit) in build_settings.tsv, and every
+run on them follows it, the collections' too: the models learn from gated runs.
+With --test-c-gates (default pe:0/2/4,se:0/2/4,pb:0/4/16,ont:0/4/8) the test
+samples are profiled at the other gates too (in the same protal runs), each
+read type's model scores them, and model_logs/c_gates.tsv gives F1 and the
+alignment's CPU seconds by gate: a gate whose F1 holds with a model trained at
+the database's is a candidate for the next build's --sparse-first.
+
 Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
 soil, 90% host reads) add samples of their own, each at a depth drawn around its
 scenario's: their hold-in samples join the training data, their hold-out samples
@@ -176,7 +186,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, manifest_rows, read_clouds, simulation_bytes, simulation_state, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import INSILICO_PREFIX, LEVELS_DIR, TABLES, clock, congener_spec, last_line, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_state, sparse_first_levels, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -1768,6 +1778,10 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("weighted_site_shift", "on in the training runs: profile with protal --weighted_site_shift"
              if getattr(args, "weighted_site_shift", False) else "off (protal's default)"),
             ("fragment_count", getattr(args, "fragment_count", "mapq") + " (build_settings.tsv; runs follow it)"),
+            ("sparse_first", (gates_text(args.sparse_first) if getattr(args, "sparse_first", None) else "none") +
+             " (build_settings.tsv; runs follow it)" +
+             (f"; test samples also at {levels_text(args.test_c_gates)} (model_logs/c_gates.tsv)"
+              if getattr(args, "test_c_gates", None) else "")),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
@@ -1864,6 +1878,84 @@ def model_scores(read_types, prefixes):
         scores.append(f"{t} " + ("-" if cv is None else f"{cv:.3f}") + ("" if test is None else f"/{test:.3f}") +
                       (f" ({called['knob']})" if called and called.get("knob") else ""))
     return f"F1 with species held out (knob 0.5){'/on the test set (as protal calls)' if with_test else ''}: {', '.join(scores)}"
+
+
+C_GATES_COLUMNS = ["read_type", "gate", "database_gate", "samples", "taxa", "present", "TP", "FP", "FN", "precision",
+                   "sensitivity", "F1", "aligning_cpu_s", "aligning_wall_s"]
+
+
+def aligning_times(cpu_tables):
+    """{sample: (CPU seconds, wall seconds)} of each sample's alignment in the collections' protal runs (their
+    protal_cpu.tsv rows "aligning <sample>", from protal's misc/cpu.tsv; a sample's last row if it was aligned again)."""
+    times = {}
+    for path in cpu_tables:
+        try:
+            with open(path, newline="") as fh:
+                for row in csv.DictReader(fh, delimiter="\t"):
+                    stage = row.get("stage") or ""
+                    if stage.startswith("aligning "):
+                        try:
+                            times[stage[len("aligning "):]] = (float(row.get("cpu_seconds") or "nan"),
+                                                               float(row.get("wall_seconds") or "nan"))
+                        except ValueError:
+                            pass
+        except OSError:
+            pass
+    return times
+
+
+def c_gates_summary(read_types, prefixes, test_gates, database_gates, test_dir, cpu_tables, out):
+    """--test-c-gates: per read type, its test samples at the database's gate and at the others, scored by its model (the
+    trainer's extra_tests in <prefix>.metrics.json) and timed (their alignment's CPU and wall seconds, aligning_times),
+    as model_logs/c_gates.tsv (out); -> a line per read type."""
+    times = aligning_times(cpu_tables)
+    rows, lines = [], []
+
+    def seconds(samples, suffix):
+        found = [times[s + suffix] for s in samples if s + suffix in times]
+        if len(found) < len(samples):
+            return None, None
+        return sum(c for c, _ in found), sum(w for _, w in found)
+
+    for t in read_types:
+        if not test_gates.get(t):
+            continue
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                extra = json.load(fh).get("extra_tests", {})
+        except (OSError, ValueError):
+            extra = {}
+        own, first = database_gates.get(t, 0), test_gates[t][0]
+        parts = []
+        for c in sorted([own] + test_gates[t]):
+            # The database's gate: the test file's rows of the samples the first other gate has (all, but those whose
+            # reads came through pipes).
+            level = first if c == own else c
+            entry = (extra.get(f"c{level}") or {}).get("test_file_same_samples" if c == own else "scores")
+            samples_file = os.path.join(test_dir, LEVELS_DIR, f"c{level}", f"samples_{t}.txt")
+            suffix = "" if c == own else f"__c{c}"
+            try:
+                with open(samples_file) as fh:
+                    samples = [line.strip() for line in fh if line.strip()]
+            except OSError:
+                samples = []
+            cpu, wall = seconds(samples, suffix) if samples else (None, None)
+            if entry is None and cpu is None:
+                continue
+            entry = entry or {}
+            rows.append([t, c, int(c == own)] + [entry.get(k, "") for k in C_GATES_COLUMNS[3:12]] +
+                        ["" if cpu is None else f"{cpu:.1f}", "" if wall is None else f"{wall:.1f}"])
+            f1 = entry.get("F1")
+            parts.append(f"{c if c else 'off'}{' (database)' if c == own else ''} F1 " +
+                         ("-" if f1 is None else f"{f1:.4f}") +
+                         ("" if cpu is None else f", {cpu:.0f} CPU s"))
+        if parts:
+            lines.append(f"{t}: " + "; ".join(parts))
+    with open(out, "w") as fh:
+        fh.write("\t".join(C_GATES_COLUMNS) + "\n")
+        fh.writelines("\t".join("" if v is None else (f"{v:.6g}" if isinstance(v, float) else str(v)) for v in row) + "\n"
+                      for row in rows)
+    return lines
 
 
 def marker_scores(read_types, prefixes):
@@ -2061,8 +2153,45 @@ ALLELE_SHARE = 1.0
 # The WFA2 traceback of both protal --build runs (--wfa-traceback; empty: protal's default, singletrack since 0.8.2, classic before), set by main(). Each
 # database records it in its build_settings.tsv, and the collection's protal runs align with the training database's
 # (their --wfa_traceback is auto), so that the models learn from alignments made as the finished database's runs make them.
-# With --fragment-count soft also --fragment_count soft, recorded and followed the same way.
+# With --fragment-count soft also --fragment_count soft, recorded and followed the same way; and --sparse-first's gates
+# (protal --sparse_first), unless none.
 TRACEBACK_ARGS = []
+# --sparse-first: each read type's sparse-first gate (protal --sparse_first C: a read looked up by 1/C of its cores first,
+# given up without a near-exact hit), recorded in both databases and followed by every run on them, the collections'
+# included, so that the models are trained on gated runs (the reads given up count no failed candidates). The r226 runs
+# (docs/claude/2026-10-12-sparse-first): paired-end C = 1 loses 0.01% of the records for -35% of the alignment's time,
+# C = 2 0.37% for -52%; HiFi C = 8 0.54% for -62%; ONT C = 1 a trial.
+DEFAULT_SPARSE_FIRST = "pe:1,se:1,pb:8,ont:1"
+# --test-c-gates without a value: the other gates each read type's test samples are profiled at too.
+DEFAULT_TEST_C_GATES = "pe:0/2/4,se:0/2/4,pb:0/4/16,ont:0/4/8"
+
+
+def sparse_first_spec(text):
+    """--sparse-first: "none" -> {}; "C" -> that gate for every read type; "pe:1,pb:8" -> {"pe": 1, "pb": 8} (protal
+    --sparse_first's form). A gate is 0 (off), 1, 2, 4, 8, 16 or 32."""
+    text = str(text).strip()
+    if text in ("none", ""):
+        return {}
+
+    def gate(value):
+        if not value.isdigit() or int(value) > 32 or int(value) & (int(value) - 1):
+            raise argparse.ArgumentTypeError(f"a gate is 0 (off), 1, 2, 4, 8, 16 or 32, not {value!r}")
+        return int(value)
+
+    if ":" not in text:
+        return {t: gate(text) for t in TABLES}
+    gates = {}
+    for item in text.split(","):
+        read_type, sep, value = item.partition(":")
+        if not sep or read_type not in TABLES:
+            raise argparse.ArgumentTypeError(f"expected READ_TYPE:C,... with read types {', '.join(TABLES)}, got {item!r}")
+        gates[read_type] = gate(value)
+    return gates
+
+
+def gates_text(gates):
+    """{"pe": 1, "pb": 8} -> "pe:1,pb:8", as protal --sparse_first takes it; "none" for {}."""
+    return ",".join(f"{t}:{c}" for t, c in gates.items()) or "none"
 
 
 def build_command(protal, db, threads, *extra, alleles=None):
@@ -2400,6 +2529,23 @@ def main():
                         "mapq (default), the fragments the MAPQ and length filters keep; soft, those plus each dropped one "
                         "by the share the read EM leaves the taxon, so that a divergent strain whose reads tie with a "
                         "congener's reference (MAPQ 0) is not counted as nothing (docs/claude/2026-10-12-r226-v24b-errors)")
+    p.add_argument("--sparse-first", type=sparse_first_spec, default=sparse_first_spec(DEFAULT_SPARSE_FIRST),
+                   metavar="READ_TYPE:C,...|C|none",
+                   help="each read type's sparse-first gate (protal --build --sparse_first: a read looked up by 1/C of its "
+                        "k-mer cores first and given up without a near-exact hit; 0 off), recorded in both databases' "
+                        "build_settings.tsv and followed by every run on them, the collections' included, so that the "
+                        "models are trained on runs gated as the finished database's runs are (the reads given up count "
+                        f"no failed candidates). Default {DEFAULT_SPARSE_FIRST}; none: ungated, as before 2026-10-12 "
+                        "(docs/claude/2026-10-12-sparse-first)")
+    p.add_argument("--test-c-gates", nargs="?", const=DEFAULT_TEST_C_GATES, default=None, type=sparse_first_levels,
+                   metavar="READ_TYPE:C/C/...,...",
+                   help="profile the test samples (the independent test set and the scenarios' hold-out samples) of "
+                        "each read type at these other sparse-first gates too, in the same protal runs (the samples "
+                        "streamed through pipes once only), and score each gate's table with that read type's model "
+                        "(trained at --sparse-first's gate) beside the test samples at the database's gate: F1, "
+                        "precision, sensitivity and the alignment's CPU seconds per gate in model_logs/c_gates.tsv and "
+                        f"the report. Without a value: {DEFAULT_TEST_C_GATES}. Costs the test collection's alignment "
+                        "once more per gate, at that gate's speed")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -2777,6 +2923,8 @@ def main():
     TRACEBACK_ARGS[:] = ["--wfa_traceback", args.wfa_traceback] if args.wfa_traceback else []
     if args.fragment_count == "soft":  # recorded beside the traceback; mapq (the default) leaves the keys as they were
         TRACEBACK_ARGS[:] += ["--fragment_count", "soft"]
+    if args.sparse_first:  # recorded beside them; none leaves the keys as they were
+        TRACEBACK_ARGS[:] += ["--sparse_first", gates_text(args.sparse_first)]
     global ALLELE_SHARE
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
@@ -3481,8 +3629,9 @@ def main():
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both profiled against the training database.
     def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, long_samples, seed,
-                        scenario_samples=None):
-        """The collector's command; scenario_samples: {scenario: samples} collected beside the design."""
+                        scenario_samples=None, levels=None):
+        """The collector's command; scenario_samples: {scenario: samples} collected beside the design; levels: {read
+        type: [gates]} its samples are profiled at too (--test-c-gates)."""
         command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", sim_table, "-o", out,
                    "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
                    "--long_read_samples", str(long_samples),
@@ -3515,6 +3664,8 @@ def main():
         positions = marker_positions()
         if positions:  # meta_marker_reads: the trainers' F1 over the species whose marker genes got reads
             command += ["--gene_positions", positions]
+        if levels:
+            command += ["--sparse_first_levels", levels_text(levels)]
         return command
 
     def marker_positions():
@@ -3545,6 +3696,14 @@ def main():
         genome_store = os.path.abspath(args.genome_store)
     training = os.path.join(samples_root, "training")
     test = os.path.join(samples_root, "test")
+    # --test-c-gates: each read type's other gates (not the database's: the test samples' own runs) its test samples are
+    # profiled at too.
+    test_gates = {t: [c for c in cs if c != args.sparse_first.get(t, 0)] for t, cs in (args.test_c_gates or {}).items()
+                  if t in read_types}
+    test_gates = {t: cs for t, cs in test_gates.items() if cs} if has_test else {}
+    if args.test_c_gates is not None and not test_gates:
+        say("WARNING: --test-c-gates: no test samples, or no gate other than the database's, of these read types: "
+            "nothing to compare")
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
                                                       args.abundance, args.strains_per_species, args.long_read_bases,
                                                       args.long_read_samples, args.seed, hold_in),
@@ -3554,7 +3713,7 @@ def main():
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
                                              args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000,
-                                             hold_out),
+                                             hold_out, test_gates),
                              step_log("test_data.log")))
 
     if training_db == db:
@@ -3790,6 +3949,8 @@ def main():
                 for name in (table, table[:-len(".tsv")] + ".unseen.tsv"):
                     if os.path.isfile(os.path.join(opts.out, name)):
                         shutil.copy(os.path.join(opts.out, name), keep)
+            if os.path.isdir(os.path.join(opts.out, LEVELS_DIR)):  # --test-c-gates: the tables at the other gates
+                shutil.copytree(os.path.join(opts.out, LEVELS_DIR), os.path.join(keep, LEVELS_DIR), dirs_exist_ok=True)
             # Each protal run's log (its stage timers: how long the alignment and the profiling stage took), which a
             # node's disk cleared after the job would lose, one after the other in logs/protal_runs_<collection>.log.
             def run_name(path):
@@ -3892,6 +4053,10 @@ def main():
             command += ["--fdr-calls"]
         if has_test and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
+            for c in test_gates.get(t, []):  # --test-c-gates: the test samples at the other gates
+                table = os.path.join(test, LEVELS_DIR, f"c{c}", TABLES[t])
+                if os.path.isfile(table):
+                    command += ["--extra-test-file", f"c{c}={table}"]
         trainers[t] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
                           label=f"training the {t} model")
     seconds = max(job.finish().seconds for job in trainers.values())
@@ -3901,6 +4066,12 @@ def main():
     Steps.done(f"trained in {clock(seconds)}{each}; {model_scores(read_types, prefixes)}")
     if marker_scores(read_types, prefixes):
         Steps.done(marker_scores(read_types, prefixes))
+    if test_gates:  # --test-c-gates: the test samples' F1 and alignment CPU at each gate (the database's marked)
+        cpu_tables = [os.path.join(d, PROTAL_CPU) for d in (training, test)] + \
+            [step_log(f"protal_cpu_{os.path.basename(d)}.tsv") for d in (training, test)]
+        for line in c_gates_summary(read_types, prefixes, test_gates, args.sparse_first, test, cpu_tables,
+                                    os.path.join(logs, "c_gates.tsv")):
+            Steps.done(f"sparse-first gates (c_gates.tsv), test samples: {line}")
     for t, name, why in feature_choices(read_types, prefixes):
         Steps.done(f"{t} model's features: {name}: {why}")
     if selected:

@@ -8,6 +8,7 @@ test, or fails it with PROTAL_TESTS_REQUIRED=1 (scripts/prerequisites.py). The b
   PROTAL=build/protal python3 -m unittest scripts/mini_db/test_gtdb_build.py
 """
 
+import argparse
 import collections
 import contextlib
 import csv
@@ -60,6 +61,25 @@ class BuildOptionsTest(unittest.TestCase):
                 self.assertEqual(command[-2:], ["--compress_level", "3"])
         finally:
             build.TRACEBACK_ARGS[:] = saved
+
+    def test_sparse_first_gates(self):
+        # --sparse-first: a gate per read type (protal --sparse_first's form), one for all, or none; --test-c-gates: the
+        # collector's --sparse_first_levels form, its default every read type's.
+        self.assertEqual(build.sparse_first_spec(build.DEFAULT_SPARSE_FIRST), {"pe": 1, "se": 1, "pb": 8, "ont": 1})
+        self.assertEqual(build.sparse_first_spec("2"), {"pe": 2, "se": 2, "pb": 2, "ont": 2})
+        self.assertEqual(build.sparse_first_spec("none"), {})
+        self.assertEqual(build.gates_text({"pe": 1, "pb": 8}), "pe:1,pb:8")
+        self.assertEqual(build.gates_text({}), "none")
+        for bad in ("3", "pe:64", "xx:1", "pe:1,", "pe"):
+            with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
+                build.sparse_first_spec(bad)
+        self.assertEqual(build.sparse_first_levels(build.DEFAULT_TEST_C_GATES),
+                         {"pe": [0, 2, 4], "se": [0, 2, 4], "pb": [0, 4, 16], "ont": [0, 4, 8]})
+        self.assertEqual(build.sparse_first_levels("pb:16/4/4"), {"pb": [4, 16]})
+        self.assertEqual(build.levels_text({"pe": [0, 2], "pb": [4]}), "pe:0/2,pb:4")
+        for bad in ("pb:3", "pb", "xx:1", "pe:64"):
+            with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
+                build.sparse_first_levels(bad)
 
     def test_the_genomes_of_the_strain_alleles_are_not_simulated(self):
         # The genomes that give strain alleles: a hash of the accession, the same in protal (tests/test_StrainAlleles.cpp
@@ -478,6 +498,46 @@ class BuildFunctionsTest(unittest.TestCase):
         self.assertEqual(build.planned_bases(table, 1.0), 100 + 120 + 1000 + 50 + 1000 + 50)
         self.assertEqual(build.planned_bases(table, 0.5), 100 + 120 + 1000 + 50 + 525)
         self.assertEqual(build.planned_bases(table, 0), build.genome_bases(table))
+
+    def test_c_gates_summary(self):
+        # --test-c-gates: each read type's test samples at the database's gate (the test file's rows of the samples the
+        # gates' tables have) and at the others (the trainer's extra_tests), with the alignment's seconds of those samples
+        # from the collections' CPU tables (a later row of a sample wins; a sample missing leaves the seconds out).
+        root = self.tmp.name
+        test = os.path.join(root, "test")
+        scores = {"samples": 2, "taxa": 10, "present": 6, "TP": 5, "FP": 1, "FN": 1, "precision": 5 / 6,
+                  "sensitivity": 5 / 6, "F1": 5 / 6}
+        metrics = {"pe": {"extra_tests": {"c0": {"scores": dict(scores, FP=0, F1=10 / 11),
+                                                 "test_file_same_samples": scores},
+                                          "c4": {"scores": dict(scores, FN=3, F1=0.7), "test_file_same_samples": scores}}},
+                   "pb": {}}
+        prefixes = {}
+        for t, data in metrics.items():
+            prefixes[t] = os.path.join(root, f"trained_model_{t}")
+            with open(prefixes[t] + ".metrics.json", "w") as fh:
+                json.dump(data, fh)
+        for c, samples in ((0, ["s1", "s2"]), (4, ["s1", "s2"])):
+            os.makedirs(os.path.join(test, build.LEVELS_DIR, f"c{c}"))
+            with open(os.path.join(test, build.LEVELS_DIR, f"c{c}", "samples_pe.txt"), "w") as fh:
+                fh.writelines(s + "\n" for s in samples)
+        cpu = [os.path.join(root, "a.tsv"), os.path.join(root, "b.tsv"), os.path.join(root, "missing.tsv")]
+        rows = [("run 1", "aligning s1", 2, 10), ("run 1", "aligning s2", 2, 12), ("run 1", "aligning s1__c0", 3, 15),
+                ("run 1", "aligning s2__c0", 3, 15), ("run 1", "aligning s1__c4", 1, 4), ("run 1", "profiling", 9, 9)]
+        for path, part in ((cpu[0], rows[:4]), (cpu[1], rows[4:] + [("run 2", "aligning s1", 1, 8)])):
+            with open(path, "w") as fh:
+                fh.write("run\tstage\twall_seconds\tcpu_seconds\tthreads\tcores_busy\n")
+                fh.writelines(f"{r}\t{s}\t{w}\t{c}\t4\t\n" for r, s, w, c in part)
+        out = os.path.join(root, "c_gates.tsv")
+        lines = build.c_gates_summary(["pe", "pb"], prefixes, {"pe": [0, 4], "pb": [4]}, {"pe": 1, "pb": 8}, test, cpu,
+                                      out)
+        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 F1 0.7000"])
+        table = list(csv.DictReader(open(out), delimiter="\t"))
+        self.assertEqual(list(table[0]), build.C_GATES_COLUMNS)
+        self.assertEqual([(r["read_type"], r["gate"], r["database_gate"], r["FP"], r["FN"], r["aligning_cpu_s"],
+                           r["aligning_wall_s"]) for r in table],
+                         [("pe", "0", "0", "0", "1", "30.0", "6.0"), ("pe", "1", "1", "1", "1", "20.0", "3.0"),
+                          ("pe", "4", "0", "1", "3", "", "")])
+        self.assertEqual(table[0]["F1"], "0.909091")
 
     def test_cpu_logs(self):
         # The run's CPU use goes to logs only: a row per command that ended (Job.cpu_row: its wall and CPU seconds and the

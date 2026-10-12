@@ -2508,14 +2508,21 @@ namespace protal::build {
         return std::min<int>(bits, static_cast<int>(main_bits) - 3 - 6);
     }
 
-    // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, and how the models' `fragments`
-    // feature is to count (--fragment_count), which runs on the database follow (auto) or are warned about. Exits 8 if
+    // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, how the models' `fragments`
+    // feature is to count (--fragment_count) and each read type's sparse-first gate (--sparse_first), which runs on the
+    // database follow (auto) or are warned about. Exits 8 if
     // it cannot be written.
     static void WriteBuildSettings(protal::Options const& options) {
         std::string const target = options.GetBuildSettingsFile();
         build_settings::Settings settings;
         settings.wfa_traceback = options.GetWfaTraceback();
         settings.fragment_count = options.GetFragmentCount();
+        // The sparse-first gates given (--sparse_first; auto: none, the runs ungated), with their score and hits.
+        settings.sparse_first = options.SparseFirstGiven();
+        if (std::any_of(settings.sparse_first.begin(), settings.sparse_first.end(), [](auto const& g) { return g.has_value(); })) {
+            settings.sparse_first_score = options.GetSparseFirstScore();
+            settings.sparse_first_hits = options.GetSparseFirstHits();
+        }
         std::ofstream out(target);
         build_settings::Write(out, settings);
         out.close();
@@ -2524,7 +2531,11 @@ namespace protal::build {
             exit(8);
         }
         std::cout << "WFA2 traceback: " << WfaTracebackName(options.GetWfaTraceback()) << ", fragment count: "
-                  << FragmentCountName(options.GetFragmentCount()) << " (" << target << ")" << std::endl;
+                  << FragmentCountName(options.GetFragmentCount()) << ", sparse-first gates: "
+                  << SparseFirstGatesText(settings.sparse_first)
+                  << (settings.sparse_first_score ? ", score " + std::to_string(*settings.sparse_first_score) + ", " +
+                                                    std::to_string(*settings.sparse_first_hits) + " hit(s)" : std::string())
+                  << " (" << target << ")" << std::endl;
     }
 
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once

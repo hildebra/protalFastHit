@@ -537,9 +537,16 @@ any alignment, unless at least `--sparse_first_hits` (1) of those lookups have a
 `--sparse_first_score` (14) or more of the 16 flank bases with the read. A read kept is seeded and
 aligned as without it. At GTDB r226 the probe found C = 2 keeps 9.4% of a gut sample's pairs with
 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads with 99.2%. Reads given up
-count no failed candidates, which the models' `failed_candidate_rate` uses, so a database's models
-see other values than in training ([report](claude/2026-10-12-sparse-first/README.md)). Off by
-default (0); `--stage1_probe` and `--sparse_first` exclude each other.
+count no failed candidates, which the models' `failed_candidate_rate` uses, so the models must be
+trained on runs gated as the run is ([report](claude/2026-10-12-sparse-first/README.md)). A database
+built with `--sparse_first` records each read type's gate in its `build_settings.tsv`, and runs on it
+gate as it says (`auto`, the default; a database without one: off). `--sparse_first` takes one gate for
+all read types (`0` for off, or 1, 2, 4, 8, 16, 32) or read types and theirs (`pe:1,se:1,pb:8,ont:1`;
+those not named keep the database's), and a map's optional `SPARSE_FIRST` column one sample's (`-`:
+its read type's); `--sparse_first_score` and `--sparse_first_hits` likewise default to the database's
+(else 14 and 1). The run says the gates it uses beside the database's, and warns when a sample is
+gated otherwise. `--stage1_probe` and an explicit gate exclude each other; with `--stage1_probe` the
+database's gates are not followed.
 
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling

@@ -22,7 +22,7 @@ databases are in [development.md](development.md).
 | `index.prx` | the k-mer index of the reference marker genes |
 | `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
-| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match, so far the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index)); a database without it was built with the classic traceback |
+| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`) |
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
@@ -598,6 +598,33 @@ F1 0.997 ([report](claude/2026-09-30-clade-holdouts.md)). So every build also pr
 another design: depths of 500 to 5M pairs, 10-300 species, more uneven abundances (sigma 2.0), more
 mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 
+#### Choosing the sparse-first gates
+
+protal's `--sparse_first C` gives a read up before seeding when none of the 1/C of its k-mer cores
+in the sample finds a near-exact hit ([running.md](running.md#developer-options)).
+A read given up counts no failed candidates, so the models must be trained on runs gated as the
+database's runs will be: the build records `--sparse-first` (default `pe:1,se:1,pb:8,ont:1`) in
+both databases' `build_settings.tsv`, and every run on them, the collections' too, follows it.
+
+To choose the gates for the next build, `--test-c-gates` profiles the test set (the independent
+test samples and the scenarios' hold-out samples) at other gates too, in the same protal runs
+(map rows `<sample>__c<C>` with the map's `SPARSE_FIRST` column; samples streamed through pipes
+only at the database's gate). Each trainer scores those tables with its model as protal calls
+(`--extra-test-file`: the report's "Extra test tables" section and `extra_tests` in
+`<prefix>.metrics.json`), beside the test file's rows of the same samples, and the build writes
+`model_logs/c_gates.tsv` and a console line per read type:
+
+| Column | Holds |
+|---|---|
+| `read_type`, `gate`, `database_gate` | the read type, the gate (0: off), and 1 for the database's |
+| `samples`, `taxa`, `present`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate |
+| `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the protal runs' `aligning <sample>` rows (`protal_cpu_<collection>.tsv`; empty when a sample has none) |
+
+The model was trained at the database's gate, so another gate's F1 is that of a model trained
+otherwise: a gate whose F1 holds even so is a safe choice, while one that loses F1 may recover with
+models trained at it (build with it as `--sparse-first` to know). The test set is small
+(its F1 moves by a few thousandths between seeds: compare the FP and FN counts too).
+
 #### Scenarios: kinds of studies
 
 The design spans depths, community sizes and read setups so that one model learns them all; it does
@@ -907,6 +934,8 @@ keeps the finished database.
 | `--index-alleles` | 1 (off) | the k-mers of the strain alleles at least this far from the representative's copy (edits per base) go into both databases' indexes under the species as non-unique entries, so that a read of a deep strain finds its species (`protal --build --index_alleles`, [below](#2-build-the-index); 1 or more: none, the default since the r226 v22 build; 0.01 was the default before) |
 | `--fragment-count` | `mapq` | how the models' `fragments` feature counts (`protal --build --fragment_count`): recorded in both databases' `build_settings.tsv`, and followed by every run on them, the collections' included; `soft` adds each fragment the MAPQ and length filters drop by its read-EM share, so that thin divergent strains are not counted as nothing ([report](claude/2026-10-12-r226-v24b-errors/README.md), section 3; untested at r226) |
 | `--wfa-traceback` | protal's (`singletrack`; `classic` before 0.8.2) | the WFA2 traceback of both databases (`protal --build --wfa_traceback`): recorded in their `build_settings.tsv`, and followed by the collection's protal runs, which align as the training database was built. `singletrack` gives the same scores but may choose otherwise among equally good alignments ([below](#2-build-the-index)) |
+| `--sparse-first` | `pe:1,se:1,pb:8,ont:1` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 paired-end C = 1 lost 0.01% of the records for 35% less alignment time, HiFi C = 8 0.54% for 62% less; ONT C = 1 is a trial ([report](claude/2026-10-12-sparse-first/README.md)) |
+| `--test-c-gates [GATES]` | off; without a value `pe:0/2/4,se:0/2/4,pb:0/4/16,ont:0/4/8` | the test samples also profiled at these gates (the database's left out), in the same protal runs as `<sample>__c<C>`; each model scores them beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN and the samples' alignment CPU and wall seconds ([below](#choosing-the-sparse-first-gates)) |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
 | `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |
@@ -1137,6 +1166,10 @@ The build aligns with the WFA2 traceback `--wfa_traceback` names (`singletrack`,
 otherwise, and are warned when it does: the two tracebacks give the same scores but may choose
 otherwise among equally good alignments, in the strain alleles, congener gaps and column weights
 below and in the runs a model is trained on ([report](claude/2026-10-11-singletrack/README.md)).
+`--sparse_first` with `--build` records each read type's sparse-first gate there too (`pe:1,pb:8`,
+or one gate for all; `--sparse_first_score` and `--sparse_first_hits` with them), which runs on the
+database follow unless their `--sparse_first` says otherwise: the database's models must have been
+trained on runs gated so ([above](#choosing-the-sparse-first-gates)). The build itself is the same.
 
 The build first makes the tables that need the genes alone (before the index takes its memory),
 then the index:
