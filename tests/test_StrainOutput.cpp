@@ -734,7 +734,7 @@ TEST(PackedMSAItem, UnpacksWhatTheMSAReads) {
     std::pair<VariantVec, CoverageVec> item{ { { snp, reference }, { insertion } }, {} };
     for (CoverageVec coverage : { CoverageVec{ 0, 3, 255 }, CoverageVec{ 1, 256, 65535 }, CoverageVec{ 2, 65536, 4000000000u }, CoverageVec{} }) {
         item.second = coverage;
-        // Through a spill file (--strain_spill) as well: Read gives what Write was given.
+        // Through a spill file (--scratch_dir) as well: Read gives what Write was given.
         std::stringstream file;
         PackedMSAItem(item).Write(file);
         PackedMSAItem packed;
@@ -789,7 +789,7 @@ namespace {
     }
 }
 
-// --strain_spill: a sample's kept evidence goes to its spill file and is freed; read back, the strain stage gets the same
+// --scratch_dir: a sample's kept evidence goes to its spill file and is freed; read back, the strain stage gets the same
 // items and counts; dropped, asking for them fails until it is read back again. A file that cannot be written leaves the
 // evidence in memory.
 TEST(Abundance, SpilledEvidenceReadsBackTheSame) {

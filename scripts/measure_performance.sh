@@ -324,7 +324,7 @@ for spec in "$@"; do
         case $type in pb|ont) levels=$sparse_long ;; *) levels=$sparse_short ;; esac
         written_plain=$(awk -F'\t' -v s="$name" '$1 == s { w = $25 } END { print w == "" ? "NA" : w }' "$out/runs.tsv")
         for c in $levels; do
-            run=$out/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
+            run=$runs/protal/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
             cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "$c")
             # shellcheck disable=SC2206
             cmd+=(${SPARSE_ARGS:-} ${PROTAL_ARGS:-})

@@ -31,6 +31,7 @@
 #pragma once
 
 #include "BinaryTable.h"
+#include "ShardedCache.h"
 
 #include <algorithm>
 #include <array>
@@ -59,7 +60,8 @@ namespace protal::column_weights {
     inline constexpr uint8_t kConservedCode = 9;  // 4.5 nats, 98.9% conserved: "a conserved column" in the rate features
     inline constexpr uint8_t kNoBase = 4;         // no consensus base
     inline constexpr size_t kMaxLength = 65535;   // columns and positions are 16-bit
-    inline constexpr size_t kMaxCached = 200000;  // copies expanded and kept; the cache starts over beyond
+    inline constexpr size_t kMaxCached = 200000;  // copies expanded and kept; each shard of the cache starts over beyond
+                                                  // its share (ShardedCache)
 
     // A conservation share's code: round(2 w) with w = -log(1 - p), 1..kMaxCode; kNoCode without an estimate. `agree`
     // of `compared` sequences carry the consensus; the pseudocounts (k + 1)/(n + 2) cap what few sequences can claim.
@@ -611,28 +613,19 @@ namespace protal::column_weights {
         std::shared_ptr<Columns const> Get(uint32_t taxid, uint32_t geneid, Genomes& genomes, Table const& table) {
             if (table.Empty()) return nullptr;
             uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                if (auto const it = m_columns.find(key); it != m_columns.end()) return it->second;
-            }
-            std::shared_ptr<Columns const> result;
-            if (genomes.HasGene(taxid, geneid)) {
+            return m_columns.Lookup(key, [&]() -> std::shared_ptr<Columns const> {
+                if (!genomes.HasGene(taxid, geneid)) return nullptr;
                 auto const own = genomes.GetGeneOMP(taxid, geneid).Sequence();
-                result = table.Expand(taxid, geneid, own.View().size());
-            }
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_columns.size() >= kMaxCached) m_columns.clear();
-            return m_columns.try_emplace(key, result).first->second;
+                return table.Expand(taxid, geneid, own.View().size());
+            });
         }
 
         void Clear() {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_columns.clear();
+            m_columns.Clear();
         }
 
     private:
-        mutable std::mutex m_mutex;
-        std::unordered_map<uint64_t, std::shared_ptr<Columns const>> m_columns;
+        ShardedCache<std::shared_ptr<Columns const>> m_columns{ kMaxCached };  // a lock per shard (ShardedCache.h)
     };
 
     // What a record's aligned bases weigh: of its aligned columns with an estimate, their number and the sum of their

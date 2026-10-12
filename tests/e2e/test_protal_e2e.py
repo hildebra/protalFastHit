@@ -1056,17 +1056,22 @@ class CombiningRunsTest(DbTest):
             self.assertEqual(rows[1:], ["sa", "sb"], msa)
 
     def test_spilled_evidence(self):
-        # --strain_spill: the samples' strain evidence goes to files, read back per species: the same strain outputs, and
-        # the files are gone at the end. A folder protal cannot write to stops it before it starts.
-        rc, log = run(self.work, "--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams),
-                      "-o", "spilled", "-t", "2", "--no_qcmsa", "--strain_spill", self.path("spill"))
+        # --scratch_dir: the samples' strain evidence goes to files in the run's scratch folder, read back per species: the
+        # same strain outputs, and the folder is gone at the end. --strain_spill (before 2026-10-12) does the same. A folder
+        # protal cannot write to stops it before it starts.
+        common = ["--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams), "-t", "2", "--no_qcmsa"]
+        rc, log = run(self.work, *common, "-o", "spilled", "--scratch_dir", self.path("spill"))
         self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Scratch folder: " + self.path("spill", "protal_"), log)
         self.assertEqual(self.strain_files("spilled"), self.strain_files("listed"))
         self.assertEqual(os.listdir(self.path("spill")), [])
+        rc, log = run(self.work, *common, "-o", "spilled_old_option", "--strain_spill", self.path("old_spill"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(self.strain_files("spilled_old_option"), self.strain_files("listed"))
+        self.assertEqual(os.listdir(self.path("old_spill")), [])
         with open(self.path("a_file"), "w") as fh:
             fh.write("not a folder\n")
-        rc, log = run(self.work, "--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams),
-                      "-o", "spill_refused", "-t", "2", "--no_qcmsa", "--strain_spill", self.path("a_file"))
+        rc, log = run(self.work, *common, "-o", "spill_refused", "--scratch_dir", self.path("a_file"))
         self.assertNotIn(rc, (0, 1), log[-3000:])
         self.assertIn("is not a folder protal can write to", log)
 
@@ -1434,6 +1439,46 @@ class ModelContractTest(DbTest):
         for sample in ("sa", "sb"):
             for name, text in base.profiles(sample).items():
                 self.assertEqual(read_text(self.path("out", name)), text, name)
+
+
+class ScratchDirTest(DbTest):
+    """--scratch_dir: with --no_strains the SAMs protal names go to the run's scratch folder and are removed once
+    profiled, with the same profiles; without --no_strains they stay in the output folder; the scratch folder is gone at
+    the end of the run either way."""
+
+    def run_samples(self, out, *extra):
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", out, "-t", "2", "--no_qcmsa", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        return log
+
+    def test_a_run_without_strains_keeps_no_sam(self):
+        self.run_samples("plain", "--no_strains")
+        log = self.run_samples("scratched", "--no_strains", "--scratch_dir", self.path("scratch"))
+        self.assertIn("the SAM files of 2 sample(s) go there and are removed once profiled", log)
+        self.assertEqual(find_sams(self.path("scratched", "*.sam")), [])
+        self.assertEqual(os.listdir(self.path("scratch")), [], "the run's scratch folder is removed")
+        for sample in ("sa", "sb"):
+            for name in (f"{sample}.profile", f"{sample}.profile.log", f"{sample}.profile.gene.log", f"{sample}.profile.genes.log"):
+                self.assertEqual(read_text(self.path("scratched", name)), read_text(self.path("plain", name)), name)
+            # The tail of the sample's profiling is timed: a row of its runtime table and a line.
+            _, runtime = read_table(self.path("scratched", "misc", f"{sample}_runtime.tsv"))
+            self.assertIn("Profiling: after the profile", [row[0] for row in runtime])
+            self.assertRegex(log, rf"Sample {sample} after its profile: [0-9.]+ s \(.*malloc_trim")
+
+    def test_sams_stay_with_strain_msas(self):
+        log = self.run_samples("kept", "--scratch_dir", self.path("scratch_kept"))
+        self.assertNotIn("go there", log)
+        self.assertEqual(len(find_sams(self.path("kept", "*.sam"))), 2)
+        self.assertEqual(os.listdir(self.path("scratch_kept")), [])
+
+    def test_an_earlier_sam_is_profiled_in_place(self):
+        # A SAM an earlier run left in the output folder is profiled as before, not aligned again into the scratch folder.
+        base = baseline()
+        base.place_sams(self.path("earlier"), ["sa", "sb"])
+        log = self.run_samples("earlier", "--no_strains", "--scratch_dir", self.path("scratch_earlier"))
+        self.assertIn("All alignments are present", log)
+        self.assertNotIn("go there", log)
+        self.assertEqual(len(find_sams(self.path("earlier", "*.sam"))), 2)
 
 
 def model_with_header(model_path, path, extensions):
@@ -3808,12 +3853,12 @@ class PhasingTest(DbTest):
                 shutil.copy(os.path.join(cls.work, "out", f"{prefix}.sam.zst"), os.path.join(cls.work, "off"))
         cls.rc_off, cls.log_off = run(cls.work, *common, "-o", "off", "--no_phasing")
         # The same SAMs once more, each sample's strain evidence (its long reads' phase records too) spilled to a file
-        # and read back per species (--strain_spill).
+        # in the run's scratch folder and read back per species (--scratch_dir).
         os.makedirs(os.path.join(cls.work, "spilled"))
         for prefix in ("pa", "pm"):
             if os.path.exists(os.path.join(cls.work, "out", f"{prefix}.sam.zst")):
                 shutil.copy(os.path.join(cls.work, "out", f"{prefix}.sam.zst"), os.path.join(cls.work, "spilled"))
-        cls.rc_spill, cls.log_spill = run(cls.work, *common, "-o", "spilled", "--strain_spill", os.path.join(cls.work, "spill"))
+        cls.rc_spill, cls.log_spill = run(cls.work, *common, "-o", "spilled", "--scratch_dir", os.path.join(cls.work, "spill"))
 
     def test_spilled_evidence_gives_the_same_rows(self):
         self.assertEqual(self.rc_spill, 0, self.log_spill[-3000:])
@@ -3822,7 +3867,7 @@ class PhasingTest(DbTest):
         self.assertTrue(any(name.endswith(".haplotypes.tsv") for name in names), names)
         for name in names:
             self.assertEqual(read_text(self.path("spilled", "strains", name)), read_text(self.path("out", "strains", name)), name)
-        self.assertEqual(os.listdir(self.path("spill")), [], "the spill files are removed")
+        self.assertEqual(os.listdir(self.path("spill")), [], "the spill files and the run's scratch folder are removed")
 
     def msa(self, out):
         paths = []

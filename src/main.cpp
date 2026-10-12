@@ -132,6 +132,12 @@
 //   at r226 it lowered short-read depths by 1-2% without a measurable F1 gain. r226 v24b's models were trained with it.
 //   --fragment_count soft (opt-in, recorded in build_settings.tsv and followed by runs): the model's `fragments` feature
 //   counts the fragments the MAPQ and length filters drop by their read-EM share (docs/claude/2026-10-12-r226-v24b-errors).
+//   The profiling's run-wide caches of ancestry sites and column weights in 64 shards with a lock each (ShardedCache.h):
+//   with one lock, the SAM parse of a 32-thread r226 run took 119 thread-seconds instead of ~25 and ~4 s whatever the
+//   threads (docs/claude/2026-10-12-feature-cost-vs-f1.md); the profiles the same. --scratch_dir: the run's
+//   intermediate files in a folder of its own on a local disk, removed at the end (the strain stage's spill files,
+//   replacing --strain_spill; with --no_strains the SAMs; a gz/plain SAM's records; qcMSA's files). The profiling's
+//   tail timed ("Profiling: after the profile").
 #include <iostream>
 #include "RunProtal.h"
 

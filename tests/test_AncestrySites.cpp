@@ -8,9 +8,11 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include "SequenceUtils/AncestrySites.h"
+#include "Utilities/ShardedCache.h"
 
 using namespace protal;
 namespace an = protal::ancestry;
@@ -392,6 +394,39 @@ TEST(AncestrySites, CacheTakesTheNearestCongenerWithThePairingCopy) {
     EXPECT_TRUE(cache.Get(1, 5, genomes, sn::Table{})->Empty());
     cache.Clear();
     EXPECT_EQ(cache.Size(), 0u);
+}
+
+// The run's caches (ShardedCache.h, a lock per shard): threads looking up the same keys at once all get the one value
+// kept per key; a shard that is full starts over, so the cache holds at most its maximum; Clear empties every shard.
+TEST(AncestrySites, ShardedCacheKeepsOneValuePerKey) {
+    ShardedCache<std::shared_ptr<uint64_t const>> cache(1 << 20);
+    constexpr int kThreads = 8;
+    constexpr uint64_t kKeys = 3000;
+    auto const key_of = [](uint64_t k) { return ((k % 300 + 1) << 32) | (k / 300 + 1); };  // taxid << 32 | gene
+    std::vector<std::vector<std::shared_ptr<uint64_t const>>> got(kThreads, std::vector<std::shared_ptr<uint64_t const>>(kKeys));
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; t++) {
+        threads.emplace_back([&, t] {
+            for (uint64_t i = 0; i < kKeys; i++) {
+                uint64_t const k = (i * 7 + static_cast<uint64_t>(t) * 1009) % kKeys;  // each thread in its own order
+                got[t][k] = cache.Lookup(key_of(k), [&]() { return std::make_shared<uint64_t const>(key_of(k)); });
+            }
+        });
+    }
+    for (auto& th : threads) th.join();
+    EXPECT_EQ(cache.Size(), kKeys);
+    for (uint64_t k = 0; k < kKeys; k++) {
+        ASSERT_EQ(*got[0][k], key_of(k));
+        for (int t = 1; t < kThreads; t++) EXPECT_EQ(got[t][k].get(), got[0][k].get()) << k;
+    }
+    ShardedCache<int> small(ShardedCache<int>::kShards * 4);
+    for (uint64_t k = 0; k < 10000; k++) {
+        EXPECT_EQ(small.Lookup(key_of(k), [&]() { return static_cast<int>(k); }), static_cast<int>(k));
+    }
+    EXPECT_LE(small.Size(), ShardedCache<int>::kShards * 4);
+    EXPECT_GT(small.Size(), 0u);
+    small.Clear();
+    EXPECT_EQ(small.Size(), 0u);
 }
 
 // With three congeners or more the cache takes the consensus: the sites every one of them shares (nine in ten).

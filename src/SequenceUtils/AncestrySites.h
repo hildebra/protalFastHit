@@ -52,6 +52,7 @@
 #include <vector>
 
 #include "CongenerGapsTable.h"
+#include "ShardedCache.h"
 #include "SpeciesNeighbours.h"
 
 namespace protal::ancestry {
@@ -73,7 +74,8 @@ namespace protal::ancestry {
     inline constexpr size_t kIndelTolerance = 4;   // bases a record's gap may lie from an indel site (the aligner slides gaps)
     inline constexpr size_t kIndelMargin = 5;      // a record counts an indel site only when aligned this far beyond it
     inline constexpr size_t kMaxLength = 65535;    // positions are 16-bit
-    inline constexpr size_t kMaxCached = 200000;   // (species, gene) pairs kept; the cache starts over beyond
+    inline constexpr size_t kMaxCached = 200000;   // (species, gene) pairs kept; each shard of the cache starts over
+                                                   // beyond its share (ShardedCache)
     inline constexpr double kUnknown = -1;         // the features of a taxon without sites
 
     // A base's code (A 0, C 1, G 2, T 3, any case), 4 for another letter.
@@ -642,29 +644,19 @@ namespace protal::ancestry {
         // The sites under key: the cached ones, or make()'s (made outside the lock), kept.
         template<typename Make>
         std::shared_ptr<Sites const> Lookup(uint64_t key, Make&& make) {
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                if (auto const it = m_sites.find(key); it != m_sites.end()) return it->second;
-            }
-            std::shared_ptr<Sites const> result = make();
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_sites.size() >= kMaxCached) m_sites.clear();
-            return m_sites.try_emplace(key, std::move(result)).first->second;
+            return m_sites.Lookup(key, std::forward<Make>(make));
         }
 
         size_t Size() const {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            return m_sites.size();
+            return m_sites.Size();
         }
 
         void Clear() {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_sites.clear();
+            m_sites.Clear();
         }
 
     private:
-        mutable std::mutex m_mutex;
-        std::unordered_map<uint64_t, std::shared_ptr<Sites const>> m_sites;
+        ShardedCache<std::shared_ptr<Sites const>> m_sites{ kMaxCached };  // a lock per shard (ShardedCache.h)
     };
 
     // ---- every copy's sites, made by --build (ancestry_sites.bin, since 2026-10-11) -----------------------------------

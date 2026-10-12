@@ -213,12 +213,16 @@ namespace protal {
 
         // Writes the SAM `path`, compressed as `compression`. With a header, the header goes first
         // and the records follow; without one, the records collect in path + kRecordsSuffix until
-        // Finish(header). For zstd, `header_room` bytes (sam_zstd::HeaderRoom) instead take the
-        // records into `path` itself, after that much room for the marker and the header.
+        // Finish(header), or in `records_dir` under the SAM's file name + kRecordsSuffix (--scratch_dir: a
+        // local disk, which they are copied from once). For zstd, `header_room` bytes (sam_zstd::HeaderRoom)
+        // instead take the records into `path` itself, after that much room for the marker and the header.
         SamOutput(std::string path, SamCompression compression, std::optional<std::string> const& header = std::nullopt,
-                  size_t header_room = 0) :
-                m_path(std::move(path)), m_records_path(m_path + kRecordsSuffix), m_compression(compression),
-                m_header_first(header.has_value()) {
+                  size_t header_room = 0, std::string const& records_dir = {}) :
+                m_path(std::move(path)),
+                m_records_path(records_dir.empty() ? m_path + kRecordsSuffix
+                                                   : (std::filesystem::path(records_dir) /
+                                                      (std::filesystem::path(m_path).filename().string() + kRecordsSuffix)).string()),
+                m_compression(compression), m_header_first(header.has_value()) {
             if (m_header_first) {
                 m_fd = Create(m_path);
                 if (m_fd >= 0) WriteHead(*header);
@@ -477,6 +481,7 @@ namespace protal {
         // it, as when they collect in the temporary records file.
         bool MoveRecordsBehind(std::string const& header) {
             if (!CloseFd()) return false;
+            m_records_path = m_path + kRecordsSuffix;  // beside the SAM, whatever records_dir: a rename, not a copy
             std::error_code ec;
             std::filesystem::rename(m_path, m_records_path, ec);
             if (ec) {

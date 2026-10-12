@@ -138,7 +138,7 @@ namespace protal {
             return item;
         }
 
-        // To a spill file (--strain_spill) and back: Read gives the item Write was given.
+        // To a spill file (--scratch_dir) and back: Read gives the item Write was given.
         void Write(std::ostream& os) const {
             binary_io::WriteVector(os, m_bin_ends);
             binary_io::WriteVector(os, m_alleles);

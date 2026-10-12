@@ -395,6 +395,51 @@ TEST(SamFile, AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt) {
     }
 }
 
+// --scratch_dir: the records collect in another folder (the run's scratch folder) under the SAM's file name, are copied
+// behind the header from there and removed; a zstd header too large for its room still moves the records beside the SAM
+// (a rename) and leaves nothing in that folder.
+TEST(SamFile, RecordsCollectInAnotherFolder) {
+    for (auto const& name : { "out.sam", "out.sam.gz" }) {
+        SCOPED_TRACE(name);
+        ScratchDir dir;
+        std::string const scratch = dir / "scratch";
+        fs::create_directories(scratch);
+        auto const path = dir / name;
+        auto const records = fs::path(scratch) / (std::string(name) + SamOutput::kRecordsSuffix);
+        std::vector<std::string> blocks;
+        {
+            SamOutput out(path, SamCompressionOf(path), std::nullopt, 0, scratch);
+            ASSERT_TRUE(out.Ok()) << out.Error();
+            blocks = WriteFromThreads(out).first;
+            EXPECT_TRUE(fs::exists(records));
+            EXPECT_FALSE(fs::exists(path + SamOutput::kRecordsSuffix));
+            ASSERT_TRUE(out.Finish(kHeader)) << out.Error();
+        }
+        EXPECT_FALSE(fs::exists(records));
+        auto const text = ReadBack(path);
+        ASSERT_EQ(text.substr(0, kHeader.size()), kHeader);
+        ExpectBlocks(text.substr(kHeader.size()), blocks);
+    }
+    ScratchDir dir;
+    std::string const scratch = dir / "scratch";
+    fs::create_directories(scratch);
+    auto const path = dir / "room.sam.zst";
+    size_t const room = sam_zstd::HeaderRoom(0);
+    std::string const header = Incompressible(room + 64, 3);
+    std::vector<std::string> blocks;
+    {
+        SamOutput out(path, SamCompression::Zstd, std::nullopt, room, scratch);
+        blocks = WriteInOrder(out, 50);
+        ASSERT_TRUE(out.Finish(header)) << out.Error();
+        EXPECT_TRUE(out.Placement().copied);
+    }
+    EXPECT_FALSE(fs::exists(path + SamOutput::kRecordsSuffix));
+    EXPECT_TRUE(fs::is_empty(scratch));
+    auto const text = ReadBothWays(path);
+    ASSERT_EQ(text.substr(0, header.size()), header);
+    ExpectBlocks(text.substr(header.size()), blocks);
+}
+
 TEST(SamFile, AZstdSamWithRoomButNoRecords) {
     ScratchDir dir;
     auto const path = (dir / "empty.sam.zst");

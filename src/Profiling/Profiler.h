@@ -211,7 +211,7 @@ namespace protal {
                 size_t covered = 0;  // positions with a read
             };
             std::shared_ptr<MSAEvidence const> m_msa_evidence;
-            // Its evidence went to the sample's spill file (--strain_spill, MicrobialProfile::SpillStrainEvidence): the
+            // Its evidence went to the sample's spill file (--scratch_dir, MicrobialProfile::SpillStrainEvidence): the
             // strain stage reads it back (ReadEvidence) for the species it builds the MSA of, and drops it again.
             bool m_evidence_spilled = false;
 
@@ -256,7 +256,7 @@ namespace protal {
             // not read (a bug), which must not be answered from the records, which are gone.
             void CheckNotSpilled(char const* what) const {
                 if (m_evidence_spilled && !m_msa_evidence) {
-                    throw std::logic_error(std::string("Gene::") + what + " of a gene whose evidence is spilled (--strain_spill) and not read back");
+                    throw std::logic_error(std::string("Gene::") + what + " of a gene whose evidence is spilled (--scratch_dir) and not read back");
                 }
             }
 
@@ -1347,7 +1347,7 @@ namespace protal {
             }
 
             // What the strain stage reads of the taxon once its sample's outputs are written (its genes' kept evidence,
-            // Gene::KeepForMSAs, and its long reads' phase records) to the sample's spill file (--strain_spill) and back.
+            // Gene::KeepForMSAs, and its long reads' phase records) to the sample's spill file (--scratch_dir) and back.
             void WriteStrainEvidence(std::ostream& os) const {
                 uint64_t genes = 0;
                 for (auto const& [id, gene] : m_genes) genes += gene.m_msa_evidence != nullptr;
@@ -3184,15 +3184,16 @@ namespace protal {
                 auto const [all_mismatches, third] = MismatchesByCodonPosition(sam.m_cigar, static_cast<size_t>(sam.m_pos));
                 e.mismatches += all_mismatches;
                 e.third_mismatches += third;
-                // The sites of the taxon's copy of the gene, from the run's cache once per collector (a chunk's records
-                // hit the same taxa and genes over and over; the shared cache takes a lock per lookup).
+                // The sites of the taxon's copy of the gene, from the run's cache once per collector. A collector is a
+                // SAM chunk's, whose ~1,400 records at r226 meet hundreds to thousands of copies, so the run's caches
+                // take a lock per shard (ShardedCache.h): with one lock, 32 threads spent most of the parse waiting.
                 // The ancestry features count the sites the species' known genomes share (SpeciesAncestrySitesOf); the
                 // fixed-site features (NoteAlleles) all of them, weighed by the alleles.
                 uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
                 auto& sites = m_ancestry_sites[key];
                 if (!sites) sites = m_genome_loader->AncestrySitesOf(taxid, geneid);
                 auto& shared = m_species_sites[key];
-                if (!shared) shared = m_genome_loader->SpeciesAncestrySitesOf(taxid, geneid);
+                if (!shared) shared = m_genome_loader->SpeciesAncestrySitesOf(taxid, geneid, sites);
                 if (!shared->Empty()) {
                     auto const c = ancestry::Count(*shared, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq);
                     e.ancestry_sites += c.sites;
@@ -4008,7 +4009,7 @@ namespace protal {
                 }
             }
 
-            // --strain_spill: what the strain stage reads of the sample's taxa (Taxon::WriteStrainEvidence, after
+            // --scratch_dir: what the strain stage reads of the sample's taxa (Taxon::WriteStrainEvidence, after
             // ReleaseReadData) goes to the file `path`, a block per taxon, and is freed; LoadStrainEvidence reads one
             // taxon's block back while its MSA is built, and DropStrainEvidence frees it again. A cohort then holds the
             // species being built only, not every sample's evidence. If the file cannot be written, the evidence stays

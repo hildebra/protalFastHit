@@ -68,7 +68,10 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
   times the number of calls. Since 0.7.6 it also has the profiling steps' wall-clock times (reading the
   SAM, record evidence and sample context, read EM, congener distances, SNPs, scoring, writing), which
-  protal prints in one line per sample too; a rerun that profiles the sample again replaces them.
+  protal prints in one line per sample too; a rerun that profiles the sample again replaces them. Since
+  2026-10-12 a last row, "Profiling: after the profile", times what follows (the unreported species,
+  freeing the sample's read data and evidence, spilling its strain evidence, returning freed memory),
+  each part in the log line `Sample <name> after its profile: ...`.
 - `misc/cpu.tsv` (since 2026-10-09) has a row per stage of the run, one after the other: the start-up
   (loading the database), each sample's alignment (`aligning <sample>`, up to its SAM written), the
   profiling stage and the rest of the run, with its wall-clock seconds, the CPU seconds the whole
@@ -336,6 +339,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [databases.md](databases.md#the-presence-model) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
+| `--scratch_dir` | none | a folder for the run's intermediate files, best on the machine's own disk (e.g. `$TMPDIR` on a cluster node) when the outputs go to a network file system. protal makes a folder of its own in it (`protal_<host>_<pid>_<time>`) and removes it at the end of the run, also when the run fails (a killed run leaves it). In it: each sample's strain evidence, read back per species ([strains.md](strains.md#strain-msas-over-several-runs); this replaces `--strain_spill`, which still works and means the same); with `--no_strains`, the SAM files protal names (with `-1`/`-2`, or a map without a `SAM` column), removed once their sample is profiled, as nothing after the run reads them (writing and closing a SAM on a network file system took 1-7 s of a 32-thread r226 run); the records of a `--sam_format gz` or `sam` SAM before its header is written; qcMSA's working files. Without `--no_strains` the SAMs stay in the output folder, for strain MSAs over several runs, and a SAM an earlier run left there is profiled as before |
 | `--one_sample` | off | the files of `-1` (and `-2`) are one sample's, its lanes or runs, read one after the other ([Several files of one sample](#several-files-of-one-sample)); in a map, a `FIRST` and `SECOND` cell lists a sample's files, comma-separated |
 | `--no_strains` | off | no MSAs or SNP tables (profiles are the same). The other strain options are in [strains.md](strains.md#options) |
 | `--keep_foreign_genes` | off | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way |
@@ -560,6 +564,6 @@ taxon with a record or a failed candidate, ~140 MB per sample at r226, which a r
 its end) and keeps only what its strain MSA rows need, packed: the alleles and
 coverage of the genes of the species that enter MSAs (nothing with `--no_strains`; every taxon's
 numbers with `--taxon_statistics`), 37 MB for a dense sample of 1M pairs from 60 species, 159 MB up
-to 0.7.8; with `--strain_spill DIR` it goes to a file there and the strain stage reads it back per
+to 0.7.8; with `--scratch_dir DIR` it goes to a file in the run's folder there and the strain stage reads it back per
 species, so the memory of a run over many samples does not grow with them
 ([strains.md](strains.md#strain-msas-over-several-runs)).

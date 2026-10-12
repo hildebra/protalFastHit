@@ -52,6 +52,7 @@
 #include "ForeignRatesTable.h"
 #include "StrainAlleles.h"
 #include "ColumnWeights.h"
+#include "ShardedCache.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -865,8 +866,7 @@ namespace protal {
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
         ancestry::Table m_prebuilt_sites;  // every copy's sites as --build made them; empty: computed as a run needs them
         // Of those, the ones the species' alleles share (SpeciesAncestrySitesOf), for copies with alleles.
-        std::mutex m_species_sites_mutex;
-        std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_species_sites;
+        ShardedCache<std::shared_ptr<ancestry::Sites const>> m_species_sites{ ancestry::kMaxCached };
 
         int m_threads = 1;  // for reading reference.map
         gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
@@ -1259,22 +1259,22 @@ namespace protal {
         // features; the same sites where the copy has no alleles. The fixed-site features take AncestrySitesOf's, all of
         // them, and weigh them by the alleles themselves. Computed once per run.
         std::shared_ptr<ancestry::Sites const> SpeciesAncestrySitesOf(uint32_t taxid, uint32_t geneid) {
-            auto sites = AncestrySitesOf(taxid, geneid);
+            return SpeciesAncestrySitesOf(taxid, geneid, AncestrySitesOf(taxid, geneid));
+        }
+
+        // As above, from the copy's sites (AncestrySitesOf), which the caller has already: one lookup fewer.
+        std::shared_ptr<ancestry::Sites const> SpeciesAncestrySitesOf(uint32_t taxid, uint32_t geneid,
+                                                                      std::shared_ptr<ancestry::Sites const> sites) {
             if (sites->Empty() || m_strain_alleles.Empty()) return sites;
             auto const alleles = m_strain_alleles.Of(taxid, geneid);
             if (alleles.empty()) return sites;
             uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
-            {
-                std::lock_guard<std::mutex> lock(m_species_sites_mutex);
-                if (auto const it = m_species_sites.find(key); it != m_species_sites.end()) return it->second;
-            }
-            strain_alleles::Polymorphism poly;
-            poly.Set(m_strain_alleles, alleles, 0, UINT16_MAX);
-            auto shared = std::make_shared<ancestry::Sites const>(ancestry::SharedBySpecies(
-                *sites, [&](uint32_t p) { return poly.Find(p) != nullptr; }, [&](uint32_t p) { return poly.IndelNear(p); }));
-            std::lock_guard<std::mutex> lock(m_species_sites_mutex);
-            if (m_species_sites.size() >= ancestry::kMaxCached) m_species_sites.clear();
-            return m_species_sites.try_emplace(key, std::move(shared)).first->second;
+            return m_species_sites.Lookup(key, [&]() -> std::shared_ptr<ancestry::Sites const> {
+                strain_alleles::Polymorphism poly;
+                poly.Set(m_strain_alleles, alleles, 0, UINT16_MAX);
+                return std::make_shared<ancestry::Sites const>(ancestry::SharedBySpecies(
+                    *sites, [&](uint32_t p) { return poly.Find(p) != nullptr; }, [&](uint32_t p) { return poly.IndelNear(p); }));
+            });
         }
 
         // Each gene copy's column weights (ColumnWeights.h: how conserved each column is in the species' family, and the
@@ -1330,8 +1330,7 @@ namespace protal {
         }
 
         void ClearSpeciesSites() {
-            std::lock_guard<std::mutex> lock(m_species_sites_mutex);
-            m_species_sites.clear();
+            m_species_sites.Clear();
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

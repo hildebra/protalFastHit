@@ -1,5 +1,5 @@
 // Binary writing and reading of plain values, strings and vectors of plain values, in the machine's own byte order:
-// for files a run writes and reads back itself (the strain stage's spill files, --strain_spill), never moved to another
+// for files a run writes and reads back itself (the strain stage's spill files, --scratch_dir), never moved to another
 // machine.
 #pragma once
 

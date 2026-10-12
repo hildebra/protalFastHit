@@ -104,7 +104,8 @@ namespace protal {
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
                 ("map_range", "If you specified a map file with --map you can also pass a range to protal to run protal only on a subset. The first entry is 1, the end is inclusive. e.g.: 1-10. If the end open or larger than the number of entries in the map file, the last entry in the map file is selected as end.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment, e.g. to build strain MSAs over the samples of several runs. An item with a wildcard, such as 'runs/*/alignments/*.sam.zst' (quoted: protal expands it; unquoted, the shell does, which works as well), stands for the .sam, .sam.gz and .sam.zst files it matches, sorted. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names (where two files share a name, as aln.sam.zst in a folder per sample, from the folders in which their paths differ); the outputs then go to -o if it is given, else the profiles next to each sam file and 'strains' and 'misc' into the current folder.", cxxopts::value<std::string>()->default_value(""))
-                ("sam_format", "Format of the SAM files that protal names (with -1/-2, or a map without a SAM column): zst (zstd-compressed, <prefix>.sam.zst), gz (gzip, .sam.gz) or sam (plain). A map's SAM names keep their own ending.", cxxopts::value<std::string>()->default_value("zst"));
+                ("sam_format", "Format of the SAM files that protal names (with -1/-2, or a map without a SAM column): zst (zstd-compressed, <prefix>.sam.zst), gz (gzip, .sam.gz) or sam (plain). A map's SAM names keep their own ending.", cxxopts::value<std::string>()->default_value("zst"))
+                ("scratch_dir", "A folder for protal's intermediate files, best on a disk of the machine itself (e.g. $TMPDIR on a cluster node) when the outputs go to a network file system. protal makes a folder of its own in it (protal_<host>_<pid>_<time>) and removes it at the end of the run, also when the run fails (not when it is killed). In it: what each sample keeps for the strain MSAs, written once its profile is written and read back one species at a time, so that the memory of many samples (e.g. --profile_only over several runs) does not grow with them (a sample's stays in memory if its file cannot be written; replaces --strain_spill). With --no_strains, the SAM files that protal names (with -1/-2, or a map without a SAM column), removed once their sample is profiled: nothing after the run reads them; without --no_strains they stay in the output folder, for strain MSAs over several runs, and a SAM an earlier run left in the output folder is profiled as before. And the SAM records of --sam_format gz and sam before their header is written, and qcMSA's working files.", cxxopts::value<std::string>()->default_value(""));
 
         // Alignment / algorithm options
         options.add_options("Alignment")
@@ -147,7 +148,6 @@ namespace protal {
         options.add_options("Strains")
                 ("no_strains", "Stay on species level: do not write strain MSAs or SNP tables. Variants are still called, as the model uses them, so profiles are the same with or without this flag.")
                 ("no_phasing", "Write one strain MSA row per long-read sample (PacBio, ONT), the consensus of its reads. By default a sample whose reads show two or more strains of a species (on 3 genes or more) gets a row per strain, <sample>_hap1, _hap2, ..., the most abundant first, each called from its strain's reads: the reads are clustered by their alleles across the genes each one covers, and the blocks of genes that no read links are joined by the strains' shares of the reads where those tell which strain is which. <species>.haplotypes.tsv says how each block was phased.")
-                ("strain_spill", "A folder (best on a local disk) for what each sample keeps for the strain MSAs: written there once its profile is written and read back one species at a time, so that the memory of many samples (e.g. --profile_only over several runs) does not grow with them. A file per sample, removed at the end; protal keeps a sample's in memory if its file cannot be written.", cxxopts::value<std::string>()->default_value(""))
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
@@ -232,6 +232,10 @@ namespace protal {
         options.add_options("_positional")
                 ("positional", "Arguments that follow no option", cxxopts::value<std::vector<std::string>>());
 
+        // Not shown: options kept so that older command lines still run.
+        options.add_options("_kept")
+                ("strain_spill", "Up to 2026-10-12 the folder of the strain stage's spill files; now the same as --scratch_dir, which spills there (--scratch_dir wins).", cxxopts::value<std::string>()->default_value(""));
+
         return options;
     }
 
@@ -260,7 +264,8 @@ namespace protal {
         bool weighted_site_shift = false;
         double index_alleles = 1;
         bool no_phasing = false;
-        std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
+        std::string scratch_dir;   // --scratch_dir (or the older --strain_spill): where the run's scratch folder goes, or none
+        bool sams_named = false;   // a map's SAM column named the SAM files (not protal)
         bool fastalign = false;
         bool profile_only = false;
         bool force = false;
@@ -403,7 +408,10 @@ namespace protal {
         bool m_weighted_site_shift = false;  // --weighted_site_shift (off by default since 2026-10-12): the shift discounts
                                              // differences at variable columns
         bool m_no_phasing = false;
-        std::string m_strain_spill;  // --strain_spill
+        std::string m_scratch_dir;     // --scratch_dir
+        std::string m_scratch_folder;  // the run's folder in it (UseScratchFolder), once made
+        bool m_sams_named = false;     // a map's SAM column named the SAM files
+        std::vector<bool> m_scratch_sams;  // by sample: its SAM is in the run's scratch folder (MoveSamsToScratch)
         bool m_fastalign = false;
         bool m_profile_only = false;
         bool m_force = false;
@@ -705,7 +713,8 @@ namespace protal {
                 m_qcmsa_args(std::move(d.qcmsa_args)) {
             m_input_errors = std::move(d.input_errors);
             m_input_notes = std::move(d.input_notes);
-            m_strain_spill = std::move(d.strain_spill);
+            m_scratch_dir = std::move(d.scratch_dir);
+            m_sams_named = d.sams_named;
             if (d.samplename_list.empty()) {
                 // A sample is named after its prefix's file name, not its path.
                 for (auto const& prefix : m_prefix_list) {
@@ -778,6 +787,7 @@ namespace protal {
             result_str << "profile file:        " << (profile_list_str.length() > 50 ? std::to_string(m_profile_list.size()) + " files" : profile_list_str) << '\n';
             result_str << "output prefix:       " << (prefix_list_str.length() > 50 ? std::to_string(m_prefix_list.size()) + " files" : prefix_list_str) << '\n';
             result_str << "Output dir:          " << m_output_dir << '\n';
+            if (!m_scratch_dir.empty()) result_str << "scratch dir:         " << m_scratch_dir << '\n';
             result_str << "preload genomes:     " << (m_preload_genomes ? "yes" : "no") << '\n';
             result_str << "----- Alignment -----" << std::string(30, '-') << '\n';
             result_str << "align top:           " << std::to_string(m_align_top) << '\n';
@@ -1053,9 +1063,44 @@ namespace protal {
             return !m_no_phasing;
         }
 
-        // --strain_spill: the folder of the strain stage's spill files, or empty (in memory).
-        std::string const& StrainSpill() const {
-            return m_strain_spill;
+        // --scratch_dir: the folder protal makes the run's scratch folder in (ScratchSpace.h), or empty (none).
+        std::string const& ScratchDir() const {
+            return m_scratch_dir;
+        }
+
+        // The run's scratch folder (UseScratchFolder), or empty without --scratch_dir: the strain stage's spill files,
+        // the SAMs of a run without strain MSAs (IsScratchSam), the records of a SAM before its header, qcMSA's files.
+        std::string const& ScratchFolder() const {
+            return m_scratch_folder;
+        }
+
+        // Whether sample `index`'s SAM is in the run's scratch folder (UseScratchFolder): removed once it is profiled.
+        bool IsScratchSam(size_t index) const {
+            return index < m_scratch_sams.size() && m_scratch_sams[index];
+        }
+
+        // The run's scratch folder, made in --scratch_dir (RunProtal: scratch::Space). With --no_strains a run that
+        // profiles reads its SAMs only to profile them: the SAM files that protal names (not a map's SAM column) of the
+        // samples it aligns (in the range, without an earlier run's SAM in their place, or with --force) are written
+        // into the folder, under their file names (with the sample's number in front where two share one). Returns
+        // how many.
+        size_t UseScratchFolder(std::string const& folder) {
+            m_scratch_folder = folder;
+            m_scratch_sams.assign(m_sam_list.size(), false);
+            if (folder.empty() || !m_no_strains || m_no_profile || m_profile_only || m_build || m_sams_named) return 0;
+            std::set<std::string> names;
+            size_t moved = 0;
+            for (auto const index : m_range) {
+                if (index >= m_sam_list.size()) continue;
+                auto const& sam = m_sam_list[index];
+                if (!m_force && (std::filesystem::exists(sam) || std::filesystem::exists(UncompressedSamName(sam)))) continue;
+                std::string name = std::filesystem::path(sam).filename().string();
+                while (!names.insert(name).second) name = std::to_string(index + 1) + "_" + name;
+                m_sam_list[index] = (std::filesystem::path(folder) / name).string();
+                m_scratch_sams[index] = true;
+                moved++;
+            }
+            return moved;
         }
 
         bool BenchmarkAlignment() const {
@@ -1949,14 +1994,15 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
         }
         static inline const std::string kDefaultSamEnding = ".sam.zst";
 
-        // sam_ending: of the SAM names given to samples without a SAM column (<prefix><sam_ending>).
+        // sam_ending: of the SAM names given to samples without a SAM column (<prefix><sam_ending>); sams_named (if
+        // given): set to whether the map's SAM column named them.
         static bool LoadFromMap(std::string map_path, std::string& output_dir, std::string& strain_output_dir, std::string& misc_output_dir,
                                 std::vector<std::string>& prefix_list,
                                 std::vector<std::string>& first_list, std::vector<std::string>& second_list,
                                 std::vector<std::string>& sam_list, std::vector<std::string>& profile_list,
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
                                 std::vector<std::string>& read_type_list, std::vector<std::string>& unmapped_reads_list,
-                                std::string const& sam_ending = kDefaultSamEnding) {
+                                std::string const& sam_ending = kDefaultSamEnding, bool* sams_named = nullptr) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -2278,6 +2324,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     profile_list.emplace_back(prefix + ".profile");
                 }
             }
+            if (sams_named) *sams_named = !sam_list.empty();
             if (sam_list.empty()) {
                 if (prefix_list.empty()) {
                     std::cout << "column PREFIX must be specified if column SAM is not specified." << std::endl;
@@ -2727,15 +2774,15 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 }
             }
 
-            // --strain_spill: a folder protal can write its spill files into (made if missing).
-            if (!m_strain_spill.empty() && !m_build && !db_mode) {
-                if (m_no_strains) {
-                    warning_log.emplace_back("--strain_spill is not used with --no_strains");
+            // --scratch_dir: a folder protal can make its run's scratch folder in (made if missing; ScratchSpace.h).
+            if (!m_scratch_dir.empty()) {
+                if (m_build || db_mode) {
+                    warning_log.emplace_back("--scratch_dir is not used with --build or the database commands");
                 } else {
                     std::error_code ec;
-                    std::filesystem::create_directories(m_strain_spill, ec);
-                    if (!std::filesystem::is_directory(m_strain_spill, ec) || ::access(m_strain_spill.c_str(), W_OK) != 0) {
-                        error_log.emplace_back("--strain_spill " + m_strain_spill + " is not a folder protal can write to");
+                    std::filesystem::create_directories(m_scratch_dir, ec);
+                    if (!std::filesystem::is_directory(m_scratch_dir, ec) || ::access(m_scratch_dir.c_str(), W_OK) != 0) {
+                        error_log.emplace_back("--scratch_dir " + m_scratch_dir + " is not a folder protal can write to");
                     }
                 }
             }
@@ -3264,13 +3311,14 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     build_gene_mask[gene_id] = 1;
                 }
             }
-            
+
+            bool sams_named = false;  // by a map's SAM column
             if (!map_file.empty()) {
                 if (!std::filesystem::exists(map_file)) {
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending, &sams_named)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -3539,7 +3587,10 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.no_gene_neighbours       = no_gene_neighbours;
             d.keep_foreign_genes       = keep_foreign_genes;
             d.no_phasing               = no_phasing;
-            d.strain_spill             = result["strain_spill"].as<std::string>();
+            // --strain_spill (before 2026-10-12) is --scratch_dir now, which wins.
+            d.scratch_dir              = result["scratch_dir"].as<std::string>();
+            if (d.scratch_dir.empty()) d.scratch_dir = result["strain_spill"].as<std::string>();
+            d.sams_named               = sams_named;
             d.preload_genomes          = !preload_genomes_off;
             d.benchmark_alignment      = benchmark_alignment;
             d.benchmark_alignment_output = benchmark_alignment_output_file;

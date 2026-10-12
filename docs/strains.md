@@ -46,7 +46,7 @@ database; protal checks their `@SQ` genes against it.
 ```bash
 protal --db DB -t 16 -o combined --profile_only 'studies/*/alignments/*.sam.zst'
 protal --db DB -t 16 -o combined --profile_only study1/alignments/a.sam.zst,study2/alignments/b.sam.zst
-protal --db DB -t 16 -o combined --profile_only 'studies/*/alignments/*.sam.zst' --strain_spill /tmp/spill   # many samples
+protal --db DB -t 16 -o combined --profile_only 'studies/*/alignments/*.sam.zst' --scratch_dir $TMPDIR   # many samples
 ```
 
 - **Patterns.** An item with `*`, `?` or `[...]` stands for the `.sam`, `.sam.gz` and `.sam.zst`
@@ -79,11 +79,11 @@ other taxa are freed once its profile is written (`--taxon_statistics` keeps the
 of 1M read pairs from 60 species at about 25x keeps 37 MB (159 MB up to 0.7.8), so memory grows by that
 per sample: 16 such samples on 4 threads peaked at 1.4 GB (2.8 GB up to 0.7.8). The MSAs are the same.
 
-With `--strain_spill DIR`, that goes to a file per sample in `DIR` instead (27 MB for the sample
+With `--scratch_dir DIR`, that goes to a file per sample in the run's folder in `DIR` instead (27 MB for the sample
 above), and the strain stage reads back one species at a time from every sample's file: the memory
 no longer grows with the samples, only with the species being built (one per thread). 16 samples
 then peaked at 1.06 GB, as many as without strain MSAs. Use a local disk with room for all the
-samples' files; they are removed at the end, and a sample whose file cannot be written keeps its
+samples' files; they are removed at the end with the folder, and a sample whose file cannot be written keeps its
 evidence in memory (protal warns). The outputs are byte-identical either way.
 
 ## Strains in long-read samples
@@ -121,7 +121,7 @@ always get one ([report](claude/2026-10-02-phasing-and-foreign-genes/README.md))
 | `--snp_max_alleles` | 3 | alleles an IUPAC code may encode: 1 only the top allele, 2 two-allele mixtures (R, Y, ...), 3 also three-allele ones (B, H, ...) |
 | `--no_phasing` | off | one row per long-read sample |
 | `--keep_foreign_genes` | off | keep foreign genes in depth and MSAs |
-| `--strain_spill DIR` | off | each sample's strain evidence to a file in `DIR`, read back per species: memory does not grow with the samples ([above](#strain-msas-over-several-runs)) |
+| `--scratch_dir DIR` | off | the run's intermediate files in a folder of its own in `DIR`, removed at the end: each sample's strain evidence goes to a file there, read back per species, so memory does not grow with the samples ([above](#strain-msas-over-several-runs)); `--strain_spill DIR` (until 2026-10-12) does the same ([running.md](running.md#options-the-website-does-not-list)) |
 | `--no_qcmsa`, `--qcmsa_args`, `--qcmsa_script` | | skip qcmsa; extra qcmsa arguments ([below](#running-qcmsa-from-protal)); the qcmsa executable ([installation.md](installation.md#installing-a-source-build)) |
 
 The SNP filters (`--snp_min_cov`, `--snp_min_phred_sum`, `--snp_min_mean_qual`, `--snp_min_af`,

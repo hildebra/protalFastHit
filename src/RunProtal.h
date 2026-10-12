@@ -27,6 +27,7 @@
 #include "RunStatus.h"
 #include "BuildInfo.h"
 #include "CpuLog.h"
+#include "ScratchSpace.h"
 
 #include <atomic>
 #include <iomanip>
@@ -984,7 +985,8 @@ namespace protal {
                 std::vector<std::string> read_file_list = first_files;
                 read_file_list.insert(read_file_list.end(), second_files.begin(), second_files.end());
                 SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header,
-                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads(index) ? 0 : genomes.GetGenomeMap().size()));
+                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads(index) ? 0 : genomes.GetGenomeMap().size()),
+                                     options.ScratchFolder());
                 sam_output.SetUnmappedRecords(options.WriteUnmappedReads(index));
                 if (!sam_output.Ok()) {
                     RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
@@ -1427,6 +1429,15 @@ namespace protal {
         std::cout << line.str() << std::endl;
     }
 
+    // One more profiling row of sample `index`'s runtime table (misc/<sample>_runtime.tsv), after WriteProfilingTimes wrote
+    // its others: a "Profiling: " row, which WriteProfilingTimes replaces with the rest when the sample is profiled again.
+    static void AppendProfilingTime(Options const& options, size_t index, Benchmark const& bm) {
+        auto const path = std::filesystem::path(options.GetMiscOutputDir()) / (options.GetSampleId(index) + "_runtime.tsv");
+        std::ofstream os(path, std::ios::out | std::ios::app);
+        os << std::fixed << std::setprecision(6) << bm.GetName() << '\t' << bm.Seconds() << '\t' << bm.Threads() << '\t'
+           << bm.MeanSeconds() << '\n';
+    }
+
     // The parameters of the strain MSA's items of a sample with reads of `read_type` and a taxon whose own reads are
     // at least `min_identity` identical (StrainLevelContainer::MSAItem): the SNP filters of the options.
     static profiler::MSAItemParameters MSAItemFor(Options const& options, ReadType read_type, double min_identity) {
@@ -1537,6 +1548,11 @@ namespace protal {
                                                         options.GetSNPMinPhredSum(), options.GetSNPRequireStrand(),
                                                         threads_per_sample);
             bm_profile.Stop();
+            // A SAM in the run's scratch folder (--scratch_dir with --no_strains) is read by nothing after its profile.
+            if (options.IsScratchSam(i)) {
+                std::error_code ec;
+                std::filesystem::remove(sam, ec);
+            }
             // misc/<sample>.err: the records whose alignment does not fit the database, in the run's own folder (it was
             // <sam>.err, next to a SAM that may be another run's, or in a folder protal cannot write to); a sample without
             // any gets none, and an earlier run's is removed.
@@ -1705,6 +1721,19 @@ namespace protal {
                 RunStatus::Get().Fail("Writing the profile of sample " + options.GetSampleId(i) + " failed: " + options.ProfileFile(i));
             }
             bm_sample.Stop();
+            // What follows the sample's timers, by part: at r226 1.9 s of the profiling stage that no timer saw
+            // (docs/claude/2026-10-12-feature-cost-vs-f1.md). A row "Profiling: after the profile" in the runtime table,
+            // and a line.
+            Benchmark bm_after{ "Profiling: after the profile" };
+            bm_after.Start();
+            std::ostringstream after_parts;
+            auto part_start = std::chrono::steady_clock::now();
+            auto part_done = [&after_parts, &part_start](char const* part) {
+                auto const now = std::chrono::steady_clock::now();
+                after_parts << (after_parts.tellp() > 0 ? ", " : "") << part << ' ' << std::fixed << std::setprecision(2)
+                            << std::chrono::duration<double>(now - part_start).count() << " s";
+                part_start = now;
+            };
             WriteProfilingTimes(options, i, bm_sample, { &profiler.ReadTimer(), &profiler.EvidenceTimer(), &profile.m_bm_em,
                                                          &profile.m_bm_distances, &profiler.SnpTimer(), &bm_score, &bm_write });
             if (!profiler.ReadDetail().empty()) {
@@ -1713,6 +1742,7 @@ namespace protal {
             }
             #pragma omp critical(print)
             std::cout << "Sample " << options.GetSampleId(i) << " read EM: " << profile.EmDetail() << std::endl;
+            part_done("the runtime table and lines");
 
             profile.SetName(options.GetSampleId(i));
 
@@ -1728,6 +1758,7 @@ namespace protal {
                      << taxon.LowIdentityShare() << '\t' << (filter.Calls(taxon, msa_knob) ? "yes" : "no");
                 unreported_slots[idx].push_back({ species, line.str() });
             }
+            part_done("unreported species");
 
             // The sample's outputs are written: only the strain stage reads its profile again, and only the taxa that
             // enter the MSAs (--msa_knob), of which it keeps what the MSAs read (Gene::KeepForMSAs); --taxon_statistics
@@ -1735,23 +1766,36 @@ namespace protal {
             std::optional<profiler::MSAReleaseParameters> msa;
             if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
             profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
+            part_done("releasing the read data");
             profile.ReleaseEvidence();  // the record evidence: read by nothing after the outputs; a cohort keeps the profile
-            // --strain_spill: what it keeps goes to a file of its own until the strain stage reads it back per species.
-            if (msa && !options.StrainSpill().empty()) {
-                auto const path = std::filesystem::path(options.StrainSpill()) /
-                                  ("protal_strains_" + std::to_string(::getpid()) + "_" + std::to_string(i) + ".bin");
+            part_done("releasing the record evidence");
+            // --scratch_dir: what it keeps goes to a file of its own in the run's scratch folder until the strain stage reads
+            // it back per species.
+            if (msa && !options.ScratchFolder().empty()) {
+                auto const path = std::filesystem::path(options.ScratchFolder()) / ("strains_" + std::to_string(i) + ".bin");
                 if (!profile.SpillStrainEvidence(path.string())) {
                     #pragma omp critical(print)
                     std::cerr << "Warning: sample " << sample_name << ": cannot write " << path.string()
-                              << " (--strain_spill); its strain evidence stays in memory" << std::endl;
+                              << " (--scratch_dir); its strain evidence stays in memory" << std::endl;
                 }
+                part_done("spilling the strain evidence");
             }
 #ifdef __GLIBC__
             // The sample's reads' records are freed, but glibc keeps the pages of its arenas that the blocks which stay
             // (what the profile keeps, made after the records) leave partly used; returned, a cohort's memory grows by
             // what its samples keep only (docs/claude/2026-10-07-sam-combine).
             malloc_trim(0);
+            part_done("returning freed memory (malloc_trim)");
 #endif
+            bm_after.Stop();
+            AppendProfilingTime(options, i, bm_after);
+            {
+                std::ostringstream line;
+                line << "Sample " << options.GetSampleId(i) << " after its profile: " << std::fixed << std::setprecision(2)
+                     << bm_after.Seconds() << " s (" << after_parts.str() << ")";
+                #pragma omp critical(print)
+                std::cout << line.str() << std::endl;
+            }
 
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
@@ -2610,6 +2654,8 @@ namespace protal {
         }
         std::ostringstream cmd;
         if (parallel) cmd << "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 ";
+        // --scratch_dir: the temporary files of qcmsa's libraries in the run's scratch folder.
+        if (!options.ScratchFolder().empty()) cmd << "TMPDIR=" << ShellQuote(options.ScratchFolder()) << ' ';
         cmd << launcher << ShellQuote(script)
             << ' ' << ShellQuote(msa)
             << ' ' << ShellQuote(partition)
@@ -2620,7 +2666,9 @@ namespace protal {
         // above. Forwarded verbatim (unquoted) -- they are a flag list, not a value.
         if (!options.GetQCMSAArgs().empty()) cmd << ' ' << options.GetQCMSAArgs();
         std::string const command = cmd.str();
-        std::string const output = prefix + ".qcmsa_output.partial";
+        // What qcmsa prints, read and removed below: in the run's scratch folder with --scratch_dir.
+        std::string const output = options.ScratchFolder().empty() ? prefix + ".qcmsa_output.partial"
+                                 : (fs::path(options.ScratchFolder()) / (name + ".qcmsa_output.partial")).string();
         cmd << " > " << ShellQuote(output) << " 2>&1";
         int const status = std::system(cmd.str().c_str());
         std::string text;
@@ -3177,14 +3225,14 @@ namespace protal {
             msa.Start();
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
-            // With --strain_spill the samples' evidence of this species is read back from their spill files for its MSA
+            // With --scratch_dir the samples' evidence of this species is read back from their spill files for its MSA
             // only (the other species' workers read theirs: each species is its own taxa in the profiles).
             auto const in_msa = GetProfilesWithTaxon(taxid, profiles, options, filter);
             bool loaded = true;
             for (auto s : in_msa) {
                 if (profiles[s].LoadStrainEvidence(taxid)) continue;
                 RunStatus::Get().Fail("Cannot read the strain evidence of " + name + " in sample " + profiles[s].GetName() +
-                                      " back from " + profiles[s].SpillPath() + " (--strain_spill)");
+                                      " back from " + profiles[s].SpillPath() + " (--scratch_dir)");
                 loaded = false;
             }
             if (loaded) GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter, out);
@@ -3376,6 +3424,21 @@ namespace protal {
                     exit(2);
                 }
             }
+        }
+
+        // --scratch_dir: the run's folder for intermediate files, removed when the process ends (scratch::Space), and the
+        // SAMs of a run without strain MSAs in it (Options::UseScratchFolder).
+        if (!options.BuildMode() && !options.ScratchDir().empty()) {
+            std::string error;
+            std::string const folder = scratch::Space::Get().Make(options.ScratchDir(), error);
+            if (folder.empty()) {
+                std::cerr << "Error: --scratch_dir: " << error << std::endl;
+                exit(2);
+            }
+            size_t const sams = options.UseScratchFolder(folder);
+            std::cout << "Scratch folder: " << folder << " (removed at the end)";
+            if (sams > 0) std::cout << "; the SAM files of " << sams << " sample(s) go there and are removed once profiled (--no_strains)";
+            std::cout << std::endl;
         }
 
         // Load protal DB into RAM: reference.fna, reference.fna.zst, or the single-file database's
@@ -3734,7 +3797,7 @@ namespace protal {
                 // A sample enters a taxon's MSA with a score of its profile's MSA knob or more (--msa_knob, by
                 // default the sample's knob: the samples whose profile reports the taxon; EntersMSA).
                 StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter);
-                for (auto& profile : profiles) profile.RemoveSpillFile();  // --strain_spill
+                for (auto& profile : profiles) profile.RemoveSpillFile();  // --scratch_dir: the spill files (the folder goes at the end too)
             }
         }
 
