@@ -1191,9 +1191,11 @@ def design(point, index, opts, clades):
 
 def same_design(point, folder, opts):
     """None if a paired-end point's simulated communities are those of its design run (which the long reads
-    replayed), else why not."""
+    replayed), else why not. The reads' files and what was counted of the reads (--gene_positions: a design run makes
+    none) are not the communities'."""
     def communities(rows):
-        return [{k: v for k, v in row.items() if k not in ("fastq_r1", "fastq_r2")} for row in rows]
+        return [{k: v for k, v in row.items() if k not in ("fastq_r1", "fastq_r2", "marker_read_pairs", "marker_first_reads")}
+                for row in rows]
     sim = point_dirs(point, opts)[1]
     if communities(manifest_rows(sim)) != communities(manifest_rows(folder)):
         return (f"{point['name']}: its samples' communities (sim/manifest.tsv) differ from its design run's "

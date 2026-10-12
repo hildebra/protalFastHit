@@ -345,7 +345,7 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
   `<table>.unseen.tsv` and counts as missed. At r226 v24b 60-76% of the false negatives had at most
   two reads of their own on the taxon ([report](claude/2026-10-12-r226-v24b-errors/README.md)): this
   F1 tells the method's errors from what the reads cannot show. `summary.txt` has its rows
-  (`..., marker truth`).
+  (`marker truth: ...`).
 
 [The presence model](#the-presence-model) explains the reports; [features.md](features.md) lists
 what the models use.

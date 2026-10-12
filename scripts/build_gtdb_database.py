@@ -1975,8 +1975,8 @@ def summary_lines(read_types, prefixes, db):
         for m in (metrics.get("marker_truth") or {}).get("rows", []):
             if (m["set"], m["scenario"]) in (("species held out", "(all)"), ("independent test set", "(design)")) or \
                     m["set"] == "hold-out":
-                where = m["set"] if m["set"] != "hold-out" else f"{m['scenario']}: hold-out"
-                rows.append(row(t, f"{where}, marker truth", own, m["TP markers"], m["FP"], m["absent"] - m["FP"],
+                where = m["set"] if m["set"] != "hold-out" else f"{m['scenario']} hold-out"
+                rows.append(row(t, f"marker truth: {where}", own, m["TP markers"], m["FP"], m["absent"] - m["FP"],
                                 m["FN markers"], m["FP"] / max(1, m["samples"])))
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     table = ["  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip() for r in [header, *rows]]

@@ -765,6 +765,16 @@ class GtdbBuildTest(unittest.TestCase):
         for label, count in (("gut: hold-out", 2), ("gut: hold-in, species held out", 2), ("host: hold-in, in sample", 2),
                              ("soil: hold-out", 1), ("soil_shallow: hold-out", 1)):
             self.assertEqual(summary.count(label), count, label)
+        # The marker truth (the release's gene positions passed to the simulator): its rows per read type, the training
+        # table's counts of the present taxa's reads on a marker gene, and the trainer's section.
+        for label, count in (("marker truth: species held out", 2), ("marker truth: gut hold-out", 2)):
+            self.assertEqual(summary.count(label), count, label)
+        with open(os.path.join(self.tmp.name, "scenarios", "work", "training", "training_data.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        present = [r for r in rows if r["truth"] in ("1", "True", "true")]
+        self.assertTrue(any(r["meta_marker_reads"] not in ("", "0") for r in present))
+        self.assertTrue(all(r["meta_marker_reads"] == "" for r in rows if r not in present))
+        self.assertIn("## Marker truth", self.text("scenarios", "model_logs", "trained_model.report.txt"))
         self.assertIn("FP rate  FN rate", summary)
         self.assertRegex(summary, r"Feature sets chosen \(--features auto\):\n  pe: normalized\S*: F1 ")
         metadata = self.metadata("scenarios")
