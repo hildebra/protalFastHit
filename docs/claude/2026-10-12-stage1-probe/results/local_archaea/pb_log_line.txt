@@ -1,0 +1,2 @@
+stage-1 probe:       yes (misc/<sample>_stage1_probe*.tsv)
+Sample s stage-1 probe: 100000 reads, 2451 with records; c=4 T=14 m=1: 2.40% kept, recall 96.53%; c=8 T=14 m=1: 2.14% kept, recall 86.62%; c=16 T=14 m=1: 1.62% kept, recall 66.14%; c=8 T=15 m=2: 1.63% kept, recall 66.10% (/home/falk/probe/runs/pb_probe/misc/s_stage1_probe*.tsv)

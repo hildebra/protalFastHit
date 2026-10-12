@@ -11,6 +11,7 @@
 #include "Constants.h"
 #include "TargetClones.h"
 #include "Benchmark.h"
+#include "Stage1Probe.h"
 #include "robin_map.h"
 
 
@@ -182,6 +183,7 @@ namespace protal {
         // own; with the read's lookups prepared one read ahead, PrepareLookups, -30%).
         static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
         bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
+        stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
 
         // The lookups of a read's k-mers, in read order (those with values).
         void LookupKmers(KmerList& kmer_list) {
@@ -194,6 +196,14 @@ namespace protal {
             }
             m_seeding.kmers += n;
             m_seeding.found += m_lookups.size();
+            if (m_probe) {
+                // Each lookup's core level: the lookups are the k-mers with values, in k-mer order.
+                size_t i = 0;
+                for (size_t j = 0; j < n && i < m_lookups.size(); j++) {
+                    if (m_lookups[i].read_pos != static_cast<uint32_t>(kmer_list[j].second)) continue;
+                    m_lookups[i++].probe_level = stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first));
+                }
+            }
         }
 
         inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
@@ -216,6 +226,7 @@ namespace protal {
                 auto& lookup = m_lookups[m_lookup_index];
                 m_seeding.NoteBlock(lookup.size);
                 m_seeding.dropped += !m_kmer_lookup.GetFromLookup(seeds, lookup);
+                if (m_probe) m_probe->Add(lookup.probe_level, lookup.flex == nullptr ? SingleValueScore(lookup) : m_kmer_lookup.LastBest(), lookup.read_pos);
                 total_lookups++;
                 m_successful_lookups += (seeds.size() > previous_size);
                 if (seeds.size() > m_max_seed_size && m_successful_lookups > m_min_successful_lookups) {
@@ -224,6 +235,43 @@ namespace protal {
                 previous_size = seeds.size();
             }
             m_seeding.seeds += seeds.size() - seeds_before;
+            if (m_probe) {  // the lookups not scanned, once the read had its seeds, scored without seeds
+                for (size_t i = m_lookup_index + 1; i < m_lookups.size(); i++) {
+                    auto const& rest = m_lookups[i];
+                    m_probe->Add(rest.probe_level, rest.flex == nullptr ? SingleValueScore(rest) : m_kmer_lookup.BestScore(rest), rest.read_pos);
+                }
+            }
+        }
+
+        // --stage1_probe: the score of a lookup of a core with one value, which has no flex cell: the flank bases the read
+        // shares with the gene beside the entry's core (as a flex cell would count them), in the orientation in which the
+        // read's core is the gene's; 0 if in neither. The seeding itself compares such a k-mer with the gene only once an
+        // anchor gives its orientation (WholeKmerMatches).
+        uint32_t SingleValueScore(LookupPointer const& lookup) {
+            size_t taxid = 0, geneid = 0, genepos = 0;
+            bool unique = false, unique_two = false;
+            m_kmer_lookup.Entry(lookup, 0).Get(taxid, geneid, genepos, unique, unique_two);
+            size_t const half = m_kmer_lookup.FlexHalf();
+            std::string const& read = *m_fwd;
+            size_t const core = lookup.read_pos + half;  // the core's start in the read, as a seed's readpos
+            auto const& gene = m_genome_loader.GetGeneOMP(taxid, geneid);
+            size_t const gene_length = gene.GetLength();
+            if (genepos + m_k > gene_length || core + m_k > read.size()) return 0;
+            size_t const begin = genepos >= half ? genepos - half : 0;
+            size_t const end = std::min(gene_length, genepos + m_k + half);
+            auto const window = gene.Window(begin, end);  // keeps the bases the view points to
+            std::string_view const bases(window.data() + begin, end - begin);
+            auto shared = [&](std::string_view strand, size_t at) -> uint32_t {
+                if (strand.substr(at, m_k) != bases.substr(genepos - begin, m_k)) return 0;  // the core is not the gene's
+                uint32_t n = 0;
+                for (size_t i = 1; i <= half; i++) {
+                    n += at >= i && genepos >= i && strand[at - i] == bases[genepos - i - begin];
+                    size_t const read_right = at + m_k - 1 + i, gene_right = genepos + m_k - 1 + i;
+                    n += read_right < strand.size() && gene_right < end && strand[read_right] == bases[gene_right - begin];
+                }
+                return n;
+            };
+            return std::max(shared(read, core), shared(m_rev, read.size() - core - m_k));
         }
 
 
@@ -873,6 +921,10 @@ namespace protal {
         void PrefetchKeys(KmerList const& kmer_list) {
             for (auto const& [mmer, pos] : kmer_list) m_kmer_lookup.PrefetchKey(mmer);
         }
+
+        // --stage1_probe: each read's lookups counted into `probe` (its core's level and best flex score, Stage1Probe.h),
+        // which the caller ends per read; nullptr: none (the default; a copy has none either).
+        void SetProbe(stage1_probe::Mate* probe) { m_probe = probe; }
 
         // Timed as part of the read's seeding (and of the operator), not as a read of its own.
         void PrepareLookups(KmerList& kmer_list) {

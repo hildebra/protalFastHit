@@ -8,6 +8,7 @@
 #include "Alignment/WFA2Wrapper2.h"
 #include "Classify.h"
 #include "ChainAnchorFinder.h"
+#include "Stage1Probe.h"
 #include "Taxonomy.h"
 #include "gzstream.h"
 #include "ThreadedGzStream.h"
@@ -717,6 +718,45 @@ namespace protal {
         return false;
     }
 
+    // --stage1_probe: the sample's tallies (stage1_probe::Global(), joined from the alignment threads) into
+    // misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv (the taxa named by their lineage, as the profile names them,
+    // if the taxonomy is loaded) and, for short reads, _first_lookups_probe.tsv, with a log line of a few rules; then
+    // cleared for the next sample.
+    static void WriteStage1Probe(Options const& options, int index, ProtalDB& db, bool short_reads) {
+        namespace probe = stage1_probe;
+        auto& tally = probe::Global();
+        std::filesystem::path const dir = options.GetMiscOutputDir();
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::string const prefix = (dir / options.GetSampleId(index)).string();
+        {
+            std::ofstream os(prefix + "_stage1_probe.tsv");
+            tally.WriteRules(os);
+        }
+        {
+            std::ofstream os(prefix + "_stage1_probe_taxa.tsv");
+            bool const named = db.IsTaxonomyLoaded();
+            tally.WriteTaxa(os, [&](uint32_t taxid) { return named ? db.GetTaxonomy().LineageStr(static_cast<int>(taxid)) : std::string("-"); });
+        }
+        if (short_reads) {
+            std::ofstream os(prefix + "_first_lookups_probe.tsv");
+            tally.WriteFirstLookups(os);
+        }
+        auto score = [](uint8_t t) { return static_cast<size_t>(std::find(probe::kMinScores.begin(), probe::kMinScores.end(), t) - probe::kMinScores.begin()); };
+        std::ostringstream line;
+        line << "Sample " << options.GetSampleId(index) << " stage-1 probe: " << tally.Reads() << (short_reads ? " reads (pairs as one)" : " reads")
+             << ", " << tally.Aligned() << " with records; " << probe::RuleText(tally, 2, score(14), 0) << "; "
+             << probe::RuleText(tally, 3, score(14), 0) << "; " << probe::RuleText(tally, 4, score(14), 0) << "; "
+             << probe::RuleText(tally, 3, score(15), 1);
+        if (short_reads && tally.FirstLookupMates() > 0) {
+            auto const give_up = tally.GiveUp(2, 11);  // the first 4 lookups
+            line << std::fixed << std::setprecision(2) << "; mates whose first 4 lookups score 11 or less: " << 100.0 * give_up[0]
+                 << "% of the mates, " << 100.0 * give_up[1] << "% of those that align";
+        }
+        std::cout << line.str() << " (" << prefix << "_stage1_probe*.tsv)" << std::endl;
+        tally.Clear();
+    }
+
     // Aligns the samples. `sample_done` (if any) is called with a sample's index once its SAM file is complete, or
     // when the sample is skipped because its SAM exists (never one whose reads are piped: ReadsArePiped): Run
     // profiles such samples while the next ones are aligned (ProfilingAhead).
@@ -820,6 +860,7 @@ namespace protal {
 
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
+            stage1_probe::EnabledFlag() = options.Stage1Probe();  // read by Classify's loops
             bool long_genes_told = false;  // the warning of LongReadAligner::ChunksHoldEveryGene, once
             // A .sam.zst takes its records straight into the SAM, behind room for its header: for up
             // to all the database's genes, and in proportion to the read files (sam_zstd::HeaderRoom).
@@ -865,6 +906,7 @@ namespace protal {
                 }
                 // Its row of misc/cpu.tsv when this iteration ends, however it ends (CpuLog.h).
                 CpuLog::Stage cpu_stage("aligning " + options.GetSampleId(index));
+                if (options.Stage1Probe()) stage1_probe::Global().Clear();  // this sample's tallies only
 
                 // AnchorFinder. A long read is seeded from all its k-mers: stopping at -s seeds, as for a
                 // short read, would leave most of it unseeded.
@@ -1074,6 +1116,7 @@ namespace protal {
                 }
                 bm_classify_sample.Stop();
                 bm_classify_sample.PrintResults();
+                if (options.Stage1Probe()) WriteStage1Probe(options, index, db, !IsLongReadType(read_type));
 
                 if (truncated) {
                     RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +

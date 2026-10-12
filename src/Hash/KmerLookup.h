@@ -162,6 +162,7 @@ namespace protal {
         uint32_t flex_key = 0;
         uint32_t read_pos = 0;
         bool retrieved = false;
+        uint8_t probe_level = 0;  // --stage1_probe: its core's level (stage1_probe::Level), else unset
 
         std::string ToString() {
             std::string str;
@@ -191,6 +192,7 @@ namespace protal {
         size_t m_genepos{};
         bool m_unique{};
         bool m_unique_dist_two{};
+        uint32_t m_last_best = 0;  // the best flex score of the last GetFromLookup (LastBest)
 
         LookupPointer m_lookup_tmp;
     public:
@@ -218,6 +220,22 @@ namespace protal {
         // The flex bases on either side of a k-mer's core: a seed's read and gene positions are its core's, this far
         // into its k-mer.
         size_t FlexHalf() const { return m_flex_k_half; }
+
+        // The core a k-mer is looked up by (Seedmap::MainKey).
+        uint64_t MainKey(uint64_t kmer) const { return m_sm.MainKey(kmer); }
+
+        // The most flank bases a flex cell of the last GetFromLookup shared with the read's (16: all), also for a lookup
+        // dropped as too ubiquitous; 0 for a key of one value, which has no flex cells (--stage1_probe scores those
+        // against the gene, ChainAnchorFinder::SingleValueScore).
+        uint32_t LastBest() const { return m_last_best; }
+
+        // The same for a lookup GetFromLookup did not scan (a read's last lookups once it has its seeds), scored here
+        // without seeds (--stage1_probe).
+        uint32_t BestScore(LookupPointer const& pointers) {
+            if (pointers.flex == nullptr) return 0;
+            if (flex_vector.size() < pointers.size) flex_vector.resize(pointers.size);
+            return flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data()).first;
+        }
 
         void Clear() {
             m_lookups.clear();
@@ -265,6 +283,7 @@ namespace protal {
         // never counted (at GTDB r226 5.1M of the index's 2.13 billion unique values; more of a small database's).
         PROTAL_CLONE_V3 inline bool GetFromLookup(LookupList& result, LookupPointer& pointers) {
             if (pointers.flex == nullptr) {
+                m_last_best = 0;
                 for (uint32_t i = 0; i < pointers.size; i++) {
                     Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
                     result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
@@ -282,6 +301,7 @@ namespace protal {
                 // cells only, nothing read or written past them.
                 if (flex_vector.size() < size) flex_vector.resize(size);
                 std::tie(max, max_count) = flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data());
+                m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
             } else if (level == simd::Level::avx2) {
                 // Every cell's score and the best in one pass, the masks and their count in another (FlexScan.h).
@@ -289,11 +309,13 @@ namespace protal {
                 if (flex_vector.size() < bytes) flex_vector.resize(bytes);
                 max = flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
                 max_count = flex_scan::TiesAvx2(flex_vector.data(), size, max, m_tie_masks.data());
+                m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
             } else {
                 // Every cell's score, the best and how many have it, then the masks one cell at a time.
                 if (flex_vector.size() < size) flex_vector.resize(size);
                 std::tie(max, max_count) = flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data());
+                m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
                 std::fill_n(m_tie_masks.begin(), words, 0u);
                 for (uint32_t i = 0; i < size; i++) m_tie_masks[i / 32] |= static_cast<uint32_t>(flex_vector[i] == max) << (i % 32);

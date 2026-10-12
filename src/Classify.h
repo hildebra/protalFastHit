@@ -8,10 +8,12 @@
 #include "SequenceUtils/SeqReader.h"
 #include "SequenceUtils/KmerIterator.h"
 #include "Statistics.h"
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <optional>
 #include <omp.h>
 #include "Constants.h"
 #include "Hash/KmerLookup.h"
@@ -19,6 +21,7 @@
 #include "AlignmentOutputHandler.h"
 #include "CoreBenchmark.h"
 #include "ChainAnchorFinder.h"
+#include "Stage1Probe.h"
 #include "LongReads.h"
 #include "MateGuidance.h"
 #include "ScoreAlignments.h"
@@ -97,6 +100,16 @@ namespace protal::classify {
             SeedList seeds;
             AlignmentAnchorList anchors;
             AlignmentResultList alignment_results;
+
+            // --stage1_probe: each read's lookups, tallied once it is written (Stage1Probe.h).
+            std::optional<stage1_probe::Tally> probe;
+            std::vector<uint32_t> probe_taxa;
+            if constexpr (requires { output_handler.LastRead(); anchor_finder.SetProbe(nullptr); }) {
+                if (stage1_probe::Enabled()) {
+                    probe.emplace();
+                    anchor_finder.SetProbe(&probe->GetMate(0));
+                }
+            }
 
             Benchmark bm_reader{"Sequence reader", 0, Benchmark::kPerRead};
             Benchmark bm_kmer_extracter{"Retrieve k-mers", 0, Benchmark::kPerRead};
@@ -185,6 +198,14 @@ namespace protal::classify {
                 bm_output.Start();
                 output_handler(alignment_results, record, failed, crowding);
                 bm_output.Stop();
+                if constexpr (requires { output_handler.LastRead(); }) {
+                    if (probe) {
+                        auto const [wrote, taxid] = output_handler.LastRead();
+                        probe_taxa.clear();
+                        if (wrote) probe_taxa.push_back(taxid);
+                        probe->EndRead(1, wrote, probe_taxa, { wrote, false }, true);
+                    }
+                }
 
                 if constexpr (benchmark_active) {
                     thread_core_benchmark(seeds, anchors, alignment_results, record.id);
@@ -196,6 +217,7 @@ namespace protal::classify {
 
 #pragma omp critical(statistics)
             {
+                if (probe) stage1_probe::Global().Join(*probe);
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
                 anchor_finder_global.m_seeding.Join(anchor_finder.m_seeding);
                 anchor_finder_global.m_bm_reverse_complement.Join(anchor_finder.m_bm_reverse_complement);
@@ -304,6 +326,16 @@ namespace protal::classify {
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
 
+            // --stage1_probe: each read's lookups (of all its chunks), tallied by the genes it has hits on (Stage1Probe.h).
+            std::optional<stage1_probe::Tally> probe;
+            std::vector<uint32_t> probe_taxa;
+            if constexpr (requires { aligner.GetAnchorFinder().SetProbe(nullptr); }) {
+                if (stage1_probe::Enabled()) {
+                    probe.emplace();
+                    aligner.GetAnchorFinder().SetProbe(&probe->GetMate(0));
+                }
+            }
+
             bm_reader.Start();
             while (reader(record)) {
                 bm_reader.Stop();
@@ -324,6 +356,17 @@ namespace protal::classify {
                 bm_output.Start();
                 output_handler(segments, record, aligner.FailedTaxa(segments));
                 bm_output.Stop();
+                if (probe) {
+                    // The taxa of the read's genes (each segment's best hit), each once.
+                    probe_taxa.clear();
+                    for (auto const& segment : segments) {
+                        if (segment.hits.empty()) continue;
+                        auto const taxid = static_cast<uint32_t>(segment.hits.front().alignment.Taxid());
+                        if (std::find(probe_taxa.begin(), probe_taxa.end(), taxid) == probe_taxa.end()) probe_taxa.push_back(taxid);
+                    }
+                    bool const aligned = !probe_taxa.empty();
+                    probe->EndRead(1, aligned, probe_taxa, { aligned, false }, false);
+                }
 
                 bm_reader.Start();
             }
@@ -331,6 +374,7 @@ namespace protal::classify {
 
 #pragma omp critical(statistics)
             {
+                if (probe) stage1_probe::Global().Join(*probe);
                 auto& anchor_finder_global = aligner_global.GetAnchorFinder();
                 auto& anchor_finder = aligner.GetAnchorFinder();
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
@@ -512,6 +556,17 @@ namespace protal::classify {
             AnchorFinder anchor_finder1(anchor_finder_global);
             AnchorFinder anchor_finder2(anchor_finder_global);
             AlignmentHandler alignment_handler(alignment_handler_global);
+
+            // --stage1_probe: each fragment's lookups (both mates'), tallied once it is written (Stage1Probe.h).
+            std::optional<stage1_probe::Tally> probe;
+            std::vector<uint32_t> probe_taxa;
+            if constexpr (requires { output_handler.LastFragment(); anchor_finder1.SetProbe(nullptr); }) {
+                if (stage1_probe::Enabled()) {
+                    probe.emplace();
+                    anchor_finder1.SetProbe(&probe->GetMate(0));
+                    anchor_finder2.SetProbe(&probe->GetMate(1));
+                }
+            }
 
             // Alignment data output handler (set with flag)
             //            ProtalAlignmentDataOutputHandler adoh(adoh_global);
@@ -706,10 +761,24 @@ namespace protal::classify {
                 auto failed = FailedCandidates(attempted, aligned);
                 AddUntriedCandidates(failed, untried, attempted, aligned);
 
+                // The mates the best pair has (for --stage1_probe), before the output handler takes the pairs.
+                std::array<bool, 2> probe_mates{ false, false };
+                if (probe && !paired_alignment_results.empty()) {
+                    probe_mates = { paired_alignment_results.front().first.IsSet(), paired_alignment_results.front().second.IsSet() };
+                }
+
                 // Output alignments
                 bm_output.Start();
                 output_handler(paired_alignment_results, record1, record2, record_id, true, failed, crowding);
                 bm_output.Stop();
+                if constexpr (requires { output_handler.LastFragment(); }) {
+                    if (probe) {
+                        auto const [wrote, taxid] = output_handler.LastFragment();
+                        probe_taxa.clear();
+                        if (wrote) probe_taxa.push_back(taxid);
+                        probe->EndRead(2, wrote, probe_taxa, probe_mates, true);
+                    }
+                }
 
                 if constexpr (benchmark_active) {
                     thread_core_benchmark(seeds1, anchors1, alignment_results1, record1.id);
@@ -737,6 +806,7 @@ namespace protal::classify {
 
 #pragma omp critical(statistics)
             {
+                if (probe) stage1_probe::Global().Join(*probe);
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder1.m_bm_seeding);
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder2.m_bm_seeding, false);
                 anchor_finder_global.m_seeding.Join(anchor_finder1.m_seeding);

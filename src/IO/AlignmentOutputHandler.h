@@ -403,6 +403,7 @@ namespace protal {
 
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
+        std::pair<bool, uint32_t> m_last{ false, 0 };  // LastRead
 
         // Hands the buffered records and the genes they name to the sink (which serialises writers).
         void Flush() {
@@ -412,6 +413,9 @@ namespace protal {
         }
     public:
         size_t alignments = 0;
+
+        // Whether the last read got records, and the taxon of its best (--stage1_probe).
+        std::pair<bool, uint32_t> LastRead() const { return m_last; }
 
         ProtalSingleOutputHandler(SamSink& sink, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
                 m_sink(sink),
@@ -473,6 +477,7 @@ namespace protal {
         // tell apart (SimpleAlignmentHandler::Crowding), its ZN tag on its first record.
         void operator () (AlignmentResultList& alignment_results, FastxRecord& record, std::vector<FailedCandidate> const& failed = {},
                           uint16_t crowding = 0) {
+            m_last = { false, 0 };
             if (alignment_results.empty()) {
                 WriteUnmapped(record, failed);
                 return;
@@ -484,6 +489,7 @@ namespace protal {
                 WriteUnmapped(record, failed);
                 return;
             }
+            m_last = { true, static_cast<uint32_t>(best.Taxid()) };
 
             int const best_score = Bitscore(best);
             int const second_score = alignment_results.size() > 1 ? Bitscore(alignment_results[1]) : 0;
@@ -566,6 +572,7 @@ namespace protal {
 
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
+        std::pair<bool, uint32_t> m_last{ false, 0 };  // LastFragment
 
         // Hands the buffered records and the genes they name to the sink (which serialises writers).
         void Flush() {
@@ -575,6 +582,9 @@ namespace protal {
         }
     public:
         size_t alignments = 0;
+
+        // Whether the last fragment got records, and the taxon of its best (--stage1_probe).
+        std::pair<bool, uint32_t> LastFragment() const { return m_last; }
 
         ProtalPairedOutputHandler(SamSink& sink, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
                 m_sink(sink),
@@ -742,6 +752,7 @@ namespace protal {
         // seeds could not tell apart (SimpleAlignmentHandler::Crowding), each mate's ZN tag on its primary record.
         PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true,
                                           std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {}) {
+            m_last = { false, 0 };
             if (alignment_results.empty()) {
                 WriteUnmapped(record1, record2, failed);
                 return;
@@ -757,6 +768,7 @@ namespace protal {
                 WriteUnmapped(record1, record2, failed);
                 return;
             }
+            m_last = { true, static_cast<uint32_t>(anchor.Taxid()) };
 
             auto const qname = PairQName(record1.id, record2.id);
             if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed, crowding)) {

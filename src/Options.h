@@ -176,6 +176,7 @@ namespace protal {
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
+                ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
                 ("write_unmapped_reads", "Write an unmapped record (FLAG 4, no sequence; its ZF tag names the taxa the read seeded on) for every read that seeded on taxa but aligned nowhere, as protal did up to 0.7.6. By default these reads are counted per taxon in the SAM header instead (@CO protal failed candidates of unaligned reads), which is all the profiler takes from them: on a GTDB-sized database they were 95% of a sample's records. --full_sam_header, whose header is written before the reads, writes them too. A map's UNMAPPED_READS column (write or count) chooses per sample.")
@@ -266,6 +267,7 @@ namespace protal {
         bool no_indel_bound = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
+        bool stage1_probe = false;
         bool taxon_statistics = false;
         bool full_sam_header = false;
         bool write_unmapped_reads = false;
@@ -405,6 +407,7 @@ namespace protal {
         bool m_no_indel_bound = false;
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
+        bool m_stage1_probe = false;  // --stage1_probe
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_write_unmapped_reads = false;
@@ -601,6 +604,7 @@ namespace protal {
                 m_no_indel_bound(d.no_indel_bound),
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
+                m_stage1_probe(d.stage1_probe),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_write_unmapped_reads(d.write_unmapped_reads),
@@ -803,6 +807,7 @@ namespace protal {
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
             result_str << "profile truth:       " << (HasProfileTruths() ? "yes" : "no") << '\n';
+            if (m_stage1_probe) result_str << "stage-1 probe:       yes (misc/<sample>_stage1_probe*.tsv)" << '\n';
             result_str << "^ output:            " << m_benchmark_alignment_output << '\n';
             result_str << "---------------------" << std::string(30, '-') << '\n';
             return result_str.str();
@@ -1657,6 +1662,11 @@ namespace protal {
         // --sequential_load: the database's parts loaded one after another (RunProtal::Run).
         bool SequentialLoad() const {
             return m_sequential_load;
+        }
+
+        // --stage1_probe: what a sparse first stage would keep, tallied while aligning (Stage1Probe.h, RunProtal).
+        bool Stage1Probe() const {
+            return m_stage1_probe;
         }
 
         // --taxon_statistics: one misc/<taxon>.statistics.tsv per taxon with reads (off by default).
@@ -3268,6 +3278,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool no_indel_bound = result.count("no_indel_bound");
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
+            bool stage1_probe = result.count("stage1_probe");
             bool taxon_statistics = result.count("taxon_statistics");
             bool full_sam_header = result.count("full_sam_header");
             bool write_unmapped_reads = result.count("write_unmapped_reads");
@@ -3469,6 +3480,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.no_indel_bound           = no_indel_bound;
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
+            d.stage1_probe             = stage1_probe;
             d.taxon_statistics         = taxon_statistics;
             d.full_sam_header          = full_sam_header;
             d.write_unmapped_reads     = write_unmapped_reads;
