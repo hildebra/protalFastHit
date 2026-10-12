@@ -376,12 +376,26 @@ def model_params(opts, kind=None, **overrides):
     return params
 
 
+def weighted_binning():
+    """hgb_binning.install(): scikit-learn's bin thresholds of a weighted fit in one pass per feature (1.8 and later
+    compute them one at a time, ~10 times the time of an unweighted fit), the same thresholds -> what it did, in words.
+    Imported here, not at the top, so that the fold workers (predict_out_of_fold) import it when they run make_model."""
+    try:
+        import hgb_binning
+    except ImportError as error:
+        return f"scikit-learn's own binning ({error})"
+    return hgb_binning.install()
+
+
 def make_model(params):
     """An unfitted estimator of model_params' settings: a RandomForestClassifier or a HistGradientBoostingClassifier
-    (its OpenMP threads limited to --threads by main's threadpool_limits)."""
+    (its OpenMP threads limited to --threads by main's threadpool_limits; its weighted fits binned by weighted_binning)."""
     params = dict(params)
     kind = params.pop("kind", "forest")
-    return RandomForestClassifier(**params) if kind == "forest" else HistGradientBoostingClassifier(**params)
+    if kind == "forest":
+        return RandomForestClassifier(**params)
+    weighted_binning()
+    return HistGradientBoostingClassifier(**params)
 
 
 def is_forest(model):
@@ -1896,6 +1910,8 @@ def train(opts):
     report.add("command: " + " ".join(sys.argv))
     report.add(f"cross-validation folds fitted {FOLD_JOBS} at a time, on {FOLD_JOB_THREADS if FOLD_JOBS > 1 else opts.threads} "
                f"threads each (--fold-jobs, --threads)")
+    if opts.model == "gbm":
+        report.add(f"gradient boosting's bins: {weighted_binning()}")
     report.data["run"] = {"args": vars(opts), "sklearn": sklearn.__version__, "python": platform.python_version()}
 
     t0 = time.time()

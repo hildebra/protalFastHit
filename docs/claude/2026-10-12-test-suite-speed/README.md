@@ -104,7 +104,8 @@ A GTDB build's trainers weigh the scenario rows (the default since `f12cac1`) an
 sets of `--features auto`, the final model). With scikit-learn 1.8 or later, which `protal-db-build` has, every such
 fit pays this. The fix belongs in the trainer: compute the same thresholds with one call per column. It is left for a
 task of its own, as it changes the training code. It must give bit-identical models, and CI's 1.4.1 has no weighted
-binning to patch.
+binning to patch. (Done the same day: [2026-10-12-trainer-weighted-binning](../2026-10-12-trainer-weighted-binning.md).
+A weighted fit now takes what an unweighted one does, with the same thresholds and probabilities.)
 
 ## 2. The GTDB build end to end (`GtdbBuildTest`)
 

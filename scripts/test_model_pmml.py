@@ -15,6 +15,7 @@ PROTAL_TESTS_REQUIRED=1). The fits run on one thread (OMP_NUM_THREADS, threadpoo
   python3 -m unittest scripts/test_model_pmml.py
 """
 
+import inspect
 import json
 import os
 import re
@@ -895,7 +896,8 @@ class TrainerScenariosTest(unittest.TestCase):
         # The features in steps of 0.1: a column of 255 values or fewer is binned at the midpoints between them. With
         # more, scikit-learn 1.8 and later bins a weighted fit (the scenario rows weigh 0.25, --scenario-weight) by
         # computing its 254 weighted percentiles one at a time, which made this class take 5 minutes instead of about one
-        # (docs/claude/2026-10-12-test-suite-speed).
+        # (docs/claude/2026-10-12-test-suite-speed). The trainer computes them at once since (hgb_binning.py); the steps
+        # keep the class fast where hgb_binning steps aside (another scikit-learn).
         def table(path, samples, seed, scenario_of):
             rng = np.random.default_rng(seed)
             rows = []
@@ -1045,6 +1047,76 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertIn("## Feature set chosen (--features auto, species held out)", stdout)
         self.assertIn(f"feature set (--features auto): {auto['chosen']}: {auto['why']}", stdout)
         self.assertAlmostEqual(metrics["evaluation"]["species"]["F1"], f1[auto["chosen"]])
+
+
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
+class HgbBinningTest(unittest.TestCase):
+    """hgb_binning.py, which the trainer installs: the bin thresholds of a weighted gradient-boosting fit in one pass per
+    feature (scikit-learn 1.8 and later computes each of a feature's 254 weighted percentiles on its own) are
+    scikit-learn's, bit for bit, and so is the model; a scikit-learn that bins without the weights (before 1.8) is left
+    as it is."""
+
+    def setUp(self):
+        import hgb_binning
+        from sklearn.ensemble._hist_gradient_boosting import binning
+        self.hgb, self.binning = hgb_binning, binning
+        # scikit-learn's own, also when a trainer test of this process installed hgb_binning before
+        self.original = hgb_binning._original or binning._find_binning_thresholds
+        self.weighted = "sample_weight" in inspect.signature(self.original).parameters
+        self.tearDown()
+
+    def tearDown(self):
+        self.binning._find_binning_thresholds = self.original
+        self.hgb._installed = self.hgb._original = None
+
+    def test_install(self):
+        said = self.hgb.install()
+        if not self.weighted:
+            self.assertIn("bins without the sample weights", said)
+            self.assertIs(self.binning._find_binning_thresholds, self.original)
+            return
+        self.assertIn("one pass per feature", said)
+        self.assertIs(self.binning._find_binning_thresholds, self.hgb._find_binning_thresholds)
+        self.assertIs(self.hgb._original, self.original)
+        self.assertEqual(self.hgb.install(), said)  # once per process
+
+    def test_the_thresholds_are_scikit_learns(self):
+        if not self.weighted:
+            self.skipTest("this scikit-learn bins without the sample weights")
+        rng = np.random.default_rng(3)
+        columns = self.hgb.check_columns(n=3000, seed=11) + \
+            [("half the rows at 0.25", rng.normal(size=5000), np.where(rng.random(5000) < 0.5, 0.25, 1.0))]
+        for name, column, weights in columns:
+            for max_bins in (255, 64):
+                with self.subTest(name, max_bins=max_bins):
+                    theirs = self.original(column.copy(), max_bins, sample_weight=None if weights is None else weights.copy())
+                    ours = self.hgb._find_binning_thresholds(column.copy(), max_bins,
+                                                             sample_weight=None if weights is None else weights.copy())
+                    self.assertEqual(ours.dtype, theirs.dtype)
+                    np.testing.assert_array_equal(ours, theirs)
+
+    def test_a_weighted_fit_is_the_same_model(self):
+        if not self.weighted:
+            self.skipTest("this scikit-learn bins without the sample weights")
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        rng = np.random.default_rng(5)
+        n = 2000
+        X = rng.normal(size=(n, 6))
+        X[:, 5] = np.round(X[:, 5], 1)  # a feature of few values
+        y = (X[:, 0] + 0.5 * X[:, 1] + rng.normal(0, 0.7, n) > 0).astype(int)
+        X[rng.random(n) < 0.05, 2] = np.nan
+        weights = np.where(rng.random(n) < 0.3, 0.25, 1.0)
+
+        def fit():
+            model = HistGradientBoostingClassifier(max_iter=20, max_leaf_nodes=31, early_stopping=False, random_state=1)
+            model.fit(X, y, sample_weight=weights)
+            return model._bin_mapper.bin_thresholds_, model.predict_proba(X)[:, 1]
+        thresholds, p = fit()
+        self.assertIn("one pass per feature", self.hgb.install())
+        installed_thresholds, installed_p = fit()
+        for theirs, ours in zip(thresholds, installed_thresholds, strict=True):
+            np.testing.assert_array_equal(ours, theirs)
+        np.testing.assert_array_equal(installed_p, p)
 
 
 @prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)

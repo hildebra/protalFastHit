@@ -134,10 +134,12 @@ and NCBI, each build serves every check of what it does:
 The runs use 4 threads. `build_gtdb_releases.py` is tested with a stand-in of the build script
 (`test_gtdb_build.py`).
 The trainer's tests fit on one thread (`OMP_NUM_THREADS=1`): on every core of a busy machine,
-gradient boosting made `test_model_pmml.py` take 20 minutes (scikit-learn 1.9.1). The features of
-`TrainerScenariosTest`'s tables take 255 values or fewer: with more, scikit-learn 1.8 and later bins a
-weighted fit (the scenario rows weigh 0.25) by computing each of its 254 weighted percentiles on its
-own, which made one test take 4 minutes instead of 20 s.
+gradient boosting made `test_model_pmml.py` take 20 minutes (scikit-learn 1.9.1). scikit-learn 1.8 and
+later bins a weighted fit (the scenario rows weigh 0.25) by computing each of a feature's 254 weighted
+percentiles on its own, ~10 times the time of an unweighted fit; the trainer puts
+`scripts/hgb_binning.py` in its place, which computes them at once, bit for bit the same
+(`HgbBinningTest`), and steps aside for any scikit-learn whose thresholds it does not reproduce. The
+features of `TrainerScenariosTest`'s tables take 255 values or fewer, binned without percentiles.
 
 ## Mini databases
 
