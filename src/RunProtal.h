@@ -669,6 +669,17 @@ namespace protal {
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
         // And what the seeding did (SeedingCounts): the k-mer lookups, the value blocks scanned and their sizes.
         std::cout << "Sample " << options.GetSampleId(index) << " seeding: " << seeding.Text() << std::endl;
+        if (seeding.sparse_reads > 0) {  // --sparse_first: the reads given up after their sampled lookups
+            auto const reads = static_cast<double>(seeding.sparse_reads);
+            std::cout << std::fixed << std::setprecision(2) << "Sample " << options.GetSampleId(index) << " sparse first (1/"
+                      << options.GetSparseFirst() << " of the cores, score " << options.GetSparseFirstScore() << ", "
+                      << options.GetSparseFirstHits() << " hit(s)): " << seeding.sparse_given_up << " of " << seeding.sparse_reads
+                      << (read_type == ReadType::Paired ? " pairs" : " reads") << " given up ("
+                      << 100.0 * static_cast<double>(seeding.sparse_given_up) / reads << "%), " << seeding.sparse_lookups
+                      << " sampled lookups (" << static_cast<double>(seeding.sparse_lookups) / reads << " a "
+                      << (read_type == ReadType::Paired ? "pair" : "read") << "); the seeding line counts the kept ones'"
+                      << std::defaultfloat << std::endl;
+        }
         if (handler.m_adaptive_alignments > 0) {
             std::cout << "Sample " << options.GetSampleId(index) << " adaptive candidates: " << handler.m_adaptive_alignments
                       << " of the candidate alignments tried beyond --align_top on congeners of divergent reads' best "
@@ -926,6 +937,12 @@ namespace protal {
                 // short read, would leave most of it unseeded.
                 AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(),
                                            IsLongReadType(read_type) ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
+                // --sparse_first: reads judged by a sample of their lookups first (ChainAnchorFinder::SetSparseFirst; long
+                // reads over all their chunks, LongReadAligner).
+                if (options.GetSparseFirst() > 0) {
+                    anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(options.GetSparseFirst())),
+                                                 static_cast<uint32_t>(options.GetSparseFirstScore()));
+                }
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);
                 SimpleAlignmentHandler alignment_handler(genomes, IsLongReadType(read_type) ? long_read_wfa : aligner, kmer_size,
@@ -1016,6 +1033,7 @@ namespace protal {
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
                     long_read_aligner.SetBudgetMargin(options.GetLongReadBudget());
+                    long_read_aligner.SetSparseFirstHits(static_cast<uint32_t>(options.GetSparseFirstHits()));
                     if (!long_read_aligner.ChunksHoldEveryGene() && !long_genes_told) {
                         long_genes_told = true;
                         std::cerr << "Warning: the database's longest gene has " << genomes.MaxGeneLength() << " bp; with its margins it "

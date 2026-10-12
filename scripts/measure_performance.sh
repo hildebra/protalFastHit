@@ -2,7 +2,7 @@
 # measure_performance.sh - time protal runs on a database and some read files: whole runs, protal's
 # stage timers and, where perf works, CPU counters. For comparing machines, builds and databases.
 #
-#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] [--stage1_probe] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
+#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] [--stage1_probe] [--test_sparse] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
 # on N threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
@@ -32,6 +32,13 @@
 # probe.tsv (times and memory, the probe's reads and reads with records, and whether its profile is byte-identical to the
 # last timed run's, as the option promises; a run whose profile differs is kept for a look). Printed last: each sample's
 # probe line and the probe run's wall time against the timed runs' median.
+# --test_sparse: after a sample's timed runs, one run at each of four levels of protal's --sparse_first C (a read looked
+# up by 1/C of its k-mer cores first and given up without a near-exact hit; ChainAnchorFinder::SetSparseFirst): C = 1, 2,
+# 4, 8 for short reads (SPARSE_SHORT), 4, 8, 16, 32 for long reads (SPARSE_LONG); not counted in runs.tsv. A line each in
+# sparse.tsv: times, memory, perf counters, the reads given up and the sampled lookups, the records written against the
+# last timed run's, and its profile against that run's (species called by both, lost, gained, Bray-Curtis of the
+# abundances); the profiles in sparse/<sample>.c<C>.profile beside sparse/<sample>.plain.profile, the logs in
+# logs/<sample>.sparse<C>.log. Printed last: each level's wall and aligning time against the timed runs' medians.
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -39,18 +46,25 @@
 #              QCMSA=0 (the cohort without qcMSA; qcmsa must be next to protal, on $PATH or in
 #              PROTAL_QCMSA_SCRIPT, see protal --help),
 #              SYLPH (default: sylph on $PATH, e.g. from its activated conda environment),
-#              SYLPH_ARGS (more sylph profile options, e.g. "-u").
+#              SYLPH_ARGS (more sylph profile options, e.g. "-u"),
+#              SPARSE_SHORT, SPARSE_LONG (--test_sparse's levels C, default "1 2 4 8" and "4 8 16 32"),
+#              SPARSE_ARGS (more options of the --test_sparse runs, e.g. "--sparse_first_score 15").
 # On a cluster, ask for a whole node so other jobs do not share its memory bandwidth, e.g.
 #   sbatch --exclusive -c 32 --mem 100G --wrap "bash scripts/measure_performance.sh perf_r226 \
 #       r226_db pe:sample_R1.fq.gz:sample_R2.fq.gz ont:sample_ont.fq.gz"
+# RUN_DIR (environment): the folder the runs write into, protal's in RUN_DIR/protal (each run's -o folder, the samples'
+# SAMs for the cohort) and sylph's in RUN_DIR/sylph (its profiles, copied to OUT_DIR/sylph at the end); by default
+# OUT_DIR. Best a disk of the node itself (e.g. RUN_DIR=$TMPDIR/perf): writing and closing a SAM on a network file
+# system took 1-7 s of a 32-thread run (docs/claude/2026-10-12-feature-cost-vs-f1.md). The tables and logs stay in OUT_DIR.
 set -uo pipefail
 
-# --threads N (-t N, --threads=N), --sylph SYLPH_DB (--sylph=SYLPH_DB) and --stage1_probe anywhere among the arguments;
-# the rest are positional. Without enough of them, the comment above.
-threads=; sylph_db=; stage1_probe=0; positional=()
+# --threads N (-t N, --threads=N), --sylph SYLPH_DB (--sylph=SYLPH_DB), --stage1_probe and --test_sparse anywhere among
+# the arguments; the rest are positional. Without enough of them, the comment above.
+threads=; sylph_db=; stage1_probe=0; test_sparse=0; positional=()
 while [ $# -gt 0 ]; do
     case $1 in
         --stage1_probe|--stage1-probe) stage1_probe=1; shift ;;
+        --test_sparse|--test-sparse) test_sparse=1; shift ;;
         -t|--threads) [ $# -ge 2 ] || { echo "$1 needs a number of threads" >&2; exit 1; }
                       threads=$2; shift 2 ;;
         --threads=*) threads=${1#--threads=}; shift ;;
@@ -76,6 +90,16 @@ if [ $stage1_probe = 1 ]; then
         *) echo "$protal has no --stage1_probe (a protal from before 2026-10-12)" >&2; exit 1 ;;
     esac
 fi
+sparse_short=${SPARSE_SHORT:-1 2 4 8}; sparse_long=${SPARSE_LONG:-4 8 16 32}
+if [ $test_sparse = 1 ]; then
+    case $("$protal" --full_help 2>&1) in
+        *--sparse_first*) ;;
+        *) echo "$protal has no --sparse_first (a protal from before 2026-10-12)" >&2; exit 1 ;;
+    esac
+    for c in $sparse_short $sparse_long; do
+        case $c in 1|2|4|8|16|32) ;; *) echo "--test_sparse levels are 1, 2, 4, 8, 16 or 32, not '$c'" >&2; exit 1 ;; esac
+    done
+fi
 for spec in "$@"; do
     IFS=: read -r type r1 r2 <<< "$spec"
     case $type in pe) [ -n "$r2" ] || { echo "$spec: pe needs R1 and R2" >&2; exit 1; } ;;
@@ -91,6 +115,7 @@ if [ -n "$sylph_db" ]; then
     case $("$sylph" profile --help 2>&1) in *--reads*) sylph_reads_option=1 ;; esac
 fi
 mkdir -p "$out/logs"
+runs=${RUN_DIR:-$out}; mkdir -p "$runs/protal" || { echo "cannot make $runs/protal (RUN_DIR)" >&2; exit 1; }
 abs() { case $1 in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; esac; }
 
 use_time=0; [ -x /usr/bin/time ] && use_time=1
@@ -107,6 +132,7 @@ qcmsa=${QCMSA:-1}
     echo "protal: $("$protal" --version 2>&1 | head -3 | tr '\n' ' ')"
     echo "database: $db, $(du -shL "$db" 2> /dev/null | cut -f1)"
     df -hT "$db" 2> /dev/null | tail -1 | awk '{ print "database file system: " $2 " (" $1 ")" }'
+    df -hT "$runs" 2> /dev/null | tail -1 | awk -v r="$runs" '{ print "run folder (RUN_DIR): " r ", protal/ and sylph/, file system " $2 " (" $1 ")" }'
     echo "transparent huge pages: $(cat /sys/kernel/mm/transparent_hugepage/enabled 2> /dev/null)"
     echo "perf stat: $([ $use_perf = 1 ] && echo yes || echo "no (not installed or not allowed: perf_event_paranoid $(cat /proc/sys/kernel/perf_event_paranoid 2> /dev/null))")"
     echo "samples: $*"
@@ -127,6 +153,7 @@ qcmsa=${QCMSA:-1}
         echo "sylph: none"
     fi
     echo "stage-1 probe: $([ $stage1_probe = 1 ] && echo "one more run per sample with --stage1_probe" || echo none)"
+    echo "sparse first: $([ $test_sparse = 1 ] && echo "one run per level, --sparse_first $sparse_short (short reads), $sparse_long (long reads)${SPARSE_ARGS:+ with $SPARSE_ARGS}" || echo none)"
     echo; lscpu 2> /dev/null | grep -E '^(Model name|Socket|Core|Thread|NUMA node\(s\)|L3|CPU max MHz)'
     echo; free -g 2> /dev/null
 } > "$out/environment.txt"
@@ -184,14 +211,26 @@ if [ $stage1_probe = 1 ]; then
     mkdir -p "$out/stage1_probe"
     printf 'sample\ttype\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tprobe_reads\tprobe_reads_with_records\tprofile_identical\n' > "$out/probe.tsv"
 fi
-sams=$out/sams; mkdir -p "$sams"
+if [ $test_sparse = 1 ]; then
+    mkdir -p "$out/sparse"
+    printf 'sample\ttype\tthreads\tsparse_first\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tinstructions\tcycles\tipc\treads\tgiven_up\tgiven_up_share\tsampled_lookups\tkmers_kept_reads\twritten\twritten_plain\tspecies_plain\tspecies\tspecies_both\tspecies_lost\tspecies_gained\tbray_curtis\n' > "$out/sparse.tsv"
+fi
+# Two profiles' species (their lineage column) and abundances: "plain sparse both lost gained bray_curtis" (tab-separated),
+# lines of 3 fields or more, the "?" line and comments left out.
+compare_profiles() {
+    awk -F'\t' 'FNR == 1 { f++ } NF >= 3 && $1 != "?" && $1 !~ /^#/ { a[f, $2] = $3 + 0; seen[$2]; n[f]++ }
+        END { for (s in seen) { x = a[1, s] + 0; y = a[2, s] + 0; d += (x > y ? x - y : y - x); t += x + y
+                  if ((1, s) in a && (2, s) in a) both++; else if ((1, s) in a) lost++; else gained++ }
+              printf "%d\t%d\t%d\t%d\t%d\t%s\n", n[1], n[2], both, lost, gained, (t > 0 ? sprintf("%.4f", d / t) : "NA") }' "$1" "$2"
+}
+sams=$runs/protal/sams; mkdir -p "$sams"
 cohort_map_rows=()
 n=0
 for spec in "$@"; do
     n=$((n + 1)); IFS=: read -r type r1 r2 <<< "$spec"; name=$type$n
     reads=(-1 "$r1"); [ -n "$r2" ] && reads+=(-2 "$r2")
     for rep in $(seq 1 "$repeats"); do
-        run=$out/run.$name.$rep; log=$out/logs/$name.$rep.log; rm -rf "$run"
+        run=$runs/protal/run.$name.$rep; log=$out/logs/$name.$rep.log; rm -rf "$run"
         cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa)
         # shellcheck disable=SC2206
         cmd+=(${PROTAL_ARGS:-})
@@ -242,14 +281,15 @@ for spec in "$@"; do
                                                           "$(abs "$sams/$(basename "$sam")")" "$name" "$type")")
             fi
         fi
-        # The last timed run's profile, which the --stage1_probe run's must equal.
+        # The last timed run's profile, which the --stage1_probe run's must equal and the --test_sparse runs' are compared with.
         [ $stage1_probe = 1 ] && [ "$rep" = "$repeats" ] && [ -e "$run/$name.profile" ] && cp "$run/$name.profile" "$out/stage1_probe/$name.plain.profile"
+        [ $test_sparse = 1 ] && [ "$rep" = "$repeats" ] && [ -e "$run/$name.profile" ] && cp "$run/$name.profile" "$out/sparse/$name.plain.profile"
         [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
     done
     # --stage1_probe: one more run, with the probe (outside runs.tsv); its tables, a line in probe.tsv, and its profile
     # compared with the timed runs'.
     if [ $stage1_probe = 1 ]; then
-        run=$out/run.$name.probe; log=$out/logs/$name.probe.log; rm -rf "$run"
+        run=$runs/protal/run.$name.probe; log=$out/logs/$name.probe.log; rm -rf "$run"
         cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --stage1_probe)
         # shellcheck disable=SC2206
         cmd+=(${PROTAL_ARGS:-})
@@ -278,6 +318,42 @@ for spec in "$@"; do
             [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
         fi
     fi
+    # --test_sparse: one run at each level of --sparse_first (outside runs.tsv); a line each in sparse.tsv, the profile
+    # compared with the last timed run's.
+    if [ $test_sparse = 1 ]; then
+        case $type in pb|ont) levels=$sparse_long ;; *) levels=$sparse_short ;; esac
+        written_plain=$(awk -F'\t' -v s="$name" '$1 == s { w = $25 } END { print w == "" ? "NA" : w }' "$out/runs.tsv")
+        for c in $levels; do
+            run=$out/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
+            cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "$c")
+            # shellcheck disable=SC2206
+            cmd+=(${SPARSE_ARGS:-} ${PROTAL_ARGS:-})
+            if ! timed "$log" $use_perf "${cmd[@]}"; then
+                echo "protal --sparse_first $c failed on $name, see $log" >&2; tail -5 "$log" >&2
+                [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
+                continue
+            fi
+            perf_counters
+            # "Sample <name> sparse first (1/C of the cores, score T, M hit(s)): G of R pairs (or reads) given up (p%), L sampled
+            # lookups (l a pair); the seeding line counts the kept ones'"
+            sparseline="^Sample $name sparse first "
+            given=$(number_after "$sparseline" 'hit\(s\)\):' "$log")
+            total=$(number_after "$sparseline" 'of' "$log")
+            sampled=$(grep -m1 -E "$sparseline" "$log" | grep -oE '[0-9]+ sampled lookups' | grep -oE '^[0-9]+' || echo NA)
+            share=$(awk -v g="$given" -v t="$total" 'BEGIN { print (g == "NA" || t == "NA" || t == 0) ? "NA" : sprintf("%.4f", g / t) }')
+            written=$(grep -m1 "^Sample $name: .* candidate alignments tried" "$log" | grep -oE '[0-9]+ records written' | grep -oE '^[0-9]+' || echo NA)
+            species=$(printf 'NA\tNA\tNA\tNA\tNA\tNA')
+            if [ -e "$run/$name.profile" ]; then
+                cp "$run/$name.profile" "$out/sparse/$name.c$c.profile"
+                [ -e "$out/sparse/$name.plain.profile" ] && species=$(compare_profiles "$out/sparse/$name.plain.profile" "$run/$name.profile")
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$threads" "$c" \
+                "$wall" "$user" "$sys" "$rss" "$(took 'Aligning reads' "$log")" "$ins" "$cyc" "$ipc" "${total:-NA}" "${given:-NA}" "$share" \
+                "${sampled:-NA}" "$(number_after "^Sample $name seeding: " 'seeding:' "$log")" "${written:-NA}" "$written_plain" "$species" >> "$out/sparse.tsv"
+            echo "$name --sparse_first $c: ${wall} s, given up $given of $total, records $written (timed runs: $written_plain)"
+            [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
+        done
+    fi
 done
 
 # The cohort: every sample in one run from a map, their SAMs given (protal profiles them without aligning), so that the
@@ -289,7 +365,7 @@ if [ $cohort = 1 ] && [ ${#cohort_map_rows[@]} -lt $# ]; then
 fi
 if [ $cohort = 1 ]; then
     for rep in $(seq 1 "$cohort_repeats"); do
-        run=$out/run.cohort.$rep; log=$out/logs/cohort.$rep.log; map=$out/cohort.$rep.map; rm -rf "$run"
+        run=$runs/protal/run.cohort.$rep; log=$out/logs/cohort.$rep.log; map=$out/cohort.$rep.map; rm -rf "$run"
         { printf '#OUTPUT_DIR\t%s\n' "$(abs "$run")"; printf '#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tREAD_TYPE\n'; printf '%s\n' "${cohort_map_rows[@]}"; } > "$map"
         cmd=("$protal" --db "$db" --map "$map" -t "$threads")
         [ "$qcmsa" = 1 ] || cmd+=(--no_qcmsa)
@@ -316,14 +392,14 @@ fi
 # sylph (--sylph) on the same reads, for comparison: each sample REPEATS times, one line per run in sylph.tsv, the profiles
 # (small) kept in sylph/<sample>.<rep>.tsv.
 if [ -n "$sylph" ]; then
-    mkdir -p "$out/sylph"
+    mkdir -p "$runs/sylph"
     printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tinstructions\tcycles\tcache_misses\tipc\tgenomes\n' > "$out/sylph.tsv"
     n=0
     for spec in "$@"; do
         n=$((n + 1)); IFS=: read -r type r1 r2 <<< "$spec"; name=$type$n
         if [ -n "$r2" ]; then reads=(-1 "$r1" -2 "$r2"); elif [ $sylph_reads_option = 1 ]; then reads=(-r "$r1"); else reads=("$r1"); fi
         for rep in $(seq 1 "$repeats"); do
-            log=$out/logs/sylph.$name.$rep.log; profile=$out/sylph/$name.$rep.tsv; rm -f "$profile"
+            log=$out/logs/sylph.$name.$rep.log; profile=$runs/sylph/$name.$rep.tsv; rm -f "$profile"
             cmd=("$sylph" profile "$sylph_db" "${reads[@]}" -t "$threads" -o "$profile")
             # shellcheck disable=SC2206
             cmd+=(${SYLPH_ARGS:-})
@@ -336,6 +412,8 @@ if [ -n "$sylph" ]; then
             echo "sylph $name run $rep: ${wall} s"
         done
     done
+    # With RUN_DIR elsewhere, the profiles (small) are kept with the tables.
+    if [ "$(abs "$runs")" != "$(abs "$out")" ]; then mkdir -p "$out/sylph" && cp "$runs"/sylph/*.tsv "$out/sylph/" 2> /dev/null; fi
 fi
 rm -f "$out/time.tmp" "$out/perf.tmp"
 
@@ -409,11 +487,33 @@ if [ $stage1_probe = 1 ] && [ "$(wc -l < "$out/probe.tsv")" -gt 1 ]; then
         { k = $1; split("", a); n = 0
           for (r = 1; r <= c[k]; r++) if (wall[k, r] != "NA") a[++n] = wall[k, r] + 0
           m = n ? median(a, n) : 0
+          # (a ">" among printf'"'"'s arguments would redirect its output: the comparisons come first)
+          timed = n ? sprintf("%.2f", m) : "NA"; more = ""
+          if (m > 0 && $4 != "NA") more = sprintf(", %+.1f%%", 100 * ($4 / m - 1))
           printf "%s stage-1 probe run: wall %s s against %s s (median of the timed runs%s), max_rss_gb %s, profile identical: %s\n",
-              k, $4, n ? sprintf("%.2f", m) : "NA", m > 0 && $4 != "NA" ? sprintf(", %+.1f%%", 100 * ($4 / m - 1)) : "", $7, $11 }' \
+              k, $4, timed, more, $7, $11 }' \
         "$out/runs.tsv" "$out/probe.tsv"
     for log in "$out"/logs/*.probe.log; do
         [ -e "$log" ] && grep -m1 -E '^Sample .* stage-1 probe: ' "$log" | sed -e 's/^Sample //' -e 's/ ([^()]*_stage1_probe\*\.tsv)$//'
     done
 fi
-echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,") environment.txt, logs/)."
+# --test_sparse: each level's wall and aligning time against the timed runs' medians, the reads given up, the records
+# written against the timed runs', and the species against the last timed run's profile.
+if [ $test_sparse = 1 ] && [ "$(wc -l < "$out/sparse.tsv")" -gt 1 ]; then
+    echo
+    awk -F'\t' "$median"'
+        function med(x, k,   a, n, r) { split("", a); n = 0
+            for (r = 1; r <= c[k]; r++) if (x[k, r] != "NA") a[++n] = x[k, r] + 0
+            return n ? median(a, n) : 0 }
+        function change(v, m) { return (m > 0 && v != "NA") ? sprintf("%+.1f%%", 100 * (v / m - 1)) : "NA" }
+        FNR == 1 { t = FILENAME ~ /sparse\.tsv$/ ? "sparse" : "runs"; next }
+        t == "runs" { k = $1; r = ++c[k]; wall[k, r] = $5; aligning[k, r] = $11; next }
+        { k = $1; mw = med(wall, k); ma = med(aligning, k)
+          # (the comparisons before printf: a ">" among its arguments would redirect its output)
+          dw = change($5, mw); da = change($9, ma); share = $15 == "NA" ? "NA" : sprintf("%.1f%%", 100 * $15)
+          records = ($18 != "NA" && $19 != "NA" && $19 > 0) ? sprintf("%s of %s (%+.2f%%)", $18, $19, 100 * ($18 / $19 - 1)) : $18 " of " $19
+          printf "%s --sparse_first %s: wall %s s (%s), aligning %s s (%s), given up %s, records %s, species %s (lost %s, gained %s), Bray-Curtis %s\n",
+              k, $4, $5, dw, $9, da, share, records, $21, $23, $24, $25 }' \
+        "$out/runs.tsv" "$out/sparse.tsv"
+fi
+echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,")$([ $test_sparse = 1 ] && echo " sparse.tsv, sparse/,") environment.txt, logs/)."

@@ -177,6 +177,9 @@ namespace protal {
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
+                ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). Reads given up count no failed candidates, which the models' failed_candidate_rate uses: a database's models are trained without it (docs/claude/2026-10-12-sparse-first). 0: off (the default).", cxxopts::value<size_t>()->default_value("0"))
+                ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count.", cxxopts::value<size_t>()->default_value("14"))
+                ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept.", cxxopts::value<size_t>()->default_value("1"))
                 ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
@@ -268,6 +271,9 @@ namespace protal {
         bool no_indel_bound = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
+        size_t sparse_first = 0;
+        size_t sparse_first_score = 14;
+        size_t sparse_first_hits = 1;
         bool stage1_probe = false;
         bool taxon_statistics = false;
         bool full_sam_header = false;
@@ -410,6 +416,9 @@ namespace protal {
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_stage1_probe = false;  // --stage1_probe
+        size_t m_sparse_first = 0;    // --sparse_first: C, 0 off
+        size_t m_sparse_first_score = 14;
+        size_t m_sparse_first_hits = 1;
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_write_unmapped_reads = false;
@@ -609,6 +618,9 @@ namespace protal {
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_stage1_probe(d.stage1_probe),
+                m_sparse_first(d.sparse_first),
+                m_sparse_first_score(d.sparse_first_score),
+                m_sparse_first_hits(d.sparse_first_hits),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_write_unmapped_reads(d.write_unmapped_reads),
@@ -816,6 +828,10 @@ namespace protal {
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
             result_str << "profile truth:       " << (HasProfileTruths() ? "yes" : "no") << '\n';
             if (m_stage1_probe) result_str << "stage-1 probe:       yes (misc/<sample>_stage1_probe*.tsv)" << '\n';
+            if (m_sparse_first) {
+                result_str << "sparse first:        1/" << m_sparse_first << " of the cores, score " << m_sparse_first_score << ", "
+                           << m_sparse_first_hits << " hit(s) to keep a read" << '\n';
+            }
             result_str << "^ output:            " << m_benchmark_alignment_output << '\n';
             result_str << "---------------------" << std::string(30, '-') << '\n';
             return result_str.str();
@@ -1675,6 +1691,18 @@ namespace protal {
         // --stage1_probe: what a sparse first stage would keep, tallied while aligning (Stage1Probe.h, RunProtal).
         bool Stage1Probe() const {
             return m_stage1_probe;
+        }
+
+        // --sparse_first: C (1/C of a read's cores looked up first), 0 when off; its score and hits (ChainAnchorFinder::
+        // SetSparseFirst, Classify's short-read loops).
+        size_t GetSparseFirst() const {
+            return m_sparse_first;
+        }
+        size_t GetSparseFirstScore() const {
+            return m_sparse_first_score;
+        }
+        size_t GetSparseFirstHits() const {
+            return m_sparse_first_hits;
         }
 
         // --taxon_statistics: one misc/<taxon>.statistics.tsv per taxon with reads (off by default).
@@ -3309,6 +3337,21 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
             bool stage1_probe = result.count("stage1_probe");
+            size_t const sparse_first = result["sparse_first"].as<size_t>();
+            size_t const sparse_first_score = result["sparse_first_score"].as<size_t>();
+            size_t const sparse_first_hits = result["sparse_first_hits"].as<size_t>();
+            if (sparse_first != 0 && (sparse_first > 32 || (sparse_first & (sparse_first - 1)) != 0)) {
+                std::cerr << "Error: --sparse_first must be 0 (off), 1, 2, 4, 8, 16 or 32, not " << sparse_first << std::endl;
+                exit(2);
+            }
+            if (sparse_first_score > 16 || sparse_first_hits == 0) {
+                std::cerr << "Error: --sparse_first_score is 0 to 16 (flank bases), --sparse_first_hits 1 or more" << std::endl;
+                exit(2);
+            }
+            if (sparse_first != 0 && stage1_probe) {
+                std::cerr << "Error: --stage1_probe measures what --sparse_first would give up; give one of them" << std::endl;
+                exit(2);
+            }
             bool taxon_statistics = result.count("taxon_statistics");
             bool full_sam_header = result.count("full_sam_header");
             bool write_unmapped_reads = result.count("write_unmapped_reads");
@@ -3511,6 +3554,9 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
             d.stage1_probe             = stage1_probe;
+            d.sparse_first             = sparse_first;
+            d.sparse_first_score       = sparse_first_score;
+            d.sparse_first_hits        = sparse_first_hits;
             d.taxon_statistics         = taxon_statistics;
             d.full_sam_header          = full_sam_header;
             d.write_unmapped_reads     = write_unmapped_reads;

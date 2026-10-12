@@ -509,6 +509,24 @@ simulated ONT and older PacBio reads, 8% of HiFi reads').
 `--whole_read_alignment` aligns every read as a whole, as protal did before, e.g. to reproduce
 earlier results.
 
+`--stage1_probe` measures, in an ordinary run, what the first stage of a two-stage protal would keep:
+for every lookup, its best flex score and whether its k-mer's core falls in a sparse sample of 1/c of
+the cores (c = 1 to 32), tallied per read (a pair as one) for the rules "at least m lookups scoring T
+or more" over all reads and those with records, per taxon, and per mate the best score of its first
+lookups. It writes `misc/<sample>_stage1_probe.tsv`, `_stage1_probe_taxa.tsv` and
+`_first_lookups_probe.tsv` and a log line; the SAM and profile are the same as without it
+([report](claude/2026-10-12-stage1-probe/README.md)).
+
+`--sparse_first C` acts on such a rule: a read (pair; a long read over all its chunks) is looked up
+by the 1/C of its k-mer cores in the sample first, and given up, before the rest of its seeding and
+any alignment, unless at least `--sparse_first_hits` (1) of those lookups have a flex cell sharing
+`--sparse_first_score` (14) or more of the 16 flank bases with the read. A read kept is seeded and
+aligned as without it. At GTDB r226 the probe found C = 2 keeps 9.4% of a gut sample's pairs with
+99.6% of those that have records, and C = 8 18% of a HiFi sample's reads with 99.2%. Reads given up
+count no failed candidates, which the models' `failed_candidate_rate` uses, so a database's models
+see other values than in training ([report](claude/2026-10-12-sparse-first/README.md)). Off by
+default (0); `--stage1_probe` and `--sparse_first` exclude each other.
+
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
 stage after the alignment takes the rest (the last sample, and any the worker is behind with) on

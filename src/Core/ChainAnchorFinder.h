@@ -35,9 +35,12 @@ namespace protal {
     // (docs/claude/2026-10-06-performance-profiling): those that share their taxon and gene with another seed of the read
     // (the only ones FindPairs can make anchors of), the lookups dropped as too ubiquitous (more cells of the best score
     // than --max_key_ubiquity: scanned, but no seeds), and the anchors made, each of which is extended.
+    // With --sparse_first, also the reads (pairs) its sampled lookups judged, those given up, and the sampled lookups made
+    // (counted by the first mate's finder); the rest counts the seeding of the reads kept.
     struct SeedingCounts {
         uint64_t kmers = 0, found = 0, scanned = 0, cells = 0, seeds = 0;
         uint64_t paired = 0, dropped = 0, anchors = 0;
+        uint64_t sparse_reads = 0, sparse_given_up = 0, sparse_lookups = 0;
         std::array<uint64_t, 33> blocks_by_bits{}, cells_by_bits{};  // by the bit width of the block's size
 
         void NoteBlock(uint32_t size) {
@@ -57,6 +60,9 @@ namespace protal {
             paired += other.paired;
             dropped += other.dropped;
             anchors += other.anchors;
+            sparse_reads += other.sparse_reads;
+            sparse_given_up += other.sparse_given_up;
+            sparse_lookups += other.sparse_lookups;
             for (size_t b = 0; b < blocks_by_bits.size(); b++) {
                 blocks_by_bits[b] += other.blocks_by_bits[b];
                 cells_by_bits[b] += other.cells_by_bits[b];
@@ -184,6 +190,14 @@ namespace protal {
         static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
         bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
         stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
+        // --sparse_first (SetSparseFirst): a read's sampled lookups, the cores of level m_sparse_level or more
+        // (stage1_probe::Level), scored first (SparseHits), a hit if its best flex score is m_sparse_score or more.
+        bool m_sparse_first = false;
+        uint8_t m_sparse_level = 0;
+        uint32_t m_sparse_score = 0;
+        LookupResultList m_sparse_lookups;
+        std::vector<size_t> m_sampled;  // the indexes of a read's sampled k-mers (SparseHits)
+        static constexpr size_t kSparseScoreBehind = 4;  // lookups found but not yet scored, their blocks on the way
 
         // The lookups of a read's k-mers, in read order (those with values).
         void LookupKmers(KmerList& kmer_list) {
@@ -243,35 +257,33 @@ namespace protal {
             }
         }
 
-        // --stage1_probe: the score of a lookup of a core with one value, which has no flex cell: the flank bases the read
-        // shares with the gene beside the entry's core (as a flex cell would count them), in the orientation in which the
-        // read's core is the gene's; 0 if in neither. The seeding itself compares such a k-mer with the gene only once an
-        // anchor gives its orientation (WholeKmerMatches).
+        // --stage1_probe, --sparse_first: the score of a lookup of a core with one value, which has no flex cell: the
+        // flex cell the entry would have, from the gene's k-mer at the entry's place (2 bits a base from its packed
+        // bytes, both strands, the one of the smaller core as the index keys a k-mer, the reverse on a tie), scored
+        // against the read's flex part as a cell is (FlexSimilarity); 0 if the gene is not loaded. The seeding itself
+        // compares such a k-mer with the gene only once an anchor gives its orientation (WholeKmerMatches).
         uint32_t SingleValueScore(LookupPointer const& lookup) {
             size_t taxid = 0, geneid = 0, genepos = 0;
             bool unique = false, unique_two = false;
             m_kmer_lookup.Entry(lookup, 0).Get(taxid, geneid, genepos, unique, unique_two);
             size_t const half = m_kmer_lookup.FlexHalf();
-            std::string const& read = *m_fwd;
-            size_t const core = lookup.read_pos + half;  // the core's start in the read, as a seed's readpos
             auto const& gene = m_genome_loader.GetGeneOMP(taxid, geneid);
-            size_t const gene_length = gene.GetLength();
-            if (genepos + m_k > gene_length || core + m_k > read.size()) return 0;
-            size_t const begin = genepos >= half ? genepos - half : 0;
-            size_t const end = std::min(gene_length, genepos + m_k + half);
-            auto const window = gene.Window(begin, end);  // keeps the bases the view points to
-            std::string_view const bases(window.data() + begin, end - begin);
-            auto shared = [&](std::string_view strand, size_t at) -> uint32_t {
-                if (strand.substr(at, m_k) != bases.substr(genepos - begin, m_k)) return 0;  // the core is not the gene's
-                uint32_t n = 0;
-                for (size_t i = 1; i <= half; i++) {
-                    n += at >= i && genepos >= i && strand[at - i] == bases[genepos - i - begin];
-                    size_t const read_right = at + m_k - 1 + i, gene_right = genepos + m_k - 1 + i;
-                    n += read_right < strand.size() && gene_right < end && strand[read_right] == bases[gene_right - begin];
-                }
-                return n;
-            };
-            return std::max(shared(read, core), shared(m_rev, read.size() - core - m_k));
+            uint8_t const* packed = gene.Packed();
+            if (packed == nullptr || genepos < half || genepos + m_k + half > gene.GetLength()) return 0;
+            size_t const start = genepos - half, length = m_k + 2 * half;
+            uint64_t forward = 0, reverse = 0;  // codes as the k-mer handler's: the first base highest
+            for (size_t i = 0; i < length; i++) {
+                uint64_t const base = (packed[(start + i) >> 2] >> (2 * ((start + i) & 3))) & 3u;
+                forward = (forward << 2) | base;
+                reverse |= (3u - base) << (2 * i);
+            }
+            uint64_t const kmer = m_kmer_lookup.MainKey(forward) < m_kmer_lookup.MainKey(reverse) ? forward : reverse;
+            return m_kmer_lookup.FlexSimilarity(lookup.flex_key, kmer);
+        }
+
+        // A sampled lookup's score (--sparse_first): its block's best flex cell's, or a single value's.
+        uint32_t SparseScoreOf(LookupPointer const& lookup) {
+            return lookup.flex != nullptr ? m_kmer_lookup.BestScore(lookup) : SingleValueScore(lookup);
         }
 
 
@@ -637,7 +649,8 @@ namespace protal {
         ChainAnchorFinder(ChainAnchorFinder const& other) :
                 m_kmer_lookup(other.m_kmer_lookup), m_max_seed_size(other.m_max_seed_size),
                 m_min_successful_lookups(other.m_min_successful_lookups), m_k(other.m_k),
-                m_genome_loader(other.m_genome_loader) {};
+                m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
+                m_sparse_level(other.m_sparse_level), m_sparse_score(other.m_sparse_score) {};
 
         bool Success() {
             return !m_error_in_read;
@@ -925,6 +938,74 @@ namespace protal {
         // --stage1_probe: each read's lookups counted into `probe` (its core's level and best flex score, Stage1Probe.h),
         // which the caller ends per read; nullptr: none (the default; a copy has none either).
         void SetProbe(stage1_probe::Mate* probe) { m_probe = probe; }
+
+        // --sparse_first: a read's sampled lookups first, those of the cores of level `level` or more (stage1_probe::Level:
+        // 1/2^level of the cores), a hit where the best flex cell shares `min_score` or more of the 16 flank bases with the
+        // read (SparseHits). The caller gives up a read (pair) with too few hits before the rest of its seeding; a read it
+        // keeps is seeded as without --sparse_first, so its seeds, anchors and alignments are the same. Copies keep it.
+        void SetSparseFirst(uint8_t level, uint32_t min_score) {
+            m_sparse_first = true;
+            m_sparse_level = level;
+            m_sparse_score = min_score;
+        }
+        bool SparseFirst() const { return m_sparse_first; }
+
+        // The key map blocks of a read's sampled k-mers, fetched ahead as PrefetchKeys fetches all (--sparse_first).
+        void PrefetchSparseKeys(KmerList const& kmer_list) {
+            for (auto const& [kmer, pos] : kmer_list) {
+                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer)) >= m_sparse_level) m_kmer_lookup.PrefetchKey(kmer);
+            }
+        }
+
+        // Short reads, seeded one read (pair) ahead as Classify's loops do: a read's sampled lookups made and their blocks
+        // fetched (SparsePrepare; the key map blocks were fetched a read earlier, PrefetchSparseKeys), then, once the next
+        // read has been read, scored (SparseScore): how many are hits, counted up to `enough`. The lookups made are
+        // counted in m_seeding.sparse_lookups.
+        void SparsePrepare(KmerList& kmer_list) {
+            m_sparse_lookups.clear();
+            for (size_t j = 0; j < kmer_list.size(); j++) {
+                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) < m_sparse_level) continue;
+                m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+            }
+            for (auto const& lookup : m_sparse_lookups) KmerLookup::PrefetchValues(lookup);
+            m_seeding.sparse_lookups += m_sparse_lookups.size();
+        }
+        uint32_t SparseScore(uint32_t enough) {
+            uint32_t hits = 0;
+            for (auto const& lookup : m_sparse_lookups) {
+                if (hits >= enough) break;
+                hits += SparseScoreOf(lookup) >= m_sparse_score;
+            }
+            return hits;
+        }
+
+        // Long reads (LongReadAligner, chunk by chunk, no read ahead): how many of a read's sampled lookups are hits,
+        // counted up to `enough`: the sampled k-mers in read order, each core's key map block fetched kPrefetchKmers
+        // k-mers ahead, a lookup's block fetched as soon as it is found and scored kSparseScoreBehind lookups later, so
+        // the misses overlap and a read kept stops at its first hits. Counted in m_seeding.sparse_lookups.
+        uint32_t SparseHits(KmerList& kmer_list, uint32_t enough) {
+            m_sampled.clear();
+            for (size_t j = 0; j < kmer_list.size(); j++) {
+                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) >= m_sparse_level) m_sampled.push_back(j);
+            }
+            size_t const n = m_sampled.size();
+            for (size_t i = 0; i < std::min(kPrefetchKmers, n); i++) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i]].first);
+            m_sparse_lookups.clear();
+            uint32_t hits = 0;
+            size_t scored = 0;
+            auto score_next = [&] { hits += SparseScoreOf(m_sparse_lookups[scored++]) >= m_sparse_score; };
+            for (size_t i = 0; i < n && hits < enough; i++) {
+                if (i + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i + kPrefetchKmers]].first);
+                size_t const before = m_sparse_lookups.size();
+                auto& [kmer, pos] = kmer_list[m_sampled[i]];
+                m_kmer_lookup.Get(m_sparse_lookups, kmer, static_cast<uint32_t>(pos));
+                if (m_sparse_lookups.size() > before) KmerLookup::PrefetchValues(m_sparse_lookups.back());
+                while (m_sparse_lookups.size() - scored > kSparseScoreBehind && hits < enough) score_next();
+            }
+            while (scored < m_sparse_lookups.size() && hits < enough) score_next();
+            m_seeding.sparse_lookups += m_sparse_lookups.size();
+            return hits;
+        }
 
         // Timed as part of the read's seeding (and of the operator), not as a read of its own.
         void PrepareLookups(KmerList& kmer_list) {

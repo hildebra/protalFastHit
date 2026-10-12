@@ -9,8 +9,8 @@
 - **Code**: the working tree on `dfbee7d` (with `e04f4a1`'s whole-block prefetch); not committed yet. The probe is a
   development option: a run with `--stage1_probe` writes the same SAM and profile as one without, and three more
   tables.
-- **Status**: implemented and checked locally ([below](#local-check-the-archaea-world)); the r226 cluster run is
-  pending (it needs the probe committed and pulled on the cluster).
+- **Status**: committed as `ccdbf52`; checked locally ([below](#local-check-the-archaea-world)) and run at r226
+  ([results](#results-at-r226)).
 
 ## What a first-stage rule is
 
@@ -67,6 +67,41 @@ sbatch --exclusive -c 32 --mem 100G --wrap "bash $D/probe_cluster.sh $PWD \
     /hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz \
     runs/stage1_probe"
 ```
+
+## Results at r226
+
+The cluster run of `ccdbf52` (`scripts/measure_performance.sh --stage1_probe`, SLURM 24193130, `local/Perf0.8.2d`,
+not in git) is analysed, for the lookups a sparse first scan could save, in
+[2026-10-12-stage1-probe-r226.md](../2026-10-12-stage1-probe-r226.md). Its profiles are byte-identical with and
+without the probe, which costs +10% wall time (pe) and +7% (HiFi). Of the 50.6M pairs, 2.22M (4.4%) have records; of
+the 497,656 HiFi reads, 67,569 (13.6%).
+
+T = 14, m = 1 (from `pe1_stage1_probe.tsv` and `pb2_stage1_probe.tsv`):
+
+| c | pe: pairs kept | pe: recall | HiFi: reads kept | HiFi: recall |
+|---|---|---|---|---|
+| 1 | 9.92% | 99.99% | 31.72% | 100.00% |
+| 2 | 9.40% | 99.63% | 25.46% | 99.94% |
+| 4 | 8.72% | 97.87% | 21.15% | 99.71% |
+| 8 | 8.13% | 92.90% | 17.90% | 99.17% |
+| 16 | 6.84% | 79.66% | 16.07% | 97.96% |
+
+What it means for two-stage profiling as [proposed](../2026-10-12-profiler-fork-ideas.md):
+
+- **The near-exact score is what separates the reads, not sparsity.** The full index with T = 14 keeps 9.9% of the
+  pairs and 99.99% of those with records. The temporary file of the follow-up would hold about a tenth of a pe sample
+  (here 5M pairs, ~1 GB as BGZF), which is cheap.
+- **For short reads, a sparse first-stage index costs too many reads before it saves much memory.** c = 2 keeps
+  99.63% of the pairs with records, with about half the index's values (~13 GB of 26.6) in the first stage; c = 4
+  already loses 2.1%, c = 8 7.1%. The report's estimate of 0.4% lost at c = 8 (Poisson with 44/c own-taxon hits a
+  pair) was far too optimistic: far fewer of a pair's 44 lookups match its gene near-exactly (sequencing errors,
+  divergent strains, mates reaching past the gene). A memory saving of the
+  fork's size (~6×) is out of reach for paired-end reads this way.
+- **Long reads are another matter**: hundreds of lookups a read, so c = 8 keeps 99.17% of the HiFi reads with
+  records, with an eighth of the index (~3.3 GB) in the first stage, and c = 16 97.96%.
+
+So for short reads the probe points at speed rather than memory: a one-pass, sparse-first lookup order within the
+same index, which gives up reads early (the r226 report's suggestion).
 
 ## Local check: the archaea world
 

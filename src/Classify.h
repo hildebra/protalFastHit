@@ -124,6 +124,11 @@ namespace protal::classify {
             constexpr bool seeding_ahead = requires { anchor_finder.PrepareLookups(kmers); anchor_finder.PrefetchKeys(kmers); };
             FastxRecord next;
             KmerList next_kmers;
+            // --sparse_first, as RunPairedEnd does it for pairs.
+            constexpr bool has_sparse = requires { anchor_finder.SparsePrepare(kmers); anchor_finder.SparseScore(1u); anchor_finder.PrefetchSparseKeys(kmers); };
+            bool sparse_first = false;
+            if constexpr (has_sparse) sparse_first = anchor_finder.SparseFirst();
+            uint32_t const sparse_hits = static_cast<uint32_t>(options.GetSparseFirstHits());
             auto take_kmers = [&](FastxRecord const& r, KmerList& k) {
                 k.clear();
                 bm_kmer_extracter.Start();
@@ -133,7 +138,15 @@ namespace protal::classify {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
                 }
-                if constexpr(seeding_ahead) anchor_finder.PrefetchKeys(k);
+                if constexpr(seeding_ahead) {
+                    if constexpr (has_sparse) {
+                        if (sparse_first) {
+                            anchor_finder.PrefetchSparseKeys(k);
+                            return;
+                        }
+                    }
+                    anchor_finder.PrefetchKeys(k);
+                }
             };
 
             bm_reader.Start();
@@ -143,10 +156,21 @@ namespace protal::classify {
             while (more) {
                 thread_statistics.reads++;
                 thread_statistics.bases += record.sequence.size();
+                // --sparse_first: the read's sampled lookups are made now and scored once the next read is read, as
+                // RunPairedEnd does it.
+                if constexpr (has_sparse) {
+                    if (sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        anchor_finder.SparsePrepare(kmers);
+                        bm_anchor_finder.Stop();
+                    }
+                }
                 if constexpr(seeding_ahead) {
-                    bm_anchor_finder.Start(false);
-                    anchor_finder.PrepareLookups(kmers);
-                    bm_anchor_finder.Stop();
+                    if (!sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        anchor_finder.PrepareLookups(kmers);
+                        bm_anchor_finder.Stop();
+                    }
                 }
                 bm_reader.Start();
                 more = reader(next);
@@ -156,6 +180,26 @@ namespace protal::classify {
                 seeds.clear();
                 anchors.clear();
                 alignment_results.clear();
+
+                bool given_up = false;  // --sparse_first: too few hits among the read's sampled lookups
+                if constexpr (has_sparse) {
+                    if (sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        given_up = anchor_finder.SparseScore(sparse_hits) < sparse_hits;
+                        bm_anchor_finder.Stop();
+                        anchor_finder.m_seeding.sparse_reads++;
+                        anchor_finder.m_seeding.sparse_given_up += given_up;
+                    }
+                }
+                if (given_up) {
+                    // No seeds, so no candidates: the read is written as one without (no record, no failed candidates).
+                    bm_output.Start();
+                    output_handler(alignment_results, record, std::vector<FailedCandidate>{}, uint16_t{ 0 });
+                    bm_output.Stop();
+                    std::swap(record, next);
+                    std::swap(kmers, next_kmers);
+                    continue;
+                }
 
                 bm_anchor_finder.Start();
                 anchor_finder(kmers, seeds, anchors, record.sequence);
@@ -612,6 +656,14 @@ namespace protal::classify {
             FastxRecord next2;
             KmerList next_kmers1;
             KmerList next_kmers2;
+            // --sparse_first (ChainAnchorFinder::SetSparseFirst): a pair is judged by its mates' sampled lookups first
+            // (SparsePrepare, SparseScore) and given up, as a pair without candidates, if they have fewer than sparse_hits
+            // hits; only the sampled cores' key map blocks are fetched ahead. A pair it keeps is seeded and aligned as
+            // without it.
+            constexpr bool has_sparse = requires { anchor_finder1.SparsePrepare(kmers1); anchor_finder1.SparseScore(1u); anchor_finder1.PrefetchSparseKeys(kmers1); };
+            bool sparse_first = false;
+            if constexpr (has_sparse) sparse_first = anchor_finder1.SparseFirst();
+            uint32_t const sparse_hits = static_cast<uint32_t>(options.GetSparseFirstHits());
             auto take_kmers = [&](FastxRecord const& r1, FastxRecord const& r2, KmerList& k1, KmerList& k2) {
                 k1.clear();
                 k2.clear();
@@ -630,6 +682,13 @@ namespace protal::classify {
                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
                 }
                 if constexpr(seeding_ahead) {
+                    if constexpr (has_sparse) {
+                        if (sparse_first) {
+                            anchor_finder1.PrefetchSparseKeys(k1);
+                            anchor_finder2.PrefetchSparseKeys(k2);
+                            return;
+                        }
+                    }
                     anchor_finder1.PrefetchKeys(k1);
                     anchor_finder2.PrefetchKeys(k2);
                 }
@@ -643,11 +702,23 @@ namespace protal::classify {
             while (more) {
                 thread_statistics.reads++;
                 thread_statistics.bases += record1.sequence.size() + record2.sequence.size();
+                // --sparse_first: the pair's sampled lookups are made (their blocks fetched) now and scored once the next
+                // pair is read; a pair kept is looked up in full only then (FindSeeds). Else all its lookups now.
+                if constexpr (has_sparse) {
+                    if (sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        anchor_finder1.SparsePrepare(kmers1);
+                        anchor_finder2.SparsePrepare(kmers2);
+                        bm_anchor_finder.Stop();
+                    }
+                }
                 if constexpr(seeding_ahead) {
-                    bm_anchor_finder.Start(false);
-                    anchor_finder1.PrepareLookups(kmers1);
-                    anchor_finder2.PrepareLookups(kmers2);
-                    bm_anchor_finder.Stop();
+                    if (!sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        anchor_finder1.PrepareLookups(kmers1);
+                        anchor_finder2.PrepareLookups(kmers2);
+                        bm_anchor_finder.Stop();
+                    }
                 }
                 bm_reader.Start();
                 more = reader(next1, next2);
@@ -662,6 +733,32 @@ namespace protal::classify {
                 alignment_results1.clear();
                 alignment_results2.clear();
                 paired_alignment_results.clear();
+
+                bool given_up = false;  // --sparse_first: too few hits among the pair's sampled lookups
+                if constexpr (has_sparse) {
+                    if (sparse_first) {
+                        bm_anchor_finder.Start(false);
+                        uint32_t hits = anchor_finder1.SparseScore(sparse_hits);
+                        if (hits < sparse_hits) hits += anchor_finder2.SparseScore(sparse_hits - hits);
+                        given_up = hits < sparse_hits;
+                        bm_anchor_finder.Stop();
+                        anchor_finder1.m_seeding.sparse_reads++;
+                        anchor_finder1.m_seeding.sparse_given_up += given_up;
+                    }
+                }
+                if (given_up) {
+                    // No seeds, so no candidates: the pair is written as one without (no record, no failed candidates).
+                    bm_output.Start();
+                    output_handler(paired_alignment_results, record1, record2, record_id, true, std::vector<FailedCandidate>{},
+                                   std::array<uint16_t, 2>{ 0, 0 });
+                    bm_output.Stop();
+                    record_id += options.GetThreads();
+                    std::swap(record1, next1);
+                    std::swap(record2, next2);
+                    std::swap(kmers1, next_kmers1);
+                    std::swap(kmers2, next_kmers2);
+                    continue;
+                }
 
                 // Calculate Anchors
 

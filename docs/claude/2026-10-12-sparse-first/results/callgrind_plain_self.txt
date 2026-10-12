@@ -1,0 +1,45 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/sparse/cg/cg_plain.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4860687703
+Trigger: Program termination
+Profiled target:  /home/falk/sparse/build/protal --db /home/falk/seed/db/database.protal -1 /home/falk/seed/samples/pe100k_R1.fq.gz -2 /home/falk/seed/samples/pe100k_R2.fq.gz --prefix s -o /home/falk/sparse/cg/run_plain -t 1 --no_strains --no_profile (PID 937151, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                     
+--------------------------------------------------------------------------------
+4,151,588,413 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                    file:function
+--------------------------------------------------------------------------------
+510,156,213 (12.29%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/sparse/build/protal]
+432,600,053 (10.42%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillAvx2() [/home/falk/sparse/build/protal]
+383,063,570 ( 9.23%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::LookupKmers(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/sparse/build/protal]
+288,068,277 ( 6.94%)  ???:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3] [/home/falk/sparse/build/protal]
+245,801,894 ( 5.92%)  ???:KmerUtils::ReverseComplementInto(std::basic_string_view<char, std::char_traits<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/sparse/build/protal]
+218,200,000 ( 5.26%)  ???:BufferedFastxReader::FinishFastq(FastxRecord&, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >) [/home/falk/sparse/build/protal]
+173,408,417 ( 4.18%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&) [/home/falk/sparse/build/protal]
+123,516,919 ( 2.98%)  ???:protal::SharedSeeds::Sort(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> > const&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&) [/home/falk/sparse/build/protal]
+110,006,611 ( 2.65%)  ???:protal::AlignmentScreen::MayAlignPacked(protal::AlignmentScreen::ReadKmers&, bool, unsigned long, unsigned long, unsigned long, unsigned long, unsigned char const*, unsigned long, unsigned long, unsigned long, int, int, int, int, unsigned long) [/home/falk/sparse/build/protal]
+108,261,858 ( 2.61%)  ???:protal::AlignmentScreen::SharesEnough(protal::AlignmentScreen::ReadKmers&, bool, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, long) const [/home/falk/sparse/build/protal]
+ 93,583,064 ( 2.25%)  ???:BufferedFastxReader::NextFastq(FastxRecord&) [/home/falk/sparse/build/protal]
+ 92,550,334 ( 2.23%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 82,416,508 ( 1.99%)  ???:protal::flex_scan::BestAvx2(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*) [/home/falk/sparse/build/protal]
+ 62,665,497 ( 1.51%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3] [/home/falk/sparse/build/protal]
+ 62,548,730 ( 1.51%)  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 55,696,292 ( 1.34%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::operator=(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) [clone .isra.0] [/home/falk/sparse/build/protal]
+ 53,150,896 ( 1.28%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindPairs(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, unsigned long) [/home/falk/sparse/build/protal]
+ 47,448,953 ( 1.14%)  ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::ProtalPairedOutputHandler<false>, (protal::DebugLevel)0, protal::NoBenchmark>(protal::SeqReaderPE&, protal::Options const&, protal::ChainAnchorFinder<protal::KmerLookupSM>&, protal::SimpleAlignmentHandler&, protal::ProtalPairedOutputHandler<false>&, protal::SimpleKmerHandler<protal::ClosedSyncmer>&, protal::GenomeLoader&, protal::NoBenchmark) [clone ._omp_fn.0] [/home/falk/sparse/build/protal]
+ 43,236,033 ( 1.04%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_replace(unsigned long, unsigned long, char const*, unsigned long) [/home/falk/sparse/build/protal]
+ 36,087,394 ( 0.87%)  ???:protal::Benchmark::Start(bool) [clone .constprop.0] [/home/falk/sparse/build/protal]

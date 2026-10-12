@@ -1,0 +1,45 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/sparse/cg/cg_c1_t14.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4714279409
+Trigger: Program termination
+Profiled target:  /home/falk/sparse/build/protal --db /home/falk/seed/db/database.protal -1 /home/falk/seed/samples/pe100k_R1.fq.gz -2 /home/falk/seed/samples/pe100k_R2.fq.gz --prefix s -o /home/falk/sparse/cg/run_c1_t14 -t 1 --no_strains --no_profile --sparse_first 1 --sparse_first_score 14 (PID 937204, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                     
+--------------------------------------------------------------------------------
+3,346,490,738 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                    file:function
+--------------------------------------------------------------------------------
+578,524,518 (17.29%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::SingleValueScore(protal::LookupPointer const&) [/home/falk/sparse/build/protal]
+510,156,213 (15.24%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/sparse/build/protal]
+432,600,053 (12.93%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillAvx2() [/home/falk/sparse/build/protal]
+407,563,004 (12.18%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::SparsePrepare(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/sparse/build/protal]
+218,200,000 ( 6.52%)  ???:BufferedFastxReader::FinishFastq(FastxRecord&, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >) [/home/falk/sparse/build/protal]
+ 93,583,064 ( 2.80%)  ???:BufferedFastxReader::NextFastq(FastxRecord&) [/home/falk/sparse/build/protal]
+ 87,513,068 ( 2.62%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 82,978,509 ( 2.48%)  ???:protal::flex_scan::BestAvx2(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*) [/home/falk/sparse/build/protal]
+ 62,599,446 ( 1.87%)  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 55,696,292 ( 1.66%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::operator=(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) [clone .isra.0] [/home/falk/sparse/build/protal]
+ 49,053,890 ( 1.47%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::SparseScore(unsigned int) [/home/falk/sparse/build/protal]
+ 43,644,450 ( 1.30%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_replace(unsigned long, unsigned long, char const*, unsigned long) [/home/falk/sparse/build/protal]
+ 31,201,161 ( 0.93%)  ???:std::vector<unsigned char, std::allocator<unsigned char> >::resize(unsigned long) [/home/falk/sparse/build/protal]
+ 29,200,000 ( 0.87%)  ???:std::enable_if<std::__and_<std::__not_<std::__is_tuple_like<FastxRecord> >, std::is_move_constructible<FastxRecord>, std::is_move_assignable<FastxRecord> >::value, void>::type std::swap<FastxRecord>(FastxRecord&, FastxRecord&) [/home/falk/sparse/build/protal]
+ 25,941,143 ( 0.78%)  ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 23,251,913 ( 0.69%)  ???:protal::SharedSeeds::Sort(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> > const&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&) [/home/falk/sparse/build/protal]
+ 23,227,750 ( 0.69%)  ???:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3] [/home/falk/sparse/build/protal]
+ 22,577,542 ( 0.67%)  ???:protal::GenomeLoader::GetGeneOMP(unsigned long const&, unsigned long const&) [clone .arch_x86_64_v3] [/home/falk/sparse/build/protal]
+ 22,401,530 ( 0.67%)  ???:std::vector<unsigned int, std::allocator<unsigned int> >::resize(unsigned long) [/home/falk/sparse/build/protal]
+ 20,400,156 ( 0.61%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindPairs(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, unsigned long) [/home/falk/sparse/build/protal]

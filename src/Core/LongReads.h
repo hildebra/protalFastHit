@@ -220,6 +220,7 @@ namespace protal {
         size_t m_budget_margin = 0;  // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the floor's budget)
         size_t m_max_chunk;
         size_t m_overlap;
+        uint32_t m_sparse_hits = 1;  // --sparse_first_hits, if the anchor finder has --sparse_first (SetSparseFirstHits)
 
         std::string m_chunk;
         std::string m_window;
@@ -460,7 +461,8 @@ namespace protal {
                 m_min_ani(other.m_min_ani),
                 m_budget_margin(other.m_budget_margin),
                 m_max_chunk(other.m_max_chunk),
-                m_overlap(other.m_overlap) {}
+                m_overlap(other.m_overlap),
+                m_sparse_hits(other.m_sparse_hits) {}
 
         // The overlap of the chunks of a read longer than max_chunk: the longest gene and its margins.
         size_t ChunkOverlap() const { return m_overlap; }
@@ -470,6 +472,9 @@ namespace protal {
 
         // --long_read_budget: see m_budget_margin.
         void SetBudgetMargin(size_t edits) { m_budget_margin = edits; }
+        // --sparse_first_hits: the hits among a read's sampled lookups (all its chunks') it needs to be kept, when the
+        // anchor finder has --sparse_first (ChainAnchorFinder::SetSparseFirst).
+        void SetSparseFirstHits(uint32_t hits) { m_sparse_hits = hits; }
         AnchorFinder& GetAnchorFinder() { return m_anchor_finder; }
         KmerHandler& GetKmerHandler() { return m_kmer_handler; }
         SimpleAlignmentHandler& GetAlignmentHandler() { return m_alignment_handler; }
@@ -513,9 +518,30 @@ namespace protal {
             m_last_anchors = 0;
             auto const& read = record.sequence;
             int64_t const read_length = static_cast<int64_t>(read.size());
-            m_read_kmers.Set(read);  // for Align's screens, here and in AddNeighbourGenes
-
             auto const chunks = ChunkRead(read.size(), m_max_chunk, m_overlap);
+
+            // --sparse_first: the read judged by its sampled lookups first, over its chunks until it has enough hits
+            // (ChainAnchorFinder::SparseHits); with too few it is given up here: no candidates, so no records and no
+            // failed candidates. A read kept is seeded and aligned as without it.
+            if constexpr (requires { m_anchor_finder.SparseFirst(); }) {
+                if (m_anchor_finder.SparseFirst()) {
+                    uint32_t hits = 0;
+                    for (auto const& chunk : chunks) {
+                        m_chunk.assign(read, chunk.offset, chunk.length);
+                        m_kmers.clear();
+                        m_kmer_handler(std::string_view(m_chunk), m_kmers);
+                        hits += m_anchor_finder.SparseHits(m_kmers, m_sparse_hits - hits);
+                        if (hits >= m_sparse_hits) break;
+                    }
+                    m_anchor_finder.m_seeding.sparse_reads++;
+                    if (hits < m_sparse_hits) {
+                        m_anchor_finder.m_seeding.sparse_given_up++;
+                        return;
+                    }
+                }
+            }
+
+            m_read_kmers.Set(read);  // for Align's screens, here and in AddNeighbourGenes
             m_chunked_reads += chunks.size() > 1;
             for (auto const& chunk : chunks) {
                 m_chunk.assign(read, chunk.offset, chunk.length);

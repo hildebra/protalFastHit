@@ -285,3 +285,9 @@ complements the `--restrict_taxa` experiment above: one measures which reads sta
 other which taxa stage 2 must load.
 
 Implemented as `--stage1_probe`: see [2026-10-12-stage1-probe](2026-10-12-stage1-probe/README.md).
+
+**Measured at r226** ([results](2026-10-12-stage1-probe/README.md#results-at-r226),
+[lookups](2026-10-12-stage1-probe-r226.md)): with every lookup, T = 14 keeps 9.9% of the pairs and 99.99% of those
+with records, so the temporary file is small. A sparse index costs recall faster than estimated above: c = 2 keeps
+99.63%, c = 4 97.87%, c = 8 92.90% (the estimate said 99.6% at c = 8). For paired-end reads, the memory saving of a
+sparse first stage is therefore small (c = 2: half the index); HiFi reads keep 99.17% at c = 8.

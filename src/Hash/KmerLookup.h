@@ -224,16 +224,36 @@ namespace protal {
         // The core a k-mer is looked up by (Seedmap::MainKey).
         uint64_t MainKey(uint64_t kmer) const { return m_sm.MainKey(kmer); }
 
+        // The flank bases a k-mer's flex part (a read's lookup's flex_key) shares with another k-mer's (Seedmap::FlexKey,
+        // Similarity): how a flex cell of that k-mer would score (--stage1_probe, --sparse_first for keys of one value).
+        uint32_t FlexSimilarity(uint32_t flex_key, uint64_t kmer) const {
+            return Seedmap::Similarity(flex_key, static_cast<uint32_t>(m_sm.FlexKey(kmer)));
+        }
+
         // The most flank bases a flex cell of the last GetFromLookup shared with the read's (16: all), also for a lookup
         // dropped as too ubiquitous; 0 for a key of one value, which has no flex cells (--stage1_probe scores those
         // against the gene, ChainAnchorFinder::SingleValueScore).
         uint32_t LastBest() const { return m_last_best; }
 
-        // The same for a lookup GetFromLookup did not scan (a read's last lookups once it has its seeds), scored here
-        // without seeds (--stage1_probe).
+        // The same for a lookup GetFromLookup does not scan: the best score of its block's flex cells alone, by
+        // GetFromLookup's kernel, without its entries or seeds (--stage1_probe for a read's last lookups once it has its
+        // seeds; --sparse_first's sampled lookups). 0 for a key of one value.
         uint32_t BestScore(LookupPointer const& pointers) {
             if (pointers.flex == nullptr) return 0;
-            if (flex_vector.size() < pointers.size) flex_vector.resize(pointers.size);
+            uint32_t const size = pointers.size;
+            simd::Level const level = flex_scan::Kernel().load(std::memory_order_relaxed);
+            if (level == simd::Level::avx512) {
+                uint32_t const words = static_cast<uint32_t>(flex_scan::TieWords(size));
+                if (m_tie_masks.size() < words) m_tie_masks.resize(words);
+                if (flex_vector.size() < size) flex_vector.resize(size);
+                return flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data()).first;
+            }
+            if (level == simd::Level::avx2) {
+                size_t const bytes = std::max<size_t>(size + flex_scan::kScorePadding, flex_scan::TieScoreBytes(size));
+                if (flex_vector.size() < bytes) flex_vector.resize(bytes);
+                return flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
+            }
+            if (flex_vector.size() < size) flex_vector.resize(size);
             return flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data()).first;
         }
 
