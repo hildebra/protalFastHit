@@ -1,0 +1,28 @@
+== pe, species held out, knob 0.5: class error rates (rows) of each model
+model                                  build v24b        build v24        build v23       refit full  refit thin_real   refit thin_ins
+FN real strain, alleles            0.0495 (17106)    0.0651 (7914)    0.0651 (6655)   0.0491 (17106)    0.0671 (5410)   0.0490 (17106)
+FN real strain, none               0.0546 (10385)    0.0601 (5992)    0.0488 (5024)   0.0547 (10385)    0.0579 (3301)   0.0576 (10385)
+FN in-silico strain                0.0314 (26852)   0.0335 (14888)   0.0275 (41407)   0.0304 (26852)   0.0342 (26852)    0.0367 (8082)
+FN representative                  0.0222 (22139)   0.0190 (47785)   0.0184 (23936)   0.0220 (22139)   0.0240 (22139)   0.0229 (22139)
+FP beside held-out congener       0.0192 (201909)  0.0129 (217657)  0.0141 (220460)  0.0193 (201909)  0.0143 (201909)  0.0180 (201909)
+FP beside present congeners only   0.0065 (36713)   0.0059 (37993)   0.0061 (37286)   0.0068 (36713)   0.0051 (36713)   0.0065 (36713)
+FP no congener in sample           0.0132 (51840)   0.0124 (60840)   0.0122 (59083)   0.0131 (51840)   0.0124 (51840)   0.0124 (51840)
+== pe, species held out: F1 from each model's class rates at each build's class mix
+   build v24b           mix v24b 0.9513  mix v24 0.9522  mix v23 0.9510
+   build v24            mix v24b 0.9575  mix v24 0.9608  mix v23 0.9590
+   build v23            mix v24b 0.9580  mix v24 0.9605  mix v23 0.9595
+   refit full           mix v24b 0.9514  mix v24 0.9522  mix v23 0.9512
+   refit thin_real      mix v24b 0.9549  mix v24 0.9573  mix v23 0.9562
+   refit thin_ins       mix v24b 0.9518  mix v24 0.9531  mix v23 0.9512
+== pe, species held out: the best F1 over knobs 0.30-0.90 from each model's class rates at each build's mix (knob)
+   build v24b           mix v24b 0.9562 (0.74)  mix v24 0.9607 (0.82)  mix v23 0.9583 (0.82)
+      at its best knob for v24b's mix: FN real strain, alleles 0.0728, FN real strain, none 0.0773, FN in-silico strain 0.0463, FN representative 0.0308, FP beside held-out congener 0.0103, FP beside present congeners only 0.0040, FP no congener in sample 0.0087
+   build v24            mix v24b 0.9591 (0.69)  mix v24 0.9650 (0.74)  mix v23 0.9622 (0.69)
+      at its best knob for v24b's mix: FN real strain, alleles 0.0840, FN real strain, none 0.0768, FN in-silico strain 0.0435, FN representative 0.0235, FP beside held-out congener 0.0080, FP beside present congeners only 0.0042, FP no congener in sample 0.0097
+   build v23            mix v24b 0.9600 (0.67)  mix v24 0.9653 (0.79)  mix v23 0.9634 (0.74)
+   refit full           mix v24b 0.9563 (0.76)  mix v24 0.9609 (0.80)  mix v23 0.9586 (0.80)
+      at its best knob for v24b's mix: FN real strain, alleles 0.0763, FN real strain, none 0.0801, FN in-silico strain 0.0475, FN representative 0.0323, FP beside held-out congener 0.0096, FP beside present congeners only 0.0034, FP no congener in sample 0.0082
+   refit thin_real      mix v24b 0.9567 (0.67)  mix v24 0.9615 (0.73)  mix v23 0.9595 (0.72)
+      at its best knob for v24b's mix: FN real strain, alleles 0.0834, FN real strain, none 0.0724, FN in-silico strain 0.0439, FN representative 0.0299, FP beside held-out congener 0.0094, FP beside present congeners only 0.0036, FP no congener in sample 0.0097
+   refit thin_ins       mix v24b 0.9556 (0.68)  mix v24 0.9603 (0.77)  mix v23 0.9569 (0.75)
+      at its best knob for v24b's mix: FN real strain, alleles 0.0655, FN real strain, none 0.0748, FN in-silico strain 0.0485, FN representative 0.0287, FP beside held-out congener 0.0113, FP beside present congeners only 0.0040, FP no congener in sample 0.0095

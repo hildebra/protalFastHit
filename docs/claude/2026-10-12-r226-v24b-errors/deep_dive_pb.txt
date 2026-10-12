@@ -1,0 +1,85 @@
+######## pb: local/v24b/protal0.8.1_r226_v24 (training samples, species held out)
+== 1. The false negatives' own reads that aligned best to another species, by that species' state in the sample
+state                             absent, called  absent, not called  no row (not in the sample's table)  present
+genome               genus                                                                                       
+in-silico strain     other genus               0                   0                                   1        0
+                     same genus               29                  37                                  29        5
+real strain, alleles other genus               1                   1                                   0        0
+                     same genus              107                1986                                 404       67
+real strain, none    other genus               0                   6                                  10        0
+                     same genus                1                 741                                 199       33
+representative       same genus                0                   2                                   4        0
+   per FN with 3 or more own aligned fragments: median share of them that aligned best elsewhere, by genome
+                       count   25%   50%   75%
+genome                                        
+in-silico strain      76.000 0.000 0.000 0.175
+real strain, alleles 209.000 0.000 0.222 0.500
+real strain, none    199.000 0.000 0.086 0.437
+representative         7.000 0.000 0.000 0.167
+
+== 2. What the MAPQ filter took: FN by fragments after it (fragments) and before it (fragments_all)
+before                      <=2  3-10  >10
+genome               after                
+in-silico strain     <=2    205    36    2
+                     3-10    31    92    7
+                     >10      1    14   52
+real strain, alleles <=2    175    43    4
+                     3-10    54    88   20
+                     >10      3    28   96
+real strain, none    <=2    227    31    3
+                     3-10    50    97   11
+                     >10      6    44   67
+representative       <=2    103    22    1
+                     3-10    24    32    3
+                     >10      1     6   29
+   FN with <= 2 fragments after the filter but > 10 before it, and their EM fragments (median): 10 14.3532057
+
+== 3. Representatives missed with 3 or more fragments: the reads on the taxon and their sources
+   95 FN; own share of the reads on the taxon: median 0.000; own reads that aligned elsewhere: 0 of 48 aligned
+                        sample                        taxon_name        p  fragments  identity  own_best_on_taxon  own_best_elsewhere                                                                    fragments_on_taxon_from
+    sc_soil_pb_b6000000000_s_9       s__Avimicrobium sp948473085 0.005657        215  0.930760                1.0                 0.0         s__Avimicrobium sp900761965 (not in the database):38,s__Avimicrobium sp948473085:1
+    sc_soil_pb_b6000000000_s_4           s__Lonsdalea quercina_D 0.073365        152  0.961664                0.0                 0.0                                             s__Lonsdalea quercina (not in the database):85
+sc_moderate_pb_b3000000000_s_6        s__Caccovivens sp944372335 0.001572        137  0.912165                0.0                 0.0                                        s__Caccovivens sp944372445 (not in the database):82
+sc_moderate_pb_b3000000000_s_4            s__UBA1212 sp002309655 0.430801        107  0.953990                0.0                 0.0                                            s__UBA1212 sp902792515 (not in the database):54
+            pb_b150000000_s_22       s__Phocicoccus schoeneichii 0.014533         99  0.939532                0.0                 0.0                                      s__Phocicoccus pinnipedialis (not in the database):37
+    sc_soil_pb_b6000000000_s_8        s__Lacticaseibacillus zeae 0.040668         92  0.956540                0.0                 0.0                                       s__Lacticaseibacillus casei (not in the database):42
+    sc_soil_pb_b6000000000_s_5 s__Methanobacterium_D sp039666455 0.335960         79  0.932548                1.0                 0.0 s__Methanobacterium_D sp039666535 (not in the database):17,s__Methanobacterium_D sp0396...
+    sc_soil_pb_b6000000000_s_2         s__Palsa-1315 sp005116885 0.108455         45  0.981843                1.0                 0.0             s__Palsa-1315 sp039931295 (not in the database):21,s__Palsa-1315 sp005116885:1
+    sc_soil_pb_b6000000000_s_9          s__Porphyromonas uenonis 0.088971         40  0.965798                4.0                 0.0 s__Porphyromonas uenonis_A (not in the database):18,s__Porphyromonas uenonis:4,s__Porph...
+    sc_soil_pb_b6000000000_s_2            s__CAG-873 sp963614475 0.403430         37  0.972329                3.0                 0.0                   s__CAG-873 sp900540625 (not in the database):14,s__CAG-873 sp963614475:3
+
+== 4. The false positives' (taxon, main source) pairs
+   906 pairs; 65 pairs with 3 or more FP hold 229 of 1206 FP
+                    taxon_name                         source  FP  in_db  fragments  held_out_congener_distance
+       s__UBA11872 sp011523785        s__UBA11872 sp028875175   7  False        2.0                      0.0128
+s__SCGC-AAA076-P13 sp038142505 s__SCGC-AAA076-P13 sp010024215   6  False        8.5                         NaN
+       s__Priestia aryabhattai         s__Priestia zanthoxyli   6  False        2.0                      0.0109
+        s__CAG-302 sp001916775         s__CAG-302 sp934162325   6  False        3.0                      0.0160
+      s__Pyrobaculum oguniense     s__Pyrobaculum arsenaticum   5  False        3.0                      0.0219
+       s__JAJYEA01 sp021832495        s__JAJYEA01 sp021796385   5  False        3.0                      0.0289
+       s__Butyricimonas virosa   s__Butyricimonas sp019423345   5  False        3.0                      0.0160
+       s__UBA10281 sp021635425        s__UBA10281 sp900767815   4  False        9.0                      0.0149
+   s__Streptosporangium roseum     s__Streptosporangium canum   4  False        3.0                      0.0149
+    s__Roseburia_B sp947057405     s__Roseburia_B sp910577065   4  False        2.0                         NaN
+ s__Jeotgalicoccus nanhaiensis s__Jeotgalicoccus halotolerans   4  False       17.0                      0.0128
+        s__CAG-533 sp934098485         s__CAG-533 sp934098375   4  False       13.5                      0.0160
+      s__Nocardia brasiliensis           s__Nocardia vulneris   4  False        3.0                      0.0119
+  s__Erysipelothrix aquatica_A     s__Erysipelothrix aquatica   4  False        2.0                      0.0245
+ s__Cuniculiplasma sp021816385  s__Cuniculiplasma sp027316895   4  False        1.5                      0.0149
+
+== 5. Errors per sample (design and scenario samples)
+              samples  present_median  FP_per_100_present  FN_rate
+kind                                                              
+design            185          21.000               0.000    0.000
+gut                10         329.000               0.910    0.014
+host               10           9.500               0.000    0.000
+moderate           10        1103.500               1.556    0.023
+soil               10        1529.000               2.849    0.039
+soil_shallow       10         904.000               3.715    0.048
+   design samples by present species: FP per 100 present, FN rate (medians)
+             FP per 100 present  FN rate
+present_bin                             
+<=30                      0.000    0.000
+31-60                     2.410    0.000
+61-100                    1.032    0.016
+>100                      0.980    0.009

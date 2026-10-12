@@ -1,0 +1,155 @@
+######## se: local/v24b/protal0.8.1_r226_v24
+== 1. Where the errors are (knob as protal calls; training = species held out, test = final model)
+                   samples  present  absent   FP    FN     TP     F1  FP/sample  FN rate  share of the set's FP  share of the set's FN
+set      kind                                                                                                                         
+test     design         77     3919   11771   85   201   3718 0.9630     1.1039   0.0513                 0.1775                 0.2187
+         host            4       64     315    0     1     63 0.9921     0.0000   0.0156                 0.0000                 0.0011
+         moderate        4     6931   11910  153   255   6676 0.9703    38.2500   0.0368                 0.3194                 0.2775
+         soil            4     7993   38005  241   462   7531 0.9554    60.2500   0.0578                 0.5031                 0.5027
+training design        309    15077   41134  418   556  14521 0.9676     1.3528   0.0369                 0.2647                 0.2197
+         host           10      146     665    0     2    144 0.9931     0.0000   0.0137                 0.0000                 0.0008
+         moderate       10    15532   26030  385   598  14934 0.9681    38.5000   0.0385                 0.2438                 0.2363
+         soil           10    22457   83221  776  1375  21082 0.9515    77.6000   0.0612                 0.4915                 0.5433
+   training: F1 0.9610 over all samples; design samples alone 0.9676
+   test: F1 0.9626 over all samples; design samples alone 0.9630
+
+== 2. False positives: 2058 (training 1579, test 479); traced read sources (error_reads)
+-- training: by the main source of the taxon's reads (>= half of them) and fragments on the taxon
+frag_bin                                     1    2  3-10  11-100  >100   All
+source                                                                       
+a database species, other genus            156   16    21       0     0   193
+a database species, same genus              57   17    27      11     3   115
+a species the database lacks, other genus  164   30    29       0     0   223
+a species the database lacks, same genus   202  123   328     311    83  1047
+mixed                                        0    0     1       0     0     1
+All                                        579  186   406     322    86  1579
+-- training: by what the calls table says is beside it (meta_novel_distance etc.)
+kind                         design  moderate  soil   All
+absent_kind                                              
+held-out congener 0.02-0.05     121       125   285   531
+held-out congener 0.05-0.15      61        51   107   219
+held-out congener <0.02          36        32   128   196
+held-out congener farther        31        58   149   238
+no congener in the sample       124        78    82   284
+present congeners only           45        41    25   111
+All                             418       385   776  1579
+-- test: by the main source of the taxon's reads (>= half of them) and fragments on the taxon
+frag_bin                                     1   2  3-10  11-100  >100  All
+source                                                                     
+a database species, other genus             46   8     7       0     0   61
+a database species, same genus              17   7     8       7     0   39
+a species the database lacks, other genus   44   9     9       3     0   65
+a species the database lacks, same genus    55  25    82     109    43  314
+All                                        162  49   106     119    43  479
+-- test: by what the calls table says is beside it (meta_novel_distance etc.)
+kind                         design  moderate  soil  All
+absent_kind                                             
+held-out congener 0.02-0.05      31        30    99  160
+held-out congener 0.05-0.15      12        16    21   49
+held-out congener <0.02           7        13    53   73
+held-out congener farther         5        34    37   76
+no congener in the sample        23        45    27   95
+present congeners only            7        15     4   26
+All                              85       153   241  479
+-- training: identity of the taxon's records (median, 10%, 90%) and score by the main source
+                                              n  identity_median  identity_10  identity_90  p_median  within_0_1_of_knob  mapq4_share
+source                                                                                                                               
+a database species, other genus             193            0.994        0.980        1.000     0.898               0.223          249
+a database species, same genus              115            0.992        0.973        1.000     0.842               0.339         3565
+a species the database lacks, other genus   223            0.994        0.980        1.000     0.897               0.238          332
+a species the database lacks, same genus   1047            0.978        0.964        0.995     0.882               0.265        34401
+mixed                                         1            0.977        0.977        0.977     0.857               0.000            1
+-- training: the score of the false positives (share above each value)
+   >= 0.8: 0.74  >= 0.9: 0.45  >= 0.95: 0.26  >= 0.99: 0.06
+-- recurring false positives: 100 taxa with 3 or more (374 of 2058 FP); the top 12 (FP, rows where the taxon was absent, the reads' sources)
+                                   FP  samples                                                                                                         sources  absent_rows
+taxon_name                                                                                                                                                                 
+s__Pyrobaculum oguniense           10        9                                                                                      s__Pyrobaculum arsenaticum           11
+s__CAG-533 sp934098485              7        7                                                                                          s__CAG-533 sp934098375           12
+s__Jeotgalicoccus nanhaiensis       7        6                                                                                  s__Jeotgalicoccus halotolerans            8
+s__Thermoanaerobacter sp000445185   6        6  s__Thermoanaerobacter ethanolicus; s__Thermoanaerobacter pseudethanolicus; s__Thermoanaerobacter thermocopriae           11
+s__Bifidobacterium animalis_B       6        6                                                        s__Bifidobacterium animalis; s__Bifidobacterium gallicum           10
+s__Cuniculiplasma sp021816385       6        6                                                    s__Cuniculiplasma sp021820405; s__Cuniculiplasma sp027316895            7
+s__Priestia aryabhattai             6        5                                      s__Priestia megaterium; s__Priestia megaterium_C; s__Priestia megaterium_D           12
+s__VYFG01 sp009842505               6        6                                                                    s__VYFG01 sp022827325; s__WTGA01 sp011523765            9
+s__Gilliamella sp946477995          5        5                                  s__Gilliamella apicola_F; s__Gilliamella apicola_I; s__Gilliamella sp019469185            9
+s__TCS55 sp002715035                5        5                                                                                            s__TCS55 sp950067765            6
+s__Nemesobacter sp009837205         5        5                           s__Nemesobacter sp022826905; s__Nemesobacter sp026705445; s__Nemesobacter sp028823955            7
+s__Bacteroides sp900556625          5        5                                                                s__Bacteroides caccae; s__Bacteroides finegoldii            8
+
+== 3. False negatives
+-- training: present taxa by genome simulated and fragments (after the MAPQ filter)
+                               present   FN  FN rate  share of FN
+genome               frag_bin                                    
+in-silico strain     1            1691  367   0.2170       0.1450
+                     2            1102   96   0.0871       0.0379
+                     3-10         4320  187   0.0433       0.0739
+                     11-100       7916  114   0.0144       0.0450
+                     >100         3812   38   0.0100       0.0150
+real strain, alleles 1             956  249   0.2605       0.0984
+                     2             721   87   0.1207       0.0344
+                     3-10         2762  178   0.0644       0.0703
+                     11-100       4885  164   0.0336       0.0648
+                     >100         2218   49   0.0221       0.0194
+real strain, none    1             885  206   0.2328       0.0814
+                     2             535   89   0.1664       0.0352
+                     3-10         1869  136   0.0728       0.0537
+                     11-100       3158  131   0.0415       0.0518
+                     >100         1416   35   0.0247       0.0138
+representative       1            1297  170   0.1311       0.0672
+                     2             904   56   0.0619       0.0221
+                     3-10         3514   90   0.0256       0.0356
+                     11-100       6235   70   0.0112       0.0277
+                     >100         3016   19   0.0063       0.0075
+-- test: present taxa by genome simulated and fragments (after the MAPQ filter)
+                               present   FN  FN rate  share of FN
+genome               frag_bin                                    
+in-silico strain     1             494  118   0.2389       0.1284
+                     2             279   30   0.1075       0.0326
+                     3-10         1222   54   0.0442       0.0588
+                     11-100       3020   48   0.0159       0.0522
+                     >100         1615    7   0.0043       0.0076
+real strain, alleles 1             270   87   0.3222       0.0947
+                     2             182   45   0.2473       0.0490
+                     3-10          747   82   0.1098       0.0892
+                     11-100       1913   81   0.0423       0.0881
+                     >100          913   19   0.0208       0.0207
+real strain, none    1             276   77   0.2790       0.0838
+                     2             127   22   0.1732       0.0239
+                     3-10          489   41   0.0838       0.0446
+                     11-100       1279   50   0.0391       0.0544
+                     >100          627   16   0.0255       0.0174
+representative       1             361   72   0.1994       0.0783
+                     2             242   22   0.0909       0.0239
+                     3-10          894   19   0.0213       0.0207
+                     11-100       2569   20   0.0078       0.0218
+                     >100         1388    9   0.0065       0.0098
+-- training: where the false negatives' own reads went (2531 FN, 2780265 of their fragments in the SAMs), by genome
+                       FN  own_fragments  own_best_on_taxon  own_best_on_taxon_mapq4  own_best_elsewhere  own_unaligned  own_seeded_not_aligned
+genome                                                                                                                                         
+in-silico strain      802     281025.000              0.042                    0.035               0.011          0.947                   0.000
+real strain, alleles  727    1977263.000              0.015                    0.008               0.084          0.901                   0.000
+real strain, none     597     479866.000              0.031                    0.025               0.028          0.941                   0.000
+representative        405      42111.000              0.036                    0.030               0.006          0.958                   0.000
+   their reads that aligned best elsewhere: same genus 43298, other genus 200
+-- training: FN by what kept them below the knob (fragments after the MAPQ filter, the share of low-MAPQ records)
+why                   <= 2 fragments  >= half the records MAPQ-filtered  identity < 0.97  other   All
+genome                                                                                               
+in-silico strain                 463                                146              154     39   802
+real strain, alleles             336                                228              140     23   727
+real strain, none                295                                134              135     33   597
+representative                   226                                 93               76     10   405
+All                             1320                                601              505    105  2531
+-- training: features of FN against TP with 3 or more fragments, by genome (medians)
+                            fragments  identity  low_mapq_share  allele_explained_share  congener_fit_share  excess_scaled_median      p      n
+genome               error                                                                                                                     
+in-silico strain     FN        8.0000    0.9635          0.4000                  0.0000              0.1268                0.0236 0.2451    339
+                     TP       29.0000    0.9918          0.0217                  0.0000              0.0000                0.0006 0.9999  15709
+real strain, alleles FN       13.0000    0.9653          0.6250                  0.1376              0.2353                0.0211 0.2622    391
+                     TP       28.0000    0.9897          0.0909                  0.1739              0.0051                0.0017 0.9997   9474
+real strain, none    FN       13.0000    0.9667          0.4045                  0.0000              0.1165                0.0193 0.2223    302
+                     TP       27.0000    0.9927          0.0323                  0.0000              0.0000               -0.0002 0.9998   6141
+representative       FN       10.0000    0.9609          0.5000                  0.0000              0.1846                0.0313 0.2334    179
+                     TP       29.0000    0.9936          0.0312                  0.0000              0.0000               -0.0006 0.9999  12586
+-- training: the score of the false negatives (share below each value)
+   < 0.05: 0.23  < 0.1: 0.32  < 0.3: 0.55  < 0.5: 0.75

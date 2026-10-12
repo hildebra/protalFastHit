@@ -1,0 +1,42 @@
+== pe v23 (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments 14291       0.9928        0.9956        0.9962           1.0000            1.0000            1.0000           0.0166
+                               real strain, >10 fragments  6751       0.9733        0.9874        0.9932           1.0000            1.0000            1.0000           0.1099
+                          in-silico strain, >10 fragments 24432       0.9758        0.9886        0.9937           1.0000            1.0000            1.0000           0.0863
+                  absent beside held-out congener, called  3104       0.9591        0.9723        0.9806           0.9800            0.9933            1.0000           0.4597
+absent beside held-out congener, not called, >2 fragments 78006       0.9114        0.9239        0.9352           0.9267            0.9533            0.9759           0.9775
+== pe v24 (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments 28298       0.9927        0.9956        0.9962           1.0000            1.0000            1.0000           0.0160
+                               real strain, >10 fragments  8048       0.9737        0.9874        0.9932           1.0000            1.0000            1.0000           0.1026
+                          in-silico strain, >10 fragments  8816       0.9761        0.9888        0.9937           1.0000            1.0000            1.0000           0.0805
+                  absent beside held-out congener, called  2799       0.9583        0.9724        0.9817           0.9843            0.9933            1.0000           0.4452
+absent beside held-out congener, not called, >2 fragments 76509       0.9120        0.9244        0.9356           0.9267            0.9552            0.9800           0.9756
+== pe v24b (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments 12984       0.9913        0.9955        0.9961           1.0000            1.0000            1.0000           0.0229
+                               real strain, >10 fragments 15921       0.9721        0.9867        0.9928           1.0000            1.0000            1.0000           0.1205
+                          in-silico strain, >10 fragments 15856       0.9758        0.9884        0.9936           1.0000            1.0000            1.0000           0.0888
+                  absent beside held-out congener, called  3873       0.9556        0.9700        0.9783           0.9800            0.9933            1.0000           0.5365
+absent beside held-out congener, not called, >2 fragments 70505       0.9111        0.9243        0.9366           0.9267            0.9600            0.9800           0.9751
+== pb v23 (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments  7717       0.9994        0.9998        0.9998           1.0000            1.0000            1.0000           0.0093
+                               real strain, >10 fragments  3643       0.9750        0.9907        0.9972           0.9956            1.0000            1.0000           0.0854
+                          in-silico strain, >10 fragments 12850       0.9804        0.9926        0.9978           0.9943            1.0000            1.0000           0.0471
+                  absent beside held-out congener, called   753       0.9627        0.9770        0.9853           0.9747            0.9887            0.9955           0.3413
+absent beside held-out congener, not called, >2 fragments 18489       0.9093        0.9235        0.9393           0.9180            0.9469            0.9683           0.9641
+== pb v24 (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments 14837       0.9994        0.9998        0.9998           1.0000            1.0000            1.0000           0.0092
+                               real strain, >10 fragments  4161       0.9752        0.9909        0.9973           0.9960            1.0000            1.0000           0.0798
+                          in-silico strain, >10 fragments  4564       0.9809        0.9931        0.9980           0.9946            1.0000            1.0000           0.0445
+                  absent beside held-out congener, called   679       0.9619        0.9775        0.9861           0.9807            0.9914            0.9976           0.3108
+absent beside held-out congener, not called, >2 fragments 18387       0.9093        0.9240        0.9404           0.9187            0.9478            0.9694           0.9563
+== pb v24b (training samples, species held out for the calls)
+                                                    class  taxa  identity 5%  identity 25%  identity 50%  top_identity 5%  top_identity 25%  top_identity 50%  identity < 0.98
+                            representative, >10 fragments  7123       0.9987        0.9998        0.9998           1.0000            1.0000            1.0000           0.0157
+                               real strain, >10 fragments  8507       0.9743        0.9904        0.9969           0.9956            1.0000            1.0000           0.0877
+                          in-silico strain, >10 fragments  8279       0.9797        0.9925        0.9977           0.9944            1.0000            1.0000           0.0513
+                  absent beside held-out congener, called  1072       0.9599        0.9756        0.9844           0.9764            0.9889            0.9968           0.3703
+absent beside held-out congener, not called, >2 fragments 19467       0.9102        0.9248        0.9406           0.9205            0.9493            0.9712           0.9588

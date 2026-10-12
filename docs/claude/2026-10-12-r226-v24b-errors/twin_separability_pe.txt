@@ -1,0 +1,51 @@
+######## pe: taxa beside a held-out congener within 0.15 with 3 or more fragments (training, species held out)
+group
+TN            47872
+TP             6416
+FP             1098
+FN swamped      800
+FN other        233
+
+== AUC present vs absent (all of them), and present-but-missed (FN) vs absent-and-called (FP)
+                      feature  AUC present/absent  AUC FN/FP
+                            p               0.980      0.000
+                    fragments               0.660      0.524
+                     identity               0.947      0.174
+                 top_identity               0.855      0.413
+           low_identity_share               0.446      0.670
+                    lu_per_kb               0.906      0.261
+                excess_median               0.061      0.791
+         excess_scaled_median               0.063      0.791
+            excess_high_share               0.054      0.796
+           congener_fit_share               0.320      0.615
+unexpected_congener_fit_share               0.266      0.631
+    conserved_fast_kept_ratio               0.434      0.505
+          gene_presence_ratio               0.641      0.427
+            hit_gene_fraction               0.681      0.499
+       allele_explained_share               0.572      0.453
+               low_mapq_share               0.392      0.574
+         relative_close_share               0.440      0.497
+         read_consensus_share               0.500      0.500
+
+== medians by group
+group                          FN other  FN swamped      FP      TN      TP
+fragments                        8.0000     13.0000  9.0000  8.0000 21.0000
+identity                         0.9705      0.9565  0.9754  0.9412  0.9921
+top_identity                     1.0000      1.0000  1.0000  0.9867  1.0000
+low_identity_share               0.0000      0.0722  0.0000  0.0000  0.0000
+lu_per_kb                       22.7774     24.6725 45.3842  9.8146 63.5275
+excess_median                    0.0185      0.0365  0.0158  0.0504 -0.0002
+excess_scaled_median             0.0168      0.0335  0.0143  0.0471 -0.0002
+excess_high_share                0.4583      0.6649  0.3934  0.8333  0.0858
+congener_fit_share               0.4000      0.2857  0.1592  0.3661  0.1250
+unexpected_congener_fit_share    0.2353      0.2695  0.1538  0.3617  0.1345
+conserved_fast_kept_ratio       -0.8247     -0.1851 -0.3193 -0.0734 -0.3351
+gene_presence_ratio              1.0142      0.9956  1.0159  0.9905  1.0189
+hit_gene_fraction                0.0722      0.1076  0.0927  0.0690  0.1810
+allele_explained_share           0.0000      0.0000  0.0000  0.0000  0.0000
+low_mapq_share                   0.6118      0.3964  0.2857  0.4681  0.2500
+relative_close_share             1.0000      1.0000  1.0000  1.0000  1.0000
+read_consensus_share             0.0000      0.0000  0.0000  0.0000  0.0000
+p                                0.4571      0.1758  0.8758  0.0084  0.9993
+
+== swamped FN: own reads on the taxon (own_best_on_taxon) median 3, 10% 0, 90% 21; own share median 0.129; with 10 or more own reads: 163 of 800

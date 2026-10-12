@@ -1,0 +1,156 @@
+######## pe
+== training (species held out): F1 0.9560, FP 2837, FN 3844 (error_reads: 2837 FP, 3844 FN)
+error                                        cause    n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 1377  0.358       +0.0094     233       1144
+   FN          MAPQ filter (<=2 after, >=3 before)  629  0.164       +0.0043      63        566
+   FN                  divergent (identity < 0.97)  348  0.091       +0.0024      48        300
+   FN                                        other  300  0.078       +0.0021      43        257
+   FN                     own reads best elsewhere  144  0.037       +0.0010      20        124
+   FN               swamped by a held-out congener  909  0.236       +0.0062      73        836
+   FN          swamped by another database species  137  0.036       +0.0009      22        115
+   FP      a held-out congener's stray reads (1-2)  559  0.197       +0.0035     102        457
+   FP          a held-out species of another genus  442  0.156       +0.0028      65        377
+   FP                   a present congener's reads  172  0.061       +0.0011      41        131
+   FP                        another genus's reads  294  0.104       +0.0019      66        228
+   FP cloud of a held-out congener (>=3 fragments) 1012  0.357       +0.0064      88        924
+   FP           twin of a held-out species (<0.02)  358  0.126       +0.0023      44        314
+   FN causes by genome simulated (training):
+cause                 1-2 fragments  MAPQ filter (<=2 after, >=3 before)  divergent (identity < 0.97)  other  own reads best elsewhere  swamped by a held-out congener  swamped by another database species   All
+genome                                                                                                                                                                                                           
+in-silico strain                528                                  162                           86     92                        22                             274                                   41  1205
+real strain, alleles            316                                  207                          138     86                        70                             260                                   44  1121
+real strain, none               271                                  139                          117    114                        50                             150                                   13   854
+representative                  262                                  121                            7      8                         2                             225                                   39   664
+All                            1377                                  629                          348    300                       144                             909                                  137  3844
+== test (final model): F1 0.9557, FP 859, FN 1606 (error_reads: 859 FP, 1606 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 677  0.422       +0.0126     100        577
+   FN          MAPQ filter (<=2 after, >=3 before) 214  0.133       +0.0040      15        199
+   FN                  divergent (identity < 0.97) 113  0.070       +0.0021      20         93
+   FN                                        other 117  0.073       +0.0022      13        104
+   FN                     own reads best elsewhere  59  0.037       +0.0011       6         53
+   FN               swamped by a held-out congener 374  0.233       +0.0070      31        343
+   FN          swamped by another database species  52  0.032       +0.0010       9         43
+   FP      a held-out congener's stray reads (1-2) 148  0.172       +0.0025      27        121
+   FP          a held-out species of another genus 103  0.120       +0.0018      11         92
+   FP                   a present congener's reads  53  0.062       +0.0009       2         51
+   FP                        another genus's reads  98  0.114       +0.0017      15         83
+   FP cloud of a held-out congener (>=3 fragments) 341  0.397       +0.0059      21        320
+   FP           twin of a held-out species (<0.02) 116  0.135       +0.0020       9        107
+######## se
+== training (species held out): F1 0.9610, FP 1579, FN 2531 (error_reads: 1579 FP, 2531 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 957  0.378       +0.0093     291        666
+   FN          MAPQ filter (<=2 after, >=3 before) 363  0.143       +0.0036      80        283
+   FN                  divergent (identity < 0.97) 288  0.114       +0.0028      43        245
+   FN                                        other 188  0.074       +0.0018      33        155
+   FN                     own reads best elsewhere 100  0.040       +0.0010      17         83
+   FN               swamped by a held-out congener 552  0.218       +0.0054      76        476
+   FN          swamped by another database species  83  0.033       +0.0008      16         67
+   FP      a held-out congener's stray reads (1-2) 309  0.196       +0.0028     117        192
+   FP          a held-out species of another genus 223  0.141       +0.0020      62        161
+   FP                   a present congener's reads 117  0.074       +0.0011      44         73
+   FP                        another genus's reads 193  0.122       +0.0018      67        126
+   FP cloud of a held-out congener (>=3 fragments) 549  0.348       +0.0050      93        456
+   FP           twin of a held-out species (<0.02) 188  0.119       +0.0017      35        153
+   FN causes by genome simulated (training):
+cause                 1-2 fragments  MAPQ filter (<=2 after, >=3 before)  divergent (identity < 0.97)  other  own reads best elsewhere  swamped by a held-out congener  swamped by another database species   All
+genome                                                                                                                                                                                                           
+in-silico strain                359                                  104                           72     59                        16                             167                                   25   802
+real strain, alleles            216                                  120                          104     56                        48                             158                                   25   727
+real strain, none               209                                   86                          106     63                        34                              93                                    6   597
+representative                  173                                   53                            6     10                         2                             134                                   27   405
+All                             957                                  363                          288    188                       100                             552                                   83  2531
+== test (final model): F1 0.9626, FP 479, FN 919 (error_reads: 479 FP, 919 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 349  0.380       +0.0096     111        238
+   FN          MAPQ filter (<=2 after, >=3 before) 124  0.135       +0.0034      21        103
+   FN                  divergent (identity < 0.97)  93  0.101       +0.0026      14         79
+   FN                                        other  82  0.089       +0.0023      16         66
+   FN                     own reads best elsewhere  59  0.064       +0.0016       7         52
+   FN               swamped by a held-out congener 183  0.199       +0.0051      25        158
+   FN          swamped by another database species  29  0.032       +0.0008       7         22
+   FP      a held-out congener's stray reads (1-2)  78  0.163       +0.0020      28         50
+   FP          a held-out species of another genus  64  0.134       +0.0017      10         54
+   FP                   a present congener's reads  39  0.081       +0.0010       8         31
+   FP                        another genus's reads  62  0.129       +0.0016      14         48
+   FP cloud of a held-out congener (>=3 fragments) 169  0.353       +0.0044      18        151
+   FP           twin of a held-out species (<0.02)  67  0.140       +0.0017       7         60
+######## pb
+== training (species held out): F1 0.9714, FP 1206, FN 1708 (error_reads: 1206 FP, 1708 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 710  0.416       +0.0071      49        661
+   FN          MAPQ filter (<=2 after, >=3 before) 142  0.083       +0.0014       7        135
+   FN                  divergent (identity < 0.97) 152  0.089       +0.0015       8        144
+   FN                                        other 238  0.139       +0.0024      10        228
+   FN                     own reads best elsewhere  58  0.034       +0.0006       7         51
+   FN               swamped by a held-out congener 382  0.224       +0.0038      21        361
+   FN          swamped by another database species  26  0.015       +0.0003       2         24
+   FP      a held-out congener's stray reads (1-2) 472  0.391       +0.0045      38        434
+   FP          a held-out species of another genus 122  0.101       +0.0012      11        111
+   FP                   a present congener's reads  40  0.033       +0.0004       8         32
+   FP                        another genus's reads  51  0.042       +0.0005       3         48
+   FP cloud of a held-out congener (>=3 fragments) 316  0.262       +0.0030      14        302
+   FP           twin of a held-out species (<0.02) 205  0.170       +0.0020      16        189
+   FN causes by genome simulated (training):
+cause                 1-2 fragments  MAPQ filter (<=2 after, >=3 before)  divergent (identity < 0.97)  other  own reads best elsewhere  swamped by a held-out congener  swamped by another database species   All
+genome                                                                                                                                                                                                           
+in-silico strain                205                                   38                            8     52                         3                             125                                    9   440
+real strain, alleles            175                                   47                           66     83                        32                             105                                    3   511
+real strain, none               227                                   34                           78    100                        23                              70                                    4   536
+representative                  103                                   23                            0      3                         0                              82                                   10   221
+All                             710                                  142                          152    238                        58                             382                                   26  1708
+== test (final model): F1 0.9735, FP 359, FN 711 (error_reads: 359 FP, 711 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 277  0.390       +0.0070       9        268
+   FN          MAPQ filter (<=2 after, >=3 before)  58  0.082       +0.0015       2         56
+   FN                  divergent (identity < 0.97)  67  0.094       +0.0017       5         62
+   FN                                        other 102  0.143       +0.0026       5         97
+   FN                     own reads best elsewhere  25  0.035       +0.0006       1         24
+   FN               swamped by a held-out congener 168  0.236       +0.0043       9        159
+   FN          swamped by another database species  14  0.020       +0.0004       1         13
+   FP      a held-out congener's stray reads (1-2) 125  0.348       +0.0030       5        120
+   FP          a held-out species of another genus  42  0.117       +0.0010       2         40
+   FP                   a present congener's reads  12  0.033       +0.0003       0         12
+   FP                        another genus's reads  11  0.031       +0.0003       1         10
+   FP cloud of a held-out congener (>=3 fragments) 119  0.331       +0.0029       6        113
+   FP           twin of a held-out species (<0.02)  50  0.139       +0.0012       1         49
+######## ont
+== training (species held out): F1 0.9649, FP 1590, FN 2058 (error_reads: 1590 FP, 2058 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 925  0.449       +0.0091      68        857
+   FN          MAPQ filter (<=2 after, >=3 before) 161  0.078       +0.0016       6        155
+   FN                  divergent (identity < 0.97) 378  0.184       +0.0038      20        358
+   FN                                        other  22  0.011       +0.0002       1         21
+   FN                     own reads best elsewhere  69  0.034       +0.0007       8         61
+   FN               swamped by a held-out congener 467  0.227       +0.0046      22        445
+   FN          swamped by another database species  36  0.017       +0.0004       5         31
+   FP      a held-out congener's stray reads (1-2) 634  0.399       +0.0059      55        579
+   FP          a held-out species of another genus 155  0.097       +0.0014      23        132
+   FP                   a present congener's reads  69  0.043       +0.0006      11         58
+   FP                        another genus's reads  83  0.052       +0.0008      13         70
+   FP cloud of a held-out congener (>=3 fragments) 413  0.260       +0.0039      18        395
+   FP           twin of a held-out species (<0.02) 236  0.148       +0.0022      17        219
+   FN causes by genome simulated (training):
+cause                 1-2 fragments  MAPQ filter (<=2 after, >=3 before)  divergent (identity < 0.97)  other  own reads best elsewhere  swamped by a held-out congener  swamped by another database species   All
+genome                                                                                                                                                                                                           
+in-silico strain                302                                   45                           64      5                         8                             129                                    8   561
+real strain, alleles            249                                   52                          150      3                        37                             137                                   11   639
+real strain, none               235                                   41                          153     13                        24                              77                                   10   553
+representative                  139                                   23                           11      1                         0                             124                                    7   305
+All                             925                                  161                          378     22                        69                             467                                   36  2058
+== test (final model): F1 0.9652, FP 587, FN 844 (error_reads: 587 FP, 844 FN)
+error                                        cause   n  share F1 if removed  design  scenarios
+   FN                                1-2 fragments 366  0.434       +0.0091      21        345
+   FN          MAPQ filter (<=2 after, >=3 before)  84  0.100       +0.0021       4         80
+   FN                  divergent (identity < 0.97) 157  0.186       +0.0039      14        143
+   FN                                        other   8  0.009       +0.0002       0          8
+   FN                     own reads best elsewhere  18  0.021       +0.0005       2         16
+   FN               swamped by a held-out congener 198  0.235       +0.0050      12        186
+   FN          swamped by another database species  13  0.015       +0.0003       4          9
+   FP      a held-out congener's stray reads (1-2) 217  0.370       +0.0051       9        208
+   FP          a held-out species of another genus  61  0.104       +0.0014       3         58
+   FP                   a present congener's reads  23  0.039       +0.0005       1         22
+   FP                        another genus's reads  22  0.037       +0.0005       2         20
+   FP cloud of a held-out congener (>=3 fragments) 185  0.315       +0.0044       7        178
+   FP           twin of a held-out species (<0.02)  79  0.135       +0.0019       2         77

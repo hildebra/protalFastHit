@@ -1,0 +1,6 @@
+rw_ws_on_s1 pe: 6819 species called in both arms; depth on / off - 1: median +0.0000, mean -0.0112, lower in 21.2%, higher in 1.2%; depth / true - 1, median: off -0.0175, on -0.0229
+rw_ws_on_s1 pb: 1399 species called in both arms; depth on / off - 1: median +0.0000, mean +0.0000, lower in 0.0%, higher in 0.0%; depth / true - 1, median: off +0.3009, on +0.3009
+rw_ws_on_s2 pe: 6036 species called in both arms; depth on / off - 1: median +0.0000, mean -0.0143, lower in 22.4%, higher in 1.2%; depth / true - 1, median: off -0.0143, on -0.0192
+rw_ws_on_s2 pb: 1212 species called in both arms; depth on / off - 1: median +0.0000, mean +0.0000, lower in 0.0%, higher in 0.0%; depth / true - 1, median: off +0.3053, on +0.3053
+rw_ws_on_s3 pe: 6492 species called in both arms; depth on / off - 1: median +0.0000, mean -0.0110, lower in 18.8%, higher in 1.0%; depth / true - 1, median: off -0.0133, on -0.0171
+rw_ws_on_s3 pb: 1273 species called in both arms; depth on / off - 1: median +0.0000, mean +0.0000, lower in 0.0%, higher in 0.0%; depth / true - 1, median: off +0.2893, on +0.2893

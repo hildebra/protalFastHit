@@ -1,0 +1,111 @@
+== pe, species held out: class sizes (share of present or absent) by build
+                                class           v24b            v24            v23
+         FN real strain, alleles 1-10    7080 (9.3%)    3279 (4.3%)    2734 (3.5%)
+       FN real strain, alleles 11-100    6791 (8.9%)    3184 (4.2%)    2589 (3.4%)
+         FN real strain, alleles >100    3235 (4.2%)    1451 (1.9%)    1332 (1.7%)
+            FN real strain, none 1-10    4490 (5.9%)    2579 (3.4%)    2194 (2.8%)
+          FN real strain, none 11-100    4005 (5.2%)    2302 (3.0%)    1908 (2.5%)
+            FN real strain, none >100    1890 (2.5%)    1111 (1.5%)     922 (1.2%)
+             FN in-silico strain 1-10  10996 (14.4%)    6072 (7.9%)  16975 (22.0%)
+           FN in-silico strain 11-100  10602 (13.9%)    5843 (7.6%)  16100 (20.9%)
+             FN in-silico strain >100    5254 (6.9%)    2973 (3.9%)   8332 (10.8%)
+               FN representative 1-10   9155 (12.0%)  19487 (25.4%)   9645 (12.5%)
+             FN representative 11-100   8692 (11.4%)  18834 (24.6%)   9507 (12.3%)
+               FN representative >100    4292 (5.6%)   9464 (12.4%)    4784 (6.2%)
+    FP beside held-out congener <0.02    1882 (0.6%)    1497 (0.5%)    1434 (0.5%)
+FP beside held-out congener 0.02-0.05   25341 (8.7%)   23011 (7.3%)   22703 (7.2%)
+FP beside held-out congener 0.05-0.15  73338 (25.2%)  78403 (24.8%)  78734 (24.9%)
+  FP beside held-out congener farther 101348 (34.9%) 114746 (36.3%) 117589 (37.1%)
+     FP beside present congeners only  36713 (12.6%)  37993 (12.0%)  37286 (11.8%)
+             FP no congener in sample  51840 (17.8%)  60840 (19.2%)  59083 (18.6%)
+== pe, species held out: F1 from each model's class rates at each build's mix: best knob (knob) / at 0.5
+   build v24b             mix v24b 0.9562 (0.74) / 0.9513   mix v24 0.9620 (0.82) / 0.9549   mix v23 0.9599 (0.77) / 0.9542
+   build v24              mix v24b 0.9578 (0.69) / 0.9556   mix v24 0.9650 (0.74) / 0.9608   mix v23 0.9624 (0.69) / 0.9593
+   build v23              mix v24b 0.9582 (0.74) / 0.9556   mix v24 0.9650 (0.79) / 0.9601   mix v23 0.9634 (0.74) / 0.9595
+   refit full             mix v24b 0.9563 (0.76) / 0.9514   mix v24 0.9623 (0.80) / 0.9549   mix v23 0.9602 (0.78) / 0.9543
+   refit thin_real        mix v24b 0.9567 (0.67) / 0.9549   mix v24 0.9627 (0.72) / 0.9593   mix v23 0.9609 (0.70) / 0.9584
+   refit thin_ins         mix v24b 0.9556 (0.68) / 0.9518   mix v24 0.9617 (0.76) / 0.9558   mix v23 0.9585 (0.75) / 0.9542
+== pe, species held out, at v24b's mix and the best knob: 300 bootstraps over samples
+   v24 - v24b: +0.0017 [-0.0042, +0.0071], v24 better in 70%
+   v23 - v24b: +0.0020 [-0.0038, +0.0078], v23 better in 75%
+== se, species held out: class sizes (share of present or absent) by build
+                                class          v24b           v24           v23
+         FN real strain, alleles 1-10   4633 (8.7%)   2068 (3.9%)   1732 (3.2%)
+       FN real strain, alleles 11-100   5022 (9.4%)   2295 (4.3%)   1911 (3.6%)
+         FN real strain, alleles >100   2294 (4.3%)   1009 (1.9%)    935 (1.7%)
+            FN real strain, none 1-10   3095 (5.8%)   1747 (3.3%)   1464 (2.7%)
+          FN real strain, none 11-100   3021 (5.7%)   1749 (3.3%)   1471 (2.7%)
+            FN real strain, none >100   1340 (2.5%)    805 (1.5%)    655 (1.2%)
+             FN in-silico strain 1-10  7113 (13.4%)   3993 (7.5%) 11385 (21.2%)
+           FN in-silico strain 11-100  7916 (14.9%)   4336 (8.1%) 11967 (22.3%)
+             FN in-silico strain >100   3812 (7.2%)   2173 (4.1%)  5973 (11.1%)
+               FN representative 1-10  5715 (10.7%) 12557 (23.6%)  6000 (11.2%)
+             FN representative 11-100  6235 (11.7%) 13864 (26.0%)  6924 (12.9%)
+               FN representative >100   3016 (5.7%)  6695 (12.6%)   3257 (6.1%)
+    FP beside held-out congener <0.02   1175 (0.8%)    988 (0.6%)    957 (0.6%)
+FP beside held-out congener 0.02-0.05 16130 (10.7%)  15323 (9.5%)  14909 (9.2%)
+FP beside held-out congener 0.05-0.15 42663 (28.2%) 46092 (28.5%) 45504 (28.2%)
+  FP beside held-out congener farther 49057 (32.5%) 54102 (33.5%) 56335 (34.9%)
+     FP beside present congeners only 17813 (11.8%) 18155 (11.2%) 17519 (10.8%)
+             FP no congener in sample 24212 (16.0%) 26913 (16.7%) 26253 (16.3%)
+== se, species held out: F1 from each model's class rates at each build's mix: best knob (knob) / at 0.5
+   build v24b             mix v24b 0.9610 (0.71) / 0.9591   mix v24 0.9663 (0.75) / 0.9627   mix v23 0.9641 (0.71) / 0.9616
+   build v24              mix v24b 0.9613 (0.60) / 0.9608   mix v24 0.9680 (0.64) / 0.9661   mix v23 0.9650 (0.63) / 0.9642
+   build v23              mix v24b 0.9619 (0.66) / 0.9612   mix v24 0.9681 (0.73) / 0.9657   mix v23 0.9667 (0.69) / 0.9650
+== se, species held out, at v24b's mix and the best knob: 300 bootstraps over samples
+   v24 - v24b: +0.0001 [-0.0062, +0.0076], v24 better in 51%
+   v23 - v24b: +0.0011 [-0.0053, +0.0069], v23 better in 63%
+== pb, species held out: class sizes (share of present or absent) by build
+                                class          v24b           v24           v23
+         FN real strain, alleles 1-10  5707 (11.1%)   2763 (5.4%)   2229 (4.4%)
+       FN real strain, alleles 11-100   4145 (8.1%)   1864 (3.7%)   1629 (3.2%)
+         FN real strain, alleles >100   1048 (2.0%)    475 (0.9%)    447 (0.9%)
+            FN real strain, none 1-10   4072 (7.9%)   2220 (4.4%)   1880 (3.7%)
+          FN real strain, none 11-100   2662 (5.2%)   1451 (2.9%)   1234 (2.4%)
+            FN real strain, none >100    652 (1.3%)    371 (0.7%)    333 (0.7%)
+             FN in-silico strain 1-10  9464 (18.5%)  5317 (10.4%) 14367 (28.1%)
+           FN in-silico strain 11-100  6594 (12.9%)   3661 (7.2%) 10201 (19.9%)
+             FN in-silico strain >100   1685 (3.3%)    903 (1.8%)   2649 (5.2%)
+               FN representative 1-10  8102 (15.8%) 17039 (33.5%)  8508 (16.6%)
+             FN representative 11-100  5675 (11.1%) 11880 (23.3%)  6141 (12.0%)
+               FN representative >100   1448 (2.8%)   2957 (5.8%)   1576 (3.1%)
+    FP beside held-out congener <0.02    931 (1.9%)    773 (1.7%)    709 (1.5%)
+FP beside held-out congener 0.02-0.05 11159 (22.9%)  9870 (21.6%)  9650 (21.1%)
+FP beside held-out congener 0.05-0.15 22422 (46.0%) 22156 (48.4%) 22295 (48.7%)
+  FP beside held-out congener farther  9744 (20.0%)  9328 (20.4%)  9497 (20.7%)
+     FP beside present congeners only   3505 (7.2%)   2728 (6.0%)   2673 (5.8%)
+             FP no congener in sample   1004 (2.1%)    939 (2.1%)    985 (2.2%)
+== pb, species held out: F1 from each model's class rates at each build's mix: best knob (knob) / at 0.5
+   build v24b             mix v24b 0.9716 (0.48) / 0.9714   mix v24 0.9772 (0.54) / 0.9771   mix v23 0.9763 (0.49) / 0.9763
+   build v24              mix v24b 0.9726 (0.34) / 0.9717   mix v24 0.9795 (0.47) / 0.9794   mix v23 0.9783 (0.42) / 0.9778
+   build v23              mix v24b 0.9730 (0.43) / 0.9725   mix v24 0.9796 (0.57) / 0.9793   mix v23 0.9792 (0.46) / 0.9791
+== pb, species held out, at v24b's mix and the best knob: 300 bootstraps over samples
+   v24 - v24b: +0.0012 [-0.0013, +0.0037], v24 better in 80%
+   v23 - v24b: +0.0016 [-0.0013, +0.0048], v23 better in 84%
+== ont, species held out: class sizes (share of present or absent) by build
+                                class          v24b           v24           v23
+         FN real strain, alleles 1-10  6065 (11.6%)   2821 (5.4%)   2324 (4.4%)
+       FN real strain, alleles 11-100   4042 (7.8%)   1779 (3.4%)   1585 (3.0%)
+         FN real strain, alleles >100    959 (1.8%)    454 (0.9%)    413 (0.8%)
+            FN real strain, none 1-10   4384 (8.4%)   2409 (4.6%)   2035 (3.9%)
+          FN real strain, none 11-100   2586 (5.0%)   1376 (2.6%)   1168 (2.2%)
+            FN real strain, none >100    601 (1.2%)    369 (0.7%)    298 (0.6%)
+             FN in-silico strain 1-10  9954 (19.1%)  5631 (10.8%) 15521 (29.7%)
+           FN in-silico strain 11-100  6500 (12.5%)   3512 (6.8%)  9861 (18.9%)
+             FN in-silico strain >100   1574 (3.0%)    840 (1.6%)   2465 (4.7%)
+               FN representative 1-10  8575 (16.4%) 18321 (35.3%)  9082 (17.4%)
+             FN representative 11-100  5531 (10.6%) 11689 (22.5%)  6022 (11.5%)
+               FN representative >100   1360 (2.6%)   2763 (5.3%)   1465 (2.8%)
+    FP beside held-out congener <0.02    963 (1.6%)    798 (1.3%)    756 (1.2%)
+FP beside held-out congener 0.02-0.05 11649 (19.0%) 10325 (17.3%) 10121 (16.7%)
+FP beside held-out congener 0.05-0.15 25369 (41.4%) 25421 (42.6%) 26079 (43.1%)
+  FP beside held-out congener farther 15894 (25.9%) 16293 (27.3%) 16777 (27.7%)
+     FP beside present congeners only   5152 (8.4%)   4375 (7.3%)   4394 (7.3%)
+             FP no congener in sample   2293 (3.7%)   2406 (4.0%)   2449 (4.0%)
+== ont, species held out: F1 from each model's class rates at each build's mix: best knob (knob) / at 0.5
+   build v24b             mix v24b 0.9649 (0.53) / 0.9649   mix v24 0.9713 (0.57) / 0.9708   mix v23 0.9699 (0.57) / 0.9697
+   build v24              mix v24b 0.9675 (0.41) / 0.9669   mix v24 0.9744 (0.53) / 0.9742   mix v23 0.9724 (0.47) / 0.9723
+   build v23              mix v24b 0.9682 (0.44) / 0.9681   mix v24 0.9752 (0.53) / 0.9749   mix v23 0.9743 (0.53) / 0.9741
+== ont, species held out, at v24b's mix and the best knob: 300 bootstraps over samples
+   v24 - v24b: +0.0024 [-0.0009, +0.0056], v24 better in 92%
+   v23 - v24b: +0.0032 [-0.0003, +0.0070], v23 better in 96%
