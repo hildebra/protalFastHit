@@ -869,3 +869,63 @@ TEST(Abundance, ReleasingReadDataDropsTheTaxaNoMsaTakes) {
         }
     }
 }
+
+// The release on the sample's threads keeps and drops the taxa one thread does, and the kept ones' genes keep the same
+// MSA items, SNP counts and coverage: 40 taxa with reads and a SNP each, every other one scored to enter the MSAs.
+TEST(Abundance, ReleasingReadDataOnThreadsIsTheSame) {
+    constexpr uint32_t kTaxa = 40;
+    std::mt19937 rng(21);
+    test::LoadedReference::Taxa genes;
+    for (uint32_t t = 1; t <= kTaxa; t++) genes[t] = test::RandomGenes({ 300 }, rng);
+    test::LoadedReference ref(genes, "release reference");
+    profiler::MSAReleaseParameters msa;
+    msa.identity_margin = 0.04;
+    msa.item = { 0, 1, 0.15, 15, 0, false };
+    msa.count_keys = { { 2, 60 }, { 0, 0 } };
+    auto make = [&]() {
+        auto profile = std::make_unique<profiler::MicrobialProfile>(*ref.loader);
+        profile->SetDepthIdentityMargin(0.04);
+        int read_id = 0;
+        for (uint32_t t = 1; t <= kTaxa; t++) {
+            std::string const& gene = genes[t][0];
+            std::string snp = gene.substr(10, 40);
+            snp[5] = snp[5] == 'A' ? 'C' : 'A';
+            auto const plain = MakeSam(gene.substr(0, 40), "40M", 1);
+            auto const variant = MakeSam(snp, "5M1X34M", 11, 0x10);
+            for (auto const* sam : { &plain, &plain, &variant, &variant }) EXPECT_TRUE(profile->AddSam(t, 1, *sam, 1.0, true, read_id++, false));
+            profile->GetTaxa().at(t).SetModelScore(t % 2 ? 0.9 : 0.1);  // the model's 0.5 knob: odd taxa enter the MSAs
+        }
+        return profile;
+    };
+    auto one = make(), many = make();
+    one->ReleaseReadData(HalfModel(0.5), msa, false, 1);
+    many->ReleaseReadData(HalfModel(0.5), msa, false, 4);
+    EXPECT_EQ(one->GetTaxa().size(), kTaxa / 2);
+    ASSERT_EQ(many->GetTaxa().size(), kTaxa / 2);
+    size_t variants = 0;
+    for (uint32_t t = 1; t <= kTaxa; t++) {
+        ASSERT_EQ(many->GetTaxa().contains(t), t % 2 == 1) << t;
+        if (t % 2 == 0) continue;
+        auto& a = one->GetTaxa().at(t);
+        auto& b = many->GetTaxa().at(t);
+        EXPECT_EQ(b.VerticalCoverage(), a.VerticalCoverage()) << t;
+        auto item = msa.item;
+        item.min_identity = a.IdentityThreshold(msa.identity_margin);
+        auto& gene_a = a.GetGenes().at(1);
+        auto& gene_b = b.GetGenes().at(1);
+        auto const x = gene_a.MSAItem(item), y = gene_b.MSAItem(item);
+        EXPECT_EQ(y.second, x.second) << t;
+        ASSERT_EQ(y.first.size(), x.first.size()) << t;
+        for (size_t p = 0; p < x.first.size(); p++) {
+            ASSERT_EQ(y.first[p].size(), x.first[p].size());
+            for (size_t v = 0; v < x.first[p].size(); v++) {
+                EXPECT_EQ(y.first[p][v].Position(), x.first[p][v].Position());
+                EXPECT_EQ(y.first[p][v].Observations(), x.first[p][v].Observations());
+                variants++;
+            }
+        }
+        EXPECT_EQ(gene_b.AlleleSNPCounts(2, 60).bi, gene_a.AlleleSNPCounts(2, 60).bi) << t;
+        EXPECT_EQ(gene_b.AlleleSNPCounts(0, 0).mono, gene_a.AlleleSNPCounts(0, 0).mono) << t;
+    }
+    EXPECT_GT(variants, 0u);
+}

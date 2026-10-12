@@ -192,7 +192,7 @@ q512n19 stays as it was), against 41.65 s now.
 ## 6. Follow-up (the same day): what was implemented
 
 The user asked for recommendations 1 and 2 (the timer, not yet the `malloc_trim` change), a `--scratch_dir` for
-protal's intermediate files (replacing `--strain_spill`), and a folder for the benchmark's runs, sylph's in the same
+protal's intermediate files (replacing `--strain_spill`), and a folder for the benchmark's runs, the comparison profiler's in the same
 folder. Committed on `e751c7f` in one commit; the benchmark script's `RUN_DIR` went into `e751c7f` itself, which
 another session committed with the whole script.
 
@@ -219,6 +219,61 @@ another session committed with the whole script.
     renames them beside the SAM);
   - qcmsa's captured output, with `TMPDIR` pointing there.
 - **`scripts/measure_performance.sh`**: `RUN_DIR` (environment, default OUT_DIR) holds protal's runs in
-  `RUN_DIR/protal` (each run's `-o` folder and the cohort's SAMs) and sylph's profiles in `RUN_DIR/sylph` (copied to
-  `OUT_DIR/sylph` at the end); `environment.txt` names its file system. The `--test_sparse` runs go to `RUN_DIR/protal`
+  `RUN_DIR/protal` (each run's `-o` folder and the cohort's SAMs) and the comparison profiler's profiles in their own subfolder (copied to
+  OUT_DIR at the end); `environment.txt` names its file system. The `--test_sparse` runs go to `RUN_DIR/protal`
   as well.
+
+## 7. The first run with the fixes (`5222386`, another machine)
+
+`local/Perf0.8.2f`: the user's job 24200987 on t512n10, two Xeon E5-2683 v4 (Broadwell, 16 cores each, 2.1 GHz, two
+NUMA nodes, no AVX-512), 32 threads, `RUN_DIR` left at OUT_DIR (NFS), with `--test_sparse`. The same database and
+samples. A different machine, so the times are not comparable with sections 1-2 directly. The CPU of the same work
+is: pe1's user time is 2,060-2,075 s against 953 s on the EPYC node, 2.17x.
+
+| pe1, run 2 (best) | seconds |
+|---|---|
+| wall | 81.51 |
+| start-up (index 7.30, tables beside it) | 8.5 |
+| aligning | 60.52 |
+| writing the SAM | 0.48 |
+| profiling | 11.18 |
+| of it: reading the SAM | 5.2 |
+| of it: after the profile (new timer) | 3.21 |
+
+**The parse scales again, as far as another machine can tell.** pe1's parsing took 58.3-60.8 thread-seconds on 32
+threads (50.8 on 28 in the cohort), ~27 thread-seconds at the EPYC node's speed: what 8 threads cost before the fix
+(32), against 119 on 32 threads then; 0.7.7 took 12. Its parallel part is 2.7-2.8 s. Reading the SAM is now bound by
+its serial parts (adding the chunks' counts 1.56-1.62 s, planning 0.49-0.52 s, the reader's 1.05-1.17 s reading and
+0.78-0.82 s cutting). On the EPYC node that should make reading the SAM ~2-2.5 s instead of 5.3 s. pb2 still parses
+1.6x the thread-seconds on 32 threads (6.40) as on 4 in the cohort (3.89): the same 215 chunks, so some cost still
+grows with the threads, perhaps the shared values' reference counts across the two sockets. It is 0.27 s of wall
+time. A rerun on an EPYC node will show both directly.
+
+**The tail is the read data's release.** `Sample pe1 after its profile: 3.21-3.40 s`: releasing the read data
+2.76-2.81 s, `malloc_trim` 0.39-0.48 s, the record evidence 0.05-0.10 s, the unreported species 0.00 s (cohort: 3.81 s,
+3.25 of it the read data; pb2 0.53-0.66 s). `MicrobialProfile::ReleaseReadData` (`Profiler.h:3999`) erases, on one
+thread, every taxon but those entering the MSAs: at r226 ~144,000, as every taxon with a failed candidate has one,
+each with its genes' read data. Done on the sample's threads (the taxa are independent: decide which go first, free
+or pack them in parallel, then erase the emptied ones), it should take a few tenths of a second; ~1.3 s at the EPYC
+node's speed now.
+
+**Other things in the run.**
+- `--sparse_first 1` (the other session's option): pe1 aligning -41% (60.5 → 36.2 s), wall -29%, records -0.01%, the
+  same 592 species, Bray-Curtis 0.0001; pb2 at 4 aligning -31%, records -0.19%. On this machine it is the largest
+  lever left.
+- The summary printed the comparison profiler's medians although this run had none: its table from an earlier run in
+  the same OUT_DIR (8 threads, 07:46). Fixed in `measure_performance.sh`: a run removes the tables of the steps it
+  leaves out, and the medians are printed only when the profiler ran.
+- `RUN_DIR` was OUT_DIR, on NFS. Writing the SAM took 0.48-1.13 s here.
+
+**Implemented (the user asked the same day): the release on the sample's threads.**
+`MicrobialProfile::ReleaseReadData(filter, msa, keep_all_taxa, threads)`:
+1. One pass in the map's order decides which taxa go and which pass. `Pass` scores a taxon without a cached score on
+   the filter's own buffer, so this stays serial.
+2. Blocks of taxa are handled on the threads (`sam_chunks::ParallelFor`, as `ScoreTaxa` does): a kept taxon's
+   `Taxon::ReleaseReadData`, which packs its MSA items or clears its genes, and a dropped taxon moved out and destroyed
+   there.
+3. The emptied taxa are erased in the order the old loop erased them.
+
+`ProfileSample` passes its `threads_per_sample`. A unit test releases 40 taxa (every other one entering the MSAs) on 1
+and on 4 threads and finds the same taxa, MSA items, SNP counts and coverage.

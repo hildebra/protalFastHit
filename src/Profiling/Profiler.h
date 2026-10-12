@@ -3996,17 +3996,39 @@ namespace protal {
             // with `msa` (strain MSAs on) they keep what it reads of their genes, and the others are dropped, unless
             // `keep_all_taxa` (--taxon_statistics, which reads every taxon's numbers): a cohort's memory grows by what its
             // samples' MSAs need only (docs/claude/2026-10-07-sam-combine).
-            void ReleaseReadData(TaxonFilterObj const& filter, std::optional<MSAReleaseParameters> const& msa, bool keep_all_taxa) {
-                for (auto it = m_taxa.begin(); it != m_taxa.end();) {
+            // On `threads` threads (the sample's): at r226 a sample has ~144,000 taxa (every taxon with a failed candidate),
+            // whose release on one thread took 2.8 s of a 32-thread run (docs/claude/2026-10-12-feature-cost-vs-f1.md,
+            // section 7). The taxa are independent: which go and which pass is decided first, in the map's order (Pass
+            // scores a taxon without a cached score on the filter's own buffer), then blocks of them are released or freed
+            // on the threads (a dropped taxon moved out and destroyed there), and last the emptied ones are erased, in the
+            // same order as before.
+            void ReleaseReadData(TaxonFilterObj const& filter, std::optional<MSAReleaseParameters> const& msa, bool keep_all_taxa,
+                                 size_t threads = 1) {
+                std::vector<std::pair<Taxon*, bool>> kept;  // and whether it passes
+                std::vector<Taxon*> dropped;
+                std::vector<uint32_t> dropped_ids;
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
                     auto& taxon = it.value();
                     bool const pass = filter.Pass(taxon);  // caches the score
                     if (!keep_all_taxa && !(msa && pass)) {
-                        it = m_taxa.erase(it);
-                        continue;
+                        dropped.push_back(&taxon);
+                        dropped_ids.push_back(it->first);
+                    } else {
+                        kept.push_back({ &taxon, pass });
                     }
-                    taxon.ReleaseReadData(pass ? msa : std::nullopt);
-                    ++it;
                 }
+                size_t const n = kept.size() + dropped.size();
+                size_t const blocks = std::min(n, 8 * std::max<size_t>(threads, 1));
+                sam_chunks::ParallelFor(blocks, threads, [&](size_t b) {
+                    for (size_t i = b; i < n; i += blocks) {
+                        if (i < kept.size()) {
+                            kept[i].first->ReleaseReadData(kept[i].second ? msa : std::nullopt);
+                        } else {
+                            Taxon gone(std::move(*dropped[i - kept.size()]));  // its genes freed here, not by the erase
+                        }
+                    }
+                });
+                for (auto const id : dropped_ids) m_taxa.erase(id);
             }
 
             // --scratch_dir: what the strain stage reads of the sample's taxa (Taxon::WriteStrainEvidence, after

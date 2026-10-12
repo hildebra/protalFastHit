@@ -207,6 +207,11 @@ timed() {
 
 printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
+# The tables of the steps this run leaves out, left in OUT_DIR by an earlier run there: removed, so that neither the
+# summary below nor a reader takes them for this run's (a run without --sylph printed the sylph medians of an older one).
+[ -n "$sylph" ] || rm -rf "$out/sylph.tsv" "$out/sylph" "$out"/logs/sylph.*.log
+[ $stage1_probe = 1 ] || rm -rf "$out/probe.tsv" "$out/stage1_probe" "$out"/logs/*.probe.log
+[ $test_sparse = 1 ] || rm -rf "$out/sparse.tsv" "$out/sparse" "$out"/logs/*.sparse*.log
 if [ $stage1_probe = 1 ]; then
     mkdir -p "$out/stage1_probe"
     printf 'sample\ttype\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\taligning_s\tprobe_reads\tprobe_reads_with_records\tprofile_identical\n' > "$out/probe.tsv"
@@ -451,7 +456,7 @@ if [ "$(wc -l < "$out/cohort.tsv")" -gt 1 ]; then
               print "" }' "$out/cohort.tsv"
 fi
 # sylph's medians per sample and protal's against them (CPU = user + sys).
-if [ -f "$out/sylph.tsv" ] && [ "$(wc -l < "$out/sylph.tsv")" -gt 1 ]; then
+if [ -n "$sylph" ] && [ -f "$out/sylph.tsv" ] && [ "$(wc -l < "$out/sylph.tsv")" -gt 1 ]; then
     echo
     awk -F'\t' "$median"'
         function med(x, t, k,   a, i, j) { split("", a); j = 0

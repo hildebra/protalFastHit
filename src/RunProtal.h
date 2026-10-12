@@ -1765,7 +1765,7 @@ namespace protal {
             // reads the numbers of every taxon.
             std::optional<profiler::MSAReleaseParameters> msa;
             if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
-            profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
+            profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics(), threads_per_sample);
             part_done("releasing the read data");
             profile.ReleaseEvidence();  // the record evidence: read by nothing after the outputs; a cohort keeps the profile
             part_done("releasing the record evidence");
