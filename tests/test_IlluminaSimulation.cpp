@@ -574,3 +574,92 @@ TEST(IlluminaSimulation, SamplesNamesHostThreadsAndPipes) {
     SimulatePairs(regular, options);
     EXPECT_EQ(protal::test::Slurp(regular[0].r1), protal::test::Slurp(one[0].r1));
 }
+
+// The marker genes' places (MarkerPositions.h, simulate_metagenomes --gene_positions): which read places overlap a
+// gene (by 50 bases, or all of a shorter read), an in-silico strain's contigs on its representative's genes, the
+// accessions loaded; and the pairs counted while the reads stay the same.
+TEST(IlluminaSimulation, MarkerReadsCounted) {
+    ScratchDir dir("markers");
+    auto const table = dir.Write("gene_positions.tsv",
+        "# protal gene positions: test\n"
+        "accession\ttaxid\tcontig\tcontig_length\tcircular\tgene\tstart\tend\tstrand\tplaced\tkmer_share\n"
+        "GCA_000001.1\t1\tc1\t10000\t0\t7\t1001\t2000\t+\texact\t1\n"
+        "GCA_000001.1\t1\tc1\t10000\t0\t8\t1901\t2500\t-\texact\t1\n"
+        "GCA_000001.1\t1\tc3\t20000\t0\t9\t5001\t5100\t+\texact\t1\n"
+        "GCA_000001.1\t1\tc3\t20000\t0\t3\t1\t10000\t+\ttrace\t0.9\n"
+        "GCA_000002.1\t2\tc9\t5000\t0\t7\t1\t5000\t+\texact\t1\n");
+    auto const all = MarkerPositions::Load(table, {}, 50);
+    EXPECT_EQ(all->Genes(), 5u);
+    EXPECT_TRUE(all->Has("GCA_000001.1"));
+    EXPECT_TRUE(all->Has("insilico_GCA_000001_1"));  // its representative's
+    EXPECT_FALSE(all->Has("GCA_000003.1"));
+    EXPECT_EQ(MarkerPositions::AccessionOf("insilico_GCF_017565405_1"), "GCF_017565405.1");
+    EXPECT_EQ(MarkerPositions::AccessionOf("GCF_017565405.1"), "GCF_017565405.1");
+    // c1: gene 7 at [1000, 2000) (0-based, half-open), gene 8 at [1900, 2500)
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c1", 950, 1100));
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c1", 950, 1050));    // 50 bases in
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c1", 951, 1049));   // 49
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c1", 1500, 1530));   // a read of 30, all in the gene
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c1", 1960, 2020));   // 40 of gene 7, 60 of gene 8
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c1", 2460, 2600));  // 40 of gene 8
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c1", 2400, 2600));
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c1", 3000, 3150));
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c1", 1100, 1100));  // no bases
+    // c3: a gene of 10 kb holds a short one; a read past the short one is still in the long one
+    EXPECT_TRUE(all->Overlaps("GCA_000001.1", "c3", 8000, 8200));
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c3", 9960, 10200));
+    EXPECT_FALSE(all->Overlaps("GCA_000001.1", "c2", 1000, 1200));  // a contig without genes
+    EXPECT_FALSE(all->Overlaps("GCA_000002.1", "c1", 1000, 1200));  // c1 is another genome's
+    EXPECT_TRUE(all->Overlaps("insilico_GCA_000001_1", "insilico_GCA_000001_1_c1", 1000, 1200));
+    EXPECT_FALSE(all->Overlaps("insilico_GCA_000001_1", "insilico_GCA_000001_1_c1", 3000, 3200));
+    auto const one = MarkerPositions::Load(table, {"GCA_000002.1"}, 50);  // only the run's genomes
+    EXPECT_EQ(one->Genes(), 1u);
+    EXPECT_FALSE(one->Has("GCA_000001.1"));
+    EXPECT_THROW(MarkerPositions::Load(dir.Write("bad.tsv", "accession\tcontig\tstart\n"), {}, 50), std::runtime_error);
+    EXPECT_THROW(MarkerPositions::Load(dir.path / "missing.tsv", {}, 50), std::runtime_error);
+
+    // A genome of two contigs: c1 all one gene, c2 a gene of 1 kb in its middle. Every pair of c1 counts, some of
+    // c2's, its first reads fewer; a sample of first reads counts them alone; the reads are those of a run without.
+    std::mt19937 gen(3);
+    auto const fasta = dir.Write("GA.fna", ">c1 x\n" + protal::test::RandomSequence(10000, gen) + "\n>c2\n" +
+                                               protal::test::RandomSequence(8000, gen) + "\n");
+    auto const genes = dir.Write("ga_positions.tsv",
+        "accession\ttaxid\tcontig\tcontig_length\tcircular\tgene\tstart\tend\tstrand\tplaced\tkmer_share\n"
+        "GCA_000001.1\t1\tc1\t10000\t0\t7\t1\t10000\t+\texact\t1\n"
+        "GCA_000001.1\t1\tc2\t8000\t0\t8\t3501\t4500\t+\texact\t1\n");
+    auto samples_in = [&](std::string const& run) {
+        std::vector<PairedSample> samples(2);
+        samples[0] = {"s1", dir.path / (run + "_s1_R1.fq.zst"), dir.path / (run + "_s1_R2.fq.zst"),
+                      {{"GCA_000001.1", fasta, 3000, 11}, {"GCA_000009.1", fasta, 500, 12}}};
+        samples[1] = {"s2", dir.path / (run + "_s2_R1.fq.zst"), "", {{"GCA_000001.1", fasta, 3000, 11}}};
+        for (auto& s : samples) s.run_seed = 5;
+        return samples;
+    };
+    PairedOptions options;
+    options.setup = MakeSetup("NovaSeq", 150);
+    options.threads = 2;
+    auto const plain = samples_in("plain");
+    SimulatePairs(plain, options);
+    options.markers = MarkerPositions::Load(genes, {"GCA_000001.1"}, 50);
+    auto const counted = samples_in("counted");
+    auto const totals = SimulatePairs(counted, options);
+    for (std::size_t s = 0; s < 2; ++s) {
+        EXPECT_EQ(protal::test::Slurp(plain[s].r1), protal::test::Slurp(counted[s].r1)) << "the same reads";
+    }
+    std::uint64_t c1 = 0;
+    for (auto const& read : ReadFastq(counted[0].r1.string())) {
+        c1 += read.name.rfind("@c1-", 0) == 0 && std::stoull(read.name.substr(4)) <= 3000;  // GCA_000001.1's own
+    }
+    ASSERT_EQ(totals[0].genome_reads.size(), 2u);
+    EXPECT_EQ(totals[0].genome_reads[0], 3000u);
+    EXPECT_EQ(totals[0].genome_reads[1], 500u);
+    std::uint64_t const pairs = totals[0].genome_marker_reads[0], first = totals[0].genome_marker_first_reads[0];
+    EXPECT_GT(c1, 1000u);
+    EXPECT_GT(pairs, c1) << "c1's pairs and some of c2's";
+    EXPECT_LT(pairs, 3000u);
+    EXPECT_GT(first, c1);
+    EXPECT_LT(first, pairs) << "a pair counts by either read";
+    EXPECT_EQ(totals[0].genome_marker_reads[1], 0u) << "a genome without positions";
+    EXPECT_EQ(totals[1].genome_marker_reads[0], totals[1].genome_marker_first_reads[0]) << "first reads only";
+    EXPECT_EQ(totals[1].genome_marker_first_reads[0], first) << "the same first reads";
+}

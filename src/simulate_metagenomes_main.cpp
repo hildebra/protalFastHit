@@ -20,6 +20,7 @@
 
 #include <cxxopts.hpp>
 #include "RandomForest/LongReadSimulator.h"
+#include "RandomForest/MarkerPositions.h"
 #include "RandomForest/MetagenomeSimulator.h"
 #include "RandomForest/ReadPipeline.h"
 #include "IO/Bgzf.h"
@@ -168,7 +169,10 @@ struct CliOptions {
     std::optional<fs::path> from_manifest;
     // --long_samples: long or Ultima reads of given communities instead (LongReadSimulator.h)
     fs::path long_samples, long_genomes, long_model, long_stats, long_templates, long_out;
+    fs::path long_marker_reads;  // --long_marker_reads: per sample and genome, its reads and those on a marker gene
     std::string long_setup;
+    fs::path gene_positions;  // --gene_positions (MarkerPositions.h)
+    std::uint32_t marker_min_overlap{50};
     fs::path genome_store;    // --genome_store
     std::string tiles;        // --tiles LENGTH:STRIDE (tile_genomes, tile_fasta)
     fs::path tile_out, tile_exclude;
@@ -327,7 +331,10 @@ static cxxopts::Options build_cxxopts() {
                             cxxopts::value<std::string>())
         ("long_out",        "With --long_templates: the reads (.fq.zst or .fq.gz)", cxxopts::value<std::string>())
         ("long_stats",      "With --long_samples: write sample, reads, template_bases, read_bases, errors, rounds here "
-                            "(default: standard output)", cxxopts::value<std::string>());
+                            "(default: standard output)", cxxopts::value<std::string>())
+        ("long_marker_reads", "With --long_samples and --gene_positions: write sample, genome, reads, marker_reads here, a "
+                            "line per sample and genome (marker_reads empty for a genome without positions, or the host)",
+                            cxxopts::value<std::string>());
 
     options.add_options("Tiles")
         ("tiles",           "Instead of samples: error-free reads of LENGTH bases every STRIDE bases of every contig of every "
@@ -357,6 +364,14 @@ static cxxopts::Options build_cxxopts() {
                             "parsed the first time any run needs it, its file written here, and every later sample, round "
                             "and run maps that file instead; a FASTA newer than its file is read again. The same reads as "
                             "without it", cxxopts::value<std::string>())
+        ("gene_positions",  "Count each genome's reads that overlap a marker gene, by the genes' places in a protal database's "
+                            "gene_positions.tsv (plain text; an in-silico strain has its representative's): the manifests' "
+                            "marker_read_pairs (pairs by either read) and marker_first_reads, or with --long_samples "
+                            "--long_marker_reads. A species whose marker genes got no read cannot be found by them (an "
+                            "evaluation can leave it out of the truth). The reads are the same with it",
+                            cxxopts::value<std::string>())
+        ("marker_min_overlap", "With --gene_positions: the bases a read shares with a marker gene to count on it (all of a "
+                            "shorter read's)", cxxopts::value<std::uint32_t>()->default_value("50"))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Unused: no temporary files are written (kept so that older commands still run)")
@@ -432,6 +447,12 @@ static CliOptions parse_cli(int argc, char** argv) {
         opts.long_setup = result["long_setup"].as<std::string>();
         if (result.count("long_model")) opts.long_model = result["long_model"].as<std::string>();
         if (result.count("long_stats")) opts.long_stats = result["long_stats"].as<std::string>();
+        if (result.count("gene_positions")) opts.gene_positions = result["gene_positions"].as<std::string>();
+        opts.marker_min_overlap = result["marker_min_overlap"].as<std::uint32_t>();
+        if (result.count("long_marker_reads")) opts.long_marker_reads = result["long_marker_reads"].as<std::string>();
+        if (!opts.long_marker_reads.empty() && (opts.gene_positions.empty() || opts.long_samples.empty())) {
+            throw std::runtime_error("--long_marker_reads needs --long_samples and --gene_positions");
+        }
         opts.threads = result["threads"].as<int>();
         if (result.count("genome_store")) opts.genome_store = result["genome_store"].as<std::string>();
         opts.plain_pipes = result.count("plain_pipes") > 0;
@@ -597,6 +618,8 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.illumina.first_reads_only = result.count("first_reads_only") > 0;
     if (result.count("genome_store")) opts.illumina.genome_store = result["genome_store"].as<std::string>();
     opts.illumina.plain_pipes = result.count("plain_pipes") > 0;
+    if (result.count("gene_positions")) opts.illumina.gene_positions = result["gene_positions"].as<std::string>();
+    opts.illumina.marker_min_overlap = result["marker_min_overlap"].as<std::uint32_t>();
 
     return opts;
 }
@@ -1110,10 +1133,40 @@ static int simulate_long_reads(const CliOptions& cli) {
         throw std::runtime_error("a qshmm setup needs pbsim3's model file: --long_model");
     }
     std::vector<protal::sim::LongSampleResult> results;
+    std::vector<protal::sim::LongSample> samples;
     if (!cli.long_templates.empty()) {
         results.push_back(protal::sim::MutateTemplates(cli.long_templates, cli.long_out, options, cli.seed.value_or(1)));
     } else {
-        results = protal::sim::SimulateLongReads(protal::sim::ReadLongSamples(cli.long_samples, cli.long_genomes), options);
+        samples = protal::sim::ReadLongSamples(cli.long_samples, cli.long_genomes);
+        if (!cli.gene_positions.empty()) {  // the positions of the samples' genomes only
+            std::unordered_set<std::string> accessions;
+            for (auto const& sample : samples) {
+                for (auto const& genome : sample.genomes) {
+                    if (!genome.host) accessions.insert(protal::sim::MarkerPositions::AccessionOf(genome.name));
+                }
+            }
+            options.markers = protal::sim::MarkerPositions::Load(cli.gene_positions, accessions, cli.marker_min_overlap);
+            std::cerr << "marker genes: " << options.markers->Genes() << " placed in the samples' genomes ("
+                      << cli.gene_positions.string() << "); a read counts on one if it shares "
+                      << options.markers->MinOverlap() << " bases with it\n";
+        }
+        results = protal::sim::SimulateLongReads(samples, options);
+    }
+    if (!cli.long_marker_reads.empty()) {
+        std::ofstream markers(cli.long_marker_reads);
+        if (!markers) throw std::runtime_error("cannot write " + cli.long_marker_reads.string());
+        markers << "sample\tgenome\treads\tmarker_reads\n";
+        for (std::size_t s = 0; s < samples.size(); ++s) {
+            auto const& r = results[s];
+            for (std::size_t g = 0; g < samples[s].genomes.size(); ++g) {
+                auto const& genome = samples[s].genomes[g];
+                markers << r.name << '\t' << genome.name << '\t' << r.genome_reads[g] << '\t';
+                if (!genome.host && options.markers->Has(genome.name)) markers << r.genome_marker_reads[g];
+                markers << '\n';
+            }
+        }
+        markers.flush();
+        if (!markers) throw std::runtime_error("writing " + cli.long_marker_reads.string() + " failed");
     }
     std::ofstream file;
     if (!cli.long_stats.empty()) {

@@ -441,7 +441,7 @@ namespace {
 class PairedJob : public pipeline::Job {
 public:
     PairedJob(std::vector<PairedSample> const& samples, PairedOptions const& options)
-        : m_samples(samples), m_model(options.setup) {
+        : m_samples(samples), m_model(options.setup), m_markers(options.markers) {
         for (auto const& sample : samples) {
             if (sample.host_pairs > 0 && !m_host) {
                 if (options.host.empty()) throw std::runtime_error(sample.name + ": host pairs without a host (--host_folder)");
@@ -508,6 +508,12 @@ public:
         std::string fq[2], fragment, name;
         MadeRead r1, r2;
         bool const both = !sample.r2.empty();
+        // Whether the pair overlaps a marker gene: its reads' places in the genome, read 1 the fragment's first bases
+        // (its last, on the contig, if the fragment was reverse complemented), read 2 the other end.
+        std::string const* genome_name = !host && m_markers ? &sample.genomes[item.genome].name : nullptr;
+        bool const counted = genome_name && m_markers->Has(*genome_name);
+        std::size_t marker_contig = 0;
+        std::uint64_t marker_start = 0, marker_want = 0;
         for (std::uint64_t i = 0; i < item.reads; ++i) {
             if (host) {
                 std::uint32_t const want = m_model.FragmentLength(rng, ~std::uint64_t{0} >> 1);
@@ -530,8 +536,23 @@ public:
                 }
                 contigs->Extract(k, start, want, fragment);
                 name = contigs->names[k] + "-" + std::to_string(item.first_read + i + 1);
+                marker_contig = k;
+                marker_start = start;
+                marker_want = fragment.size();
             }
-            if (rng.Uniform() < 0.5) ReverseComplement(fragment);
+            bool const reversed = rng.Uniform() < 0.5;
+            if (reversed) ReverseComplement(fragment);
+            if (counted) {
+                std::uint64_t const read = std::min<std::uint64_t>(static_cast<std::uint64_t>(length), marker_want);
+                std::uint64_t const head = marker_start, tail = marker_start + marker_want - read;  // the two ends
+                std::string const& contig = contigs->names[marker_contig];
+                bool const first = m_markers->Overlaps(*genome_name, contig, reversed ? tail : head,
+                                                       (reversed ? tail : head) + read);
+                bool const second = both && m_markers->Overlaps(*genome_name, contig, reversed ? head : tail,
+                                                                (reversed ? head : tail) + read);
+                piece.marker_first_reads += first;
+                piece.marker_reads += first || second;
+            }
             m_model.Pair(fragment, m_run[s], rng, rng2, r1, both ? &r2 : nullptr, &piece.errors);  // read 1s the same either way
             piece.template_bases += fragment.size();
             for (int r = 0; r < (both ? 2 : 1); ++r) {
@@ -555,6 +576,7 @@ public:
 private:
     std::vector<PairedSample> const& m_samples;
     IlluminaModel m_model;
+    std::shared_ptr<MarkerPositions const> m_markers;
     std::unique_ptr<Host> m_host;
     std::vector<double> m_run;
     std::uint64_t m_pairs_per_item = 2000;

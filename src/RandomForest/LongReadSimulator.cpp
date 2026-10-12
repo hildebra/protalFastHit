@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "LongReadSimulator.h"
+#include "MarkerPositions.h"
 
 #include <algorithm>
 #include <cctype>
@@ -550,6 +551,7 @@ public:
         std::string fastq, templ;
         MadeRead read;
         std::string const prefix = "@g" + std::to_string(item.genome) + "x_";
+        bool const counted = !host && m_options.markers && m_options.markers->Has(genome.name);
         for (std::size_t i = 0; i < item.lengths.size(); ++i) {
             std::uint32_t const length = item.lengths[i];
             if (host) {
@@ -572,6 +574,10 @@ public:
                     for (int attempt = 1; attempt < kPlacements && start + length > contigs->lengths[k]; ++attempt) place();
                 }
                 contigs->Extract(k, start, length, templ);
+                if (counted && m_options.markers->Overlaps(genome.name, contigs->names[k], start, start + templ.size())) {
+                    ++piece.marker_reads;
+                    ++piece.marker_first_reads;
+                }
             }
             if (rng.Uniform() < 0.5) ReverseComplement(templ);
             if (m_qshmm) m_qshmm->Mutate(templ, rng, read, &piece.errors);
@@ -609,7 +615,10 @@ std::vector<LongSampleResult> SimulateLongReads(std::vector<LongSample> const& s
     std::vector<LongSampleResult> results;
     for (std::size_t s = 0; s < samples.size(); ++s) {
         results.push_back({samples[s].name, totals[s].reads, totals[s].template_bases, totals[s].read_bases,
-                           totals[s].errors, totals[s].rounds});
+                           totals[s].errors, totals[s].rounds, totals[s].genome_reads, totals[s].genome_marker_reads});
+        for (auto* counts : {&results.back().genome_reads, &results.back().genome_marker_reads}) {
+            counts->resize(samples[s].genomes.size(), 0);  // a genome drawn for no read has none
+        }
     }
     return results;
 }

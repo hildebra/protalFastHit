@@ -124,7 +124,11 @@ struct LongSampleResult {
     std::string name;
     std::uint64_t reads = 0, template_bases = 0, read_bases = 0, errors = 0;
     std::uint32_t rounds = 0;
+    // By the sample's genome (LongSample::genomes): its reads, and with markers those that overlap a marker gene.
+    std::vector<std::uint64_t> genome_reads, genome_marker_reads;
 };
+
+class MarkerPositions;
 
 struct LongReadOptions {
     LongReadSetup setup;
@@ -132,6 +136,7 @@ struct LongReadOptions {
     int threads = 1;
     std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
     bool plain_pipes = false;            // outputs that are named pipes get plain FASTQ
+    std::shared_ptr<MarkerPositions const> markers;  // count the reads that overlap a marker gene, or none
 };
 
 // The samples' reads, on `threads` threads; the results in the samples' order. Throws on any failure (a genome that

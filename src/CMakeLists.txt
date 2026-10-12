@@ -108,6 +108,8 @@ set(PROTAL_LIB_SOURCES
         RandomForest/GenomeStore.cpp
         RandomForest/LongReadSimulator.h
         RandomForest/LongReadSimulator.cpp
+        RandomForest/MarkerPositions.h
+        RandomForest/MarkerPositions.cpp
 )
 
 add_library(protal_lib

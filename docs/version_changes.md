@@ -39,6 +39,12 @@ for this page.
   (each lane a sample of its own before). A lane whose mate files hold different numbers of reads fails the
   sample. `protal_map_utils generate` makes Illumina's lane files of a sample one sample (`--split-lanes`: a
   sample per lane, as before) ([running.md](running.md#several-files-of-one-sample)).
+- **F1 over the species the marker genes can see** (2026-10-12). `simulate_metagenomes --gene_positions`
+  counts each genome's reads that overlap a marker gene; a GTDB build passes the release's positions, the
+  training tables get `meta_marker_reads` and `<table>.unseen.tsv`, and the trainer and `summary.txt` add an
+  F1 with only the species whose marker genes got reads present ([databases.md](databases.md#3-check-the-result)).
+  At r226 v24b 60-76% of the false negatives had at most two reads of their own on the taxon
+  ([report](claude/2026-10-12-r226-v24b-errors/README.md)). Untested at r226.
 
 ## What 0.8.2 adds
 

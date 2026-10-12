@@ -272,6 +272,12 @@ def parse_args(argv=None):
                                        "seed): scored with the fitted model and reported, by depth and by rank; its "
                                        "scenarios' rows (meta_scenario) are the scenarios' hold-out samples, reported "
                                        "apart (section Scenarios)")
+    p.add_argument("--unseen-file", default="auto",
+                   help="the training table's present species with reads on a marker gene but no row "
+                        "(collect_training_data.py --gene_positions: <table>.unseen.tsv), counted as missed in the F1 "
+                        "over the species whose marker genes got reads (section Marker truth); auto (default): the file "
+                        "beside --truth-file, if there; none: not counted")
+    p.add_argument("--test-unseen-file", default="auto", help="as --unseen-file, of --test-file")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4,
                    help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
@@ -1630,6 +1636,93 @@ def default_calls(frame, p, opts, depth_knobs=None):
     return scores, knobs, scores >= knobs
 
 
+MARKER_COLUMN = "meta_marker_reads"  # collect_training_data.py --gene_positions: a present taxon's reads on a marker gene
+
+
+def unseen_rows(path_arg, table_path):
+    """A table's present species of the database with reads on a marker gene but no row (collect_training_data.py's
+    <table>.unseen.tsv): the file given, or with auto the one beside the table; None without one."""
+    path = path_arg
+    if path_arg == "auto":
+        path = table_path[:-len(".tsv")] + ".unseen.tsv" if table_path and table_path.endswith(".tsv") else None
+    if not path or path == "none" or not os.path.isfile(path):
+        return None
+    return pd.read_csv(path, sep="\t", dtype={"meta_scenario": str, "meta_sample": str}, keep_default_na=False)
+
+
+def marker_truth_row(label, frame, y, p, opts, depth_knobs, unseen):
+    """A row of the marker truth's table: the calls protal makes by default on these rows (default_calls), scored with
+    the simulation's truth and with the species whose marker genes got reads only. A present taxon without any such
+    read (meta_marker_reads 0: present, but not in the marker genes) is left out, called or not; one not counted (no
+    gene positions for its genome) is kept; `unseen` present species with such reads but no row count as missed."""
+    ok = ~np.isnan(p)
+    frame, y, p = frame[ok], y[ok], p[ok]
+    _, _, call = default_calls(frame, p, opts, depth_knobs)
+    markers = pd.to_numeric(frame[MARKER_COLUMN], errors="coerce").to_numpy(dtype=float)
+    blind = (y == 1) & (markers < 1)  # unknown (NaN) compares False: kept
+    tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+    tp_m = int((call & (y == 1) & ~blind).sum())
+    fn_m = int((~call & (y == 1) & ~blind).sum()) + unseen
+
+    def f1(tp, fp, fn):
+        return 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None
+    return {**label, "samples": frame["meta_sample"].nunique() if "meta_sample" in frame else 1,
+            "present": int(y.sum()), "absent": int((y == 0).sum()), "TP": tp, "FP": fp, "FN": fn, "F1": f1(tp, fp, fn),
+            "present, no marker read": int(blind.sum()), "of them called": int((blind & call).sum()),
+            "present, not counted": int(((y == 1) & np.isnan(markers)).sum()), "unseen": unseen,
+            "TP markers": tp_m, "FN markers": fn_m, "F1 markers": f1(tp_m, fp, fn_m),
+            "sensitivity markers": tp_m / (tp_m + fn_m) if tp_m + fn_m else None}
+
+
+def study_marker_truth(report, df, p_species, test, test_p, opts, depth_knobs, unseen_training, unseen_test):
+    """F1 over the species the marker genes can see (collect_training_data.py --gene_positions): as protal calls by
+    default, with species held out (all training rows, the design's, each scenario's hold-in samples), on the
+    independent test set and on each scenario's hold-out samples; beside the F1 with the simulation's truth."""
+    frames = [f for f in (df, test) if f is not None]
+    if not frames or not all(MARKER_COLUMN in f.columns for f in frames):
+        return
+    counted = any(pd.to_numeric(f[MARKER_COLUMN], errors="coerce").notna().any() for f in frames)
+    if not counted:
+        report.add("")
+        report.add(f"marker truth: the tables' {MARKER_COLUMN} are empty (collected without --gene_positions)")
+        return
+
+    def unseen_of(table, scenario=None):
+        if table is None:
+            return 0
+        return int(len(table) if scenario is None else (table["meta_scenario"].fillna("") == scenario).sum())
+    rows = []
+    if p_species is not None:
+        y, names = df["truth"].to_numpy(), scenario_of(df)
+        rows.append(marker_truth_row({"set": "species held out", "scenario": "(all)"}, df, y, p_species, opts,
+                                     depth_knobs, unseen_of(unseen_training)))
+        for name in [""] + sorted(set(names[names != ""])):
+            mask = names == name
+            if mask.any():
+                rows.append(marker_truth_row({"set": "species held out" if name == "" else "hold-in, species held out",
+                                              "scenario": name or "(design)"}, df[mask], y[mask], p_species[mask], opts,
+                                             depth_knobs, unseen_of(unseen_training, name)))
+    if test is not None and test_p is not None:
+        y, names = test["truth"].to_numpy(), scenario_of(test)
+        for name in [""] + sorted(set(names[names != ""])):
+            mask = names == name
+            if mask.any():
+                rows.append(marker_truth_row({"set": "independent test set" if name == "" else "hold-out",
+                                              "scenario": name or "(design)"}, test[mask], y[mask], test_p[mask], opts,
+                                             depth_knobs, unseen_of(unseen_test, name)))
+    if not rows:
+        return
+    report.section("Marker truth: the species whose marker genes got reads")
+    report.add(f"At the model's {knob_label(depth_knobs, opts.knob)}, as protal calls by default. F1: with the "
+               "simulation's truth (every species simulated in the sample); F1 markers: with only the species whose "
+               f"genomes gave reads on a marker gene ({MARKER_COLUMN}, the simulator's count, --gene_positions): a present "
+               "taxon without such a read is left out (neither found nor missed, called or not); the database's present "
+               "species with such reads but no row (unseen, <table>.unseen.tsv) count as missed. present, not counted: "
+               "taxa whose genomes have no gene positions, kept as present.")
+    report.table(pd.DataFrame(rows))
+    report.data["marker_truth"] = {"knob": knob_label(depth_knobs, opts.knob), "rows": rows}
+
+
 def scenario_row(label, frame, y, p, opts, depth_knobs=None):
     """A row of the scenario table: the calls protal makes by default (the knob, or the knob curve) on these rows, their
     errors and rates, the false positives closest to a species the database lacks (meta_novel_level), and the highest
@@ -2091,6 +2184,9 @@ def train(opts):
     write_calls(prefix + ".calls.tsv.gz", df, (p or {}).get("species"), test if opts.test_file else None, test_p, opts,
                 depth_knobs)
     timing["calls"] = time.time() - t0
+    study_marker_truth(report, df, (p or {}).get("species"), test if opts.test_file else None, test_p, opts, depth_knobs,
+                       unseen_rows(opts.unseen_file, opts.truth_file),
+                       unseen_rows(opts.test_unseen_file, opts.test_file) if opts.test_file else None)
 
     # Export, and check that the file scores as the model does.
     report.section("Model file")
@@ -2216,6 +2312,14 @@ def train(opts):
             warnings.append(f"the independent test set scores F1 {test['F1']:.3f} against {species['F1']:.3f} with species "
                             "held out in training: the training design misses what the test set has (see its depth "
                             "table)")
+    marker = {(r["set"], r["scenario"]): r for r in report.data.get("marker_truth", {}).get("rows", [])}
+    parts = [f"{label} F1 {fmt(r['F1'])} -> {fmt(r['F1 markers'])} ({r['present, no marker read']} present without a "
+             f"marker read left out, {r['unseen']} unseen counted as missed)"
+             for label, r in (("species held out", marker.get(("species held out", "(all)"))),
+                              ("independent test set", marker.get(("independent test set", "(design)")))) if r]
+    if parts:
+        report.add(f"with only the species whose marker genes got reads, at the model's "
+                   f"{report.data['marker_truth']['knob']}: " + "; ".join(parts))
     auto = report.data.get("features_auto")
     if auto:
         report.add(f"feature set (--features {opts.features}): {auto['chosen']}: {auto['why']}")

@@ -337,6 +337,15 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
   `summary.txt` has a row for each.
 - **Feature set chosen**: each candidate set's F1 with species held out and on every test set (the
   design's and each scenario's hold-out); `summary.txt` and the console give the winner and why.
+- **Marker truth** (since 2026-10-12): F1 as protal calls with only the species whose marker genes
+  got reads counted as present. The simulator counts each genome's reads that overlap a marker gene
+  (`simulate_metagenomes --gene_positions`, the release's `gene_positions.tsv`; the manifests'
+  `marker_read_pairs` and `marker_first_reads`), the training tables carry them as
+  `meta_marker_reads`, and a species of the database with such reads but no row is in
+  `<table>.unseen.tsv` and counts as missed. At r226 v24b 60-76% of the false negatives had at most
+  two reads of their own on the taxon ([report](claude/2026-10-12-r226-v24b-errors/README.md)): this
+  F1 tells the method's errors from what the reads cannot show. `summary.txt` has its rows
+  (`..., marker truth`).
 
 [The presence model](#the-presence-model) explains the reports; [features.md](features.md) lists
 what the models use.

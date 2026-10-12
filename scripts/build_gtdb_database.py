@@ -1865,6 +1865,30 @@ def model_scores(read_types, prefixes):
     return f"F1 with species held out (knob 0.5){'/on the test set (as protal calls)' if with_test else ''}: {', '.join(scores)}"
 
 
+def marker_scores(read_types, prefixes):
+    """Each model's F1 as protal calls, with the simulation's truth and with only the species whose marker genes got
+    reads (the trainer's section Marker truth), with species held out and on the independent test set, in a few words;
+    None if no trainer had the counts."""
+    scores = []
+    for t in read_types:
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                rows = (json.load(fh).get("marker_truth") or {}).get("rows", [])
+        except (OSError, ValueError):
+            continue
+        sets = {(r["set"], r["scenario"]): r for r in rows}
+        parts = [f"{fmt_f1(r['F1'])} -> {fmt_f1(r['F1 markers'])}"
+                 for r in (sets.get(("species held out", "(all)")), sets.get(("independent test set", "(design)"))) if r]
+        if parts:
+            scores.append(f"{t} {'/'.join(parts)}")
+    return ("F1 as protal calls, with every species simulated -> with only those whose marker genes got reads (species "
+            "held out/test set): " + ", ".join(scores)) if scores else None
+
+
+def fmt_f1(value):
+    return "-" if value is None else f"{value:.3f}"
+
+
 def feature_choices(read_types, prefixes):
     """For each model whose trainer chose its feature set (--features auto), which set won and why (its F1 with
     species held out against the other sets', the rule, and the sets' F1 on the test sets), from its .metrics.json:
@@ -1944,6 +1968,15 @@ def summary_lines(read_types, prefixes, db):
             if m["scenario"] != "(design)" and m["set"] in ("hold-out", "hold-in, species held out", "hold-in, in sample"):
                 rows.append(row(t, f"{m['scenario']}: {m['set']}", own, m["TP"], m["FP"], m["absent"] - m["FP"], m["FN"],
                                 m["FP/sample"]))
+        # The marker truth (machine_learning_cmdline.py, section Marker truth): only the species whose marker genes got
+        # reads present, as protal calls; with species held out (all training samples), the independent test set and
+        # each scenario's hold-out samples.
+        for m in (metrics.get("marker_truth") or {}).get("rows", []):
+            if (m["set"], m["scenario"]) in (("species held out", "(all)"), ("independent test set", "(design)")) or \
+                    m["set"] == "hold-out":
+                where = m["set"] if m["set"] != "hold-out" else f"{m['scenario']}: hold-out"
+                rows.append(row(t, f"{where}, marker truth", own, m["TP markers"], m["FP"], m["absent"] - m["FP"],
+                                m["FN markers"], m["FP"] / max(1, m["samples"])))
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     table = ["  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip() for r in [header, *rows]]
     choices = feature_choices(read_types, prefixes)
@@ -1955,7 +1988,9 @@ def summary_lines(read_types, prefixes, db):
             "species held out: each taxon scored by models that did not see its species; independent test set: "
             "samples of another design, scored by the final model; <scenario>: hold-out: the scenario's samples of "
             "the test set (never trained on), hold-in: its training samples, scored with species held out, or in "
-            "sample (by the final model, fitted on them). Details: trained_model*.report.txt", ""] + table
+            "sample (by the final model, fitted on them); marker truth: present only the species whose genomes gave "
+            "reads on a marker gene (the others left out, called or not; those without a row counted as FN), as protal "
+            "calls. Details: trained_model*.report.txt", ""] + table
 
 
 def composition_report(read_types, prefixes, training, test, heldout, logs, threads=1):
@@ -3467,7 +3502,26 @@ def main():
             command += ["--profile_ahead"]
         if args.weighted_site_shift:
             command += ["--weighted_site_shift"]
+        positions = marker_positions()
+        if positions:  # meta_marker_reads: the trainers' F1 over the species whose marker genes got reads
+            command += ["--gene_positions", positions]
         return command
+
+    def marker_positions():
+        """The release's gene_positions.tsv (every genome of the table placed, held-out species included), copied to
+        the samples' disk once, where the simulators read it while the finished database's build packs its own; None
+        without one (--no-gene-neighbours)."""
+        target = os.path.join(samples_root, "gene_positions.tsv")
+        source = next((p for p in (os.path.join(f, "gene_positions.tsv") for f in (converted, db, full) if f)
+                       if os.path.isfile(p)), None)
+        if source is None:
+            return target if os.path.isfile(target) else None
+        if not os.path.isfile(target) or os.path.getmtime(target) < os.path.getmtime(source) or \
+                os.path.getsize(target) != os.path.getsize(source):
+            os.makedirs(samples_root, exist_ok=True)
+            shutil.copyfile(source, target + ".partial")
+            os.replace(target + ".partial", target)
+        return target
 
     genome_store = None  # --genome-store
     if args.genome_store == "auto":
@@ -3828,6 +3882,8 @@ def main():
         final_build.resume()
     each = f" ({', '.join(f'{t} {clock(job.seconds)}' for t, job in trainers.items())})" if len(trainers) > 1 else ""
     Steps.done(f"trained in {clock(seconds)}{each}; {model_scores(read_types, prefixes)}")
+    if marker_scores(read_types, prefixes):
+        Steps.done(marker_scores(read_types, prefixes))
     for t, name, why in feature_choices(read_types, prefixes):
         Steps.done(f"{t} model's features: {name}: {why}")
     if selected:

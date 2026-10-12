@@ -115,11 +115,16 @@ namespace pipeline {
     struct Piece {
         std::string bytes[2];  // per output file: Make's FASTQ, packed by the pipeline (Pack) before it is written
         std::uint64_t reads = 0, template_bases = 0, read_bases = 0, errors = 0;
+        // Of its reads (pairs), those that overlap a marker gene (MarkerPositions; a pair by either read), and those
+        // whose first read does.
+        std::uint64_t marker_reads = 0, marker_first_reads = 0;
     };
 
     struct Totals {
         std::uint64_t reads = 0, template_bases = 0, read_bases = 0, errors = 0;
         std::uint32_t rounds = 0;  // rounds planned
+        // By the sample's genome (Item::genome): its reads, and those that overlap a marker gene (Piece).
+        std::vector<std::uint64_t> genome_reads, genome_marker_reads, genome_marker_first_reads;
     };
 
     class Job {

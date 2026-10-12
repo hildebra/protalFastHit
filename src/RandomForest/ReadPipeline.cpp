@@ -671,6 +671,15 @@ private:
         s.totals.template_bases += piece.template_bases;
         s.totals.read_bases += piece.read_bases;
         s.totals.errors += piece.errors;
+        if (item.genome >= 0) {
+            auto const g = static_cast<std::size_t>(item.genome);
+            for (auto* counts : {&s.totals.genome_reads, &s.totals.genome_marker_reads, &s.totals.genome_marker_first_reads}) {
+                if (counts->size() <= g) counts->resize(g + 1, 0);
+            }
+            s.totals.genome_reads[g] += piece.reads;
+            s.totals.genome_marker_reads[g] += piece.marker_reads;
+            s.totals.genome_marker_first_reads[g] += piece.marker_first_reads;
+        }
         s.pieces[k] = std::move(piece);
         ++s.processed;
         if (genome) {

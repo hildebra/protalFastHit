@@ -381,10 +381,12 @@ void parse_congener_groups(const std::string& text, ProfileDesignOptions& option
 // inserted between them: downstream consumers read manifests by column name, so growing the
 // header on the right keeps every existing reader working. art_seed: a genome's reads (fragments,
 // errors); run_seed: its sample's quality offset; host_seed: the sample's host reads (the same on
-// every row of a sample). With all three a replay (--from_manifest) makes the same reads.
+// every row of a sample). With all three a replay (--from_manifest) makes the same reads. marker_read_pairs and
+// marker_first_reads (--gene_positions): the genome's pairs that overlap a marker gene by either read, and by the first
+// (empty when not counted: without the option, the genome's positions, its reads, or, for pairs, a second read).
 static constexpr const char* kManifestHeader =
     "sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance"
-    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\trun_seed\thost_seed\n";
+    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\trun_seed\thost_seed\tmarker_read_pairs\tmarker_first_reads\n";
 
 static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, const GenomeAssignment& assignment) {
     out << sample.sample_name << '\t' << assignment.genome.name << '\t' << assignment.species << '\t'
@@ -397,6 +399,10 @@ static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, c
     if (sample.run_seed) out << *sample.run_seed;
     out << '\t';
     if (sample.host_seed) out << *sample.host_seed;
+    out << '\t';
+    if (assignment.marker_read_pairs) out << *assignment.marker_read_pairs;
+    out << '\t';
+    if (assignment.marker_first_reads) out << *assignment.marker_first_reads;
     out << '\n';
 }
 
@@ -580,11 +586,36 @@ void MetagenomeSimulator::write_all_reads(
     options.threads = std::max(1, illumina_.threads);
     options.genome_store = illumina_.genome_store;
     options.plain_pipes = illumina_.plain_pipes;
+    if (!illumina_.gene_positions.empty()) {  // the positions of the run's genomes only
+        std::unordered_set<std::string> accessions;
+        for (auto const& sample : samples) {
+            for (auto const& assignment : sample.assignments) {
+                accessions.insert(MarkerPositions::AccessionOf(assignment.genome.name));
+            }
+        }
+        options.markers = MarkerPositions::Load(illumina_.gene_positions, accessions, illumina_.marker_min_overlap);
+        std::cout << "marker genes: " << options.markers->Genes() << " placed in the run's genomes ("
+                  << illumina_.gene_positions.string() << "); a read counts on one if it shares "
+                  << options.markers->MinOverlap() << " bases with it" << std::endl;
+    }
     protal::Benchmark timer("write the reads of " + std::to_string(samples.size()) + " samples");
     timer.Start();
-    SimulatePairs(paired, options);
+    auto const totals = SimulatePairs(paired, options);
     timer.Stop();
     timer.PrintResults();
+    if (!options.markers) return;
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        auto const& t = totals[i];
+        for (std::size_t g = 0; g < samples[i].assignments.size(); ++g) {
+            auto& assignment = samples[i].assignments[g];
+            if (!options.markers->Has(assignment.genome.name)) continue;  // unknown, not none
+            auto count = [&](std::vector<std::uint64_t> const& by_genome) {
+                return g < by_genome.size() ? by_genome[g] : std::uint64_t{0};
+            };
+            if (!illumina_.first_reads_only) assignment.marker_read_pairs = count(t.genome_marker_reads);
+            assignment.marker_first_reads = count(t.genome_marker_first_reads);
+        }
+    }
 }
 
 std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(

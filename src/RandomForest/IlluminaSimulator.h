@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "LongReadSimulator.h"
+#include "MarkerPositions.h"
 #include "ReadPipeline.h"
 
 namespace protal::sim {
@@ -133,10 +134,13 @@ struct PairedOptions {
     int threads = 1;
     std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
     bool plain_pipes = false;            // outputs that are named pipes get plain FASTQ
+    std::shared_ptr<MarkerPositions const> markers;  // count the pairs that overlap a marker gene, or none
 };
 
 // The samples' reads (pipeline::Run): each genome's pairs, then the host's, in work items of ~600 kB of FASTQ per
-// read file, each with a random stream of the genome's seed and its place. -> each sample's totals (reads: pairs).
+// read file, each with a random stream of the genome's seed and its place. -> each sample's totals (reads: pairs;
+// with markers, by genome the pairs a read of which overlaps a marker gene, and those whose first read does: in a
+// sample of first reads only, the two are the same).
 std::vector<pipeline::Totals> SimulatePairs(std::vector<PairedSample> const& samples, PairedOptions const& options);
 
 // Statistics of a profile's reads, from `pairs` pairs of a random genome: per read, the written quality's mean by

@@ -13,6 +13,7 @@
 
 #include "IO/ThreadedGzStream.h"
 #include "RandomForest/LongReadSimulator.h"
+#include "RandomForest/MarkerPositions.h"
 #include "TestUtil.h"
 
 using namespace protal::sim;
@@ -373,4 +374,33 @@ TEST(LongReadSimulation, SamplesTemplatesAndThreads) {
     EXPECT_EQ(tasks[1].genomes[0].weight, 1000);
     auto const unknown = dir.Write("unknown.tsv", "sample\tgenome\tfasta\tweight\thost\nz\tGA\t/a\t1\t0\n");
     EXPECT_THROW(ReadLongSamples(samples_tsv, unknown), std::runtime_error);
+}
+
+// The long reads that overlap a marker gene (simulate_metagenomes --gene_positions --long_marker_reads): every read of
+// a genome that is all one gene, some of one with a gene in the middle, none counted for a genome without positions.
+TEST(LongReadSimulation, MarkerReadsCounted) {
+    ScratchDir dir("long markers");
+    std::mt19937 gen(8);
+    auto const whole = dir.Write("A.fna", ">a\n" + protal::test::RandomSequence(30000, gen) + "\n");
+    auto const part = dir.Write("B.fna", ">b\n" + protal::test::RandomSequence(30000, gen) + "\n");
+    auto const genes = dir.Write("positions.tsv",
+        "accession\ttaxid\tcontig\tcontig_length\tcircular\tgene\tstart\tend\tstrand\tplaced\tkmer_share\n"
+        "GCA_000001.1\t1\ta\t30000\t0\t7\t1\t30000\t+\texact\t1\n"
+        "GCA_000002.1\t2\tb\t30000\t0\t7\t14001\t15000\t+\texact\t1\n");
+    LongReadOptions options;
+    options.setup = LongReadSetup::Parse("hifi:1000:300:3");
+    options.threads = 2;
+    options.markers = MarkerPositions::Load(genes, {}, 50);
+    std::vector<LongSample> samples(1);
+    samples[0] = {"s", dir.path / "s.fq.zst", 600'000, 3,
+                  {{"GCA_000001.1", whole, 30000.0, false}, {"GCA_000002.1", part, 30000.0, false},
+                   {"GCA_000003.1", part, 30000.0, false}}};
+    auto const results = SimulateLongReads(samples, options);
+    auto const& r = results[0];
+    ASSERT_EQ(r.genome_reads.size(), 3u);
+    EXPECT_EQ(r.genome_reads[0] + r.genome_reads[1] + r.genome_reads[2], r.reads);
+    EXPECT_EQ(r.genome_marker_reads[0], r.genome_reads[0]);
+    EXPECT_GT(r.genome_marker_reads[1], 0u);
+    EXPECT_LT(r.genome_marker_reads[1], r.genome_reads[1] / 2);
+    EXPECT_EQ(r.genome_marker_reads[2], 0u);
 }

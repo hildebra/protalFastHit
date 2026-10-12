@@ -27,6 +27,9 @@ struct GenomeAssignment {
     // ART's --rndSeed for this genome. Recorded in the manifest so that a replay
     // (--from_manifest) reproduces the reads themselves, not just the composition.
     std::optional<std::uint64_t> art_seed;
+    // With --gene_positions, of its read pairs those that overlap a marker gene (by either read; none with first reads
+    // only), and those whose first read does; unknown without the genome's positions or its reads.
+    std::optional<std::uint64_t> marker_read_pairs, marker_first_reads;
 };
 
 enum class AbundanceDistribution {
@@ -122,6 +125,8 @@ struct IlluminaOptions {
     bool first_reads_only{false};        // only the _R1 files (the same reads as with both)
     std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
     bool plain_pipes{false};             // outputs that are named pipes get plain FASTQ
+    std::filesystem::path gene_positions;  // the marker genes' places (MarkerPositions.h): count the reads on them
+    std::uint32_t marker_min_overlap{50};  // the bases a read shares with a marker gene to count
 };
 
 struct SampleOutput {

@@ -179,6 +179,12 @@ def parse_args(argv=None):
                    help="protal --weighted_site_shift in this collection's protal runs: an unsure read's site shift also "
                         "discounts its differences at the columns its family's genera change freely (column_weights.tsv); "
                         "off by default, as in protal (its default 2026-10-11 to 2026-10-12)")
+    p.add_argument("--gene_positions",
+                   help="a gene_positions.tsv of every genome simulated (the release's, held-out species included): "
+                        "simulate_metagenomes counts each genome's reads that overlap a marker gene, and the tables get "
+                        "meta_marker_reads (a present taxon's such reads) and <table>.unseen.tsv (present species of the "
+                        "database with such reads but no row), for an F1 over the species the marker genes can see "
+                        "(machine_learning_cmdline.py). The reads are the same with it")
     p.add_argument("--protal_lock", help="--follow: a file locked while protal runs, so that the protal runs of two "
                                          "collections that follow their simulations take turns")
     p.add_argument("--stream_above", type=float, default=0.0,
@@ -296,7 +302,7 @@ def writes_unmapped(unit, opts):
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
                 "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain",
-                "meta_scenario", "meta_novel_distance"]
+                "meta_scenario", "meta_novel_distance", "meta_marker_reads"]
 # meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont); for a scenario its
 # preset's, around which each sample's own depth is drawn (scenarios.depth_factors).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
@@ -313,9 +319,21 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 # (meta_novel_congener), the distance between its reference and the nearest such species' (the median Mash distance of
 # their marker genes, species_neighbours.tsv's): an absent taxon's distance to the twin its reads come from, a present
 # taxon's to the congener simulated beside it; empty beyond 0.15 or without the table.
+# meta_marker_reads (--gene_positions): for a present taxon, its genomes' reads in the sample that overlap a marker
+# gene (pe: pairs by either read; se: first reads; long reads: reads), the simulator's count; empty where not counted. A
+# species whose marker genes got no read is present in the sample but cannot be seen by them.
 INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
+# <table>.unseen.tsv (--gene_positions): the present species of the database with reads on a marker gene that have no
+# row (protal reported nothing of them): misses that the table's rows cannot show.
+UNSEEN_COLUMNS = ["meta_design", "meta_sample", "meta_scenario", "taxon_name", "marker_reads"]
+MARKER_READS = "marker_reads.tsv"  # a long-read unit's sim folder: its genomes' reads on a marker gene, by sample
+
+
+def unseen_table(read_type):
+    """The file of a read type's present species without a row (<table>.unseen.tsv)."""
+    return TABLES[read_type][:-len(".tsv")] + ".unseen.tsv"
 MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE", "UNMAPPED_READS"]
 # A map row without a column (one of an older collector's map, --also_profile) takes its default.
 MAP_DEFAULTS = {"UNMAPPED_READS": "count"}
@@ -511,6 +529,44 @@ def simulated_genomes(point_dir):
         species = row["taxonomy"].split(";")[-1]
         genomes.setdefault(row["sample"], {}).setdefault(species, []).append(row["genome"])
     return genomes
+
+
+def marker_counts(point_dir):
+    """sample -> genome -> [pairs, first reads] on a marker gene (simulate_metagenomes --gene_positions; None where not
+    counted) of a paired-end point: from its sim folder's manifest.tsv, or for a streamed point from the manifests its
+    streamed runs left there (manifest.stream_pe.tsv, manifest.stream_se.tsv; the same first reads either way)."""
+    counts = {}
+    for name in ("manifest.tsv", "manifest.stream_pe.tsv", "manifest.stream_se.tsv"):
+        path = os.path.join(point_dir, "sim", name)
+        if not os.path.isfile(path):
+            continue
+        with open(path) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                got = counts.setdefault(row["sample"], {}).setdefault(row["genome"], [None, None])
+                for i, column in enumerate(("marker_read_pairs", "marker_first_reads")):
+                    if got[i] is None and row.get(column):
+                        got[i] = int(row[column])
+    return counts
+
+
+def long_marker_counts(unit, opts):
+    """sample -> genome -> reads on a marker gene of a long-read unit (its sim/marker_reads.tsv; None where not
+    counted), or {} without the file."""
+    path = os.path.join(point_dirs(unit["point"], opts)[1], MARKER_READS)
+    if not os.path.isfile(path):
+        return {}
+    counts = {}
+    with open(path) as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            counts.setdefault(row["sample"], {})[row["genome"]] = int(row["marker_reads"]) if row["marker_reads"] else None
+    return counts
+
+
+def taxon_markers(genomes, counts):
+    """meta_marker_reads of a taxon simulated from `genomes` (counts: genome -> reads on a marker gene, or None): their
+    sum, or "" if any is not counted."""
+    values = [counts.get(g) for g in genomes]
+    return "" if not values or any(v is None for v in values) else str(sum(values))
 
 
 def species_domains(genome_table):
@@ -750,6 +806,14 @@ def genome_store_args(opts):
     as the reads are the same with or without it."""
     store = getattr(opts, "genome_store", None)
     return ["--genome_store", os.path.abspath(store)] if store else []
+
+
+def marker_args(opts):
+    """simulate_metagenomes --gene_positions (--gene_positions): each genome's reads on a marker gene counted (the
+    manifests' marker_read_pairs and marker_first_reads); added to the commands run, never to a simulation's key, as
+    the reads are the same with or without it."""
+    path = getattr(opts, "gene_positions", None)
+    return ["--gene_positions", os.path.abspath(path)] if path else []
 
 
 def pipe_args(opts):
@@ -1097,7 +1161,8 @@ def simulate(point, index, opts, threads, clades, key):
     os.makedirs(sim, exist_ok=True)
     log = os.path.join(base, "simulate.log")
     with open(log, "w") as fh:
-        rc = subprocess.run(command + genome_store_args(opts), stdout=fh, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(command + genome_store_args(opts) + marker_args(opts), stdout=fh,
+                            stderr=subprocess.STDOUT).returncode
     if rc != 0:
         shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
         return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
@@ -1400,6 +1465,10 @@ def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
     command = [opts.simulator, "--long_samples", os.path.join(tmp, "samples.tsv"), "--long_genomes",
                os.path.join(tmp, "genomes.tsv"), "--long_setup", unit["setup"]["text"], "--long_stats", stats,
                "-t", str(threads)] + (["--long_model", model] if model else []) + genome_store_args(opts)
+    with contextlib.suppress(FileNotFoundError):  # an earlier run's counts
+        os.remove(os.path.join(sim, MARKER_READS))
+    if marker_args(opts):  # its genomes' reads on a marker gene, kept in sim (tmp goes once the run is done)
+        command += marker_args(opts) + ["--long_marker_reads", os.path.join(sim, MARKER_READS)]
     return {"rows": rows, "command": command, "base": base, "sim": sim, "tmp": tmp, "stats": stats, "threads": threads,
             "seconds": seconds, "written": written}
 
@@ -1601,20 +1670,33 @@ def write_table(read_type, units, opts, context):
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     table = os.path.join(opts.out, TABLES[read_type])
-    genomes_of = {}
+    unseen_path = os.path.join(opts.out, unseen_table(read_type))
+    genomes_of, markers_of = {}, {}
     distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
-    with open(table + ".partial", "w", newline="") as out:
+    with open(table + ".partial", "w", newline="") as out, open(unseen_path + ".partial", "w", newline="") as unseen_out:
         writer = csv.writer(out, delimiter="\t", lineterminator="\n")
+        unseen_writer = csv.writer(unseen_out, delimiter="\t", lineterminator="\n")
+        unseen_writer.writerow(UNSEEN_COLUMNS)
         for unit in units:
             point = unit["point"]
-            present = absent = strains = congeners = 0
+            present = absent = strains = congeners = unseen = 0
             attributed = collections.Counter()
+            long_counts = long_marker_counts(unit, opts) if drawn(unit) else None
             for dump in dumps_of(unit, opts):
                 sample = os.path.basename(dump).split(".profile")[0]
                 community_point, community = community_of(unit, sample, opts)
                 if community_point["name"] not in genomes_of:
                     genomes_of[community_point["name"]] = simulated_genomes(point_dirs(community_point, opts)[0])
+                    markers_of[community_point["name"]] = marker_counts(point_dirs(community_point, opts)[0])
                 in_sample = genomes_of[community_point["name"]].get(community, {})
+                # Each genome's reads on a marker gene in this sample: long reads their own; se the community's first
+                # reads; pe its pairs.
+                if long_counts is not None:
+                    sample_markers = long_counts.get(sample, {})
+                else:
+                    which = 1 if read_type == "se" else 0
+                    sample_markers = {g: c[which] for g, c in markers_of[community_point["name"]].get(community, {}).items()}
+                seen = set()
                 novel_here = [s for s in in_sample if s in novel]
                 novel_genera = {genus_of(s) for s in novel_here}
                 novel_by_genus = collections.defaultdict(list)
@@ -1654,25 +1736,37 @@ def write_table(read_type, units, opts, context):
                             nearest = min((distance_to[taxon][s] for s in novel_by_genus[genus_of(taxon)]
                                            if s in distance_to[taxon]), default=None)
                             novel_distance = "" if nearest is None else f"{nearest:.4f}"
+                        markers = taxon_markers(in_sample[taxon], sample_markers) if is_present and taxon in in_sample \
+                            else ""
                         writer.writerow([unit["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
                                          novel_levels, level, relative, neighbour, read_type, insilico,
-                                         unit.get("scenario", ""), novel_distance] + row)
+                                         unit.get("scenario", ""), novel_distance, markers] + row)
+                        seen.add(taxon)
                         rows += 1
                         present += is_present
                         absent += not is_present
                         strains += rep == "0"
                         congeners += congener and not is_present
                         attributed[level] += bool(level)
+                # The database's species simulated here, with reads on a marker gene, that protal reported nothing of.
+                for taxon in sorted(set(in_sample) - seen):
+                    markers = taxon_markers(in_sample[taxon], sample_markers)
+                    if taxon in db_lineages and markers and int(markers) > 0:
+                        unseen_writer.writerow([unit["name"], sample, unit.get("scenario", ""), taxon, markers])
+                        unseen += 1
             by_level = ", ".join(f"{n} to {rank}" for rank, n in sorted(attributed.items()) if rank)
             print(f"{unit['name']}: {present} present ({strains} from other genomes than the representative) and "
                   f"{absent} absent taxa ({congeners} congeners of species the database lacks; closest to a species "
-                  f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps_of(unit, opts))} samples",
+                  f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps_of(unit, opts))} samples" +
+                  (f"; {unseen} present species of the database with reads on a marker gene and no row" if unseen else ""),
                   flush=True)
-            totals.update(present=present, absent=absent, samples=len(dumps_of(unit, opts)))
+            totals.update(present=present, absent=absent, samples=len(dumps_of(unit, opts)), unseen=unseen)
     os.replace(table + ".partial", table)
+    os.replace(unseen_path + ".partial", unseen_path)
     print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
-          f"sample{'s' if totals['samples'] != 1 else ''}", flush=True)
+          f"sample{'s' if totals['samples'] != 1 else ''}; {totals['unseen']} present species without a row but with "
+          f"reads on a marker gene ({unseen_path})", flush=True)
 
 
 _TABLES_WORK = None  # (units, opts, context) of write_tables, set before its worker processes fork
@@ -2202,7 +2296,7 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
                 command = pe_command(point, opts.threads)
                 command[command.index("-o") + 1] = out
                 command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
-                command += genome_store_args(opts) + pipe_args(opts)
+                command += genome_store_args(opts) + pipe_args(opts) + marker_args(opts)
                 companions.append((f"{opts.simulator} ({unit['name']})",
                                    command + (["--first_reads_only"] if first_only else []),
                                    os.path.join(base, f"stream_{unit['type']}.log")))
@@ -2226,6 +2320,11 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
             companions=companions)
     end_profiling(units, opts)
     for out in folders:
+        # A streamed run's manifest holds its genomes' reads on a marker gene (--gene_positions), which the design's in
+        # sim cannot (no reads): kept there as manifest.stream_pe.tsv or manifest.stream_se.tsv (marker_counts).
+        name, manifest = os.path.basename(out), os.path.join(out, "manifest.tsv")
+        if name.startswith("stream_") and os.path.isfile(manifest):
+            shutil.copy(manifest, os.path.join(os.path.dirname(out), "sim", f"manifest.{name}.tsv"))
         shutil.rmtree(out, ignore_errors=True)
     for unit, base, sim in drawn_runs:  # its pipes, and the key of a long-read unit made (none of its reads kept)
         for path in glob.glob(os.path.join(sim, "reads", "*")):
