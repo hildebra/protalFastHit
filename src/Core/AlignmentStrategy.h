@@ -308,7 +308,7 @@ namespace protal {
 
         // --weighted_site_shift: the shift also discounts a candidate's differences at the columns the family's genera
         // change freely (ScoreAlleles, with the GenomeLoader's column_weights.tsv; StrainAlleles.h ShiftOf). A run sets it from
-        // the option, on by default since 2026-10-11; a handler not told stays without it.
+        // the option, off by default (on 2026-10-11 to 2026-10-12); a handler not told stays without it.
         void SetWeightedShift(bool on) {
             m_weighted_shift = on;
         }

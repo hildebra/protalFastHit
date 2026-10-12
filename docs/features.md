@@ -571,7 +571,7 @@ All five are -1 without the table (a database built before 2026-10-10, `--column
 `--no_site_weights`). The training table also has `column_weight_coverage`, the share of the aligned bases at columns
 with an estimate, in no group: it says whether the species' family has the weights at all.
 
-**In the alignment scores** (`--weighted_site_shift`, on by default since 2026-10-11; `--no_weighted_site_shift`). The
+**In the alignment scores** (`--weighted_site_shift`, off by default; on from 2026-10-11 to 2026-10-12). The
 same weights enter the site shift of the reads protal is unsure about ([running.md](running.md#strain-alleles-in-the-alignment-scores)): of a candidate's
 differences that no allele explains and no polymorphic site covers, a substitution at a column conserved among the
 genus references at 3 nats or more counts in full, one below that half a difference (never less: the count of
@@ -580,8 +580,9 @@ ties). A read unsure between a species and its twin is then settled by the colum
 simulated worlds, whose every column is variable, it moved 3% of a strain's settled reads to congeners and cost
 0.006 of F1, so it was opt-in, and until 2026-10-11 the option never reached the alignment threads. Fixed, it was
 neutral to +0.003 of F1 on a small real world at ~1% of the alignment's instructions
-([report](claude/2026-10-11-r226-v23/README.md), section 8), and it is on by default; whether the conserved columns of
-GTDB's families make it pay, the next r226 build will say.
+([report](claude/2026-10-11-r226-v23/README.md), section 8), and it was on by default from 2026-10-11. The r226 v24b
+build, the first trained with it, showed no measurable F1 gain, and its short-read species depths were 1-2% lower
+([report](claude/2026-10-12-r226-v24b/README.md), section 4), so it is off by default again since 2026-10-12.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

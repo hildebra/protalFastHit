@@ -25,6 +25,15 @@ for this page.
 | 0.8.1 | `b3ac271` | 2026-10-11 | 22 | 0.8.0's features measured at r226 (v21-v23: strain alleles and ancestry sites +0.001-0.002 of F1 each, the site groups together +0.001-0.003) and acted on: the ancestry sites prebuilt by `--build` (profiling −47% of its instructions, the same profiles) and counted where the species' known genomes share them; the columns' conservation in the family from GTDB's own alignments (`weights`, 91 default features); up to 16 strain alleles per gene, the finished database's from every genome; the deep alleles' index entries off; more real strains and fewer in-silico ones in training; NCBI species taxids in the database and the profiles (`--ncbi_taxids`) |
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 
+## Since 0.8.2
+
+- **The weighted site shift off by default again** (2026-10-12). The first r226 build trained with it
+  (v24b) showed no measurable F1 gain, and its short-read species depths were 1-2% lower; on the small
+  real world, with the same samples, the shift lowered 19-22% of the called species' depths
+  ([report](claude/2026-10-12-r226-v24b/README.md), section 4). `--weighted_site_shift` turns it on, and
+  `build_gtdb_database.py --weighted-site-shift` trains with it. r226 v24b was built with 0.8.2's default:
+  profile it with `--weighted_site_shift` for the calls of its training.
+
 ## What 0.8.2 adds
 
 0.8.2 collects the 14 commits after 0.8.1: start-up, the aligner and its speed. No r226 build or cluster run
@@ -773,8 +782,8 @@ calls as 0.7.5 for short reads) and its memory at r226; strain mixtures and long
 HiFi reads; 0.7.4 on its own. 0.7.7 to 0.8.2 were not run on the benchmark world either: their
 accuracy shows only in the r226 builds' test sets ([r226 v18](claude/2026-10-08-r226-v18/README.md),
 [r226 v19](claude/2026-10-09-r226-v19/README.md), [r226 v21](claude/2026-10-09-r226-v21/README.md),
-[r226 v22](claude/2026-10-10-r226-v22/README.md), [r226 v23](claude/2026-10-11-r226-v23/README.md)),
-and no r226 build of 0.8.2 (Singletrack, the weighted site shift) has been evaluated yet.
+[r226 v22](claude/2026-10-10-r226-v22/README.md), [r226 v23](claude/2026-10-11-r226-v23/README.md),
+and for 0.8.2, with Singletrack and the weighted site shift, [r226 v24b](claude/2026-10-12-r226-v24b/README.md)).
 Every number above is from one laptop (6 threads) or one HPC node, on simulated worlds whose strains
 are 0.4-4% from their references at the markers.
 

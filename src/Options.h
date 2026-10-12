@@ -109,8 +109,8 @@ namespace protal {
         options.add_options("Alignment")
                 ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
                 ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling).", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ADAPTIVE_CANDIDATES)))
-                ("weighted_site_shift", "Short reads, with column weights in the database (column_weights.tsv): the site shift of a read protal is unsure about (--no_allele_scores) also takes half a difference off for each of the candidate's substitutions at a column the family's genera change freely (below 3 nats of conservation among the genus references; StrainAlleles.h ShiftOf), so that the columns that reliably differ settle the read. On by default since 2026-10-11 (this option only says so; --no_weighted_site_shift turns it off): ~1% of the alignment's instructions, and databases built since then train their models with it (on a small real world neutral to +0.003 of F1, docs/claude/2026-10-11-r226-v23, section 8; until 2026-10-11 the option never reached the alignment threads).")
-                ("no_weighted_site_shift", "Short reads: the site shift without the column weights' discount (--weighted_site_shift), as before 2026-10-11: for a database whose models were trained without it (built before 2026-10-11, such as r226 v23, or with build_gtdb_database.py --no-weighted-site-shift). Wins over --weighted_site_shift.")
+                ("weighted_site_shift", "Short reads, with column weights in the database (column_weights.tsv): the site shift of a read protal is unsure about (--no_allele_scores) also takes half a difference off for each of the candidate's substitutions at a column the family's genera change freely (below 3 nats of conservation among the genus references; StrainAlleles.h ShiftOf), so that the columns that reliably differ settle the read. Off by default again since 2026-10-12: at r226 (v24b) it lowered the short-read species' depth by 1-2% with no F1 gain measurable, and on a small real world, with the same samples, it lowered 19-22% of the called species' depths (docs/claude/2026-10-12-r226-v24b). On by default 2026-10-11 to 2026-10-12: a database built then (r226 v24b, build_metadata.tsv: weighted_site_shift on) trained its models with it, so profile it with this option for the calls of its training. ~1% of the alignment's instructions.")
+                ("no_weighted_site_shift", "Short reads: the site shift without the column weights' discount, the default (again since 2026-10-12; kept for the command lines of 2026-10-11). Wins over --weighted_site_shift.")
                 ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and --weighted_site_shift has nothing to weigh by. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
                 ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
@@ -251,7 +251,7 @@ namespace protal {
         std::string column_weights_alignment = "auto";
         bool no_ancestry_sites = false;
         bool no_site_weights = false;
-        bool weighted_site_shift = true;
+        bool weighted_site_shift = false;
         double index_alleles = 1;
         bool no_phasing = false;
         std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
@@ -389,8 +389,8 @@ namespace protal {
         std::string m_column_weights_alignment = "auto";  // --column_weights_alignment (--build): auto, msa, aa or nt
         bool m_no_ancestry_sites = false;  // --no_ancestry_sites (--build): no ancestry_sites.bin
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
-        bool m_weighted_site_shift = true;  // --weighted_site_shift (the default), --no_weighted_site_shift: the shift discounts
-                                            // differences at variable columns
+        bool m_weighted_site_shift = false;  // --weighted_site_shift (off by default since 2026-10-12): the shift discounts
+                                             // differences at variable columns
         bool m_no_phasing = false;
         std::string m_strain_spill;  // --strain_spill
         bool m_fastalign = false;
@@ -757,7 +757,7 @@ namespace protal {
             result_str << "align top:           " << std::to_string(m_align_top) << '\n';
             result_str << "adaptive candidates: " << std::to_string(m_adaptive_candidates) << '\n';
             result_str << "allele scores:       " << (m_no_allele_scores ? "off (--no_allele_scores)" : "the database's strain alleles, if it has them") << '\n';
-            result_str << "weighted site shift: " << (m_weighted_site_shift ? "with the database's column weights, if it has them" : "off (--no_weighted_site_shift)") << '\n';
+            result_str << "weighted site shift: " << (m_weighted_site_shift ? "with the database's column weights, if it has them (--weighted_site_shift)" : "off (--weighted_site_shift turns it on)") << '\n';
             result_str << "max key ubiquity:    " << std::to_string(m_max_key_ubiquity) << '\n';
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
             result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
@@ -1009,7 +1009,7 @@ namespace protal {
             return m_no_site_weights;
         }
 
-        // --weighted_site_shift (the default since 2026-10-11; --no_weighted_site_shift: off): the site shift discounts a
+        // --weighted_site_shift (off by default; the default 2026-10-11 to 2026-10-12): the site shift discounts a
         // candidate's differences at variable columns (StrainAlleles.h).
         bool WeightedSiteShift() const {
             return m_weighted_site_shift;
@@ -3432,7 +3432,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.column_weights_alignment = result["column_weights_alignment"].as<std::string>();
             d.no_ancestry_sites        = result.count("no_ancestry_sites") > 0;
             d.no_site_weights          = result.count("no_site_weights") > 0;
-            d.weighted_site_shift      = result.count("no_weighted_site_shift") == 0;  // on by default since 2026-10-11
+            // Off by default (it was on 2026-10-11 to 2026-10-12); --no_weighted_site_shift wins.
+            d.weighted_site_shift      = result.count("weighted_site_shift") > 0 && result.count("no_weighted_site_shift") == 0;
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
             d.gene_conservation        = result["gene_conservation"].as<std::string>();
             d.model                    = result["model"].as<std::string>();

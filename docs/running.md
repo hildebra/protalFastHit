@@ -425,9 +425,12 @@ each candidate alignment of a short read gets a site shift against its species' 
   have conserved columns, has to show whether it pays. Between 2026-10-10 (when it became an option,
   `--weighted_site_shift`) and 2026-10-11 the option had no effect: the alignment threads' copies of the run's settings
   dropped it ([report](claude/2026-10-11-r226-v23/README.md), section 6). Fixed, it was neutral to +0.003 of F1 on a
-  small real world (section 8 there) at ~1% of the alignment's instructions, and it has been on by default since
-  2026-10-11; databases built since train their models with it. `--no_weighted_site_shift` turns it off, for a
-  database built before (such as r226 v23) or with `build_gtdb_database.py --no-weighted-site-shift`. Until the
+  small real world (section 8 there) at ~1% of the alignment's instructions. It was on by default from 2026-10-11 to
+  2026-10-12 and is off again: at r226 (v24b) it lowered the short reads' species depths by 1-2% without a measurable
+  F1 gain, and on the small real world, with the same samples, it lowered 19-22% of the called species' depths
+  ([report](claude/2026-10-12-r226-v24b/README.md), section 4). `--weighted_site_shift` turns it on. A database built
+  in those two days (r226 v24b; its `build_metadata.tsv` says `weighted_site_shift on`) trained its models with it:
+  profile it with `--weighted_site_shift` for the calls of its training. Until the
   evening of 2026-10-11 a run with `--no_profile` left the column weights unread, so its short reads were aligned
   without this part of the shift and its SAM differed from a profiled run's; now it reads them too, and the two
   write the same records ([report](claude/2026-10-11-performance-audit/README.md), follow-up).

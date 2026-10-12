@@ -128,6 +128,8 @@
 //   the same (docs/claude/2026-10-11-wfa2-singletrack-speed): four WFA2-lib patches (loops that vectorize, fewer end
 //   checks, x86-64-v3 clones), the slab's reset touching only what an alignment used, and the penalties halved
 //   (2/3/1) where X-drop cannot prune: WFA2 instructions -26% pe, -46..-48% PacBio, -39..-43% ONT on protal's calls.
+// After 0.8.2: the weighted site shift off by default again (--weighted_site_shift; docs/claude/2026-10-12-r226-v24b):
+//   at r226 it lowered short-read depths by 1-2% without a measurable F1 gain. r226 v24b's models were trained with it.
 #include <iostream>
 #include "RunProtal.h"
 

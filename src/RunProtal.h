@@ -3389,7 +3389,7 @@ namespace protal {
         std::ostringstream alleles_log;
         // The alignment reads the strain alleles and the column weights only to score short reads' candidates with the
         // alleles (ScoreAlleles; not with --no_allele_scores), the column weights for its weighted site shift
-        // (--weighted_site_shift, the default): then they are read before the alignment, with or without profiling. Else
+        // (--weighted_site_shift, off by default): then they are read before the alignment, with or without profiling. Else
         // only profiling reads them, and a run without profiling leaves them unread.
         bool const alleles_for_alignment = run_alignment && !options.BuildMode() && !options.NoAlleleScores() &&
                                            (options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single));
