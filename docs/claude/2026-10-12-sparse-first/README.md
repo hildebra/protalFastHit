@@ -5,9 +5,9 @@
   locally on synthetic data; it is an early-fail mechanism for the seeding phase. Then: use it for PacBio at least
   (C = 8), if the sparse lookup can be made cheaper.
 - **Code**: the local benchmarks ran on the working tree on `ccdbf52` (with the other sessions' uncommitted hunks of the
-  time), committed as `e751c7f`; the r226 run on `5222386`. `--sparse_first C`, `--sparse_first_score T` (14),
-  `--sparse_first_hits M` (1); a development option, off by default.
-- **Machine**: WSL2 on the Core Ultra 7 258V, cores 0-3, Release build, 4 threads unless said; the r226 run on a
+  time), committed as `e751c7f`; the r226 runs 1-3 on `5222386`, run 4 on `f66d520`. `--sparse_first C`,
+  `--sparse_first_score T` (14), `--sparse_first_hits M` (1); a development option, off by default.
+- **Machine**: WSL2 on the Core Ultra 7 258V, cores 0-3, Release build, 4 threads unless said; the r226 runs on
   cluster nodes ([At r226](#at-r226-cluster-runs)).
 
 ## What it does
@@ -141,9 +141,10 @@ Tables of every run: [results/](results/).
 
 The probe at r226 ([report](../2026-10-12-stage1-probe-r226.md)) predicted the share of reads kept and the recall of
 each rule: paired-end C = 2, T = 14: 9.4% of the pairs kept, 99.63% of those with records; HiFi C = 8: 17.9% kept,
-99.17%. The user ran `scripts/measure_performance.sh --test_sparse` twice on the same real samples, with protal
-`5222386` (`e751c7f`, this option, and the next commit's profiling changes), the r226 v24 database
-(`protal0.8.1_r226_v24`, models trained without the option; on NFS, as is the run folder) and 32 threads:
+99.17%. The user ran `scripts/measure_performance.sh --test_sparse` four times on the same real samples, with the
+r226 v24 database (`protal0.8.1_r226_v24`, models trained without the option; on NFS, as is the run folder): runs 1-3
+with protal `5222386` (`e751c7f`, this option, and the next commit's profiling changes) and 32 threads, run 4 with
+`f66d520` (the gate's own timer, the script's new columns) and 8 threads:
 
 - **Run 1**: SLURM 24200987, node t512n10: 2 × Xeon E5-2683 v4 (Broadwell, 2.1 GHz, AVX2, 2 NUMA nodes), all 32 cores.
   Tables: [results/r226_runs.tsv](results/r226_runs.tsv) (timed runs), [results/r226_sparse.tsv](results/r226_sparse.tsv)
@@ -158,11 +159,29 @@ each rule: paired-end C = 2, T = 14: 9.4% of the pairs kept, 99.63% of those wit
   ([results/r226_damage.tsv](results/r226_damage.tsv)). Its paired-end C = 2 run took 63.9 s of wall time with a
   normal alignment: writing the profile took 5.5 s (0.6 s otherwise) and the profiling stage 29.5 s, the NFS run
   folder's stall, not the gate.
+- **Run 4**: SLURM 24210378, the same node and samples, 8 threads. Tables:
+  [results/r226_epyc8_runs.tsv](results/r226_epyc8_runs.tsv), [results/r226_epyc8_stages.tsv](results/r226_epyc8_stages.tsv)
+  (timed runs), [results/r226_epyc8_sparse.tsv](results/r226_epyc8_sparse.tsv),
+  [results/r226_epyc8_sparse_stages.tsv](results/r226_epyc8_sparse_stages.tsv) (levels).
+- **Runs 5 and 6**: SLURM 24211662 (8 threads) and 24211820 (32 threads), the same node, the paired-end sample alone,
+  its two files rewritten as BGZF. Run 5's tables: [results/r226_epyc8_bgzf_runs.tsv](results/r226_epyc8_bgzf_runs.tsv),
+  [results/r226_epyc8_bgzf_stages.tsv](results/r226_epyc8_bgzf_stages.tsv),
+  [results/r226_epyc8_bgzf_sparse.tsv](results/r226_epyc8_bgzf_sparse.tsv),
+  [results/r226_epyc8_bgzf_sparse_stages.tsv](results/r226_epyc8_bgzf_sparse_stages.tsv); run 6's printed summary in
+  [results/r226_epyc32_bgzf_summary.tsv](results/r226_epyc32_bgzf_summary.tsv) (its logs and profiles came with run 7's
+  folder: the profiles are byte-identical to run 5's).
+- **Run 7**: SLURM 24211885, the same node, 32 threads, the HiFi sample alone, rewritten as BGZF. Tables:
+  [results/r226_epyc32_bgzf_hifi_runs.tsv](results/r226_epyc32_bgzf_hifi_runs.tsv),
+  [results/r226_epyc32_bgzf_hifi_stages.tsv](results/r226_epyc32_bgzf_hifi_stages.tsv),
+  [results/r226_epyc32_bgzf_hifi_sparse.tsv](results/r226_epyc32_bgzf_hifi_sparse.tsv),
+  [results/r226_epyc32_bgzf_hifi_sparse_stages.tsv](results/r226_epyc32_bgzf_hifi_sparse_stages.tsv).
 - **Samples**: a real gut sample, 50.6 M Illumina pairs; a real HiFi run, 497,656 reads; a real soil ONT run (SIP),
-  3.1 M reads; all `.fastq.gz`. Three timed runs each without the option (medians below), then one run at each level.
+  3.1 M reads; all `.fastq.gz`, every file one gzip stream, not BGZF (run 4's `environment.txt`). Three timed runs
+  each without the option (medians below), then one run at each level.
 
-Both runs gave up the same reads and wrote the same records at each level: the gate is deterministic, and the machines
-differ in time only. The probe was right: C = 2 gave up 90.6% of the pairs and lost 0.37% of the records (the probe:
+All runs gave up the same reads and wrote the same records at each level, and runs 3, 4 and 5 wrote byte-identical
+profiles at every level (32 and 8 threads, gzip and BGZF): the gate is deterministic, and the runs differ in time
+only. The probe was right: C = 2 gave up 90.6% of the pairs and lost 0.37% of the records (the probe:
 9.4% kept, 99.63% recall); HiFi C = 8 gave up 82.1% of the reads (17.9% kept).
 
 ### Run 1, Broadwell
@@ -227,16 +246,132 @@ From the run's printed summary (changes against the timed runs' medians; Bray-Cu
 - **Paired-end gains nothing here**: the plain run aligns in 23.6 s, and no level is faster. Run 1's levels stalled at
   36-41 s; scaled by the clock (2.1 GHz → up to 3.7 GHz) that floor would be ~21-23 s, so on this node the plain run
   is already at it. That fits a floor set by one thread (the input's inflating, the reader's lock), which the gate
-  cannot move, but it is not measured.
+  cannot move; run 4 confirms the floor and that it is on the input's side ([below](#run-4-epyc-at-8-threads)).
 - **HiFi is slower with the gate** (+14% to +29% aligning), the more so the higher C; on run 1 it was 31% faster.
-  Unexplained. The gate's own cost should fall with C (fewer sampled lookups) while the reads given up rise; that the
-  time rises with C instead points at something per read given up that costs more than the plain path's work on that
-  read on this machine, or at the reader (threads done with their reads sooner queue on the input's lock more). The
-  gate's timer and the reader's time per thread (below) tell the two apart.
+  Unexplained from run 2 alone. The gate's own cost should fall with C (fewer sampled lookups) while the reads given
+  up rise; that the time rises with C instead points at something per read given up that costs more than the plain
+  path's work on that read on this machine, or at the reader (threads done with their reads sooner queue on the
+  input's lock more). Runs 4 and 7 tell them apart: the single-stream gzip input.
 - **ONT gains 18% at C = 4**, less the higher C (−7% at C = 32), the same rising pattern. Its plain run is not at a
   floor (the alignment handler 41.4 s and the indel bound 22.6 s a thread of 44.0 s).
 - **ONT's profile moves**: Bray-Curtis 0.145 at every level, already at C = 4, where 0.23% of the records are lost: one
   species (below).
+
+### Run 4, EPYC at 8 threads
+
+Changes against the timed runs' medians; aligning CPU and the cores it kept busy from `misc/cpu.tsv`; reader and gate
+in seconds a thread (the "Sequence reader" and "Sparse first" timers):
+
+| sample | arm | wall s | aligning s | aligning CPU s | cores | reader | gate | records |
+|---|---|---|---|---|---|---|---|---|
+| paired-end | plain | 110.9 | 90.0 | 763 | 8.4 | 3.84 | | 2,223,279 |
+| | C = 1 | 78.9 (−29%) | 58.3 (−35%) | 508 (−33%) | 8.7 | 3.83 | 30.6 | −0.01% |
+| | C = 2 | 63.3 (−43%) | 42.9 (−52%) | 387 (−49%) | 9.0 | 3.81 | 15.5 | −0.37% |
+| | C = 4 | 56.7 (−49%) | 33.9 (−62%) | 317 (−58%) | 8.9 | 3.55 | 8.2 | −2.13% |
+| | C = 8 | 50.0 (−55%) | 29.0 (−68%) | 278 (−64%) | 9.2 | 3.62 | 4.6 | −7.10% |
+| HiFi | plain | 35.6 | 24.3 | 201 | 8.1 | 0.34 | | 103,403 |
+| | C = 4 | 21.3 (−40%) | 10.2 (−58%) | 89 (−55%) | 8.5 | 0.34 | 2.63 | −0.19% |
+| | C = 8 | 20.6 (−42%) | 9.3 (−62%) | 77 (−62%) | 7.9 | 0.94 | 1.83 | −0.54% |
+| | C = 16 | 19.8 (−45%) | 8.8 (−64%) | 70 (−65%) | 7.7 | 1.37 | 1.44 | −1.34% |
+| | C = 32 | 22.1 (−38%) | 11.0 (−55%) | 72 (−64%) | 6.4 | 3.68 | 1.39 | −3.59% |
+| ONT | plain | 184.8 | 170.8 | 1,387 | 8.1 | 1.01 | | 110,185 |
+| | C = 4 | 71.8 (−61%) | 58.0 (−66%) | 483 (−65%) | 8.3 | 0.97 | 10.2 | −0.23% |
+| | C = 8 | 56.9 (−69%) | 43.2 (−75%) | 367 (−74%) | 8.4 | 0.98 | 6.86 | −0.78% |
+| | C = 16 | 52.0 (−72%) | 38.5 (−77%) | 296 (−79%) | 7.7 | 2.92 | 5.25 | −2.30% |
+| | C = 32 | 52.4 (−72%) | 38.7 (−77%) | 245 (−82%) | 6.3 | 10.63 | 4.51 | −6.80% |
+
+- **At 8 threads the CPU saved is time saved**: the alignment is compute-bound here, and the levels that barely move
+  the profiles halve it or more: paired-end C = 2 −52% (wall −43%), HiFi C = 8 −62% (wall −42%), ONT C = 8 −75% (wall
+  −69%, its profile moved as on run 3, below).
+- **The floor is on the input's side**: on this node the aligning time does not go below the same values at 8 and at
+  32 threads, whatever the level:
+
+  | sample | plain, 32 threads (run 3) | gated, 32 threads (run 3, C rising) | gated, 8 threads |
+  |---|---|---|---|
+  | paired-end | 23.6-24.5 s | 23.1-24.1 s | 29.0 s at C = 8, not yet at it |
+  | HiFi | 7.6-7.7 s | 8.8, 9.4, 9.7, 10.0 s | 8.8 s at C = 16, 11.0 s at C = 32 |
+  | ONT | 44.0 s (compute-bound) | 36.5, 37.8, 39.2, 39.7 s | 38.5 s at C = 16, 38.7 s at C = 32 |
+
+  A level that reaches it at 8 threads shows it: at HiFi C = 32 and ONT C = 32 the threads wait for reads (reader 3.7
+  and 10.6 s a thread against 0.3 and 1.0 plain) and the busy cores fall to 6.4 and 6.3 of 8, while paired-end, not
+  yet at its floor, keeps its reader time (3.6-3.8 s) at every level. Every read file here is one gzip stream, which
+  protal inflates on one thread per file (`ThreadedGzStreambuf`, about 1 GB/s of FASTQ); a floor that does not move
+  with the threads, and shows as threads waiting for reads, fits that. Runs 5-7 confirm it for paired-end and HiFi
+  ([below](#runs-5-7-from-bgzf)).
+- **Past the floor the long reads lose more**: HiFi's plain runs at 32 threads aligned in 7.6-7.7 s, faster than any
+  gated HiFi run on this node, and gated HiFi gets slower as C rises once it is at the floor (32 threads 8.8 → 10.0 s;
+  8 threads C = 16 8.8 s, C = 32 11.0 s with less work); ONT alike, less so (36.5 → 39.7 s). So the reads come in
+  slower when the threads wait for them than when they are busy. One candidate: the threads queue on the reader's
+  lock (2,000 tries, then sleep), and the thread holding it waits there for the inflating thread; a busy plain run
+  rarely queues. But the loss is about the same with 8 and with 32 threads waiting (8.8-11.0 against 8.8-10.0 s) and
+  follows C, which a queue of more threads would not; so it is open. The inflating thread's own time (inflating
+  against waiting for room in its 4 blocks) would tell: never waiting means it is the floor, waiting means the
+  readers do not take its blocks fast enough. protal does not report it yet. This is run 2's HiFi slowdown: at 32
+  threads the gate turns HiFi's compute-bound alignment into an input-bound one, and that input path is slower than
+  the plain run's whole alignment. From BGZF (run 7) it is gone: it lies in the single-stream gzip input.
+- **Where paired-end's time goes**: the gate costs about 31/C s a thread (30.6, 15.5, 8.2, 4.6), and the rest hardly
+  changes with C: every pair's k-mers 5.5 s, getting reads 3.6-3.8 s, the kept pairs' seeding 3.8-4.0 s, the alignment
+  handler 4.6-5.3 s, output 1.2-2.6 s; 24-28 s of the 29-58 s. C = 1, which loses 0.01% of the records, already
+  aligns 35% faster: the plain run seeds every pair in full (43.9 s a thread), screens (5.5 s) and tries (alignment
+  handler 12.2 s) the candidates of pairs that end with no record; the gate looks up the same cores (30.6 s, scored
+  only) and stops there for 90% of the pairs. Past C = 4 the fixed part dominates (C = 8: the gate 4.6 of 29.0 s).
+- **The long reads' gate has a fixed part**: a read's k-mers are taken inside its timer, so it falls only to 1.4 s a
+  thread for HiFi (from 2.6 at C = 4) and 4.5 s for ONT (from 10.2); a kept read's k-mers are taken again for its
+  seeding.
+- **Noise**: ONT C = 4's "Pairing" timer holds 144 s of thread time, against 22-42 s in the three plain runs, which do
+  the same work and still differ 2× (C = 4 seeds a subset of their reads, exactly as they do); a stall, not the gate,
+  and part of C = 4's 58.0 s. Paired-end C = 8's output handler (2.6 s a thread, 1.2-1.7 at the other levels) is the
+  NFS run folder.
+
+### Runs 5-7, from BGZF
+
+The same reads as BGZF (`bgzip`), which protal inflates on a thread per 4 alignment threads and file (1 to 4 a file;
+`ThreadedGzStreambuf::BgzfThreadsFor`): paired-end at 8 threads one a file, as with gzip, at 32 threads four; HiFi's
+one file at 32 threads four. Profiles byte-identical to gzip's at every level. Paired-end, aligning seconds (changes
+against each run's plain medians):
+
+| arm | 8 threads, gzip (run 4) | 8 threads, BGZF (run 5) | 32 threads, gzip (run 3) | 32 threads, BGZF (run 6) |
+|---|---|---|---|---|
+| plain | 90.0 | 89.8 | 24.2 | 23.6 |
+| C = 1 | 58.3 (−35%) | 57.7 (−36%) | 23.1 (−5%) | 15.7 (−33%) |
+| C = 2 | 42.9 (−52%) | 43.0 (−52%) | 23.5 (−3%) | 11.6 (−51%) |
+| C = 4 | 33.9 (−62%) | 33.9 (−62%) | 23.7 (−2%) | 9.2 (−61%) |
+| C = 8 | 29.0 (−68%) | 28.7 (−68%) | 24.1 (−0.5%) | 7.8 (−67%) |
+
+Run 6's wall times: plain 34.3 s, C = 1 26.6 s (−23%), C = 2 22.6 s (−34%), C = 4 19.8 s (−42%), C = 8 18.7 s (−46%).
+
+- **Paired-end's floor was the inflating**: from BGZF, inflated on four threads a file, the gated runs at 32 threads
+  go below gzip's 23-24 s and gain what they gain at 8 threads (C = 2 −51% against −52%); 8 → 32 threads speeds every
+  level up 3.7× (plain 3.8×), and the reader's time stays at 1.1-1.3 s a thread at every level (no waiting). One
+  thread inflating each gzip file gave about 24 s for this sample's 50.6 M pairs.
+- **The plain run does not need it here**: 23.6 s from BGZF against 24.2 s from gzip, on 31.8 busy cores: at 32
+  threads it is compute-bound at about the time the gzip floor allows, which is why run 2 saw no gain at all. More
+  threads, or the gate, put a run under the floor of a single-stream gzip file.
+- **At 8 threads BGZF changes nothing** (within 1%; reader time 3.5-3.9 s a thread with either): one inflating thread
+  a file either way, and no level reaches the floor. The reader's 3.6 s a thread is its own work (copying and
+  parsing), not waiting.
+- **The gate's work does not grow with the threads**: at C = 2, 4.16 s a thread × 32 = 133 thread-seconds against
+  15.5 × 8 = 124; the aligning CPU 8% more at 32 threads (415.6 against 384.6 s; plain 5% more).
+
+HiFi at 32 threads (run 7 against run 3), aligning seconds and, for BGZF, wall seconds:
+
+| arm | gzip (run 3) | BGZF (run 7) | BGZF wall |
+|---|---|---|---|
+| plain | 7.7 | 6.5 | 11.4 |
+| C = 4 | 8.8 (+13%) | 2.85 (−56%) | 7.6 (−33%) |
+| C = 8 | 9.4 (+22%) | 2.39 (−63%) | 7.1 (−38%) |
+| C = 16 | 9.7 (+25%) | 2.13 (−67%) | 7.0 (−39%) |
+| C = 32 | 10.0 (+29%) | 2.02 (−69%) | 6.8 (−41%) |
+
+- **HiFi's slowdown was the gzip input too**: from BGZF the gated runs at 32 threads align 56-69% faster than the
+  plain run, as at 8 threads (−58..−64%), and the reader's time stays at 0.36-0.41 s a thread at every level. Gzip
+  made them 13-29% slower instead.
+- **Even HiFi's plain run waited for gzip at 32 threads**: 6.5 s from BGZF against 7.7 s (−16%, 30 busy cores), the
+  wall 11.4 against 12.7 s.
+- **The wall is now mostly fixed costs**: of C = 8's 7.1 s, aligning takes 2.4; loading the index 2.75 s and the
+  tables 1.9 s.
+- Why the gated gzip runs were slower than the plain gzip run (one inflating thread delivers the file in 7.7 s to
+  busy threads, in 8.8-11 s to waiting ones) stays unmeasured; BGZF makes it moot.
 
 ### How much the gate changes the profiles
 
@@ -280,30 +415,45 @@ or more; the unknown share (run 3, [results/r226_damage.tsv](results/r226_damage
 
 ### What to use, and the next run
 
-**What to use**: no default, and not for HiFi until run 2's slowdown is understood. Where the alignment is
-compute-bound (run 1, ONT on run 2) the gate cuts 18-41% of the aligning time; where a run is at the input floor
-(paired-end on run 2) it saves CPU only, which pays when several samples share a node. Records: paired-end C ≤ 2,
-HiFi C ≤ 8 and ONT C ≤ 8 lose under 1%, and at paired-end C ≤ 2 and HiFi C ≤ 8 the profiles barely move (above).
-Before a default: models trained with the option; ONT's flipped call shows what models trained without it do.
+**What to use**: no default yet. Where the alignment is compute-bound (8 threads on the EPYC node, 32 on Broadwell,
+ONT, and BGZF input at 32 threads) the gate halves the aligning time or more at the levels that barely move the
+profiles: paired-end C = 2 −52% at 8 threads, −51% at 32 from BGZF; HiFi C = 8 −62% at 8 threads, −63% at 32 from
+BGZF. Where a run waits for a single-stream gzip file it saves CPU only, and HiFi loses time: on the EPYC node a gated
+run reaches that floor at about 16 threads (paired-end C = 2: 387 CPU s, floor ~24 s) and 8-10 threads (HiFi and ONT
+at C = 8: 77 and 367 CPU s, floors ~8.8 and ~37 s); from BGZF neither paired-end nor HiFi has one up to 32 threads
+(runs 6 and 7). So: BGZF input for gated runs on more than ~8 threads (even HiFi's plain run gains 16% from it at
+32); on gzip input, 8 threads with the gate do about what 32 do without it (HiFi 9.3 against 7.7 s, ONT 43.2
+against 44.0 s, paired-end C = 8 29.0 against 24 s), and four samples could run side by side on those 32 cores
+(36.5 GB each). Records: paired-end C ≤ 2, HiFi C ≤ 8 and ONT C ≤ 8
+lose under 1%, and at paired-end C ≤ 2 and HiFi C ≤ 8 the profiles barely move (above). Before a default: models
+trained with the option; ONT's flipped call shows what models trained without it do.
 
 **The script's bug**: its first version printed "lost 0, gained 0" for every level. An awk array element read before
 its membership test is created by the read, so every species counted as in both profiles. Fixed; run 1's numbers above
 are recomputed from its profiles.
 
-**Next run**: `measure_performance.sh` now writes the alignment's CPU seconds, the cores it kept busy and a thread's
-seconds getting reads (`aligning_cpu_s`, `aligning_cores`, `reader_s_per_thread`) to `runs.tsv` and `sparse.tsv`, the
-gate's own seconds a thread (`gate_s_per_thread`, protal's new "Sparse first" timer), each level's stage timers
-(`sparse_stages.tsv`), Bray-Curtis over the species alone and both unknown shares, and in `environment.txt` each read
-file's format (BGZF, gzip, zstd, plain). protal's `misc/cpu.tsv` now has a row `index and genomes` before the first
-sample's: before, that sample's `aligning` row held the index load and the genome preload. The timer and the row need
-a protal with this report's second commit. Few cores busy and much reader time would confirm the input floor; if the
-files are plain gzip, the same reads as BGZF (`zcat R1.fastq.gz | bgzip -@ 16 > R1.bgzf.fq.gz`) as further samples
-would show what the gate gives without it:
+**The script's new columns** (`f66d520`, used by run 4): the alignment's CPU seconds, the cores it kept busy and a
+thread's seconds getting reads (`aligning_cpu_s`, `aligning_cores`, `reader_s_per_thread`) in `runs.tsv` and
+`sparse.tsv`, the gate's own seconds a thread (`gate_s_per_thread`, protal's "Sparse first" timer), each level's stage
+timers (`sparse_stages.tsv`), Bray-Curtis over the species alone and both unknown shares, and in `environment.txt`
+each read file's format (BGZF, gzip, zstd, plain). protal's `misc/cpu.tsv` has a row `index and genomes` before the
+first sample's: before, that sample's `aligning` row held the index load and the genome preload.
+
+**The floors, settled**: runs 5-7 show that the paired-end and HiFi floors were protal's one inflating thread per
+single-stream gzip file (fewer threads could not have told: at 4 threads every level's work, run 4's aligning CPU / 4,
+is well above its floor, and no thread waits for reads). ONT's (~37 s) is very likely the same; its BGZF copy is the
+one run left, if wanted:
 
 ```bash
 sbatch --exclusive -c 32 --mem 100G --wrap "bash scripts/measure_performance.sh --test_sparse runs/sparse DB.protal \
-    pe:R1.fq.gz:R2.fq.gz pe:R1.bgzf.fq.gz:R2.bgzf.fq.gz pb:hifi.fq.gz pb:hifi.bgzf.fq.gz ont:ont.fq.gz"
+    ont:ont.bgzf.fq.gz"
 ```
+
+**For protal, beyond the gate**: most users' reads are single-stream `.fastq.gz`, which caps a run at one thread's
+inflating per file whatever `-t` is (here ~24 s for 50.6 M pairs, ~7.7 s for this HiFi run); protal names the format
+with `--verbose` only. A note when such a file is read on many threads (pointing to `bgzip`) would cost nothing.
+Inflating single-stream gzip on several threads needs a parallel decoder: rapidgzip, since added for runs with 16 or
+more threads per file, at about four times ISA-L's CPU on FASTQ ([report](../2026-10-12-rapidgzip-input/README.md)).
 
 ## Writing out the reads kept
 
