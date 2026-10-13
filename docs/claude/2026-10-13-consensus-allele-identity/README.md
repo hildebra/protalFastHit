@@ -208,12 +208,13 @@ rule here.
 folders): it still expected reading a map to make `profiles/`. Its fix, found uncommitted in the checkout, is committed
 with this change.
 
-**The commit** was checked from a `git archive` of it: see the commit message.
+**The commit `f2b08ba`** (on `8ac5666`), from its `git archive`: unit tests 574 of 574, e2e 180, model tests 45.
 
 ## Files
 
 | File | What it does |
 |---|---|
+| [setup.sh](setup.sh) | the three clones (`49cd583`; + the allele identities; + both changes), built |
 | [build_db.sh](build_db.sh) | the reduced database, by one protal clone, with more build options |
 | [run_mocks.sh](run_mocks.sh) | protal of one clone on the twelve mock samples, and the scores |
 | [run_all.sh](run_all.sh) | the four builds and their mock runs |
@@ -225,5 +226,8 @@ with this change.
 | [results/](results/) | the comparison, the feature table, read 13443's candidates |
 
 **Kept in WSL:**
-- `~/idtest`: the clones, inputs and four builds, 9 GB. Delete it when done.
-- `~/Mocks/idc_*`: the four runs.
+- `~/idtest/db_*`: the four databases (`protal_db/`, `model_logs/`), 0.8 GB.
+- `~/Mocks/idc_*`: their runs, 0.6 GB.
+
+**Removed:** the clones, the inputs and the builds' work folders (12 GB). `setup.sh`, `make_inputs.sh` and `run_all.sh`
+make them again in about 1.5 hours on 4 cores.
