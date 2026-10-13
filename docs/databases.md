@@ -620,14 +620,25 @@ only at the database's gate). Each trainer scores those tables with its model as
 
 | Column | Holds |
 |---|---|
-| `read_type`, `gate`, `database_gate` | the read type, the gate (0: off), and 1 for the database's |
+| `read_type`, `gate`, `flex_indels`, `database_gate` | the read type, the gate (0: off), 1 with `--flex_indels`, and 1 for the database's gate (the test file itself) |
 | `samples`, `taxa`, `present`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate |
 | `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the protal runs' `aligning <sample>` rows (`protal_cpu_<collection>.tsv`; empty when a sample has none) |
+| `baseline_F1`, `baseline_aligning_cpu_s` | the same samples at the database's gate without `--flex_indels`, beside every other row (for se's rows with `--flex_indels`, the Ultima samples alone) |
 
 The model was trained at the database's gate, so another gate's F1 is that of a model trained
 otherwise: a gate whose F1 holds even so is a safe choice, while one that loses F1 may recover with
 models trained at it (build with it as `--sparse-first` to know). The test set is small
 (its F1 moves by a few thousandths between seeds: compare the FP and FN counts too).
+
+With `--test-c-gates` the test samples of ONT, at every gate (the database's C 1 too), and the
+Ultima (single-end) ones, at se's gates, are also profiled with protal's `--flex_indels`
+(`--test-flex-indels`, default `ont:0/1/4/8,ultima:0/1/2/4`; `none` for none): map rows
+`<sample>__c<C>f` with the map's `FLEX_INDELS` column, tables in `c_gates/c<C>f/`, rows of
+`c_gates.tsv` with `flex_indels` 1. The test set's Ultima simulations are then written to the disk
+rather than streamed (at r226 ~50 GB, all three above the stream threshold; if they do not fit they are
+streamed, with a warning, and have no such rows). It needs a protal whose `--full_help` lists
+`--flex_indels` and `FLEX_INDELS`; an older one would ignore the column, so the build leaves these
+rows out, with a warning. The models are trained without `--flex_indels`, as with other gates.
 
 #### Scenarios: kinds of studies
 
@@ -940,6 +951,7 @@ keeps the finished database.
 | `--wfa-traceback` | protal's (`singletrack`; `classic` before 0.8.2) | the WFA2 traceback of both databases (`protal --build --wfa_traceback`): recorded in their `build_settings.tsv`, and followed by the collection's protal runs, which align as the training database was built. `singletrack` gives the same scores but may choose otherwise among equally good alignments ([below](#2-build-the-index)) |
 | `--sparse-first` | `pe:1,se:1,pb:8,ont:1` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 paired-end C = 1 lost 0.01% of the records for 35% less alignment time, HiFi C = 8 0.54% for 62% less; ONT C = 1 is a trial ([report](claude/2026-10-12-sparse-first/README.md)) |
 | `--test-c-gates [GATES]` | off; without a value `pe:0/1/2/4,se:0/1/2/4,pb:0/4/8/16,ont:0/1/4/8` | the test samples also profiled at these gates (the database's left out: its row in `c_gates.tsv` is the test set itself, profiled at it), in the same protal runs as `<sample>__c<C>`; each model scores them beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN and the samples' alignment CPU and wall seconds ([below](#choosing-the-sparse-first-gates)) |
+| `--test-flex-indels [GATES]` | with `--test-c-gates`: `ont:0/1/4/8,ultima:0/1/2/4` | the gates at which the ONT test samples (key `ont`) and the Ultima ones (key `ultima`) are also profiled with protal's `--flex_indels`; `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
 | `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |

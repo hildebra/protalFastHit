@@ -927,6 +927,54 @@ class CollectorTest(unittest.TestCase):
                           if "__c" in r["SAMPLEID"]}, {"pb_b1e6_s_1__c0": "0", "pb_b1e6_s_1__c4": "4", "rl100_p10_s_1__c0": "0"})
         self.assertEqual(sorted(r["SAMPLEID"] for r in streamed), ["pb_b1e6_s_1", "rl100_p10_s_1"])
 
+    def test_rows_with_flex_indels(self):
+        # --flex_indels_levels: an ONT unit's samples (key ont) and an Ultima unit's (key ultima) also at these gates with
+        # protal's --flex_indels (rows <sample>__c<C>f, FLEX_INDELS 1), beside --sparse_first_levels's; the map gets the
+        # FLEX_INDELS column only with such rows (an older protal ignores a column it does not know), and reads it back
+        # by its header. --write_simulations: written whatever --stream_above says.
+        root = os.path.join(self.tmp.name, "flex")
+        opts = argparse.Namespace(out=root, sparse_first_levels={"ont": [0, 4], "se": [0]},
+                                  flex_indels_levels={"ont": [1, 4], "ultima": [1]})
+        ont = {"type": "ont", "name": "ont_b1e6", "point": {"name": "ont_b1e6"}, "samples": 1, "communities": [],
+               "setup": {"method": "qshmm"}}
+        ultima = {"type": "se", "name": "sc_host_se_ultima_r1e6", "point": {"name": "sc_host_se_ultima_r1e6"},
+                  "samples": 1, "communities": [], "setup": {"method": "ultima"}}
+        illumina = {"type": "se", "name": "rl100_p10_se", "point": {"name": "rl100_p10"}, "samples": 1}
+        self.assertTrue(collect.is_ultima(ultima) and not collect.is_ultima(ont) and not collect.is_ultima(illumina))
+        self.assertEqual(collect.unit_level_ids(ont, opts), [0, 4, "1f", "4f"])
+        self.assertEqual(collect.unit_level_ids(ultima, opts), [0, "1f"])
+        self.assertEqual(collect.unit_level_ids(illumina, opts), [0])
+        self.assertEqual([collect.level_text(c) for c in (4, "1f")],
+                         ["sparse-first gate 4", "sparse-first gate 1, --flex_indels"])
+        self.assertEqual(collect.flex_indels_levels("ont:8/1,ultima:2"), {"ont": [1, 8], "ultima": [2]})
+
+        def rows_of(unit, _opts):
+            out = os.path.join(root, unit["name"])
+            sample = unit["name"] + "_s_1"
+            return [{"SAMPLEID": sample, "FIRST": os.path.join(out, sample + ".fq"), "SECOND": "-",
+                     "SAM": os.path.join(out, sample + ".sam.zst"), "PREFIX": os.path.join(out, sample),
+                     "PROFILE": os.path.join(out, sample + ".profile"), "PROFILE_TRUTH": "/t",
+                     "READ_TYPE": unit["type"]}], [out]
+
+        with unittest.mock.patch.object(collect, "unit_map_rows_of", rows_of):
+            path = os.path.join(root, "flex.map")
+            collect.profile_map([ont, ultima, illumina], opts, path)
+            plain = os.path.join(root, "plain.map")
+            collect.profile_map([illumina], opts, plain)
+        rows = {r["SAMPLEID"]: (r["SPARSE_FIRST"], r["FLEX_INDELS"]) for r in collect.read_map(path)}
+        self.assertEqual(rows, {"ont_b1e6_s_1": ("-", "-"), "ont_b1e6_s_1__c0": ("0", "-"), "ont_b1e6_s_1__c4": ("4", "-"),
+                                "ont_b1e6_s_1__c1f": ("1", "1"), "ont_b1e6_s_1__c4f": ("4", "1"),
+                                "sc_host_se_ultima_r1e6_s_1": ("-", "-"), "sc_host_se_ultima_r1e6_s_1__c0": ("0", "-"),
+                                "sc_host_se_ultima_r1e6_s_1__c1f": ("1", "1"), "rl100_p10_se_s_1": ("-", "-"),
+                                "rl100_p10_se_s_1__c0": ("0", "-")})
+        with open(plain) as fh:
+            self.assertNotIn("FLEX_INDELS", fh.read())
+        self.assertTrue(os.path.isdir(os.path.join(root, "points", "ont_b1e6", "protal_c1f", "profiles")))
+        # Written whatever --stream_above says: not among the simulations streamed.
+        stream = argparse.Namespace(stream_above=1e-12, write_simulations={"sc_host_se_ultima_r1e6"})
+        with unittest.mock.patch.object(collect, "sample_bytes", lambda unit: 1e9):
+            self.assertEqual(collect.streamed_simulations([ont, ultima], stream), {collect.simulation_of(ont)})
+
     def test_collector_scenario_units(self):
         # The scenarios' points and units after the design's: a community point per scenario (its paired-end reads
         # at the community's part of the depth, the host's added later), and the units that draw their reads from

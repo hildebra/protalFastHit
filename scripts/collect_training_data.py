@@ -188,6 +188,16 @@ def parse_args(argv=None):
                         "(protal_se_c<C>) as <sample>__c<C>, and their tables go to OUT/c_gates/c<C>/ (meta_sample the "
                         "sample's own), with samples_<read type>.txt listing the samples. Samples streamed into protal "
                         "through pipes are profiled once (build_gtdb_database.py --test-c-gates)")
+    p.add_argument("--flex_indels_levels", type=flex_indels_levels, default={}, metavar="KEY:C/C/...,...",
+                   help="gates at which to profile every sample of these read types, or of the Ultima single-end units "
+                        "(key ultima), also with protal's --flex_indels (the map's FLEX_INDELS column), in the same "
+                        "protal runs, e.g. ont:0/1/4/8,ultima:0/1/2/4: rows <sample>__c<C>f in <point>/protal_c<C>f, "
+                        "tables in OUT/c_gates/c<C>f/ (build_gtdb_database.py --test-c-gates). Needs a protal that reads "
+                        "FLEX_INDELS (an older one ignores the column)")
+    p.add_argument("--write_simulations", type=names_list, default=set(), metavar="NAME,...",
+                   help="simulations written to the disk whatever --stream_above says, so that their samples are "
+                        "profiled at other gates too (build_gtdb_database.py: the test set's Ultima simulations, for "
+                        "--flex_indels)")
     p.add_argument("--gene_positions",
                    help="a gene_positions.tsv of every genome simulated (the release's, held-out species included): "
                         "simulate_metagenomes counts each genome's reads that overlap a marker gene, and the tables get "
@@ -348,20 +358,24 @@ MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFI
                "SPARSE_FIRST"]
 # A map row without a column (one of an older collector's map, --also_profile) takes its default.
 MAP_DEFAULTS = {"UNMAPPED_READS": "count", "SPARSE_FIRST": "-"}
+# Map columns written only when a row has a value: protal ignores a column it does not know, so FLEX_INDELS must
+# reach only a protal that reads it (build_gtdb_database.py checks), and the other maps stay as they were.
+OPTIONAL_MAP_COLUMNS = ["FLEX_INDELS"]
+FLEX_SUFFIX = "f"  # a level's id with protal's --flex_indels too: gate 1 with it is "1f" (rows <sample>__c1f)
 # --sparse_first_levels: a sample profiled at another sparse-first gate C is <sample>__c<C>, in <profile dir>_c<C>; its
 # tables are in OUT/c_gates/c<C>/.
 LEVEL_SUFFIX = "__c"
 LEVELS_DIR = "c_gates"
 
 
-def sparse_first_levels(text):
-    """--sparse_first_levels "pe:0/2/4,pb:0/4/16" -> {"pe": [0, 2, 4], "pb": [0, 4, 16]}; "" -> {}."""
+def sparse_first_levels(text, keys=READ_TYPES):
+    """--sparse_first_levels "pe:0/2/4,pb:0/4/16" -> {"pe": [0, 2, 4], "pb": [0, 4, 16]}; "" -> {}. keys: the read types
+    (flex_indels_levels: and "ultima")."""
     levels = {}
     for item in filter(None, (s.strip() for s in str(text).split(","))):
         read_type, sep, values = item.partition(":")
-        if not sep or read_type not in READ_TYPES:
-            raise argparse.ArgumentTypeError(f"expected READ_TYPE:C/C/... with a read type of {', '.join(READ_TYPES)}, "
-                                             f"got {item!r}")
+        if not sep or read_type not in keys:
+            raise argparse.ArgumentTypeError(f"expected KEY:C/C/... with a key of {', '.join(keys)}, got {item!r}")
         gates = set()
         for value in values.split("/"):
             if not value.isdigit() or int(value) > 32 or int(value) & (int(value) - 1):
@@ -374,6 +388,20 @@ def sparse_first_levels(text):
 def levels_text(levels):
     """{"pe": [0, 2]} -> "pe:0/2", as --sparse_first_levels takes it."""
     return ",".join(f"{t}:{'/'.join(map(str, cs))}" for t, cs in levels.items())
+
+
+FLEX_KEYS = READ_TYPES + ("ultima",)
+
+
+def flex_indels_levels(text):
+    """--flex_indels_levels "ont:0/1/4/8,ultima:0/1/2/4" -> {"ont": [0, 1, 4, 8], "ultima": [0, 1, 2, 4]}: a read type's
+    units, or "ultima" the Ultima single-end ones, at these gates with protal's --flex_indels too."""
+    return sparse_first_levels(text, FLEX_KEYS)
+
+
+def names_list(text):
+    """"a,b" -> {"a", "b"}."""
+    return set(filter(None, (s.strip() for s in str(text).split(","))))
 
 
 def congener_spec(text):
@@ -1058,9 +1086,46 @@ def unit_levels(unit, opts):
     return (getattr(opts, "sparse_first_levels", None) or {}).get(unit["type"], [])
 
 
+def is_ultima(unit):
+    """Whether a unit's reads are Ultima reads (single-end, drawn with the ultima setup)."""
+    return drawn(unit) and (unit.get("setup") or {}).get("method") == "ultima"
+
+
+def unit_flex_levels(unit, opts):
+    """The gates a unit's samples are profiled at with protal's --flex_indels too (--flex_indels_levels: its read
+    type's, and the Ultima units' those of the key ultima)."""
+    levels = getattr(opts, "flex_indels_levels", None) or {}
+    gates = set(levels.get(unit["type"], [])) | (set(levels.get("ultima", [])) if is_ultima(unit) else set())
+    return sorted(gates)
+
+
+def unit_level_ids(unit, opts):
+    """Every level a unit's samples are profiled at besides the database's gate: its other gates (C, as an int) and
+    its gates with --flex_indels (C + FLEX_SUFFIX, as a string: "1f")."""
+    return unit_levels(unit, opts) + [f"{c}{FLEX_SUFFIX}" for c in unit_flex_levels(unit, opts)]
+
+
+def level_parts(level):
+    """A level's gate and whether it has --flex_indels: 4 -> (4, False), "1f" -> (1, True)."""
+    text = str(level)
+    return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX)
+
+
+def level_order(level):
+    """Levels sorted: the gates without --flex_indels first, each by its gate."""
+    gate, flex = level_parts(level)
+    return flex, gate
+
+
+def level_text(level):
+    """How a level is said: "sparse-first gate 4", "sparse-first gate 1, --flex_indels"."""
+    gate, flex = level_parts(level)
+    return f"sparse-first gate {gate}" + (", --flex_indels" if flex else "")
+
+
 def level_dir(unit, opts, level):
-    """Where a unit's samples profiled at sparse-first gate `level` go: beside its profile folder (dumps_of does not
-    see them)."""
+    """Where a unit's samples profiled at level `level` (unit_level_ids) go: beside its profile folder (dumps_of does
+    not see them)."""
     return profile_dir(unit, opts) + f"_c{level}"
 
 
@@ -1635,13 +1700,15 @@ def map_rows(meta):
 
 def unit_map_rows(unit, opts):
     """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to; with
-    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST; `_level_of` names the sample, which
-    profile_map leaves out with the sample's reads coming through a pipe)."""
+    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST), with --flex_indels_levels at those
+    with --flex_indels too (FLEX_INDELS 1): unit_level_ids. `_level_of` names the sample, which profile_map leaves out
+    with the sample's reads coming through a pipe."""
     rows, dirs = unit_map_rows_of(unit, opts)
     unmapped = "write" if writes_unmapped(unit, opts) else "count"
     rows = [{**row, "UNMAPPED_READS": unmapped} for row in rows]
     levels = []
-    for level in unit_levels(unit, opts):
+    for level in unit_level_ids(unit, opts):
+        gate, flex = level_parts(level)
         out = level_dir(unit, opts, level)
         sams, profiles = os.path.join(out, "alignments"), os.path.join(out, "profiles")
         dirs = dirs + [sams, profiles]
@@ -1653,7 +1720,8 @@ def unit_map_rows(unit, opts):
             ext = base[base.index(row["SAMPLEID"]) + len(row["SAMPLEID"]):] if row["SAMPLEID"] in base else ".sam.gz"
             levels.append({**row, "SAMPLEID": name, "SAM": "-" if sam in ("", "-") else os.path.join(sams, name + ext),
                            "PREFIX": os.path.join(out, name), "PROFILE": os.path.join(profiles, name + ".profile"),
-                           "UNMAPPED_READS": "count", "SPARSE_FIRST": str(level), "_level_of": row["SAMPLEID"]})
+                           "UNMAPPED_READS": "count", "SPARSE_FIRST": str(gate), **({"FLEX_INDELS": "1"} if flex else {}),
+                           "_level_of": row["SAMPLEID"]})
     return rows + levels, dirs
 
 
@@ -1683,17 +1751,24 @@ def unit_map_rows_of(unit, opts):
 
 
 def write_map(path, rows):
-    """A protal map of rows (MAP_COLUMNS, absolute paths)."""
+    """A protal map of rows (MAP_COLUMNS, absolute paths; an OPTIONAL_MAP_COLUMNS column only if a row has it, '-' in
+    the others)."""
+    columns = MAP_COLUMNS + [c for c in OPTIONAL_MAP_COLUMNS if any(c in row for row in rows)]
     with open(path, "w") as fh:
-        fh.write(f"#OUTPUT_DIR\t{os.path.dirname(path)}\n#" + "\t".join(MAP_COLUMNS) + "\n")
-        fh.writelines("\t".join(row[c] if c in row else MAP_DEFAULTS[c] for c in MAP_COLUMNS) + "\n" for row in rows)
+        fh.write(f"#OUTPUT_DIR\t{os.path.dirname(path)}\n#" + "\t".join(columns) + "\n")
+        fh.writelines("\t".join(row[c] if c in row else MAP_DEFAULTS.get(c, "-") for c in columns) + "\n" for row in rows)
 
 
 def read_map(path):
-    """The rows of a map write_map wrote, as dicts."""
+    """The rows of a map write_map wrote, as dicts (by its header's columns)."""
+    columns, rows = MAP_COLUMNS, []
     with open(path) as fh:
-        return [dict(zip(MAP_COLUMNS, line.rstrip("\n").split("\t"))) for line in fh
-                if line.strip() and not line.startswith("#")]
+        for line in fh:
+            if line.startswith("#SAMPLEID"):
+                columns = line[1:].rstrip("\n").split("\t")
+            elif line.strip() and not line.startswith("#"):
+                rows.append(dict(zip(columns, line.rstrip("\n").split("\t"))))
+    return rows
 
 
 def profile_map(units, opts, path, paths_of=None):
@@ -1729,7 +1804,8 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
         rows += list(extra)
         write_map(combined, rows)
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
-    gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}" for row in rows
+    gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}"
+                                + (FLEX_SUFFIX if row.get("FLEX_INDELS", "-") == "1" else "") for row in rows
                                 if row.get("SPARSE_FIRST", "-") not in ("", "-"))  # this and the other collection's
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run" +
@@ -1768,9 +1844,10 @@ def community_of(unit, sample, opts):
 
 
 def write_table(read_type, units, opts, context, gate=None):
-    """Joins the dumps of a read type's units into its table; with `gate`, those of its samples profiled at that
-    sparse-first gate (--sparse_first_levels) into OUT/c_gates/c<gate>/, meta_sample the samples' own names, and their
-    names into samples_<read type>.txt there (units whose reads came through pipes have none)."""
+    """Joins the dumps of a read type's units into its table; with `gate`, a level (unit_level_ids: a sparse-first gate,
+    with --flex_indels too as "1f"), those of its samples profiled at it into OUT/c_gates/c<gate>/, meta_sample the
+    samples' own names, and their names into samples_<read type>.txt there (units whose reads came through pipes have
+    none)."""
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     if gate is None:
@@ -1779,7 +1856,7 @@ def write_table(read_type, units, opts, context, gate=None):
     else:
         os.makedirs(os.path.join(opts.out, LEVELS_DIR, f"c{gate}"), exist_ok=True)
         table = os.path.join(opts.out, LEVELS_DIR, f"c{gate}", TABLES[read_type])
-        units = [u for u in units if gate in unit_levels(u, opts)]
+        units = [u for u in units if gate in unit_level_ids(u, opts)]
         dumps = functools.partial(level_dumps, opts=opts, level=gate)
     samples_written = []
     # <table>.unseen.tsv only with --gene_positions: without the simulator's counts there is nothing to write.
@@ -1871,7 +1948,7 @@ def write_table(read_type, units, opts, context, gate=None):
                     unseen_writer.writerow([unit["name"], sample, unit.get("scenario", ""), taxon, markers])
                     unseen += 1
             by_level = ", ".join(f"{n} to {rank}" for rank, n in sorted(attributed.items()) if rank)
-            at_gate = "" if gate is None else f" at sparse-first gate {gate}"
+            at_gate = "" if gate is None else f" at {level_text(gate)}"
             print(f"{unit['name']}{at_gate}: {present} present ({strains} from other genomes than the representative) and "
                   f"{absent} absent taxa ({congeners} congeners of species the database lacks; closest to a species "
                   f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps(unit))} samples" +
@@ -1883,12 +1960,12 @@ def write_table(read_type, units, opts, context, gate=None):
         # main tables only), and its samples; none without a sample (all streamed).
         if header is None:
             os.remove(table + ".partial")
-            print(f"no samples of {read_type} at sparse-first gate {gate} (their reads came through pipes)", flush=True)
+            print(f"no samples of {read_type} at {level_text(gate)} (their reads came through pipes)", flush=True)
             return
         os.replace(table + ".partial", table)
         with open(os.path.join(os.path.dirname(table), f"samples_{read_type}.txt"), "w") as fh:
             fh.writelines(s + "\n" for s in samples_written)
-        print(f"{rows} taxa in {table} (sparse-first gate {gate}): {totals['present']} present, {totals['absent']} "
+        print(f"{rows} taxa in {table} ({level_text(gate)}): {totals['present']} present, {totals['absent']} "
               f"absent, from {totals['samples']} sample{'s' if totals['samples'] != 1 else ''}", flush=True)
         return
     os.replace(table + ".partial", table)
@@ -1930,8 +2007,9 @@ def write_tables(read_types, units, opts, context, processes):
     are printed (the tables after it may have been written). One table, one process, or no fork(): one table after
     the other, here. With --sparse_first_levels, the tables of each read type's other gates come after the main ones."""
     global _TABLES_WORK
-    levels = getattr(opts, "sparse_first_levels", None) or {}
-    jobs = [(t, None) for t in read_types] + [(t, c) for t in read_types for c in levels.get(t, [])]
+    levels = {t: sorted({c for u in units if u["type"] == t for c in unit_level_ids(u, opts)}, key=level_order)
+              for t in read_types}
+    jobs = [(t, None) for t in read_types] + [(t, c) for t in read_types for c in levels[t]]
     if processes <= 1 or len(jobs) <= 1 or "fork" not in multiprocessing.get_all_start_methods():
         for read_type, level in jobs:
             write_table(read_type, [u for u in units if u["type"] == read_type], opts, context, level)
@@ -2150,18 +2228,19 @@ def profile_keys(units, opts, keys):
     return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"],
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
                         **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {}),
-                        **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {})}
+                        **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {}),
+                        **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {})}
             for u in units}
 
 
 def profiled(unit, opts, key):
-    """Whether a unit is profiled with this key, all its samples' dumps there, and at its other sparse-first gates
-    (--sparse_first_levels) too unless its reads came through pipes."""
+    """Whether a unit is profiled with this key, all its samples' dumps there, and at its other levels (unit_level_ids:
+    --sparse_first_levels, --flex_indels_levels) too unless its reads came through pipes."""
     if not (same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and
             len(dumps_of(unit, opts)) >= unit["samples"]):
         return False
     return streamed_here(unit, opts) or all(len(level_dumps(unit, opts, c)) >= unit["samples"]
-                                            for c in unit_levels(unit, opts))
+                                            for c in unit_level_ids(unit, opts))
 
 
 def unit_reads(unit, opts):
@@ -2331,11 +2410,13 @@ def sample_bytes(unit):
 
 
 def streamed_simulations(units, opts):
-    """The simulations (simulation_of) to stream: those of a sample larger than --stream_above GB."""
+    """The simulations (simulation_of) to stream: those of a sample larger than --stream_above GB, but those of
+    --write_simulations."""
     above = getattr(opts, "stream_above", 0) or 0
     if above <= 0:
         return set()
-    return {simulation_of(u) for u in units if sample_bytes(u) > above * 1e9}
+    return {simulation_of(u) for u in units if sample_bytes(u) > above * 1e9} - (getattr(opts, "write_simulations", None)
+                                                                              or set())
 
 
 def simulation_bytes(units):

@@ -76,10 +76,28 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertEqual(build.sparse_first_levels(build.DEFAULT_TEST_C_GATES),
                          {"pe": [0, 1, 2, 4], "se": [0, 1, 2, 4], "pb": [0, 4, 8, 16], "ont": [0, 1, 4, 8]})
         self.assertEqual(build.sparse_first_levels("pb:16/4/4"), {"pb": [4, 16]})
+        # --test-flex-indels: ONT's gates and the Ultima units' (key ultima) with --flex_indels too; none: no such rows.
+        self.assertEqual(build.test_flex_spec(build.DEFAULT_TEST_FLEX_INDELS), {"ont": [0, 1, 4, 8], "ultima": [0, 1, 2, 4]})
+        self.assertEqual(build.test_flex_spec("none"), {})
+        with self.assertRaises(argparse.ArgumentTypeError):
+            build.test_flex_spec("illumina:1")
         self.assertEqual(build.levels_text({"pe": [0, 2], "pb": [4]}), "pe:0/2,pb:4")
         for bad in ("pb:3", "pb", "xx:1", "pe:64"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_levels(bad)
+
+    def test_flex_indels_support_from_the_full_help(self):
+        # --test-flex-indels needs a protal that runs --flex_indels per sample: its --full_help lists the option and the
+        # map's FLEX_INDELS column. An older one, which would ignore the column, does not; nor one that cannot run.
+        with tempfile.TemporaryDirectory() as tmp:
+            for n, (text, supported) in enumerate((("--flex_indels TYPES; map column FLEX_INDELS", True),
+                                                   ("--flex_indels TYPES", False), ("--sparse_first C", False))):
+                path = os.path.join(tmp, f"protal{n}")
+                with open(path, "w") as fh:
+                    fh.write(f"#!/bin/sh\necho '{text}'\n")
+                os.chmod(path, 0o755)
+                self.assertEqual(build.flex_indels_supported(path), supported, text)
+            self.assertFalse(build.flex_indels_supported(os.path.join(tmp, "none")))
 
     def test_the_genomes_of_the_strain_alleles_are_not_simulated(self):
         # The genomes that give strain alleles: a hash of the accession, the same in protal (tests/test_StrainAlleles.cpp
@@ -501,42 +519,54 @@ class BuildFunctionsTest(unittest.TestCase):
 
     def test_c_gates_summary(self):
         # --test-c-gates: each read type's test samples at the database's gate (the test file's rows of the samples the
-        # gates' tables have) and at the others (the trainer's extra_tests), with the alignment's seconds of those samples
-        # from the collections' CPU tables (a later row of a sample wins; a sample missing leaves the seconds out).
+        # levels' tables have) and at its other levels (the trainer's extra_tests), with the alignment's seconds of those
+        # samples from the collections' CPU tables (a later row of a sample wins; a sample missing leaves the seconds out),
+        # each beside its baseline: the same samples at the database's gate. ont also with --flex_indels at the database's
+        # gate 1 ("1f").
         root = self.tmp.name
         test = os.path.join(root, "test")
         scores = {"samples": 2, "taxa": 10, "present": 6, "TP": 5, "FP": 1, "FN": 1, "precision": 5 / 6,
                   "sensitivity": 5 / 6, "F1": 5 / 6}
+        ont = dict(scores, F1=0.96)
         metrics = {"pe": {"extra_tests": {"c0": {"scores": dict(scores, FP=0, F1=10 / 11),
                                                  "test_file_same_samples": scores},
                                           "c4": {"scores": dict(scores, FN=3, F1=0.7), "test_file_same_samples": scores}}},
-                   "pb": {}}
+                   "pb": {},
+                   "ont": {"extra_tests": {"c0": {"scores": dict(scores, F1=0.95), "test_file_same_samples": ont},
+                                           "c1f": {"scores": dict(scores, F1=0.97), "test_file_same_samples": ont}}}}
         prefixes = {}
         for t, data in metrics.items():
             prefixes[t] = os.path.join(root, f"trained_model_{t}")
             with open(prefixes[t] + ".metrics.json", "w") as fh:
                 json.dump(data, fh)
-        for c, samples in ((0, ["s1", "s2"]), (4, ["s1", "s2"])):
-            os.makedirs(os.path.join(test, build.LEVELS_DIR, f"c{c}"))
-            with open(os.path.join(test, build.LEVELS_DIR, f"c{c}", "samples_pe.txt"), "w") as fh:
+        for c, t, samples in ((0, "pe", ["s1", "s2"]), (4, "pe", ["s1", "s2"]), (0, "ont", ["o1"]), ("1f", "ont", ["o1"])):
+            os.makedirs(os.path.join(test, build.LEVELS_DIR, f"c{c}"), exist_ok=True)
+            with open(os.path.join(test, build.LEVELS_DIR, f"c{c}", f"samples_{t}.txt"), "w") as fh:
                 fh.writelines(s + "\n" for s in samples)
         cpu = [os.path.join(root, "a.tsv"), os.path.join(root, "b.tsv"), os.path.join(root, "missing.tsv")]
         rows = [("run 1", "aligning s1", 2, 10), ("run 1", "aligning s2", 2, 12), ("run 1", "aligning s1__c0", 3, 15),
-                ("run 1", "aligning s2__c0", 3, 15), ("run 1", "aligning s1__c4", 1, 4), ("run 1", "profiling", 9, 9)]
+                ("run 1", "aligning s2__c0", 3, 15), ("run 1", "aligning s1__c4", 1, 4), ("run 1", "profiling", 9, 9),
+                ("run 1", "aligning o1", 5, 50), ("run 1", "aligning o1__c0", 9, 90), ("run 1", "aligning o1__c1f", 6, 60)]
         for path, part in ((cpu[0], rows[:4]), (cpu[1], rows[4:] + [("run 2", "aligning s1", 1, 8)])):
             with open(path, "w") as fh:
                 fh.write("run\tstage\twall_seconds\tcpu_seconds\tthreads\tcores_busy\n")
                 fh.writelines(f"{r}\t{s}\t{w}\t{c}\t4\t\n" for r, s, w, c in part)
         out = os.path.join(root, "c_gates.tsv")
-        lines = build.c_gates_summary(["pe", "pb"], prefixes, {"pe": [0, 4], "pb": [4]}, {"pe": 1, "pb": 8}, test, cpu,
-                                      out)
-        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 F1 0.7000"])
+        lines = build.c_gates_summary(["pe", "pb", "ont"], prefixes, {"pe": [0, 4], "pb": [4], "ont": [0, "1f"]},
+                                      {"pe": 1, "pb": 8, "ont": 1}, test, cpu, out)
+        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 F1 0.7000",
+                                 "ont: off F1 0.9500, 90 CPU s; 1 (database) F1 0.9600, 50 CPU s; 1 with --flex_indels F1 "
+                                 "0.9700 (0.9600 at the database's gate), 60 CPU s"])
         table = list(csv.DictReader(open(out), delimiter="\t"))
         self.assertEqual(list(table[0]), build.C_GATES_COLUMNS)
-        self.assertEqual([(r["read_type"], r["gate"], r["database_gate"], r["FP"], r["FN"], r["aligning_cpu_s"],
-                           r["aligning_wall_s"]) for r in table],
-                         [("pe", "0", "0", "0", "1", "30.0", "6.0"), ("pe", "1", "1", "1", "1", "20.0", "3.0"),
-                          ("pe", "4", "0", "1", "3", "", "")])
+        self.assertEqual([(r["read_type"], r["gate"], r["flex_indels"], r["database_gate"], r["FP"], r["FN"], r["aligning_cpu_s"],
+                           r["aligning_wall_s"], r["baseline_F1"], r["baseline_aligning_cpu_s"]) for r in table],
+                         [("pe", "0", "0", "0", "0", "1", "30.0", "6.0", "0.833333", "20.0"),
+                          ("pe", "1", "0", "1", "1", "1", "20.0", "3.0", "", ""),
+                          ("pe", "4", "0", "0", "1", "3", "", "", "0.833333", "20.0"),
+                          ("ont", "0", "0", "0", "1", "1", "90.0", "9.0", "0.96", "50.0"),
+                          ("ont", "1", "0", "1", "1", "1", "50.0", "5.0", "", ""),
+                          ("ont", "1", "1", "0", "1", "1", "60.0", "6.0", "0.96", "50.0")])
         self.assertEqual(table[0]["F1"], "0.909091")
 
     def test_cpu_logs(self):
