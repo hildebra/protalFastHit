@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zstd.h>
+#include <zstd_errors.h>
 
 #include <algorithm>
 #include <atomic>
@@ -70,6 +71,15 @@ namespace protal {
     // fail either way, in other words (what was read before may differ: a corrupt member's bytes up to
     // where the damage shows).
     //
+    // A zstd file's frames are independent too: a regular zstd file on several threads (as many as a BGZF file's)
+    // is read frame by frame by the dispatcher (whole frames, their sizes from their headers, batched into output
+    // blocks; a block grows to hold a larger frame) and the workers decompress them (ZSTD_decompressDCtx). pzstd and
+    // protal's simulator (a frame per batch of reads) write many frames; zstd, also with -T, writes one, which is
+    // read on one thread all the same. A frame whose header gives no size (a stream's: cat | zstd), or one above
+    // kMaxZstdFrame, and the rest of the file after it, are decompressed as a stream on the dispatcher's thread, as
+    // one thread does (the whole file on the file's own thread if its first frame is one). The bytes are the same
+    // either way; a cut or corrupt file fails either way.
+    //
     // Several files (open with a list: a sample's lanes) read as one stream, one after the other, each in
     // its own format: a file whose last line lacks its '\n' gets one, TakeLines ends a batch with its file
     // (so that the mate files of lanes stay in step, see TakeLines), and a truncated or corrupt file, or one
@@ -83,14 +93,19 @@ namespace protal {
         static constexpr size_t kBlocks = 4;                   // with one inflating thread; 2 per worker + 2 with more
         static constexpr uint32_t kInputBuffer = 1u << 17;     // compressed bytes per read()
         static constexpr unsigned kMaxInflateThreads = 16;
+        // A zstd frame decompressed whole by a worker (a regular file on several threads) holds at most this: one whose
+        // header gives no size, or a larger one, is decompressed as a stream on the file's own thread with the rest of
+        // the file (an output block grows to hold one frame of up to this).
+        static constexpr size_t kMaxZstdFrame = size_t{64} << 20;
+        static constexpr size_t kZstdFrameHeaderMax = 18;  // a zstd frame header's most bytes (zstd.h's static section)
         // The most threads protal gives a gzip file that is not BGZF (ParallelGzip): a piece decoded ahead costs ~2.6
         // times one decoded in order (two passes, and its copies from the unknown window filled in: on FASTQ ~40% of
         // the bytes), so each thread adds less (on 4 cores 1.7, 2.0, 2.35, 2.4 GB/s of FASTQ on 1-4 threads,
         // docs/claude/2026-10-12-isal-parallel-inflate).
         static constexpr unsigned kMaxGzipThreads = 8;
 
-        // Threads that inflate a BGZF file opened from now on (1: the file's own thread does it; at most
-        // kMaxInflateThreads). PROTAL_INFLATE_THREADS in the environment overrides it, and GzipThreads (for
+        // Threads that inflate a BGZF file (or decompress a zstd file's frames) opened from now on (1: the file's own
+        // thread does it; at most kMaxInflateThreads). PROTAL_INFLATE_THREADS in the environment overrides it, and GzipThreads (for
         // comparing runs).
         static void SetInflateThreads(unsigned threads) {
             InflateThreadsSetting().store(std::clamp(threads, 1u, kMaxInflateThreads), std::memory_order_relaxed);
@@ -182,22 +197,34 @@ namespace protal {
             m_members = 0;
             m_parallel.reset();
             m_parallel_error.clear();
-            unsigned const threads = m_bgzf ? InflateThreads() : GzipThreads();
+            // A zstd file's frames are independent, as BGZF blocks are: on as many threads (pzstd and protal's simulator
+            // write many frames; zstd, also with -T, one, read on one thread all the same). A file whose first frame does
+            // not say its size (a stream's, `cat x | zstd`) is read as a stream from the start, on one thread.
+            bool const zstd = !m_bgzf && peeked >= 4 && IsZstdFrame(head);
+            bool const sized = zstd && ZSTD_getFrameContentSize(head, static_cast<size_t>(peeked)) <= kMaxZstdFrame;
+            unsigned const threads = m_bgzf || zstd ? InflateThreads() : GzipThreads();
+            m_zstd_frames = sized && threads > 1;
             if (m_bgzf) {
                 m_block_in.resize(bgzf::kMaxBlock);
                 m_last_empty = false;
+            } else if (m_zstd_frames) {
+                m_block_in.assign(size_t{4} << 20, 0);
+                m_in_pos = m_in_end = 0;
+                m_in_eof = false;
+                m_mode = Mode::Zstd;
             } else if (peeked >= 2 && head[0] == 0x1f && head[1] == 0x8b && threads > 1) {
                 // A gzip file that is not BGZF, on several threads (ParallelGzip); on one if that cannot be had
                 // (m_parallel_error says why).
                 m_parallel = ParallelGzip::Open(m_fd, threads, m_parallel_error);
             }
-            if (!m_bgzf && !m_parallel && !StartGzip(0, m_open_error)) {
+            if (!m_bgzf && !m_zstd_frames && !m_parallel && !StartGzip(0, m_open_error)) {
                 ::close(m_fd);
                 m_fd = -1;
                 return false;
             }
             m_opened_bgzf = m_bgzf;
-            m_workers = m_bgzf ? threads : 1;
+            m_opened_zstd_frames = m_zstd_frames;
+            m_workers = m_bgzf || m_zstd_frames ? threads : 1;
             m_parallel_threads = m_parallel ? threads : 0;
             size_t const blocks = m_workers > 1 ? 2 * size_t{m_workers} + 2 : kBlocks;
             m_blocks.assign(blocks, std::vector<char>(kBlockSize));
@@ -247,6 +274,9 @@ namespace protal {
 
         // Whether the open file began as BGZF (else gzip, zstd or uncompressed).
         bool opened_as_bgzf() const { return m_opened_bgzf; }
+
+        // Whether the open file, zstd, began with its frames decompressed on several threads (inflate_threads()).
+        bool opened_as_zstd_frames() const { return m_opened_zstd_frames; }
 
         // Whether the open file, gzip but not BGZF, is inflated in pieces on several threads (ParallelGzip).
         bool parallel_gzip() const { return m_parallel_threads > 0; }
@@ -404,10 +434,13 @@ namespace protal {
     private:
         static constexpr size_t kNone = SIZE_MAX;
 
-        // An output block's batch: with several inflating threads, the compressed BGZF blocks to inflate into it.
+        // An output block's batch: with several inflating threads, the compressed BGZF blocks (or zstd frames) to inflate
+        // into it.
         struct Job {
-            std::vector<unsigned char> in;               // whole BGZF blocks, one after the other
+            std::vector<unsigned char> in;               // whole BGZF blocks (zstd frames), one after the other
             std::vector<size_t> ends;                    // where each ends in `in`
+            bool zstd = false;                           // zstd frames (Work: ZSTD_decompressDCtx), else BGZF blocks
+            size_t first = 0;                            // a zstd job: the number of its first frame in the file (1 on)
             uint64_t offset = 0;                         // the file offset of the first
             size_t size = 0;                             // inflated bytes in the output block
             bool complete = false;                       // inflated (or filled): the reader may take it
@@ -471,9 +504,12 @@ namespace protal {
                 job.size = 0;
                 job.error.clear();
                 std::string error;
-                bool const bgzf = m_bgzf;
-                if (bgzf) {
+                bool const frames = m_bgzf || m_zstd_frames;  // whole blocks (frames) for the workers
+                job.zstd = m_zstd_frames;
+                if (m_bgzf) {
                     end = ReadBgzfJob(job, error);
+                } else if (m_zstd_frames) {
+                    end = ReadZstdJob(job, m_blocks[index], error);
                 } else {
                     size_t size = 0;
                     end = FillStream(m_blocks[index].data(), size, error);
@@ -482,10 +518,10 @@ namespace protal {
                 }
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    if (bgzf && !job.ends.empty()) {
+                    if (frames && !job.ends.empty()) {
                         m_ready.push_back(index);
                         m_todo.push_back(index);
-                    } else if (!bgzf && job.size > 0) {
+                    } else if (!frames && job.size > 0) {
                         m_ready.push_back(index);
                     } else {
                         m_free.push_back(index);
@@ -516,12 +552,17 @@ namespace protal {
                 }
                 Job& job = m_jobs[index];
                 char* out = m_blocks[index].data();
+                size_t const room = m_blocks[index].size();  // a zstd job's block may have grown for a large frame
                 size_t size = 0, begin = 0;
                 uint64_t offset = job.offset;
                 std::string error;
-                for (size_t const end : job.ends) {
+                for (size_t i = 0; i < job.ends.size(); i++) {
+                    size_t const end = job.ends[i];
                     size_t n = 0;
-                    if (!bgzf::DecompressBlock(job.in.data() + begin, end - begin, out + size, kBlockSize - size, n, error)) {
+                    if (job.zstd ? !DecompressZstdFrame(job.in.data() + begin, end - begin, out + size, room - size, n, error,
+                                                        job.first + i)
+                                 : !bgzf::DecompressBlock(job.in.data() + begin, end - begin, out + size, room - size, n,
+                                                          error)) {
                         error += " at byte " + std::to_string(offset);
                         break;
                     }
@@ -585,6 +626,96 @@ namespace protal {
                 out += isize;
             }
             return false;
+        }
+
+        // ReadBgzfJob for a zstd file (m_zstd_frames): whole frames into job (job.in, each frame's end in job.ends) while
+        // their contents, as their headers give them, fit the output block `block` (one frame at least: the block grows
+        // to hold a larger one, up to kMaxZstdFrame); true at the end of the file or on an error (then set). A frame whose
+        // header gives no size (a stream's, written without knowing its length) or a larger one switches the rest of the
+        // file to FillStream on this thread (the frames read before it first go to the workers): false is returned.
+        // Skippable frames hold nothing.
+        bool ReadZstdJob(Job& job, std::vector<char>& block, std::string& error) {
+            job.in.clear();
+            job.ends.clear();
+            job.offset = m_offset;
+            job.first = m_members + 1;
+            size_t planned = 0;
+            while (true) {
+                if (!Available(kZstdFrameHeaderMax, error)) return true;
+                size_t const left = m_in_end - m_in_pos;
+                if (left == 0) break;  // the end of the file, after a whole frame
+                unsigned char const* in = m_block_in.data() + m_in_pos;
+                if (left < 4 || !IsZstdFrame(in)) {
+                    error = left < 4 ? "the file ends inside zstd frame " + std::to_string(m_members + 1) + " (truncated file?)"
+                                     : "the data at byte " + std::to_string(m_offset) + ", after zstd frame " +
+                                           std::to_string(m_members) + ", is no zstd frame (corrupt file?)";
+                    return true;
+                }
+                unsigned long long const content = ZSTD_getFrameContentSize(in, left);
+                if (content == ZSTD_CONTENTSIZE_ERROR) {
+                    error = "a corrupt header of zstd frame " + std::to_string(m_members + 1) + " at byte " +
+                            std::to_string(m_offset) + " (corrupt or truncated file?)";
+                    return true;
+                }
+                if (content == ZSTD_CONTENTSIZE_UNKNOWN || content > kMaxZstdFrame) {
+                    if (!job.ends.empty()) break;  // the frames before it go to the workers first
+                    if (!StartZstd(error)) return true;
+                    m_zstd_frames = false;  // the rest on this thread, streamed (FillStream, Mode::Zstd)
+                    return false;
+                }
+                if (!job.ends.empty() && planned + content > kBlockSize) break;  // the next job's
+                // The whole frame in m_block_in: its compressed size is known only once all of it is there.
+                size_t frame;
+                while (true) {
+                    frame = ZSTD_findFrameCompressedSize(m_block_in.data() + m_in_pos, m_in_end - m_in_pos);
+                    if (!ZSTD_isError(frame)) break;
+                    size_t const had = m_in_end - m_in_pos;
+                    if (ZSTD_getErrorCode(frame) != ZSTD_error_srcSize_wrong || m_in_eof) {
+                        error = m_in_eof && ZSTD_getErrorCode(frame) == ZSTD_error_srcSize_wrong
+                                    ? "the file ends inside zstd frame " + std::to_string(m_members + 1) + " (truncated file?)"
+                                    : std::string(ZSTD_getErrorName(frame)) + " in zstd frame " +
+                                          std::to_string(m_members + 1) + " (corrupt file?) at byte " +
+                                          std::to_string(m_offset);
+                        return true;
+                    }
+                    if (m_block_in.size() < 2 * had) m_block_in.resize(2 * had);
+                    if (!Available(2 * had, error)) return true;
+                }
+                job.in.insert(job.in.end(), m_block_in.data() + m_in_pos, m_block_in.data() + m_in_pos + frame);
+                job.ends.push_back(job.in.size());
+                m_in_pos += frame;
+                m_offset += frame;
+                m_members++;
+                planned += static_cast<size_t>(content);
+            }
+            if (block.size() < planned) block.resize(planned);
+            return job.ends.empty();
+        }
+
+        // A whole zstd frame (number `number` in the file) of `size` bytes decompressed into out (at most `room` bytes) on
+        // this thread's context; false on an error (then set), as a frame that is not whole or holds more than its header
+        // says.
+        static bool DecompressZstdFrame(unsigned char const* frame, size_t size, char* out, size_t room, size_t& made,
+                                        std::string& error, size_t number) {
+            struct Free {
+                void operator()(ZSTD_DCtx* d) const { ZSTD_freeDCtx(d); }
+            };
+            thread_local std::unique_ptr<ZSTD_DCtx, Free> dctx;
+            if (!dctx) {
+                dctx.reset(ZSTD_createDCtx());
+                if (!dctx) {
+                    error = "cannot allocate a zstd decompression context";
+                    return false;
+                }
+                ZSTD_DCtx_setParameter(dctx.get(), ZSTD_d_windowLogMax, ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound);
+            }
+            size_t const n = ZSTD_decompressDCtx(dctx.get(), out, room, frame, size);
+            if (ZSTD_isError(n)) {
+                error = std::string(ZSTD_getErrorName(n)) + " in zstd frame " + std::to_string(number) + " (corrupt file?)";
+                return false;
+            }
+            made = n;
+            return true;
         }
 
         // Reads up to size bytes at the file's current offset; the bytes read (fewer only at its end).
@@ -916,6 +1047,8 @@ namespace protal {
         unsigned m_parallel_threads = 0;                 // its threads (0: none)
         std::string m_parallel_error;                    // why a gzip file is not inflated on several threads after all
         bool m_opened_bgzf = false;                      // the file began as BGZF
+        bool m_zstd_frames = false;                      // a zstd file's frames read whole for the workers (ReadZstdJob)
+        bool m_opened_zstd_frames = false;               // the file began so
         std::vector<std::thread> m_worker_threads;       // Work, with several
         std::vector<std::vector<char>> m_blocks;
         std::vector<Job> m_jobs;                         // per output block

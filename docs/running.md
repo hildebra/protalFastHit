@@ -214,10 +214,14 @@ on 1 to 8 threads per file (one per 4 alignment threads and file: 2 per file for
 16 threads, 4 on 32). Pieces of the file are decoded ahead with the 32 KB before them unknown (marked,
 and filled in once the piece before is done) while the file's own thread decodes the others in order;
 on FASTQ about 1.7, 2.0 and 2.4 GB/s on 1, 2 and 4 threads (on 4 cores), as a piece decoded ahead costs
-about 2.6 times one decoded in order. A pipe is read on one thread, and so are zstd files. `--verbose` says how
-each file is read. For runs on many threads, BGZF is still the fastest and the cheapest: `bgzip -@ 8
--c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 > reads.bgz.fq.gz`) turns a gzip file
-into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the threads per gzip file, BGZF or not.
+about 2.6 times one decoded in order. A zstd file's frames are independent, as BGZF blocks are, and are
+decompressed on as many threads as a BGZF file's: protal's simulator (a frame per batch of reads) and
+`pzstd` write many frames, `zstd -T` one (read on one thread all the same); a frame whose header does not
+say its size (`cat reads.fq | zstd`) and the rest of the file after it are read as a stream. A pipe is
+read on one thread. `--verbose` says how each file is read. For runs on many threads, BGZF is still the
+fastest and the cheapest: `bgzip -@ 8 -c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 >
+reads.bgz.fq.gz`) turns a gzip file into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the
+threads per gzip or zstd file.
 
 A read file that is missing, a directory or not readable stops protal before the index is loaded.
 A sample fails (exit 1, no SAM file) when its reads are not FASTQ or FASTA, when a record is

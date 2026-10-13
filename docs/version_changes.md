@@ -26,6 +26,20 @@ for this page.
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 | 0.8.3 | `23bacd9` | 2026-10-13 | 31 | sparse-first gates per read type, recorded by the database and followed by runs (at r226 −35% of the paired-end alignment's time at C = 1, −62% of HiFi's at C = 8); GTDB builds gated by default, `--test-c-gates`; gzip input in pieces on several threads (system ISA-L); a sample's lanes as one sample; F1 over the species the marker genes see; the weighted site shift off again |
 
+## Since 0.8.3
+
+- **zstd read files on several threads** (2026-10-13). A zstd file's frames are independent, as BGZF blocks are:
+  a zstd file of several frames is now decompressed on as many threads as a BGZF file is (1 to 4 per file, one per
+  4 of `-t` and file). This covers the reads of GTDB builds, whose simulations write a frame per batch of reads,
+  and `pzstd`'s files. A file of one frame (what `zstd` writes, also with `-T`) gains nothing; a frame whose header
+  does not say its size (a stream's) and the rest of its file are read as a stream on one thread, as before
+  ([running.md](running.md#read-files)). The outputs are the same; speed not measured yet.
+- **`--test-c-gates` also tests `--flex_indels`** (2026-10-13). The ONT test samples at every gate and the Ultima
+  ones at se's are also profiled with protal's `--flex_indels`, each beside the same samples at the database's gate
+  (`c_gates.tsv`'s `flex_indels` and `baseline_*` columns; `--test-flex-indels`). The test set's Ultima simulations
+  are then written to disk rather than streamed. This needs a protal with `--flex_indels`
+  ([databases.md](databases.md#choosing-the-sparse-first-gates)).
+
 ## What 0.8.3 adds
 
 0.8.3 collects the 30 commits after 0.8.2. The changes:

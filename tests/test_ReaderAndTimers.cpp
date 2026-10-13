@@ -499,9 +499,11 @@ TEST(ThreadedGzStream, BgzfOnSeveralThreadsReadsAsOnOne) {
             EXPECT_FALSE(r.failed) << r.error;
         }
     }
-    // A file that is not gzip inflates on its own thread whatever the setting (gzip of another kind: in pieces, below).
-    for (auto const& path : { dir.Write("plain.fq", small), dir.Write("small.fq.zst", ZstdBytes(small)) }) {
-        EXPECT_EQ(ReadWithThreads(path, 4).threads, 1u);
+    // A file that is not compressed is read on its own thread whatever the setting; a zstd file's frames are
+    // decompressed on as many as a BGZF file's blocks (gzip of another kind: in pieces, below).
+    for (auto const& [path, threads] : { std::pair{ dir.Write("plain.fq", small), 1u },
+                                         std::pair{ dir.Write("small.fq.zst", ZstdBytes(small)), 4u } }) {
+        EXPECT_EQ(ReadWithThreads(path, 4).threads, threads);
         EXPECT_EQ(ReadWithThreads(path, 4).text, small);
     }
 }
@@ -868,6 +870,72 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceFromParallelBgzf) {
     std::sort(all.begin(), all.end());
     ASSERT_EQ(all.size(), n);
     for (size_t i = 0; i < n; i++) ASSERT_EQ(all[i], i);
+}
+
+// A zstd file's frames decompressed on several threads (as a BGZF file's blocks) give the bytes one thread gives: many
+// frames of random sizes (as protal's simulator writes a frame per batch of reads) with skippable and empty frames among
+// them, a frame larger than an output block, a frame whose header gives no size (a stream's, zstd --long here) after
+// others and first (the rest of the file then decompressed as a stream), and one frame alone.
+TEST(ThreadedGzStream, ZstdFramesOnSeveralThreadsReadAsOnOne) {
+    ScratchDir dir;
+    auto const text = RandomFastq(30000, "z", 23);  // ~9 MB
+    std::mt19937 rng(29);
+    std::string frames;
+    for (size_t from = 0; from < text.size();) {
+        size_t const n = std::min<size_t>(text.size() - from, 1000 + rng() % 400000);
+        frames += ZstdBytes(std::string_view(text).substr(from, n));
+        if (rng() % 5 == 0) frames += SkippableFrame(rng() % 300);
+        if (rng() % 7 == 0) frames += ZstdBytes("");
+        from += n;
+    }
+    std::vector<std::pair<std::string, std::string>> const files = {  // (name, bytes), each of `text`
+        { "frames.fq.zst", frames },
+        { "large.fq.zst", ZstdBytes(text.substr(0, 100000)) + ZstdBytes(text.substr(100000, 3000000)) +
+                              ZstdBytes(text.substr(3100000)) },
+        { "stream_after.fq.zst", ZstdBytes(text.substr(0, 2000000)) + ZstdBytes(text.substr(2000000, 1000000), 27) +
+                                     ZstdBytes(text.substr(3000000)) },
+        { "stream_first.fq.zst", ZstdBytes(text.substr(0, 2000000), 27) + ZstdBytes(text.substr(2000000)) },
+        { "one.fq.zst", ZstdBytes(text) },
+    };
+    for (auto const& [name, bytes] : files) {
+        auto const path = dir.Write(name, bytes);
+        for (unsigned threads : { 1u, 2u, 3u, 4u, 7u }) {
+            SCOPED_TRACE(name + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            // A file whose first frame gives no size is read as a stream from the start, on its own thread.
+            EXPECT_EQ(r.threads, name == "stream_first.fq.zst" ? 1u : threads);
+            EXPECT_EQ(r.text.size(), text.size());
+            EXPECT_TRUE(r.text == text);
+            EXPECT_FALSE(r.failed) << r.error;
+        }
+    }
+}
+
+// A cut or corrupt zstd file fails on several threads as on one, what is read before the damage being the file's: cut
+// inside a frame, the last bytes of a frame's checksum missing, a corrupt frame, data after the last frame.
+TEST(ThreadedGzStream, ADamagedZstdFileFailsOnSeveralThreads) {
+    ScratchDir dir;
+    auto const first = RandomFastq(5000, "a", 31), second = RandomFastq(5000, "b", 37), content = first + second;
+    std::string const one = ZstdBytes(first), two = ZstdBytes(second);
+    std::string corrupt = two;
+    for (size_t i = corrupt.size() / 2; i < corrupt.size() / 2 + 16; i++) corrupt[i] = static_cast<char>(corrupt[i] ^ 0x5a);
+    std::vector<std::pair<std::string, std::string>> const variants = {  // (bytes, what the error says)
+        { one + two.substr(0, two.size() / 2), "the file ends inside zstd frame 2 (truncated file?)" },
+        { one.substr(0, one.size() - 3), "the file ends inside zstd frame 1 (truncated file?)" },
+        { one + corrupt, "in zstd frame 2 (corrupt file?)" },
+        { one + "not a zstd frame", "zstd frame" },
+    };
+    for (size_t v = 0; v < variants.size(); v++) {
+        auto const path = dir.Write("damaged" + std::to_string(v) + ".fq.zst", variants[v].first);
+        for (unsigned threads : { 1u, 3u }) {
+            SCOPED_TRACE(variants[v].second + ", " + std::to_string(threads) + " threads");
+            auto const r = ReadWithThreads(path, threads);
+            EXPECT_TRUE(r.failed);
+            EXPECT_NE(r.error.find(variants[v].second), std::string::npos) << r.error;
+            size_t const n = std::min(r.text.size(), content.size());
+            EXPECT_EQ(content.compare(0, n, r.text, 0, n), 0);
+        }
+    }
 }
 
 TEST(ThreadedGzStream, InflateThreadsFollowTheRunsThreads) {

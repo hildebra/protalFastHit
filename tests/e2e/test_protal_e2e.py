@@ -2340,6 +2340,26 @@ class BadInputTest(DbTest):
         if not self.zstd:
             raise unavailable("the zstd command is needed to write zstd-compressed reads")
 
+    def test_zstd_frames_of_known_sizes_decompress_on_several_threads(self):
+        # Four frames per file whose headers give their sizes (as protal's simulator writes a frame per batch of reads;
+        # the zst sample's frames, from pipes, give none): at -t 16 each mate file's frames are decompressed on 2 threads,
+        # and the sample profiles as the plain files.
+        if not self.zstd:
+            raise unavailable("the zstd command is needed to write zstd-compressed reads")
+        files = []
+        for mate in (1, 2):
+            with open(os.path.join(READS, f"sa_R{mate}.fq"), "rb") as fh:
+                data = fh.read()
+            cuts = [len(data) * q // 4 for q in range(5)]
+            files.append(self.write(f"sized_R{mate}.fq.zst", b"".join(
+                subprocess.run(["zstd", "-q", "-c", "-3", f"--stream-size={b - a}"], input=data[a:b], check=True,
+                               stdout=subprocess.PIPE).stdout for a, b in zip(cuts, cuts[1:]))))
+        rc, log = run(self.work, "--db", DB, "-1", files[0], "-2", files[1], "--prefix", "sized", "-o", "out_sized",
+                      "-t", "16", "--no_qcmsa", "--no_strains", "--verbose", timeout=300)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertRegex(log, re.escape(f"Input {files[0]}: zstd, its frames decompressed on ") + r"\d+ thread")
+        self.assertEqual(read_text(self.path("out_sized", "sized.profile")), baseline().text("sa.profile"))
+
     def test_mates_of_other_names_are_warned_about(self):
         self.assertRegex(self.log, rf"Warning: sample names: the mates of {self.renamed} read pair\(s\) have different names "
                                    r"\(e\.g\. sa\.(\d+)/1, other\.\1/2\)")
