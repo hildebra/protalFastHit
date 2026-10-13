@@ -4198,6 +4198,29 @@ class SparseFirstGatesTest(WorkDir):
                       "pe off, score 14, 1 hit(s)", log)
         self.assertIn("Warning: 1 sample(s) of this run (e.g. plain_gated) are gated otherwise", log)
 
+    def test_every_core_sampled_keeps_every_record(self):
+        """With every core sampled (1) and any score a hit (0), a read is given up only if none of its cores is in the
+        index, and it has no seeds anyway; a read kept is seeded from its sampled lookups, which are all its lookups
+        (ChainAnchorFinder::KeepSparseLookups, 2026-10-13). So the records and the header, which holds the unaligned
+        reads' failed candidates, are those of an ungated run, paired-end and single-end."""
+        def sam(name, reads, *extra):
+            rc, log = run(self.work, "--db", self.plain_db, *reads, "--prefix", name, "-o", name, "-t", "2", "--no_strains",
+                          "--no_profile", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            text = sam_text(self.path(name, f"{name}.sam"))
+            header = [line for line in text.splitlines() if line.startswith("@") and not line.startswith("@PG")]
+            return log, header, sorted(sam_records(self.path(name, f"{name}.sam")))
+        for mode, reads in (("pe", ("-1", self.reads[0], "-2", self.reads[1])), ("se", ("-1", self.reads[0]))):
+            _, plain_header, plain_records = sam(f"{mode}_plain", reads)
+            log, header, records = sam(f"{mode}_c1", reads, "--sparse_first", "1", "--sparse_first_score", "0")
+            given_up = re.search(r"sparse first \(1/1 of the cores, score 0, 1 hit\(s\)\): (\d+) of (\d+)", log)
+            self.assertIsNotNone(given_up, log[-3000:])
+            self.assertGreater(int(given_up.group(1)), 0, "the gate gave up no read: nothing tested")
+            self.assertLess(int(given_up.group(1)), int(given_up.group(2)), "the gate kept no read: nothing tested")
+            self.assertTrue(plain_records, mode)
+            self.assertEqual(records, plain_records, mode)
+            self.assertEqual(header, plain_header, mode)
+
     def test_bad_gates_stop_the_run(self):
         log = self.align("bad", "--sparse_first", "3", rc_expected=2)
         self.assertIn("--sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs", log)

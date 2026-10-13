@@ -985,6 +985,16 @@ namespace protal {
             m_bm_sparse.Stop();
             return hits;
         }
+        // A short read SparseScore kept, seeded next: at level 0 (C 1) its sampled lookups are all its lookups, made as
+        // LookupKmers makes them (the same k-mers in the same order, their values fetched), so FindSeeds takes them
+        // instead of looking the read up again; at a higher level FindSeeds looks it up in full.
+        void KeepSparseLookups(KmerList const& kmer_list) {
+            if (m_sparse_level != 0) return;
+            std::swap(m_lookups, m_sparse_lookups);
+            m_seeding.kmers += kmer_list.size();
+            m_seeding.found += m_lookups.size();
+            m_prepared = true;
+        }
 
         // Long reads (LongReadAligner, chunk by chunk, no read ahead): how many of a read's sampled lookups are hits,
         // counted up to `enough`: the sampled k-mers in read order, each core's key map block fetched kPrefetchKmers
