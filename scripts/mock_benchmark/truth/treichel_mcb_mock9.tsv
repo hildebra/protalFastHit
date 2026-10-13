@@ -1,0 +1,29 @@
+#name	treichel_mcb_mock9
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes), multi-coverage-binning mocks
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Lactococcus lactis	0.33259	Lactococcus lactis CLA-AV-14
+s__Escherichia coli	0.226347	Escherichia coli CLA-AA-H239
+s__Limivivens faecihominis	0.166752	Fusicatenibacter faecihominis CLA-AA-H277
+s__Blautia_A fusiformis	0.117453	Blautia fusiformis CLA-AA-11
+s__Veillonella_A intestinalis	0.0404117	Veillonella intestinalis CLA-AV-13
+s__Enterocloster clostridioformis	0.0398164	Enterocloster clostridioformis CLA-JM-H51
+s__Collinsella sp040092445	0.0292779	Collinsella sp nov CLA-ER-H11
+s__Parabacteroides goldsteinii	0.0158722	Parabacteroides goldsteinii CLA-AP-3
+s__Hominifimenecus microfluidus	0.0117899	Hominifimenecus microfluidus CLA-JM-H9
+s__Hominilimicola fabiformis	0.00695265	Hominilimicola fabiformis CLA-AA-H232
+s__Bifidobacterium pseudocatenulatum	0.00482267	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	0.00289262	Hominicoprocola fusiformis CLA-AA-H188
+s__Enterococcus faecalis	0.00238096	Enterococcus faecalis CLA-SR-172
+s__Hominenteromicrobium mulieris	0.00150773	Hominenteromicrobium mulieris CLA-AA-H250
+s__Phocaeicola sartorii	0.000418284	Phocaeicola sartorii CLA-AV-12
+s__Bacteroides hominis	0.0001658	Bacteroides fragilis CLA-AA-H207
+s__Bacteroides ovatus	0.000146122	Bacteroides ovatus CLA-AA-H168
+s__Kosakonia cowanii	0.00013369	Kosakonia cowanii CLA-AP-13
+s__Thomasclavelia ramosa	0.000122378	Thomasclavelia ramosa CLA-JM-H52
+s__Ruminococcus_B gnavus	7.03749e-05	Mediterraneibacter gnavus CLA-JM-H50
+s__Fusicatenibacter saccharivorans	3.02818e-05	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Phocaeicola vulgatus	1.65074e-05	Phocaeicola vulgatus CLA-KB-H118
+s__Bacillus licheniformis	1.54469e-05	Bacillus licheniformis CLA-AP-5
+s__Roseburia_C amylophila	1.41525e-05	Roseburia amylophila CLA-AA-H204

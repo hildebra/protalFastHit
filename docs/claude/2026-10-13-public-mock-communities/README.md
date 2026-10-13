@@ -287,10 +287,97 @@ Excluded: SOLiD data (Dugat-Bony 2015), communities only partly defined (Hot Lak
 - [`runs.tsv`](runs.tsv): its output of 2026-10-13. All 163 runs are present, with bases.
 - [`replicate_groups.tsv`](replicate_groups.tsv): 699 runs of commercial and reference standards. Columns: standard, project, run, instrument, layout, spots, Gb, group, replicate, what differs, note. Built from ENA run reports by a survey agent; spot-checked.
 
+## Follow-up: scripts to download and score the starting sets (same day)
+
+`scripts/mock_benchmark/` downloads the sets of [Where to start](#where-to-start) and scores protal on them. Its usage
+is in [development.md](../../development.md#benchmark-on-public-mock-communities). Nothing was run with protal yet.
+
+| File | What it holds or does |
+|---|---|
+| `samples.tsv` | 1,330 samples (1,355 runs) in 13 sets, from ENA's metadata by `prepare_tables.py samples` |
+| `truth/` | 29 truth tables, by `prepare_tables.py truth --gtdb ~/GTDB/r226` |
+| `download_mocks.py` | ENA downloads, cut while streaming |
+| `score_mocks.py` | `run` writes protal maps and runs protal; `score` scores the profiles |
+| `test_mock_benchmark.py` | 10 tests, 5 s |
+
+**What is in `samples.tsv`.**
+- **Replicate groups:** basecall series, platforms of one DNA, labs × methods, and technical triplets.
+- **Treated as one sample:** a library's re-runs, e.g. Meslier's nine Ion Proton runs per mock.
+- **Left out:**
+  - raw-signal (pod5) runs;
+  - modified-base BAMs that repeat a sup call;
+  - SRR23563655, which holds three basecalls of one run in one file;
+  - SRR11469785, which is the same data as SRR11606871.
+- **Two runs without an ENA FASTQ** (ERR15995300, ERR16002257) are fetched from their submitted FASTQ.
+
+**Truth tables, by member list:**
+
+| Mocks | Source of the member list |
+|---|---|
+| Zymo D6331, D6322 | Zymo's NCBI genomes |
+| ATCC MSA-1003 | ATCC strain numbers in the genomes' strain identifiers, or named strains (MG1655, UA159, FPR3757, 2603V/R, 26695, MC58, R1) |
+| NIBSC DNA reagents and WC-Gut-RR | Amos et al. 2020, Table 1 |
+| Meslier mocks 1-3 | Table S1 (% genomes, GenBank accessions) |
+| Treichel's 13 compositions | Supplementary Tables 1-2 |
+| hCom2 closed set | Jin et al. 2023, Supplementary Data 1 |
+| hCom1a dropout arms | Wang et al. 2023 |
+| Afolayan strain mixes (closed set) | Afolayan et al. 2024 |
+| Controls (negative) | none expected |
+
+**Truth tables, by how the shares are set:**
+- Treichel's DNA masses and ATCC's percentages (taken as DNA mass) are turned into genome copies by genome size.
+
+**Names that a name-based truth would have got wrong.** Every assignment is printed with its evidence. These differ from the vendors' names:
+
+| Strain | GTDB r226 species | Note |
+|---|---|---|
+| Zymo *L. monocytogenes* | `s__Listeria monocytogenes_B` | |
+| Zymo *B. subtilis* B-354 | `s__Bacillus spizizenii` | NCBI says the same |
+| NIBSC *F. prausnitzii* DSM 17677 (A2-165) | `s__Faecalibacterium duncaniae` | |
+| *B. longum* subsp. *infantis* | `s__Bifidobacterium infantis` | a separate species from *B. longum* |
+| ATCC 17982, sold as *Schaalia odontolytica* | `s__Pauljensenia dentiphila` | its genome GCF_000154225.1 is NCBI's *S. dentiphila* ATCC 17982 |
+| *C. hylemonae* | `s__Extibacter hylemonae` | |
+| *C. scindens* | `s__Clostridium_AP scindens` | |
+| *P. fluorescens* SBW25 | `s__Pseudomonas_E petroselini` | its Meslier genome is not in r226; found through its other assemblies |
+
+**Unplaced members:**
+- Treichel's *Blautia fusiformis* CLA-AA-11 has no assembly. It is placed as `s__Blautia_A fusiformis`; the authors' GTDB-Tk name, *B. massiliensis*, is not in r226.
+- One hCom2 member stays unplaced: VE202-27 (*Eisenbergiella*), whose genome r226 lacks.
+
+**Checked so far:**
+- **Unit tests:** pass.
+- **Real downloads of a few thousand reads each** (WSL, 2026-10-13), each cut as intended with mates in step, and from it the maps of `score_mocks.py run --map-only`:
+  - Dohlman pe, cut from 306 Gb;
+  - Meslier HiSeq;
+  - Treichel pe and ONT, from submitted FASTQ;
+  - PacBio HiFi;
+  - MicroBench ONT.
+
+**What the default limits keep** (`download_mocks.py --dry-run`):
+
+| Set | Samples | GB at ENA | GB kept |
+|---|---|---|---|
+| d6331_dna | 2 | 236 | 6 |
+| d6331_host | 33 | 931 | 42 |
+| meslier | 17 | 187 | 46 |
+| treichel | 94 | 509 | 107 |
+| d6331_hifi | 3 | 46 | 45 |
+| atcc1003_hifi | 1 | 45 | 18 |
+| d6331_ont | 5 | 291 | 107 |
+| d6322_basecalls | 21 | 563 | 388 |
+| strain_mixes | 50 | 53 | 53 |
+| nibsc_multilab | 270 | 196 | 196 |
+| hcom2_invitro | 276 | 359 | 360 |
+| hcom1a_dropouts | 28 | 135 | 74 |
+| plant_syncoms | 530 | 210 | 205 |
+| all | 1,330 | | ~1,650 |
+
+`--max-bases 5e9` brings the D6322 basecall series to about 100 GB.
+
 ## Next steps
 
-These are proposed, not run.
+Step 1 is done; steps 2 and 3 have scripts (see the follow-up above) and wait for the cluster.
 
-1. **Truth tables:** one per mock (genome accession, GTDB r226 species, genome-copy share), built from the vendor tables and the papers' supplements through `~/GTDB/r226` metadata.
-2. **Downloads:** take a first set: Dohlman D6331 (subsampled), Zymo D6331 HiFi and R10.4.1, Meslier mocks, Treichel, ATCC MSA-1003 HiFi. Most are large, so each download needs the user's approval and belongs on the cluster.
-3. **Scoring:** score species precision, recall and abundance error per read type against the truth. Score replicate sets by their profile distance (Bray-Curtis) and call agreement (Jaccard), including the D6322 basecall series.
+1. **Truth tables:** built for every set but the plant SynComs (`scripts/mock_benchmark/truth/`).
+2. **Downloads:** a first set on the cluster: Dohlman D6331, Zymo D6331 HiFi and R10.4.1, Meslier mocks, Treichel, ATCC MSA-1003 HiFi (`download_mocks.py --sets d6331_dna,d6331_hifi,d6331_ont,meslier,treichel,atcc1003_hifi`, ~330 GB at the default limits).
+3. **Scoring:** `score_mocks.py run` per set on the cluster, then `score_mocks.py score`: species precision, recall and abundance error per read type against the truth; replicate sets by Bray-Curtis and Jaccard, including the D6322 basecall series.

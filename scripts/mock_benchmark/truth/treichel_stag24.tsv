@@ -1,0 +1,29 @@
+#name	treichel_stag24
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes)
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Thomasclavelia ramosa	0.196832	Thomasclavelia ramosa CLA-JM-H52
+s__Phocaeicola sartorii	0.134553	Phocaeicola sartorii CLA-AV-12
+s__Enterocloster clostridioformis	0.12808	Enterocloster clostridioformis CLA-JM-H51
+s__Enterococcus faecalis	0.12765	Enterococcus faecalis CLA-SR-172
+s__Faecalibacterium duncaniae	0.108966	Faecalibacterium duncaniae CLA-AA-H254
+s__Kosakonia cowanii	0.0716753	Kosakonia cowanii CLA-AP-13
+s__Roseburia_C amylophila	0.0569068	Roseburia amylophila CLA-AA-H204
+s__Escherichia coli	0.0364053	Escherichia coli CLA-AA-H239
+s__Bacteroides hominis	0.0333338	Bacteroides fragilis CLA-AA-H207
+s__Limivivens faecihominis	0.0178802	Fusicatenibacter faecihominis CLA-AA-H277
+s__Bacillus licheniformis	0.016563	Bacillus licheniformis CLA-AP-5
+s__Veillonella_A intestinalis	0.0162494	Veillonella intestinalis CLA-AV-13
+s__Ruminococcus_B gnavus	0.011319	Mediterraneibacter gnavus CLA-JM-H50
+s__Blautia_A fusiformis	0.00944548	Blautia fusiformis CLA-AA-11
+s__Bacteroides ovatus	0.00940084	Bacteroides ovatus CLA-AA-H168
+s__Bifidobacterium pseudocatenulatum	0.00775671	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	0.00581557	Hominicoprocola fusiformis CLA-AA-H188
+s__Collinsella sp040092445	0.00313934	Collinsella sp nov CLA-ER-H11
+s__Lactococcus lactis	0.00267467	Lactococcus lactis CLA-AV-14
+s__Parabacteroides goldsteinii	0.00255287	Parabacteroides goldsteinii CLA-AP-3
+s__Hominilimicola fabiformis	0.00223651	Hominilimicola fabiformis CLA-AA-H232
+s__Hominenteromicrobium mulieris	0.000242502	Hominenteromicrobium mulieris CLA-AA-H250
+s__Hominifimenecus microfluidus	0.000189627	Hominifimenecus microfluidus CLA-JM-H9
+s__Phocaeicola vulgatus	0.000132752	Phocaeicola vulgatus CLA-KB-H118

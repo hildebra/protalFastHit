@@ -1,0 +1,25 @@
+#name	nibsc_gutmix
+#kind	abundance
+#source	NIBSC Gut-Mix-RR (WHO 20/302), Amos et al. 2020 Table 1
+#basis	genome copies
+species	share	members
+s__Lactobacillus gasseri	0.089691	Lactobacillus gasseri DSM 20077 (ATCC 33323)
+s__Collinsella aerofaciens_AL	0.0694931	Collinsella aerofaciens DSM 13712
+s__Bifidobacterium longum	0.0691931	Bifidobacterium longum subsp. longum DSM 20219
+s__Akkermansia muciniphila	0.0636936	Akkermansia muciniphila DSM 22959
+s__Anaerostipes hadrus	0.0610939	Anaerostipes hadrus DSM 3319
+s__Bifidobacterium infantis	0.059994	Bifidobacterium longum subsp. infantis DSM 20088
+s__Faecalibacterium duncaniae	0.0548945	Faecalibacterium prausnitzii DSM 17677 (A2-165, now F. duncaniae)
+s__Prevotella melaninogenica	0.0533947	Prevotella melaninogenica DSM 7089 (ATCC 25845)
+s__Anaerobutyricum hallii	0.0515948	Eubacterium hallii DSM 3353
+s__Prevotella copri	0.0482952	Prevotella copri DSM 18205
+s__Roseburia hominis	0.0471953	Roseburia hominis DSM 16839 (A2-183)
+s__Alistipes finegoldii	0.0453955	Alistipes finegoldii DSM 17242
+s__Ruminococcus_G gauvreauii	0.0412959	Ruminococcus gauvreauii DSM 19829
+s__Roseburia intestinalis	0.0387961	Roseburia intestinalis DSM 14610 (L1-82)
+s__Blautia_A wexlerae	0.0376962	Blautia wexlerae DSM 19850
+s__Clostridium butyricum	0.0369963	Clostridium butyricum DSM 10702
+s__Bacteroides uniformis	0.0365963	Bacteroides uniformis DSM 6597
+s__Parabacteroides distasonis	0.0351965	Parabacteroides distasonis DSM 20701 (ATCC 8503)
+s__Escherichia coli	0.0325967	Escherichia coli DSM 1103 (ATCC 25922)
+s__Bacteroides thetaiotaomicron	0.0268973	Bacteroides thetaiotaomicron DSM 2079

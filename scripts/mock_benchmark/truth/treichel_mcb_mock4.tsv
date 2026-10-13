@@ -1,0 +1,29 @@
+#name	treichel_mcb_mock4
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes), multi-coverage-binning mocks
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Enterococcus faecalis	0.306129	Enterococcus faecalis CLA-SR-172
+s__Bifidobacterium pseudocatenulatum	0.223225	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	0.223149	Hominicoprocola fusiformis CLA-AA-H188
+s__Hominilimicola fabiformis	0.107272	Hominilimicola fabiformis CLA-AA-H232
+s__Hominifimenecus microfluidus	0.0454762	Hominifimenecus microfluidus CLA-JM-H9
+s__Collinsella sp040092445	0.0376437	Collinsella sp nov CLA-ER-H11
+s__Veillonella_A intestinalis	0.0311754	Veillonella intestinalis CLA-AV-13
+s__Parabacteroides goldsteinii	0.00734672	Parabacteroides goldsteinii CLA-AP-3
+s__Enterocloster clostridioformis	0.00614322	Enterocloster clostridioformis CLA-JM-H51
+s__Blautia_A fusiformis	0.00453041	Blautia fusiformis CLA-AA-11
+s__Lactococcus lactis	0.00256575	Lactococcus lactis CLA-AV-14
+s__Limivivens faecihominis	0.002144	Fusicatenibacter faecihominis CLA-AA-H277
+s__Roseburia_C amylophila	0.00109179	Roseburia amylophila CLA-AA-H204
+s__Escherichia coli	0.00104768	Escherichia coli CLA-AA-H239
+s__Bacillus licheniformis	0.000397212	Bacillus licheniformis CLA-AP-5
+s__Fusicatenibacter saccharivorans	0.000186886	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Ruminococcus_B gnavus	0.000162871	Mediterraneibacter gnavus CLA-JM-H50
+s__Phocaeicola vulgatus	0.000159182	Phocaeicola vulgatus CLA-KB-H118
+s__Thomasclavelia ramosa	9.4408e-05	Thomasclavelia ramosa CLA-JM-H52
+s__Kosakonia cowanii	3.43782e-05	Kosakonia cowanii CLA-AP-13
+s__Bacteroides hominis	1.59882e-05	Bacteroides fragilis CLA-AA-H207
+s__Bacteroides ovatus	9.01801e-06	Bacteroides ovatus CLA-AA-H168
+s__Hominenteromicrobium mulieris	0	Hominenteromicrobium mulieris CLA-AA-H250
+s__Phocaeicola sartorii	0	Phocaeicola sartorii CLA-AV-12

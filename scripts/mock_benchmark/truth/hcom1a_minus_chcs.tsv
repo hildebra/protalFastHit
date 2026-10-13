@@ -1,0 +1,7 @@
+#name	hcom1a_minus_chcs
+#kind	dropout
+#source	Wang et al. 2023: hCom1a (107 strains) and its arms without C. hylemonae and/or C. scindens; only these two species are judged
+#basis	dropout
+species	share	members
+s__Clostridium_AP scindens	0	Clostridium scindens ATCC 35704
+s__Extibacter hylemonae	0	Clostridium hylemonae DSM 15053

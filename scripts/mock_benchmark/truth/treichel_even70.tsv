@@ -1,0 +1,68 @@
+#name	treichel_even70
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes)
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Escherichia coli	0.0375706	Escherichia coli CLA-AA-H239; Escherichia coli CLA-AD-1; Escherichia coli CR B11; Escherichia coli Ec8850
+s__Phocaeicola vulgatus	0.0363368	Phocaeicola vulgatus 4852a; Phocaeicola vulgatus 4889b; Phocaeicola vulgatus CLA-KB-H118; Phocaeicola vulgatus HDF
+s__Blautia_A wexlerae	0.0251668	Blautia wexlerae CLA-AA-H259; Blautia wexlerae CLA-JMH-31B
+s__Alistipes muris	0.0243865	Alistipes muris CLA-AA-M12
+s__Streptococcus caecimuris	0.0229516	Streptococcus caecimuris CLA-AV-18
+s__Veillonella_A intestinalis	0.0223623	Veillonella intestinalis CLA-AV-13
+s__Collinsella sp040092445	0.0216017	Collinsella sp nov CLA-ER-H11
+s__Mucispirillum schaedleri	0.0214865	Mucispirillum schaedleri CLA-AA-M07-B
+s__Bifidobacterium pseudocatenulatum	0.0213494	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Collinsella sp040092335	0.0212907	Collinsella sp nov CLA-ER-H8
+s__Collinsella sp958445065	0.021108	Collinsella sp nov CLA-ER-H5
+s__Collinsella sp040098065	0.020774	Collinsella sp nov CLA-JM-H32-B
+s__Faecalibaculum rodentium	0.0204776	Faecalibaculum rodentium CLA-AV-15
+s__Pumilibacter intestinalis	0.0202696	Pumilibacter intestinalis CLA-AA-M10
+s__Bifidobacterium longum	0.0199783	Bifidobacterium longum CLA-JM-H30-B
+s__Streptococcus thoraltensis	0.01995	Streptococcus thoraltensis CLA-AV-9
+s__Lactococcus lactis	0.0184042	Lactococcus lactis CLA-AV-14
+s__Culturomica lunata	0.0180595	Odoribacter lunatus CLA-AA-M09
+s__Agathobaculum butyriciproducens	0.017708	Agathobaculum butyriciproducens CLA-AA-H270
+s__Enterococcus faecalis	0.0175671	Enterococcus faecalis CLA-SR-172
+s__Adlercreutzia muris	0.0170401	Adlercreutzia muris CLA-AV-8
+s__Faecalimonas umbilicata	0.0167453	Faecalimonas umbilicata CLA-JM-H57
+s__Hominenteromicrobium mulieris	0.0166864	Hominenteromicrobium mulieris CLA-AA-H250
+s__Hominimerdicola aceti	0.0165683	Hominimerdicola aceti CLA-AA-H220
+s__Wujia hominis	0.0164202	Coprococcus hominis CLA-AA-H212
+s__Hominicoprocola sp934835795	0.0160066	Hominicoprocola fusiformis CLA-AA-H188
+s__Roseburia_C amylophila	0.0156629	Roseburia amylophila CLA-AA-H204
+s__Ruminococcus_B gnavus	0.0155771	Mediterraneibacter gnavus CLA-JM-H50
+s__Hominilimicola fabiformis	0.0153893	Hominilimicola fabiformis CLA-AA-H232
+s__Otoolea fessa	0.0152776	Clostridium fessum CLA-AA-H278
+s__Lachnospira hominis	0.0150723	Lachnospira sp nov CLA-JM-H10
+s__Faecalibacterium duncaniae	0.0149958	Faecalibacterium duncaniae CLA-AA-H254
+s__Hominisplanchenecus faecis	0.0146488	Hominisplanchenecus faecis CLA-AA-H246
+s__Prevotella faecis	0.0144569	Hallella faecis CLA-AA-H145
+s__Brotaphodocola catenula	0.0144013	Brotaphodocola catenula CLA-AA-H274
+s__Hominisplanchenecus_A murintestinalis	0.0143126	Hominisplanchenecus murintestinalis CLA-AA-M05
+s__Vescimonas cirricatena	0.0142093	Brotocaccenecus cirricatena CLA-AA-H272
+s__Thomasclavelia ramosa	0.0135439	Thomasclavelia ramosa CLA-JM-H52
+s__Fusicatenibacter saccharivorans	0.0134054	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Enterococcus_D gallinarum	0.0133029	Enterococcus gallinarum CLA-AP-1
+s__Hominifimenecus microfluidus	0.0130482	Hominifimenecus microfluidus CLA-JM-H9
+s__Blautia_A fusiformis	0.0129988	Blautia fusiformis CLA-AA-11
+s__Anthropogastromicrobium aceti	0.0128578	Anthropogastromicrobium aceti CLA-AA-H224
+s__Intestinimonas aquisgranensis	0.012761	Intestinimonas aquisgranensis CLA-AA-H199
+s__Oliverpabstia intestinalis	0.0125746	Oliverpabstia intestinalis CLA-AA-H241
+s__Mediterraneibacter turbiniformis	0.0124244	Ruminococcus turbiniformis CLA-AA-H200
+s__Gallintestinimicrobium propionicum	0.0123135	Gallintestinimicrobium propionicum CLA-AA-H176
+s__Limivivens faecihominis	0.0123032	Fusicatenibacter faecihominis CLA-AA-H277
+s__Acetatifactor acetigignens	0.0122807	Brotolimicola acetigignens CLA-AA-H273
+s__Bacillus licheniformis	0.0113969	Bacillus licheniformis CLA-AP-5
+s__Blautia_A acetigignens	0.0112767	Blautia acetigignens CLA-AA-H161
+s__Enterococcus_A avium	0.0107583	Enterococcus avium S68
+s__Bacteroides finegoldii	0.0104056	Bacteroides finegoldii CLA-JM-H15
+s__Bacteroides uniformis	0.0103703	Bacteroides uniformis CLA-AV-11
+s__Bacteroides acidifaciens	0.010057	Bacteroides acidifaciens CLA-AP-2
+s__Kosakonia cowanii	0.00986388	Kosakonia cowanii CLA-AP-13
+s__Yersinia enterocolitica	0.00980957	Yersinia enterocolitica CLA-JM-1
+s__Phocaeicola sartorii	0.00925849	Phocaeicola sartorii CLA-AV-12
+s__Parabacteroides distasonis	0.00923581	Parabacteroides distasonis CLA-AA-H234
+s__Bacteroides hominis	0.00917473	Bacteroides fragilis CLA-AA-H207
+s__Enterocloster clostridioformis	0.00881313	Enterocloster clostridioformis CLA-JM-H51
+s__Parabacteroides goldsteinii	0.00702647	Parabacteroides goldsteinii CLA-AP-3
+s__Bacteroides ovatus	0.00646867	Bacteroides ovatus CLA-AA-H168

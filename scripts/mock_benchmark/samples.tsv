@@ -1,0 +1,1331 @@
+set	sample	runs	read_type	truth	group	note
+d6331_dna	d6331_dna_SRR38158090	SRR38158090	pe	d6331	d6331_dna	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 3
+d6331_host	d6331_host_SRR38158091	SRR38158091	pe	negative	extraction_negative	Template-free extraction negative control, replicate 1
+d6331_host	d6331_host_SRR38158092	SRR38158092	pe	d6331	host_1e3	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3, replicate 1
+d6331_host	d6331_host_SRR38158093	SRR38158093	pe	d6331	host_1e2	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 3
+d6331_host	d6331_host_SRR38158094	SRR38158094	pe	d6331	host_1e2	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 2
+d6331_host	d6331_host_SRR38158095	SRR38158095	pe	d6331	host_1e2	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 1
+d6331_host	d6331_host_SRR38158096	SRR38158096	pe	d6331	host_1e1	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1, replicate 3
+d6331_host	d6331_host_SRR38158097	SRR38158097	pe	d6331	host_1e1	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1, replicate 2
+d6331_host	d6331_host_SRR38158098	SRR38158098	pe	negative	extraction_negative	Template-free extraction negative control, replicate 3
+d6331_host	d6331_host_SRR38158099	SRR38158099	pe	negative	extraction_negative	Template-free extraction negative control, replicate 2
+d6331_dna	d6331_dna_SRR38158100	SRR38158100	pe	d6331	d6331_dna	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 2
+d6331_host	d6331_host_SRR38158101	SRR38158101	pe	d6331	host_1e1	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1, replicate 1
+d6331_host	d6331_host_SRR38158102	SRR38158102	pe	negative	host_only	Human DNA only control (HCT116), replicate 3
+d6331_host	d6331_host_SRR38158103	SRR38158103	pe	negative	host_only	Human DNA only control (HCT116), replicate 2
+d6331_host	d6331_host_SRR38158104	SRR38158104	pe	negative	host_only	Human DNA only control (HCT116), replicate 1
+d6331_host	d6331_host_SRR38158105	SRR38158105	pe	d6331	host_1e8	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8, replicate 3
+d6331_host	d6331_host_SRR38158106	SRR38158106	pe	d6331	host_1e8	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8, replicate 2
+d6331_host	d6331_host_SRR38158107	SRR38158107	pe	d6331	host_1e8	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8, replicate 1
+d6331_host	d6331_host_SRR38158108	SRR38158108	pe	d6331	host_1e7	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7, replicate 3
+d6331_host	d6331_host_SRR38158109	SRR38158109	pe	d6331	host_1e7	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7, replicate 2
+d6331_host	d6331_host_SRR38158110	SRR38158110	pe	d6331	host_1e7	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7, replicate 1
+d6331_host	d6331_host_SRR38158111	SRR38158111	pe	d6331	host_1e6	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6, replicate 3
+d6331_host	d6331_host_SRR38158112	SRR38158112	pe	d6331	host_1e0	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1, replicate 3
+d6331_host	d6331_host_SRR38158113	SRR38158113	pe	d6331	host_1e6	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6, replicate 2
+d6331_host	d6331_host_SRR38158114	SRR38158114	pe	d6331	host_1e6	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6, replicate 1
+d6331_host	d6331_host_SRR38158115	SRR38158115	pe	d6331	host_1e5	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5, replicate 3
+d6331_host	d6331_host_SRR38158116	SRR38158116	pe	d6331	host_1e5	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5, replicate 2
+d6331_host	d6331_host_SRR38158117	SRR38158117	pe	d6331	host_1e5	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5, replicate 1
+d6331_host	d6331_host_SRR38158118	SRR38158118	pe	d6331	host_1e4	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4, replicate 3
+d6331_host	d6331_host_SRR38158119	SRR38158119	pe	d6331	host_1e4	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4, replicate 2
+d6331_host	d6331_host_SRR38158120	SRR38158120	pe	d6331	host_1e4	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4, replicate 1
+d6331_host	d6331_host_SRR38158121	SRR38158121	pe	d6331	host_1e3	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3, replicate 3
+d6331_host	d6331_host_SRR38158122	SRR38158122	pe	d6331	host_1e3	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3, replicate 2
+d6331_host	d6331_host_SRR38158123	SRR38158123	pe	d6331	host_1e0	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1, replicate 2
+d6331_host	d6331_host_SRR38158124	SRR38158124	pe	d6331	host_1e0	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1, replicate 1
+meslier	meslier_mock1_DNBSEQ_G400	ERR9765742	pe	meslier_mock1	meslier_mock1	DNBSEQ-G400, 1 run(s) of library MOCK_001_DNBSEQ_G400
+meslier	meslier_mock2_DNBSEQ_G400	ERR9765743	pe	meslier_mock2	meslier_mock2	DNBSEQ-G400, 1 run(s) of library MOCK_002_DNBSEQ_G400
+meslier	meslier_mock1_DNBSEQ_T7	ERR9765744	pe	meslier_mock1	meslier_mock1	DNBSEQ-T7, 1 run(s) of library MOCK_001_DNBSEQ_T7
+meslier	meslier_mock2_DNBSEQ_T7	ERR9765745	pe	meslier_mock2	meslier_mock2	DNBSEQ-T7, 1 run(s) of library MOCK_002_DNBSEQ_T7
+meslier	meslier_mock1_Illumina_Hiseq_3000	ERR9765746	pe	meslier_mock1	meslier_mock1	Illumina HiSeq 3000, 1 run(s) of library MOCK_001_Illumina_Hiseq_3000
+meslier	meslier_mock2_Illumina_Hiseq_3000	ERR9765747	pe	meslier_mock2	meslier_mock2	Illumina HiSeq 3000, 1 run(s) of library MOCK_002_Illumina_Hiseq_3000
+meslier	meslier_mock3_Illumina_Hiseq_3000	ERR9765748,ERR9765749	pe	meslier_mock3	meslier_mock3	Illumina HiSeq 3000, 2 run(s) of library MOCK_003_Illumina_Hiseq_3000
+meslier	meslier_mock1_Ion_Proton	ERR9765750,ERR9765751,ERR9765752,ERR9765753,ERR9765754,ERR9765755,ERR9765756,ERR9765757,ERR9765758	se	meslier_mock1	meslier_mock1	Ion Torrent Proton, 9 run(s) of library MOCK_001_Ion_Proton
+meslier	meslier_mock2_Ion_Proton	ERR9765759,ERR9765760,ERR9765761,ERR9765762,ERR9765763,ERR9765764,ERR9765765,ERR9765766,ERR9765767	se	meslier_mock2	meslier_mock2	Ion Torrent Proton, 9 run(s) of library MOCK_002_Ion_Proton
+meslier	meslier_mock3_Ion_Proton	ERR9765768,ERR9765769,ERR9765770,ERR9765771,ERR9765772,ERR9765773,ERR9765774,ERR9765775,ERR9765776	se	meslier_mock3	meslier_mock3	Ion Torrent Proton, 9 run(s) of library MOCK_003_Ion_Proton
+meslier	meslier_mock1_Ion_S5	ERR9765777	se	meslier_mock1	meslier_mock1	Ion Torrent S5, 1 run(s) of library MOCK_001_Ion_S5
+meslier	meslier_mock2_Ion_S5	ERR9765778	se	meslier_mock2	meslier_mock2	Ion Torrent S5, 1 run(s) of library MOCK_002_Ion_S5
+meslier	meslier_mock3_Ion_S5	ERR9765779	se	meslier_mock3	meslier_mock3	Ion Torrent S5, 1 run(s) of library MOCK_003_Ion_S5
+meslier	meslier_mock1_Minion_R9	ERR9765780	ont	meslier_mock1	meslier_mock1	MinION, 1 run(s) of library MOCK_001_Minion_R9
+meslier	meslier_mock2_Minion_R9	ERR9765781	ont	meslier_mock2	meslier_mock2	MinION, 1 run(s) of library MOCK_002_Minion_R9
+meslier	meslier_mock3_Minion_R9	ERR9765782	ont	meslier_mock3	meslier_mock3	MinION, 1 run(s) of library MOCK_003_Minion_R9
+meslier	meslier_mock1_PacBio_Sequel_II	ERR9765783	pb	meslier_mock1	meslier_mock1	Sequel, 1 run(s) of library MOCK_001_PacBio_Sequel_II
+treichel	treichel_ERR14788560	ERR14788560	pe	treichel_even70	even70	Mock-even-1_facility1
+treichel	treichel_ERR14788561	ERR14788561	pe	treichel_even70	even70	Mock-even-2_facility1
+treichel	treichel_ERR14788562	ERR14788562	pe	treichel_even70	even70	Mock-even-3_facility1
+treichel	treichel_ERR14788563	ERR14788563	pe	treichel_even70	even70	Mock-even-4_facility1
+treichel	treichel_ERR14788564	ERR14788564	pe	treichel_even70	even70	Mock-even-5_facility1
+treichel	treichel_ERR14788565	ERR14788565	pe	treichel_even70	even70	Mock-even-6_facility1
+treichel	treichel_ERR14788566	ERR14788566	pe	treichel_even70	even70	Mock-even-7_facility1
+treichel	treichel_ERR14788567	ERR14788567	pe	treichel_even70	even70	Mock-even-8_facility1
+treichel	treichel_ERR14788568	ERR14788568	pe	treichel_even70	even70	Mock-even-9_facility1
+treichel	treichel_ERR14788569	ERR14788569	pe	treichel_even70	even70_bg	Mock-even-bgDNA-1_facility1
+treichel	treichel_ERR14788570	ERR14788570	pe	treichel_even70	even70_bg	Mock-even-bgDNA-2_facility1
+treichel	treichel_ERR14788571	ERR14788571	pe	treichel_even70	even70_bg	Mock-even-bgDNA-3_facility1
+treichel	treichel_ERR14788572	ERR14788572	pe	treichel_even70	even70_bg	Mock-even-bgDNA-4_facility1
+treichel	treichel_ERR14788573	ERR14788573	pe	treichel_even70	even70_bg	Mock-even-bgDNA-5_facility1
+treichel	treichel_ERR14788574	ERR14788574	pe	treichel_even70	even70_bg	Mock-even-bgDNA-6_facility1
+treichel	treichel_ERR14788575	ERR14788575	pe	treichel_even70	even70_bg	Mock-even-bgDNA-7_facility1
+treichel	treichel_ERR14788576	ERR14788576	pe	treichel_even70	even70_bg	Mock-even-bgDNA-8_facility1
+treichel	treichel_ERR14788577	ERR14788577	pe	treichel_even70	even70_bg	Mock-even-bgDNA-9_facility1
+treichel	treichel_ERR14788578	ERR14788578	pe	treichel_stag24	stag24	Mock-stag-1_facility1
+treichel	treichel_ERR14788579	ERR14788579	pe	treichel_stag24	stag24	Mock-stag-2_facility1
+treichel	treichel_ERR14788580	ERR14788580	pe	treichel_stag24	stag24	Mock-stag-3_facility1
+treichel	treichel_ERR14788581	ERR14788581	pe	treichel_stag24	stag24	Mock-stag-4_facility1
+treichel	treichel_ERR14788582	ERR14788582	pe	treichel_stag24	stag24	Mock-stag-5_facility1
+treichel	treichel_ERR14788583	ERR14788583	pe	treichel_stag24	stag24	Mock-stag-6_facility1
+treichel	treichel_ERR14788584	ERR14788584	pe	treichel_stag24	stag24	Mock-stag-7_facility1
+treichel	treichel_ERR14788585	ERR14788585	pe	treichel_stag24	stag24	Mock-stag-8_facility1
+treichel	treichel_ERR14788586	ERR14788586	pe	treichel_stag24	stag24	Mock-stag-9_facility1
+treichel	treichel_ERR14788587	ERR14788587	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-1_facility1
+treichel	treichel_ERR14788588	ERR14788588	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-2_facility1
+treichel	treichel_ERR14788589	ERR14788589	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-3_facility1
+treichel	treichel_ERR14788590	ERR14788590	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-4_facility1
+treichel	treichel_ERR14788591	ERR14788591	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-5_facility1
+treichel	treichel_ERR14788592	ERR14788592	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-6_facility1
+treichel	treichel_ERR14788593	ERR14788593	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-7_facility1
+treichel	treichel_ERR14788594	ERR14788594	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-8_facility1
+treichel	treichel_ERR14788595	ERR14788595	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-9_facility1
+treichel	treichel_ERR14788596	ERR14788596	pe	treichel_even70	even70	Mock-even-1_facility2
+treichel	treichel_ERR14788597	ERR14788597	pe	treichel_even70	even70	Mock-even-2_facility2
+treichel	treichel_ERR14788598	ERR14788598	pe	treichel_even70	even70	Mock-even-3_facility2
+treichel	treichel_ERR14788599	ERR14788599	pe	treichel_even70	even70	Mock-even-4_facility2
+treichel	treichel_ERR14788600	ERR14788600	pe	treichel_even70	even70	Mock-even-5_facility2
+treichel	treichel_ERR14788601	ERR14788601	pe	treichel_even70	even70	Mock-even-6_facility2
+treichel	treichel_ERR14788602	ERR14788602	pe	treichel_even70	even70	Mock-even-7_facility2
+treichel	treichel_ERR14788603	ERR14788603	pe	treichel_even70	even70	Mock-even-8_facility2
+treichel	treichel_ERR14788604	ERR14788604	pe	treichel_even70	even70	Mock-even-9_facility2
+treichel	treichel_ERR14788605	ERR14788605	pe	treichel_even70	even70_bg	Mock-even-bgDNA-1_facility2
+treichel	treichel_ERR14788606	ERR14788606	pe	treichel_even70	even70_bg	Mock-even-bgDNA-2_facility2
+treichel	treichel_ERR14788607	ERR14788607	pe	treichel_even70	even70_bg	Mock-even-bgDNA-3_facility2
+treichel	treichel_ERR14788608	ERR14788608	pe	treichel_even70	even70_bg	Mock-even-bgDNA-4_facility2
+treichel	treichel_ERR14788609	ERR14788609	pe	treichel_even70	even70_bg	Mock-even-bgDNA-5_facility2
+treichel	treichel_ERR14788610	ERR14788610	pe	treichel_even70	even70_bg	Mock-even-bgDNA-6_facility2
+treichel	treichel_ERR14788611	ERR14788611	pe	treichel_even70	even70_bg	Mock-even-bgDNA-7_facility2
+treichel	treichel_ERR14788612	ERR14788612	pe	treichel_even70	even70_bg	Mock-even-bgDNA-8_facility2
+treichel	treichel_ERR14788613	ERR14788613	pe	treichel_even70	even70_bg	Mock-even-bgDNA-9_facility2
+treichel	treichel_ERR14788614	ERR14788614	pe	treichel_stag24	stag24	Mock-stag-1_facility2
+treichel	treichel_ERR14788615	ERR14788615	pe	treichel_stag24	stag24	Mock-stag-2_facility2
+treichel	treichel_ERR14788616	ERR14788616	pe	treichel_stag24	stag24	Mock-stag-3_facility2
+treichel	treichel_ERR14788617	ERR14788617	pe	treichel_stag24	stag24	Mock-stag-4_facility2
+treichel	treichel_ERR14788618	ERR14788618	pe	treichel_stag24	stag24	Mock-stag-5_facility2
+treichel	treichel_ERR14788619	ERR14788619	pe	treichel_stag24	stag24	Mock-stag-6_facility2
+treichel	treichel_ERR14788620	ERR14788620	pe	treichel_stag24	stag24	Mock-stag-7_facility2
+treichel	treichel_ERR14788621	ERR14788621	pe	treichel_stag24	stag24	Mock-stag-8_facility2
+treichel	treichel_ERR14788622	ERR14788622	pe	treichel_stag24	stag24	Mock-stag-9_facility2
+treichel	treichel_ERR14788623	ERR14788623	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-1_facility2
+treichel	treichel_ERR14788624	ERR14788624	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-2_facility2
+treichel	treichel_ERR14788625	ERR14788625	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-3_facility2
+treichel	treichel_ERR14788626	ERR14788626	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-4_facility2
+treichel	treichel_ERR14788627	ERR14788627	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-5_facility2
+treichel	treichel_ERR14788628	ERR14788628	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-6_facility2
+treichel	treichel_ERR14788629	ERR14788629	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-7_facility2
+treichel	treichel_ERR14788630	ERR14788630	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-8_facility2
+treichel	treichel_ERR14788631	ERR14788631	pe	treichel_stag24	stag24_bg	Mock-stag-bgDNA-9_facility2
+treichel	treichel_ERR15348613	ERR15348613	pe	treichel_mcb_mock1	mcb_mock1	Multi-coverage-binning_Mock1
+treichel	treichel_ERR15348614	ERR15348614	pe	treichel_mcb_mock2	mcb_mock2	Multi-coverage-binning_Mock2
+treichel	treichel_ERR15348615	ERR15348615	pe	treichel_mcb_mock3	mcb_mock3	Multi-coverage-binning_Mock3
+treichel	treichel_ERR15348616	ERR15348616	pe	treichel_mcb_mock4	mcb_mock4	Multi-coverage-binning_Mock4
+treichel	treichel_ERR15348617	ERR15348617	pe	treichel_mcb_mock5	mcb_mock5	Multi-coverage-binning_Mock5
+treichel	treichel_ERR15348618	ERR15348618	pe	treichel_mcb_mock6	mcb_mock6	Multi-coverage-binning_Mock6
+treichel	treichel_ERR15348619	ERR15348619	pe	treichel_mcb_mock7	mcb_mock7	Multi-coverage-binning_Mock7
+treichel	treichel_ERR15348620	ERR15348620	pe	treichel_mcb_mock8	mcb_mock8	Multi-coverage-binning_Mock8
+treichel	treichel_ERR15348621	ERR15348621	pe	treichel_mcb_mock9	mcb_mock9	Multi-coverage-binning_Mock9
+treichel	treichel_ERR15348622	ERR15348622	pe	treichel_mcb_mock10	mcb_mock10	Multi-coverage-binning_Mock10
+treichel	treichel_ERR15995295	ERR15995295	pe	treichel_stag70	stag70	Mock-stag-1_large
+treichel	treichel_ERR15995296	ERR15995296	pe	treichel_stag70	stag70	Mock-stag-2_large
+treichel	treichel_ERR15995297	ERR15995297	pe	treichel_stag70	stag70	Mock-stag-3_large
+treichel	treichel_ERR15995298	ERR15995298	pe	treichel_stag70	stag70	Mock-stag-4_large
+treichel	treichel_ERR15995299	ERR15995299	pe	treichel_stag70	stag70	Mock-stag-5_large
+treichel	treichel_ERR15995300	ERR15995300	pe	treichel_stag70	stag70	Mock-stag-6_large
+treichel	treichel_ERR15995301	ERR15995301	pe	treichel_stag70	stag70	Mock-stag-7_large
+treichel	treichel_ERR15995302	ERR15995302	pe	treichel_stag70	stag70	Mock-stag-8_large
+treichel	treichel_ERR15995303	ERR15995303	pe	treichel_stag70	stag70	Mock-stag-9_large
+treichel	treichel_ERR15995304	ERR15995304	pe	treichel_stag70	stag70	Mock-stag-10_large
+treichel	treichel_ERR15995305	ERR15995305	pe	treichel_stag70	stag70	Mock-stag-11_large
+treichel	treichel_ERR16002257	ERR16002257	ont	treichel_stag70	stag70	Mock-stag_large_long_read
+d6331_hifi	d6331_hifi_SRR13128012	SRR13128012	pb	d6331	d6331_hifi	Zymo_D6331_ULI
+d6331_hifi	d6331_hifi_SRR13128013	SRR13128013	pb	d6331	d6331_hifi	Zymo_D6331_LOW
+d6331_hifi	d6331_hifi_SRR13128014	SRR13128014	pb	d6331	d6331_hifi	Zymo_D6331_STD
+atcc1003_hifi	atcc1003_hifi_SRR11606871	SRR11606871	pb	atcc_msa1003	-	Sequel II HiFi, Hon et al. 2020
+d6331_ont	d6331_ont_SRR31222153	SRR31222153	ont	d6331	-	PromethION LSK114, Chen et al. 2025
+d6331_ont	d6331_ont_ERR14251408	ERR14251408	ont	d6331	d6331_microbench	PAY12289_barcode13.dorado0.8.2.bm5.0.0.fast.sim.fastq.gz
+d6331_ont	d6331_ont_ERR14251409	ERR14251409	ont	d6331	d6331_microbench	PAY12289_barcode13.dorado0.8.2.bm5.0.0.hac.sim.fastq.gz
+d6331_ont	d6331_ont_ERR14251410	ERR14251410	ont	d6331	d6331_microbench	PAY12289_barcode13.dorado0.8.2.bm5.0.0.sup.sim.fastq.gz
+d6331_ont	d6331_ont_ERR15459768	ERR15459768	ont	d6331	d6331_microbench	PAY12289_barcode13.dorado1.0.0.bm5.2.0_sup.sim.mod4mC_5mC_6mA.bam
+d6322_basecalls	d6322_ERR11901474	ERR11901474	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_simplex PAS01578.dna_r10.4.1_e8.2_400bps_sup@v4.2.0.fastq.gz
+d6322_basecalls	d6322_ERR11901475	ERR11901475	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_duplex PAS01578.dna_r10.4.1_e8.2_400bps_supdup@v4.2.0.fastq.gz
+d6322_basecalls	d6322_ERR11967498	ERR11967498	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_duplex_hac PAS01578.dna_r10.4.1_e8.2_400bps_hacdup@v4.2.0.fastq.gz
+d6322_basecalls	d6322_ERR11968315	ERR11968315	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_simplex_fast PAS01578.dna_r10.4.1_e8.2_400bps_fast@v4.2.0.fastq.gz
+d6322_basecalls	d6322_ERR12421465	ERR12421465	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_simplex PAS01578.dna_r10.4.1_e8.2_400bps_fast@v4.3.0.fastq.gz
+d6322_basecalls	d6322_ERR12421466	ERR12421466	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_duplex PAS01578.dna_r10.4.1_e8.2_400bps_hacdup@v4.3.0.fastq.gz
+d6322_basecalls	d6322_ERR12421467	ERR12421467	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_simplex PAS01578.dna_r10.4.1_e8.2_400bps_hac@v4.3.0.fastq.gz
+d6322_basecalls	d6322_ERR12421468	ERR12421468	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_duplex PAS01578.dna_r10.4.1_e8.2_400bps_supdup@v4.3.0.fastq.gz
+d6322_basecalls	d6322_ERR12421469	ERR12421469	ont	zymo_d6322	d6322_PAS01578	zymo_hmw_mock_simplex PAS01578.dna_r10.4.1_e8.2_400bps_sup@v4.3.0.fastq.gz
+d6322_basecalls	d6322_ERR14294020	ERR14294020	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado0.7.3.bmdna_r10.4.1_e8.2_400bps_5.0.0_fast.sim.fastq.gz
+d6322_basecalls	d6322_ERR14294021	ERR14294021	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado0.7.3.bmdna_r10.4.1_e8.2_400bps_5.0.0_hac.sim.fastq.gz
+d6322_basecalls	d6322_ERR14294022	ERR14294022	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado0.7.3.bmdna_r10.4.1_e8.2_400bps_5.0.0_hac.dup.fastq.gz
+d6322_basecalls	d6322_ERR14294023	ERR14294023	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado0.7.3.bmdna_r10.4.1_e8.2_400bps_5.0.0_sup.sim.fastq.gz
+d6322_basecalls	d6322_ERR14294024	ERR14294024	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado0.7.3.bmdna_r10.4.1_e8.2_400bps_5.0.0_sup.dup.fastq.gz
+d6322_basecalls	d6322_ERR15459721	ERR15459721	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado1.0.0.bm5.0.0_hyp.sim.bam
+d6322_basecalls	d6322_ERR15459722	ERR15459722	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado1.0.0.bm5.2.0_fast.sim.bam
+d6322_basecalls	d6322_ERR15459723	ERR15459723	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado1.0.0.bm5.2.0_hac.sim.bam
+d6322_basecalls	d6322_ERR15459724	ERR15459724	ont	zymo_d6322	d6322_PAS01578	PAS01578.dorado1.0.0.bm5.2.0_sup.sim.bam
+d6322_basecalls	d6322_SRR24893244	SRR24893244	ont	zymo_d6322	d6322_gridion_5khz	zymo hmw mock 5khz-sup
+d6322_basecalls	d6322_SRR24893245	SRR24893245	ont	zymo_d6322	d6322_gridion_5khz	zymo hmw mock 5khz-hac
+d6322_basecalls	d6322_SRR24893246	SRR24893246	ont	zymo_d6322	d6322_gridion_5khz	zymo hmw mock 5khz-fast
+strain_mixes	strain_mixes_ERR13964249	ERR13964249	ont	ecoli_kpneumoniae	13723_17053_12926	13723_17053_12926_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964250	ERR13964250	ont	ecoli_kpneumoniae	15240_16126_5925	15240_16126_5925_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964251	ERR13964251	ont	ecoli_kpneumoniae	16464_Kpn01856	16464_Kpn01856_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964252	ERR13964252	ont	ecoli_kpneumoniae	16902_13733	16902_13733_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964253	ERR13964253	ont	ecoli_kpneumoniae	17266_Kpn01933_Kpn01518	17266_Kpn01933_Kpn01518_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964254	ERR13964254	ont	ecoli_kpneumoniae	760592820_Kpn01890_Kpn01915	760592820_Kpn01890_Kpn01915_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964255	ERR13964255	ont	ecoli_kpneumoniae	Kpn01412_Kpn01528	Kpn01412_Kpn01528_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964256	ERR13964256	ont	ecoli_kpneumoniae	Kpn01412_Kpn01886	Kpn01412_Kpn01886_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964257	ERR13964257	ont	ecoli_kpneumoniae	Kpn01528_Kpn01886	Kpn01528_Kpn01886_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964258	ERR13964258	ont	ecoli_kpneumoniae	Kpn01886_13733	Kpn01886_13733_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964259	ERR13964259	ont	ecoli_kpneumoniae	Eco04708_Eco04812	Eco04708_Eco04812_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964260	ERR13964260	ont	ecoli_kpneumoniae	Eco04711_Eco04737_Eco04896	Eco04711_Eco04737_Eco04896_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964261	ERR13964261	ont	ecoli_kpneumoniae	Eco04714_Eco04708	Eco04714_Eco04708_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964262	ERR13964262	ont	ecoli_kpneumoniae	Eco04714_Eco04749	Eco04714_Eco04749_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964263	ERR13964263	ont	ecoli_kpneumoniae	Eco04720_Eco04711_Eco04831	Eco04720_Eco04711_Eco04831_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964264	ERR13964264	ont	ecoli_kpneumoniae	Eco04720_Eco04799	Eco04720_Eco04799_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964265	ERR13964265	ont	ecoli_kpneumoniae	Eco04737_Eco04799	Eco04737_Eco04799_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964266	ERR13964266	ont	ecoli_kpneumoniae	Eco04749_Eco04812	Eco04749_Eco04812_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964267	ERR13964267	ont	ecoli_kpneumoniae	Eco04800_Eco04851_Eco04723	Eco04800_Eco04851_Eco04723_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964268	ERR13964268	ont	ecoli_kpneumoniae	Eco04831_Eco04883_Eco04834	Eco04831_Eco04883_Eco04834_R9 (Mock Community R9 Chemistry)
+strain_mixes	strain_mixes_ERR13964269	ERR13964269	ont	ecoli_kpneumoniae	13723_17053_12926	13723_17053_12926_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964270	ERR13964270	ont	ecoli_kpneumoniae	15240_16126_5925	15240_16126_5925_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964271	ERR13964271	ont	ecoli_kpneumoniae	16464_Kpn01856	16464_Kpn01856_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964272	ERR13964272	ont	ecoli_kpneumoniae	16902_13733	16902_13733_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964273	ERR13964273	ont	ecoli_kpneumoniae	17266_Kpn01933_Kpn01518	17266_Kpn01933_Kpn01518_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964274	ERR13964274	ont	ecoli_kpneumoniae	760592820_Kpn01890_Kpn01915	760592820_Kpn01890_Kpn01915_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964275	ERR13964275	ont	ecoli_kpneumoniae	Kpn01412_Kpn01528	Kpn01412_Kpn01528_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964276	ERR13964276	ont	ecoli_kpneumoniae	Kpn01412_Kpn01886	Kpn01412_Kpn01886_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964277	ERR13964277	ont	ecoli_kpneumoniae	Kpn01528_Kpn01886	Kpn01528_Kpn01886_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964278	ERR13964278	ont	ecoli_kpneumoniae	Kpn01886_13733	Kpn01886_13733_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964279	ERR13964279	ont	ecoli_kpneumoniae	Eco04708_Eco04812	Eco04708_Eco04812_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964280	ERR13964280	ont	ecoli_kpneumoniae	Eco04711_Eco04737_Eco04896	Eco04711_Eco04737_Eco04896_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964281	ERR13964281	ont	ecoli_kpneumoniae	Eco04714_Eco04708	Eco04714_Eco04708_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964282	ERR13964282	ont	ecoli_kpneumoniae	Eco04714_Eco04749	Eco04714_Eco04749_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964283	ERR13964283	ont	ecoli_kpneumoniae	Eco04720_Eco04711_Eco04831	Eco04720_Eco04711_Eco04831_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964284	ERR13964284	ont	ecoli_kpneumoniae	Eco04720_Eco04799	Eco04720_Eco04799_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964285	ERR13964285	ont	ecoli_kpneumoniae	Eco04737_Eco04799	Eco04737_Eco04799_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964286	ERR13964286	ont	ecoli_kpneumoniae	Eco04749_Eco04812	Eco04749_Eco04812_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964287	ERR13964287	ont	ecoli_kpneumoniae	Eco04800_Eco04851_Eco04723	Eco04800_Eco04851_Eco04723_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR13964288	ERR13964288	ont	ecoli_kpneumoniae	Eco04831_Eco04883_Eco04834	Eco04831_Eco04883_Eco04834_R10 (Mock Community R10 Chemistry)
+strain_mixes	strain_mixes_ERR15465276	ERR15465276	ont	ecoli_kpneumoniae	EuSCAPE-FR073_SE41180-SS-KP_G240523	EuSCAPE-FR073_SE41180-SS-KP_G240523_70-30 (Mock Community mix 70-30)
+strain_mixes	strain_mixes_ERR15465277	ERR15465277	ont	ecoli_kpneumoniae	EuSCAPE-SK032_GR13260_G240523	EuSCAPE-SK032_GR13260_G240523_50-50 (Mock Community mix 50-50)
+strain_mixes	strain_mixes_ERR15465278	ERR15465278	ont	ecoli_kpneumoniae	EuSCAPE-FR018_SE41169-BL-KP_G240523	EuSCAPE-FR018_SE41169-BL-KP_G240523_50-50 (Mock Community mix 50-50)
+strain_mixes	strain_mixes_ERR15465279	ERR15465279	ont	ecoli_kpneumoniae	EuSCAPE-AT016_GR13260_G240523	EuSCAPE-AT016_GR13260_G240523_50-50 (Mock Community mix 50-50)
+strain_mixes	strain_mixes_ERR15465280	ERR15465280	ont	ecoli_kpneumoniae	EuSCAPE-EE007_TU48010-BL-KP_G240523	EuSCAPE-EE007_TU48010-BL-KP_G240523_50-50 (Mock Community mix 50-50)
+strain_mixes	strain_mixes_ERR15465281	ERR15465281	ont	ecoli_kpneumoniae	TU48010-BL-KP_EuSCAPE-EE007_G240523	TU48010-BL-KP_EuSCAPE-EE007_G240523_70-30 (Mock Community mix 70-30)
+strain_mixes	strain_mixes_ERR15465282	ERR15465282	ont	ecoli_kpneumoniae	GR13260_EuSCAPE-SK032_G240523	GR13260_EuSCAPE-SK032_G240523_70-30 (Mock Community mix 70-30)
+strain_mixes	strain_mixes_ERR15465283	ERR15465283	ont	ecoli_kpneumoniae	EuSCAPE-AT016_SE41180-SS-KP-G240523	EuSCAPE-AT016_SE41180-SS-KP-G240523_30-70 (Mock Community mix 30-70)
+strain_mixes	strain_mixes_ERR15465284	ERR15465284	ont	ecoli_kpneumoniae	EuSCAPE-EE007_TU48010-BL-KP_G240523	EuSCAPE-EE007_TU48010-BL-KP_G240523_70-30 (Mock Community mix 70-30)
+strain_mixes	strain_mixes_ERR15465285	ERR15465285	ont	ecoli_kpneumoniae	SE41169-BL-KP_EuSCAPE-FR018_G240523	SE41169-BL-KP_EuSCAPE-FR018_G240523_30-70 (Mock Community mix 30-70)
+nibsc_multilab	nibsc_SRR36344549	SRR36344549	pe	nibsc_wc_gut	lab5_M10	Lab 5 Method M10 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344550	SRR36344550	pe	nibsc_wc_gut	lab25_M44	Lab 25 Method M44 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344551	SRR36344551	pe	negative	-	Lab 3 Method M6 Negative control
+nibsc_multilab	nibsc_SRR36344552	SRR36344552	pe	nibsc_wc_gut	lab25_M43	Lab 25 Method M43 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344553	SRR36344553	pe	nibsc_wc_gut	lab25_M43	Lab 25 Method M43 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344554	SRR36344554	pe	nibsc_wc_gut	lab20_M36	Lab 20 Method M36 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344555	SRR36344555	pe	nibsc_wc_gut	lab2_M4	Lab 2 Method M4 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344556	SRR36344556	pe	nibsc_wc_gut	lab18_M32	Lab 18 Method M32 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344557	SRR36344557	pe	negative	-	Lab 18 Method M32 Negative control
+nibsc_multilab	nibsc_SRR36344558	SRR36344558	pe	nibsc_wc_gut	lab18_M32	Lab 18 Method M32 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344559	SRR36344559	pe	nibsc_wc_gut	lab22_M37	Lab 22 Method M37 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344560	SRR36344560	pe	nibsc_wc_gut	lab18_M31	Lab 18 Method M31 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344561	SRR36344561	pe	nibsc_wc_gut	lab19_M34	Lab 19 Method M34 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344562	SRR36344562	pe	nibsc_wc_gut	lab19_M34	Lab 19 Method M34 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344563	SRR36344563	pe	nibsc_wc_gut	lab2_M4	Lab 2 Method M4 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344564	SRR36344564	pe	nibsc_wc_gut	lab1_M1	Lab 1 Method M1 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344565	SRR36344565	pe	negative	-	Lab 19 Method M34 Negative control
+nibsc_multilab	nibsc_SRR36344566	SRR36344566	pe	nibsc_wc_gut	lab19_M34	Lab 19 Method M34 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344567	SRR36344567	pe	nibsc_wc_gut	lab19_M33	Lab 19 Method M33 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344568	SRR36344568	pe	nibsc_wc_gut	lab19_M33	Lab 19 Method M33 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344569	SRR36344569	pe	nibsc_wc_gut	lab19_M33	Lab 19 Method M33 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344570	SRR36344570	pe	nibsc_wc_gut	lab19_M33	Lab 19 Method M33 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344571	SRR36344571	pe	negative	-	Lab 19 Method M33 Negative control
+nibsc_multilab	nibsc_SRR36344572	SRR36344572	pe	nibsc_wc_gut	lab19_M33	Lab 19 Method M33 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344573	SRR36344573	pe	nibsc_wc_gut	lab18_M32	Lab 18 Method M32 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344574	SRR36344574	pe	nibsc_wc_gut	lab18_M32	Lab 18 Method M32 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344575	SRR36344575	pe	negative	-	Lab 2 Method M4 Negative control
+nibsc_multilab	nibsc_SRR36344576	SRR36344576	pe	nibsc_wc_gut	lab18_M32	Lab 18 Method M32 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344577	SRR36344577	pe	nibsc_wc_gut	lab10_M17	Lab 10 Method M17 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344578	SRR36344578	pe	nibsc_wc_gut	lab17_M29	Lab 17 Method M29 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344579	SRR36344579	pe	nibsc_wc_gut	lab10_M17	Lab 10 Method M17 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344580	SRR36344580	pe	nibsc_wc_gut	lab1_M2	Lab 1 Method M2 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344581	SRR36344581	pe	negative	-	Lab 8 Method M14 Negative control
+nibsc_multilab	nibsc_SRR36344582	SRR36344582	pe	nibsc_wc_gut	lab8_M14	Lab 8 Method M14 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344583	SRR36344583	pe	negative	-	Lab 10 Method M17 Negative control
+nibsc_multilab	nibsc_SRR36344584	SRR36344584	pe	nibsc_wc_gut	lab3_M6	Lab 3 Method M6 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344585	SRR36344585	pe	nibsc_wc_gut	lab25_M43	Lab 25 Method M43 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344586	SRR36344586	pe	nibsc_wc_gut	lab1_M1	Lab 1 Method M1 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344587	SRR36344587	pe	nibsc_wc_gut	lab3_M5	Lab 3 Method M5 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344588	SRR36344588	pe	nibsc_wc_gut	lab3_M5	Lab 3 Method M5 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344589	SRR36344589	pe	nibsc_wc_gut	lab3_M5	Lab 3 Method M5 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344590	SRR36344590	pe	nibsc_gutmix	dna_mix	DNA Mix RR Biological replicate 3
+nibsc_multilab	nibsc_SRR36344591	SRR36344591	pe	nibsc_gutmix	dna_mix	DNA Mix RR Biological replicate 2
+nibsc_multilab	nibsc_SRR36344592	SRR36344592	pe	nibsc_gutmix	dna_mix	DNA Mix RR Biological replicate 1
+nibsc_multilab	nibsc_SRR36344593	SRR36344593	pe	nibsc_guthilo	dna_hilo	DNA HiLo RR Biological replicate 3
+nibsc_multilab	nibsc_SRR36344594	SRR36344594	pe	nibsc_guthilo	dna_hilo	DNA HiLo RR Biological replicate 2
+nibsc_multilab	nibsc_SRR36344595	SRR36344595	pe	nibsc_guthilo	dna_hilo	DNA HiLo RR Biological replicate 1
+nibsc_multilab	nibsc_SRR36344596	SRR36344596	pe	nibsc_wc_gut	lab25_M44	Lab 25 Method M44 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344597	SRR36344597	pe	nibsc_wc_gut	lab25_M44	Lab 25 Method M44 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344598	SRR36344598	pe	nibsc_wc_gut	lab25_M44	Lab 25 Method M44 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344599	SRR36344599	pe	nibsc_wc_gut	lab25_M44	Lab 25 Method M44 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344600	SRR36344600	pe	nibsc_wc_gut	lab3_M5	Lab 3 Method M5 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344601	SRR36344601	pe	negative	-	Lab 25 Method M44 Negative control
+nibsc_multilab	nibsc_SRR36344602	SRR36344602	pe	nibsc_wc_gut	lab3_M5	Lab 3 Method M5 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344603	SRR36344603	pe	nibsc_wc_gut	lab23_M40	Lab 23 Method M40 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344604	SRR36344604	pe	nibsc_wc_gut	lab23_M40	Lab 23 Method M40 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344605	SRR36344605	pe	nibsc_wc_gut	lab23_M40	Lab 23 Method M40 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344606	SRR36344606	pe	nibsc_wc_gut	lab23_M40	Lab 23 Method M40 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344607	SRR36344607	pe	nibsc_wc_gut	lab25_M43	Lab 25 Method M43 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344608	SRR36344608	pe	negative	-	Lab 25 Method M43 Negative control
+nibsc_multilab	nibsc_SRR36344609	SRR36344609	pe	nibsc_wc_gut	lab16_M28	Lab 16 Method M28 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344610	SRR36344610	pe	nibsc_wc_gut	lab16_M28	Lab 16 Method M28 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344611	SRR36344611	pe	nibsc_wc_gut	lab16_M28	Lab 16 Method M28 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344612	SRR36344612	pe	nibsc_wc_gut	lab18_M31	Lab 18 Method M31 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344613	SRR36344613	pe	nibsc_wc_gut	lab18_M31	Lab 18 Method M31 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344614	SRR36344614	pe	nibsc_wc_gut	lab18_M31	Lab 18 Method M31 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344615	SRR36344615	pe	nibsc_wc_gut	lab18_M31	Lab 18 Method M31 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344616	SRR36344616	pe	nibsc_wc_gut	lab2_M4	Lab 2 Method M4 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344617	SRR36344617	pe	nibsc_wc_gut	lab17_M30	Lab 17 Method M30 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344618	SRR36344618	pe	nibsc_wc_gut	lab17_M30	Lab 17 Method M30 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344619	SRR36344619	pe	nibsc_wc_gut	lab17_M30	Lab 17 Method M30 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344620	SRR36344620	pe	nibsc_wc_gut	lab17_M30	Lab 17 Method M30 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344621	SRR36344621	pe	negative	-	Lab 17 Method M30 Negative control
+nibsc_multilab	nibsc_SRR36344622	SRR36344622	pe	nibsc_wc_gut	lab17_M30	Lab 17 Method M30 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344623	SRR36344623	pe	nibsc_wc_gut	lab17_M29	Lab 17 Method M29 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344624	SRR36344624	pe	nibsc_wc_gut	lab17_M29	Lab 17 Method M29 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344625	SRR36344625	pe	nibsc_wc_gut	lab17_M29	Lab 17 Method M29 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344626	SRR36344626	pe	nibsc_wc_gut	lab17_M29	Lab 17 Method M29 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344627	SRR36344627	pe	nibsc_wc_gut	lab2_M3	Lab 2 Method M3 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344628	SRR36344628	pe	negative	-	Lab 17 Method M29 Negative control
+nibsc_multilab	nibsc_SRR36344629	SRR36344629	pe	nibsc_wc_gut	lab15_M25	Lab 15 Method M25 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344630	SRR36344630	pe	nibsc_wc_gut	lab15_M25	Lab 15 Method M25 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344631	SRR36344631	pe	negative	-	Lab 15 Method M25 Negative control
+nibsc_multilab	nibsc_SRR36344632	SRR36344632	pe	nibsc_wc_gut	lab10_M17	Lab 10 Method M17 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344633	SRR36344633	pe	nibsc_wc_gut	lab16_M28	Lab 16 Method M28 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344634	SRR36344634	pe	nibsc_wc_gut	lab9_M16	Lab 9 Method M16 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344635	SRR36344635	pe	nibsc_wc_gut	lab9_M16	Lab 9 Method M16 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344636	SRR36344636	pe	nibsc_wc_gut	lab9_M16	Lab 9 Method M16 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344637	SRR36344637	pe	nibsc_wc_gut	lab9_M16	Lab 9 Method M16 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344638	SRR36344638	pe	nibsc_wc_gut	lab9_M16	Lab 9 Method M16 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344639	SRR36344639	pe	nibsc_wc_gut	lab1_M2	Lab 1 Method M2 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344640	SRR36344640	pe	nibsc_wc_gut	lab9_M15	Lab 9 Method M15 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344641	SRR36344641	pe	nibsc_wc_gut	lab9_M15	Lab 9 Method M15 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344642	SRR36344642	pe	nibsc_wc_gut	lab9_M15	Lab 9 Method M15 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344643	SRR36344643	pe	nibsc_wc_gut	lab9_M15	Lab 9 Method M15 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344644	SRR36344644	pe	negative	-	Lab 9 Method M15 Negative control
+nibsc_multilab	nibsc_SRR36344645	SRR36344645	pe	nibsc_wc_gut	lab9_M15	Lab 9 Method M15 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344646	SRR36344646	pe	nibsc_wc_gut	lab8_M14	Lab 8 Method M14 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344647	SRR36344647	pe	nibsc_wc_gut	lab8_M14	Lab 8 Method M14 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344648	SRR36344648	pe	nibsc_wc_gut	lab8_M14	Lab 8 Method M14 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344649	SRR36344649	pe	negative	-	Lab 5 Method M10 Negative control
+nibsc_multilab	nibsc_SRR36344650	SRR36344650	pe	nibsc_wc_gut	lab8_M13	Lab 8 Method M13 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344651	SRR36344651	pe	nibsc_wc_gut	lab8_M13	Lab 8 Method M13 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344652	SRR36344652	pe	nibsc_wc_gut	lab8_M13	Lab 8 Method M13 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344653	SRR36344653	pe	nibsc_wc_gut	lab8_M13	Lab 8 Method M13 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344654	SRR36344654	pe	negative	-	Lab 8 Method M13 Negative control
+nibsc_multilab	nibsc_SRR36344655	SRR36344655	pe	nibsc_wc_gut	lab8_M13	Lab 8 Method M13 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344656	SRR36344656	pe	nibsc_wc_gut	lab7_M12	Lab 7 Method M12 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344657	SRR36344657	pe	nibsc_wc_gut	lab25_M43	Lab 25 Method M43 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344658	SRR36344658	pe	nibsc_wc_gut	lab24_M42	Lab 24 Method M42 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344659	SRR36344659	pe	negative	-	Lab 3 Method M5 Negative control
+nibsc_multilab	nibsc_SRR36344660	SRR36344660	pe	nibsc_wc_gut	lab24_M42	Lab 24 Method M42 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344661	SRR36344661	pe	nibsc_wc_gut	lab24_M42	Lab 24 Method M42 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344662	SRR36344662	pe	negative	-	Lab 24 Method M42 Negative control
+nibsc_multilab	nibsc_SRR36344663	SRR36344663	pe	nibsc_wc_gut	lab24_M42	Lab 24 Method M42 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344664	SRR36344664	pe	nibsc_wc_gut	lab24_M41	Lab 24 Method M41 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344665	SRR36344665	pe	nibsc_wc_gut	lab24_M41	Lab 24 Method M41 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344666	SRR36344666	pe	nibsc_wc_gut	lab24_M41	Lab 24 Method M41 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344667	SRR36344667	pe	nibsc_wc_gut	lab24_M41	Lab 24 Method M41 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344668	SRR36344668	pe	negative	-	Lab 23 Method M40 Negative control
+nibsc_multilab	nibsc_SRR36344669	SRR36344669	pe	negative	-	Lab 24 Method M41 Negative control
+nibsc_multilab	nibsc_SRR36344670	SRR36344670	pe	nibsc_wc_gut	lab24_M41	Lab 24 Method M41 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344671	SRR36344671	pe	nibsc_wc_gut	lab22_M38	Lab 22 Method M38 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344672	SRR36344672	pe	nibsc_wc_gut	lab23_M39	Lab 23 Method M39 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344673	SRR36344673	pe	nibsc_wc_gut	lab23_M39	Lab 23 Method M39 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344674	SRR36344674	pe	nibsc_wc_gut	lab23_M39	Lab 23 Method M39 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344675	SRR36344675	pe	nibsc_wc_gut	lab2_M4	Lab 2 Method M4 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344676	SRR36344676	pe	negative	-	Lab 23 Method M39 Negative control
+nibsc_multilab	nibsc_SRR36344677	SRR36344677	pe	nibsc_wc_gut	lab24_M42	Lab 24 Method M42 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344678	SRR36344678	pe	nibsc_wc_gut	lab22_M37	Lab 22 Method M37 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344679	SRR36344679	pe	nibsc_wc_gut	lab22_M37	Lab 22 Method M37 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344680	SRR36344680	pe	negative	-	Lab 22 Method M37 Negative control
+nibsc_multilab	nibsc_SRR36344681	SRR36344681	pe	negative	-	Lab 16 Method M28 Negative control
+nibsc_multilab	nibsc_SRR36344682	SRR36344682	pe	nibsc_wc_gut	lab16_M28	Lab 16 Method M28 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344683	SRR36344683	pe	negative	-	Lab 18 Method M31 Negative control
+nibsc_multilab	nibsc_SRR36344684	SRR36344684	pe	nibsc_wc_gut	lab16_M27	Lab 16 Method M27 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344685	SRR36344685	pe	nibsc_wc_gut	lab16_M27	Lab 16 Method M27 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344686	SRR36344686	pe	nibsc_wc_gut	lab2_M3	Lab 2 Method M3 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344687	SRR36344687	pe	nibsc_wc_gut	lab16_M27	Lab 16 Method M27 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344688	SRR36344688	pe	nibsc_wc_gut	lab16_M27	Lab 16 Method M27 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344689	SRR36344689	pe	negative	-	Lab 16 Method M27 Negative control
+nibsc_multilab	nibsc_SRR36344690	SRR36344690	pe	nibsc_wc_gut	lab16_M27	Lab 16 Method M27 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344691	SRR36344691	pe	nibsc_wc_gut	lab15_M26	Lab 15 Method M26 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344692	SRR36344692	pe	nibsc_wc_gut	lab15_M26	Lab 15 Method M26 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344693	SRR36344693	pe	nibsc_wc_gut	lab15_M26	Lab 15 Method M26 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344694	SRR36344694	pe	nibsc_wc_gut	lab15_M26	Lab 15 Method M26 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344695	SRR36344695	pe	nibsc_wc_gut	lab15_M26	Lab 15 Method M26 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344696	SRR36344696	pe	nibsc_wc_gut	lab2_M3	Lab 2 Method M3 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344697	SRR36344697	pe	nibsc_wc_gut	lab15_M25	Lab 15 Method M25 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344698	SRR36344698	pe	nibsc_wc_gut	lab15_M25	Lab 15 Method M25 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344699	SRR36344699	pe	negative	-	Lab 13 Method M22 Negative control
+nibsc_multilab	nibsc_SRR36344700	SRR36344700	pe	nibsc_wc_gut	lab13_M22	Lab 13 Method M22 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344701	SRR36344701	pe	nibsc_wc_gut	lab15_M25	Lab 15 Method M25 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344702	SRR36344702	pe	nibsc_wc_gut	lab14_M24	Lab 14 Method M24 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344703	SRR36344703	pe	nibsc_wc_gut	lab14_M24	Lab 14 Method M24 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344704	SRR36344704	pe	negative	-	Lab 1 Method M2 Negative control
+nibsc_multilab	nibsc_SRR36344705	SRR36344705	pe	nibsc_wc_gut	lab13_M21	Lab 13 Method M21 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344706	SRR36344706	pe	nibsc_wc_gut	lab7_M12	Lab 7 Method M12 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344707	SRR36344707	pe	negative	-	Lab 9 Method M16 Negative control
+nibsc_multilab	nibsc_SRR36344708	SRR36344708	pe	nibsc_wc_gut	lab7_M12	Lab 7 Method M12 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344709	SRR36344709	pe	nibsc_wc_gut	lab7_M12	Lab 7 Method M12 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344710	SRR36344710	pe	nibsc_wc_gut	lab7_M11	Lab 7 Method M11 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344711	SRR36344711	pe	nibsc_wc_gut	lab7_M11	Lab 7 Method M11 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344712	SRR36344712	pe	nibsc_wc_gut	lab7_M11	Lab 7 Method M11 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344713	SRR36344713	pe	negative	-	Lab 7 Method M11 Negative control
+nibsc_multilab	nibsc_SRR36344714	SRR36344714	pe	nibsc_wc_gut	lab7_M11	Lab 7 Method M11 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344715	SRR36344715	pe	nibsc_wc_gut	lab1_M2	Lab 1 Method M2 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344716	SRR36344716	pe	nibsc_wc_gut	lab5_M10	Lab 5 Method M10 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344717	SRR36344717	pe	nibsc_wc_gut	lab5_M10	Lab 5 Method M10 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344718	SRR36344718	pe	nibsc_wc_gut	lab8_M14	Lab 8 Method M14 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344719	SRR36344719	pe	nibsc_wc_gut	lab5_M10	Lab 5 Method M10 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344720	SRR36344720	pe	nibsc_wc_gut	lab5_M10	Lab 5 Method M10 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344721	SRR36344721	pe	nibsc_wc_gut	lab3_M6	Lab 3 Method M6 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344722	SRR36344722	pe	nibsc_wc_gut	lab3_M6	Lab 3 Method M6 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344723	SRR36344723	pe	nibsc_wc_gut	lab3_M6	Lab 3 Method M6 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344724	SRR36344724	pe	nibsc_wc_gut	lab5_M9	Lab 5 Method M9 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344725	SRR36344725	pe	nibsc_wc_gut	lab5_M9	Lab 5 Method M9 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344726	SRR36344726	pe	nibsc_wc_gut	lab5_M9	Lab 5 Method M9 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344727	SRR36344727	pe	nibsc_wc_gut	lab5_M9	Lab 5 Method M9 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344728	SRR36344728	pe	nibsc_wc_gut	lab1_M1	Lab 1 Method M1 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344729	SRR36344729	pe	nibsc_wc_gut	lab22_M37	Lab 22 Method M37 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344730	SRR36344730	pe	nibsc_wc_gut	lab20_M36	Lab 20 Method M36 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344731	SRR36344731	pe	nibsc_wc_gut	lab20_M36	Lab 20 Method M36 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344732	SRR36344732	pe	nibsc_wc_gut	lab20_M36	Lab 20 Method M36 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344733	SRR36344733	pe	nibsc_wc_gut	lab20_M36	Lab 20 Method M36 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344734	SRR36344734	pe	nibsc_wc_gut	lab23_M39	Lab 23 Method M39 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344735	SRR36344735	pe	nibsc_wc_gut	lab22_M38	Lab 22 Method M38 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344736	SRR36344736	pe	nibsc_wc_gut	lab22_M38	Lab 22 Method M38 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344737	SRR36344737	pe	nibsc_wc_gut	lab23_M40	Lab 23 Method M40 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344738	SRR36344738	pe	nibsc_wc_gut	lab23_M39	Lab 23 Method M39 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344739	SRR36344739	pe	nibsc_wc_gut	lab20_M35	Lab 20 Method M35 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344740	SRR36344740	pe	negative	-	Lab 20 Method M35 Negative control
+nibsc_multilab	nibsc_SRR36344741	SRR36344741	pe	nibsc_wc_gut	lab22_M38	Lab 22 Method M38 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344742	SRR36344742	pe	negative	-	Lab 22 Method M38 Negative control
+nibsc_multilab	nibsc_SRR36344743	SRR36344743	pe	nibsc_wc_gut	lab22_M38	Lab 22 Method M38 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344744	SRR36344744	pe	nibsc_wc_gut	lab20_M35	Lab 20 Method M35 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344745	SRR36344745	pe	nibsc_wc_gut	lab20_M35	Lab 20 Method M35 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344746	SRR36344746	pe	nibsc_wc_gut	lab20_M35	Lab 20 Method M35 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344747	SRR36344747	pe	nibsc_wc_gut	lab20_M35	Lab 20 Method M35 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344748	SRR36344748	pe	nibsc_wc_gut	lab19_M34	Lab 19 Method M34 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344749	SRR36344749	pe	nibsc_wc_gut	lab19_M34	Lab 19 Method M34 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344750	SRR36344750	pe	nibsc_wc_gut	lab22_M37	Lab 22 Method M37 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344751	SRR36344751	pe	nibsc_wc_gut	lab2_M4	Lab 2 Method M4 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344752	SRR36344752	pe	negative	-	Lab 20 Method M36 Negative control
+nibsc_multilab	nibsc_SRR36344753	SRR36344753	pe	nibsc_wc_gut	lab14_M24	Lab 14 Method M24 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344754	SRR36344754	pe	nibsc_wc_gut	lab14_M24	Lab 14 Method M24 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344755	SRR36344755	pe	nibsc_wc_gut	lab2_M3	Lab 2 Method M3 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344756	SRR36344756	pe	negative	-	Lab 14 Method M24 Negative control
+nibsc_multilab	nibsc_SRR36344757	SRR36344757	pe	nibsc_wc_gut	lab14_M24	Lab 14 Method M24 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344758	SRR36344758	pe	nibsc_wc_gut	lab14_M23	Lab 14 Method M23 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344759	SRR36344759	pe	nibsc_wc_gut	lab14_M23	Lab 14 Method M23 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344760	SRR36344760	pe	nibsc_wc_gut	lab14_M23	Lab 14 Method M23 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344761	SRR36344761	pe	nibsc_wc_gut	lab14_M23	Lab 14 Method M23 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344762	SRR36344762	pe	negative	-	Lab 14 Method M23 Negative control
+nibsc_multilab	nibsc_SRR36344763	SRR36344763	pe	nibsc_wc_gut	lab14_M23	Lab 14 Method M23 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344764	SRR36344764	pe	negative	-	Lab 15 Method M26 Negative control
+nibsc_multilab	nibsc_SRR36344765	SRR36344765	pe	nibsc_wc_gut	lab13_M22	Lab 13 Method M22 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344766	SRR36344766	pe	nibsc_wc_gut	lab13_M22	Lab 13 Method M22 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344767	SRR36344767	pe	negative	-	Lab 2 Method M3 Negative control
+nibsc_multilab	nibsc_SRR36344768	SRR36344768	pe	nibsc_wc_gut	lab13_M22	Lab 13 Method M22 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344769	SRR36344769	pe	nibsc_wc_gut	lab13_M22	Lab 13 Method M22 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344770	SRR36344770	pe	nibsc_wc_gut	lab1_M2	Lab 1 Method M2 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344771	SRR36344771	pe	nibsc_wc_gut	lab10_M17	Lab 10 Method M17 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344772	SRR36344772	pe	nibsc_wc_gut	lab10_M17	Lab 10 Method M17 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344773	SRR36344773	pe	nibsc_wc_gut	lab10_M18	Lab 10 Method M18 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344774	SRR36344774	pe	negative	-	Lab 10 Method M18 Negative control
+nibsc_multilab	nibsc_SRR36344775	SRR36344775	pe	nibsc_wc_gut	lab10_M18	Lab 10 Method M18 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344776	SRR36344776	pe	nibsc_wc_gut	lab13_M21	Lab 13 Method M21 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344777	SRR36344777	pe	nibsc_wc_gut	lab13_M21	Lab 13 Method M21 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344778	SRR36344778	pe	nibsc_wc_gut	lab12_M19	Lab 12 Method M19 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344779	SRR36344779	pe	negative	-	Lab 12 Method M19 Negative control
+nibsc_multilab	nibsc_SRR36344780	SRR36344780	pe	nibsc_wc_gut	lab1_M2	Lab 1 Method M2 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344781	SRR36344781	pe	nibsc_wc_gut	lab12_M19	Lab 12 Method M19 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344782	SRR36344782	pe	nibsc_wc_gut	lab12_M19	Lab 12 Method M19 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344783	SRR36344783	pe	nibsc_wc_gut	lab12_M19	Lab 12 Method M19 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344784	SRR36344784	pe	nibsc_wc_gut	lab12_M19	Lab 12 Method M19 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344785	SRR36344785	pe	nibsc_wc_gut	lab12_M20	Lab 12 Method M20 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344786	SRR36344786	pe	negative	-	Lab 12 Method M20 Negative control
+nibsc_multilab	nibsc_SRR36344787	SRR36344787	pe	nibsc_wc_gut	lab12_M20	Lab 12 Method M20 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344788	SRR36344788	pe	nibsc_wc_gut	lab12_M20	Lab 12 Method M20 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344789	SRR36344789	pe	nibsc_wc_gut	lab12_M20	Lab 12 Method M20 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344790	SRR36344790	pe	nibsc_wc_gut	lab12_M20	Lab 12 Method M20 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344791	SRR36344791	pe	nibsc_wc_gut	lab13_M21	Lab 13 Method M21 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344792	SRR36344792	pe	negative	-	Lab 13 Method M21 Negative control
+nibsc_multilab	nibsc_SRR36344793	SRR36344793	pe	nibsc_wc_gut	lab13_M21	Lab 13 Method M21 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344794	SRR36344794	pe	nibsc_wc_gut	lab10_M18	Lab 10 Method M18 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344795	SRR36344795	pe	nibsc_wc_gut	lab10_M18	Lab 10 Method M18 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344796	SRR36344796	pe	nibsc_wc_gut	lab10_M18	Lab 10 Method M18 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344797	SRR36344797	pe	nibsc_wc_gut	lab2_M3	Lab 2 Method M3 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344798	SRR36344798	pe	nibsc_wc_gut	lab1_M1	Lab 1 Method M1 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344799	SRR36344799	pe	negative	-	Lab 1 Method M1 Negative control
+nibsc_multilab	nibsc_SRR36344800	SRR36344800	pe	nibsc_wc_gut	lab7_M12	Lab 7 Method M12 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344801	SRR36344801	pe	negative	-	Lab 5 Method M9 Negative control
+nibsc_multilab	nibsc_SRR36344802	SRR36344802	pe	nibsc_wc_gut	lab5_M9	Lab 5 Method M9 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344803	SRR36344803	pe	nibsc_wc_gut	lab4_M8	Lab 4 Method M8 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344804	SRR36344804	pe	nibsc_wc_gut	lab4_M8	Lab 4 Method M8 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344805	SRR36344805	pe	negative	-	Lab 7 Method M12 Negative control
+nibsc_multilab	nibsc_SRR36344806	SRR36344806	pe	nibsc_wc_gut	lab4_M8	Lab 4 Method M8 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344807	SRR36344807	pe	nibsc_wc_gut	lab4_M8	Lab 4 Method M8 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344808	SRR36344808	pe	nibsc_wc_gut	lab7_M11	Lab 7 Method M11 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344809	SRR36344809	pe	negative	-	Lab 4 Method M8 Negative control
+nibsc_multilab	nibsc_SRR36344810	SRR36344810	pe	nibsc_wc_gut	lab4_M8	Lab 4 Method M8 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344811	SRR36344811	pe	nibsc_wc_gut	lab4_M7	Lab 4 Method M7 Biological replicate 5
+nibsc_multilab	nibsc_SRR36344812	SRR36344812	pe	nibsc_wc_gut	lab4_M7	Lab 4 Method M7 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344813	SRR36344813	pe	nibsc_wc_gut	lab1_M1	Lab 1 Method M1 Biological replicate 4
+nibsc_multilab	nibsc_SRR36344814	SRR36344814	pe	nibsc_wc_gut	lab4_M7	Lab 4 Method M7 Biological replicate 3
+nibsc_multilab	nibsc_SRR36344815	SRR36344815	pe	nibsc_wc_gut	lab4_M7	Lab 4 Method M7 Biological replicate 2
+nibsc_multilab	nibsc_SRR36344816	SRR36344816	pe	negative	-	Lab 4 Method M7 Negative control
+nibsc_multilab	nibsc_SRR36344817	SRR36344817	pe	nibsc_wc_gut	lab4_M7	Lab 4 Method M7 Biological replicate 1
+nibsc_multilab	nibsc_SRR36344818	SRR36344818	pe	nibsc_wc_gut	lab3_M6	Lab 3 Method M6 Biological replicate 5
+hcom2_invitro	hcom2_SRR21819176	SRR21819176	pe	hcom2_closed	ExpV2_AB_P5R1	ExpV2_AB_P5R1a
+hcom2_invitro	hcom2_SRR21819177	SRR21819177	pe	hcom2_closed	ExpV2_AB_P4R3	ExpV2_AB_P4R3c
+hcom2_invitro	hcom2_SRR21819178	SRR21819178	pe	hcom2_closed	ExpV2_AB_P4R3	ExpV2_AB_P4R3b
+hcom2_invitro	hcom2_SRR21819179	SRR21819179	pe	hcom2_closed	ExpV2_AB_P4R3	ExpV2_AB_P4R3a
+hcom2_invitro	hcom2_SRR21819180	SRR21819180	pe	hcom2_closed	ExpV2_AB_P4R2	ExpV2_AB_P4R2c
+hcom2_invitro	hcom2_SRR21819181	SRR21819181	pe	hcom2_closed	ExpV2_AB_P4R2	ExpV2_AB_P4R2b
+hcom2_invitro	hcom2_SRR21819182	SRR21819182	pe	hcom2_closed	ExpV2_AB_P4R2	ExpV2_AB_P4R2a
+hcom2_invitro	hcom2_SRR21819183	SRR21819183	pe	hcom2_closed	ExpV2_AB_P4R1	ExpV2_AB_P4R1c
+hcom2_invitro	hcom2_SRR21819184	SRR21819184	pe	hcom2_closed	ExpV2_AB_P4R1	ExpV2_AB_P4R1b
+hcom2_invitro	hcom2_SRR21819185	SRR21819185	pe	hcom2_closed	ExpV2_AB_P4R1	ExpV2_AB_P4R1a
+hcom2_invitro	hcom2_SRR21819186	SRR21819186	pe	hcom2_closed	ExpV2_MB_P1R1	ExpV2_MB_P1R1a
+hcom2_invitro	hcom2_SRR21819187	SRR21819187	pe	hcom2_closed	ExpV2_AB_P3R3	ExpV2_AB_P3R3c
+hcom2_invitro	hcom2_SRR21819188	SRR21819188	pe	hcom2_closed	ExpV2_AB_P3R3	ExpV2_AB_P3R3b
+hcom2_invitro	hcom2_SRR21819189	SRR21819189	pe	hcom2_closed	ExpV2_AB_P3R3	ExpV2_AB_P3R3a
+hcom2_invitro	hcom2_SRR21819190	SRR21819190	pe	hcom2_closed	ExpV2_AB_P3R2	ExpV2_AB_P3R2c
+hcom2_invitro	hcom2_SRR21819191	SRR21819191	pe	hcom2_closed	ExpV2_AB_P3R2	ExpV2_AB_P3R2b
+hcom2_invitro	hcom2_SRR21819192	SRR21819192	pe	hcom2_closed	ExpV2_AB_P3R2	ExpV2_AB_P3R2a
+hcom2_invitro	hcom2_SRR21819193	SRR21819193	pe	hcom2_closed	ExpV2_AS_P4R1	ExpV2_AS_P4R1c
+hcom2_invitro	hcom2_SRR21819194	SRR21819194	pe	hcom2_closed	ExpV2_MB_P2R1	ExpV2_MB_P2R1c
+hcom2_invitro	hcom2_SRR21819195	SRR21819195	pe	hcom2_closed	ExpV2_MB_P0R1	ExpV2_MB_P0R1c
+hcom2_invitro	hcom2_SRR21819196	SRR21819196	pe	hcom2_closed	ExpV2_AS_P4R1	ExpV2_AS_P4R1b
+hcom2_invitro	hcom2_SRR21819197	SRR21819197	pe	hcom2_closed	ExpV2_AS_P4R1	ExpV2_AS_P4R1a
+hcom2_invitro	hcom2_SRR21819198	SRR21819198	pe	hcom2_closed	ExpV2_AS_P3R3	ExpV2_AS_P3R3c
+hcom2_invitro	hcom2_SRR21819199	SRR21819199	pe	hcom2_closed	ExpV2_AS_P3R3	ExpV2_AS_P3R3b
+hcom2_invitro	hcom2_SRR21819200	SRR21819200	pe	hcom2_closed	ExpV2_AS_P3R3	ExpV2_AS_P3R3a
+hcom2_invitro	hcom2_SRR21819201	SRR21819201	pe	hcom2_closed	ExpV2_AS_P3R2	ExpV2_AS_P3R2c
+hcom2_invitro	hcom2_SRR21819202	SRR21819202	pe	hcom2_closed	ExpV2_AS_P3R2	ExpV2_AS_P3R2b
+hcom2_invitro	hcom2_SRR21819203	SRR21819203	pe	hcom2_closed	ExpV2_AS_P3R2	ExpV2_AS_P3R2a
+hcom2_invitro	hcom2_SRR21819204	SRR21819204	pe	hcom2_closed	ExpV2_AS_P3R1	ExpV2_AS_P3R1c
+hcom2_invitro	hcom2_SRR21819205	SRR21819205	pe	hcom2_closed	ExpV2_AS_P3R1	ExpV2_AS_P3R1b
+hcom2_invitro	hcom2_SRR21819206	SRR21819206	pe	hcom2_closed	ExpV2_MB_P2R1	ExpV2_MB_P2R1b
+hcom2_invitro	hcom2_SRR21819207	SRR21819207	pe	hcom2_closed	ExpV2_AS_P3R1	ExpV2_AS_P3R1a
+hcom2_invitro	hcom2_SRR21819208	SRR21819208	pe	hcom2_closed	ExpV2_AS_P2R3	ExpV2_AS_P2R3c
+hcom2_invitro	hcom2_SRR21819209	SRR21819209	pe	hcom2_closed	ExpV2_AS_P2R3	ExpV2_AS_P2R3b
+hcom2_invitro	hcom2_SRR21819210	SRR21819210	pe	hcom2_closed	ExpV2_AS_P2R3	ExpV2_AS_P2R3a
+hcom2_invitro	hcom2_SRR21819211	SRR21819211	pe	hcom2_closed	ExpV2_AS_P2R2	ExpV2_AS_P2R2c
+hcom2_invitro	hcom2_SRR21819212	SRR21819212	pe	hcom2_closed	ExpV2_AS_P2R2	ExpV2_AS_P2R2b
+hcom2_invitro	hcom2_SRR21819213	SRR21819213	pe	hcom2_closed	ExpV2_AS_P2R2	ExpV2_AS_P2R2a
+hcom2_invitro	hcom2_SRR21819214	SRR21819214	pe	hcom2_closed	ExpV2_AS_P2R1	ExpV2_AS_P2R1c
+hcom2_invitro	hcom2_SRR21819215	SRR21819215	pe	hcom2_closed	ExpV2_AS_P2R1	ExpV2_AS_P2R1b
+hcom2_invitro	hcom2_SRR21819216	SRR21819216	pe	hcom2_closed	ExpV2_AS_P2R1	ExpV2_AS_P2R1a
+hcom2_invitro	hcom2_SRR21819217	SRR21819217	pe	hcom2_closed	ExpV2_MB_P2R1	ExpV2_MB_P2R1a
+hcom2_invitro	hcom2_SRR21819218	SRR21819218	pe	hcom2_closed	ExpV2_AS_P1R3	ExpV2_AS_P1R3c
+hcom2_invitro	hcom2_SRR21819219	SRR21819219	pe	hcom2_closed	ExpV2_AS_P1R3	ExpV2_AS_P1R3b
+hcom2_invitro	hcom2_SRR21819220	SRR21819220	pe	hcom2_closed	ExpV2_AS_P1R3	ExpV2_AS_P1R3a
+hcom2_invitro	hcom2_SRR21819221	SRR21819221	pe	hcom2_closed	ExpV2_AB_P3R1	ExpV2_AB_P3R1c
+hcom2_invitro	hcom2_SRR21819222	SRR21819222	pe	hcom2_closed	ExpV2_AB_P3R1	ExpV2_AB_P3R1b
+hcom2_invitro	hcom2_SRR21819223	SRR21819223	pe	hcom2_closed	ExpV2_AB_P3R1	ExpV2_AB_P3R1a
+hcom2_invitro	hcom2_SRR21819224	SRR21819224	pe	hcom2_closed	ExpV2_AB_P2R3	ExpV2_AB_P2R3c
+hcom2_invitro	hcom2_SRR21819225	SRR21819225	pe	hcom2_closed	ExpV2_MB_P0R3	ExpV2_MB_P0R3c
+hcom2_invitro	hcom2_SRR21819226	SRR21819226	pe	hcom2_closed	ExpV2_AB_P2R3	ExpV2_AB_P2R3b
+hcom2_invitro	hcom2_SRR21819227	SRR21819227	pe	hcom2_closed	ExpV2_AB_P2R3	ExpV2_AB_P2R3a
+hcom2_invitro	hcom2_SRR21819228	SRR21819228	pe	hcom2_closed	ExpV2_AB_P2R2	ExpV2_AB_P2R2c
+hcom2_invitro	hcom2_SRR21819229	SRR21819229	pe	hcom2_closed	ExpV2_AB_P2R2	ExpV2_AB_P2R2b
+hcom2_invitro	hcom2_SRR21819230	SRR21819230	pe	hcom2_closed	ExpV2_AB_P2R2	ExpV2_AB_P2R2a
+hcom2_invitro	hcom2_SRR21819231	SRR21819231	pe	hcom2_closed	ExpV2_AB_P2R1	ExpV2_AB_P2R1c
+hcom2_invitro	hcom2_SRR21819232	SRR21819232	pe	hcom2_closed	ExpV2_AB_P2R1	ExpV2_AB_P2R1b
+hcom2_invitro	hcom2_SRR21819233	SRR21819233	pe	hcom2_closed	ExpV2_AB_P2R1	ExpV2_AB_P2R1a
+hcom2_invitro	hcom2_SRR21819234	SRR21819234	pe	hcom2_closed	ExpV2_AB_P1R3	ExpV2_AB_P1R3c
+hcom2_invitro	hcom2_SRR21819235	SRR21819235	pe	hcom2_closed	ExpV2_AB_P1R3	ExpV2_AB_P1R3b
+hcom2_invitro	hcom2_SRR21819236	SRR21819236	pe	hcom2_closed	ExpV2_MB_P0R3	ExpV2_MB_P0R3b
+hcom2_invitro	hcom2_SRR21819237	SRR21819237	pe	hcom2_closed	ExpV2_AB_P1R3	ExpV2_AB_P1R3a
+hcom2_invitro	hcom2_SRR21819238	SRR21819238	pe	hcom2_closed	ExpV2_AB_P1R2	ExpV2_AB_P1R2c
+hcom2_invitro	hcom2_SRR21819239	SRR21819239	pe	hcom2_closed	ExpV2_AB_P1R2	ExpV2_AB_P1R2b
+hcom2_invitro	hcom2_SRR21819240	SRR21819240	pe	hcom2_closed	ExpV2_AB_P1R2	ExpV2_AB_P1R2a
+hcom2_invitro	hcom2_SRR21819241	SRR21819241	pe	hcom2_closed	ExpV2_AB_P1R1	ExpV2_AB_P1R1c
+hcom2_invitro	hcom2_SRR21819242	SRR21819242	pe	hcom2_closed	ExpV2_AB_P1R1	ExpV2_AB_P1R1b
+hcom2_invitro	hcom2_SRR21819243	SRR21819243	pe	hcom2_closed	ExpV2_AB_P1R1	ExpV2_AB_P1R1a
+hcom2_invitro	hcom2_SRR21819244	SRR21819244	pe	hcom2_closed	ExpV2_AB_P0R3	ExpV2_AB_P0R3c
+hcom2_invitro	hcom2_SRR21819245	SRR21819245	pe	hcom2_closed	ExpV2_AB_P0R3	ExpV2_AB_P0R3b
+hcom2_invitro	hcom2_SRR21819246	SRR21819246	pe	hcom2_closed	ExpV2_AB_P0R3	ExpV2_AB_P0R3a
+hcom2_invitro	hcom2_SRR21819247	SRR21819247	pe	hcom2_closed	ExpV2_MB_P0R3	ExpV2_MB_P0R3a
+hcom2_invitro	hcom2_SRR21819248	SRR21819248	pe	hcom2_closed	ExpV2_AB_P0R2	ExpV2_AB_P0R2c
+hcom2_invitro	hcom2_SRR21819249	SRR21819249	pe	hcom2_closed	ExpV2_MB_P3R2	ExpV2_MB_P3R2c
+hcom2_invitro	hcom2_SRR21819250	SRR21819250	pe	hcom2_closed	ExpV2_MB_P3R2	ExpV2_MB_P3R2b
+hcom2_invitro	hcom2_SRR21819251	SRR21819251	pe	hcom2_closed	ExpV2_MB_P3R2	ExpV2_MB_P3R2a
+hcom2_invitro	hcom2_SRR21819252	SRR21819252	pe	hcom2_closed	ExpV2_MB_P0R2	ExpV2_MB_P0R2a
+hcom2_invitro	hcom2_SRR21819253	SRR21819253	pe	hcom2_closed	ExpV2_MB_P3R1	ExpV2_MB_P3R1c
+hcom2_invitro	hcom2_SRR21819254	SRR21819254	pe	hcom2_closed	ExpV2_MB_P3R1	ExpV2_MB_P3R1b
+hcom2_invitro	hcom2_SRR21819255	SRR21819255	pe	hcom2_closed	Innoculum_PBS_P0_Rep2	Innoculum_PBS_P0_Rep2
+hcom2_invitro	hcom2_SRR21819256	SRR21819256	pe	hcom2_closed	Innoculum_PBS_P0_Rep1	Innoculum_PBS_P0_Rep1
+hcom2_invitro	hcom2_SRR21819257	SRR21819257	pe	hcom2_closed	ExpV2_MB_P3R1	ExpV2_MB_P3R1a
+hcom2_invitro	hcom2_SRR21819258	SRR21819258	pe	hcom2_closed	ExpV2_N_P5R3	ExpV2_N_P5R3c
+hcom2_invitro	hcom2_SRR21819259	SRR21819259	pe	hcom2_closed	ExpV2_N_P5R3	ExpV2_N_P5R3b
+hcom2_invitro	hcom2_SRR21819260	SRR21819260	pe	hcom2_closed	ExpV2_N_P5R3	ExpV2_N_P5R3a
+hcom2_invitro	hcom2_SRR21819261	SRR21819261	pe	hcom2_closed	ExpV2_N_P5R2	ExpV2_N_P5R2c
+hcom2_invitro	hcom2_SRR21819262	SRR21819262	pe	hcom2_closed	ExpV2_N_P5R2	ExpV2_N_P5R2b
+hcom2_invitro	hcom2_SRR21819263	SRR21819263	pe	hcom2_closed	ExpV2_N_P5R2	ExpV2_N_P5R2a
+hcom2_invitro	hcom2_SRR21819264	SRR21819264	pe	hcom2_closed	ExpV2_N_P5R1	ExpV2_N_P5R1c
+hcom2_invitro	hcom2_SRR21819265	SRR21819265	pe	hcom2_closed	ExpV2_N_P5R1	ExpV2_N_P5R1b
+hcom2_invitro	hcom2_SRR21819266	SRR21819266	pe	hcom2_closed	ExpV2_N_P5R1	ExpV2_N_P5R1a
+hcom2_invitro	hcom2_SRR21819267	SRR21819267	pe	hcom2_closed	ExpV2_N_P4R3	ExpV2_N_P4R3c
+hcom2_invitro	hcom2_SRR21819268	SRR21819268	pe	hcom2_closed	ExpV2_MB_P2R3	ExpV2_MB_P2R3c
+hcom2_invitro	hcom2_SRR21819269	SRR21819269	pe	hcom2_closed	ExpV2_N_P4R3	ExpV2_N_P4R3b
+hcom2_invitro	hcom2_SRR21819270	SRR21819270	pe	hcom2_closed	ExpV2_N_P4R3	ExpV2_N_P4R3a
+hcom2_invitro	hcom2_SRR21819271	SRR21819271	pe	hcom2_closed	ExpV2_N_P4R2	ExpV2_N_P4R2c
+hcom2_invitro	hcom2_SRR21819272	SRR21819272	pe	hcom2_closed	ExpV2_N_P4R2	ExpV2_N_P4R2b
+hcom2_invitro	hcom2_SRR21819273	SRR21819273	pe	hcom2_closed	ExpV2_N_P4R2	ExpV2_N_P4R2a
+hcom2_invitro	hcom2_SRR21819274	SRR21819274	pe	hcom2_closed	ExpV2_N_P4R1	ExpV2_N_P4R1c
+hcom2_invitro	hcom2_SRR21819275	SRR21819275	pe	hcom2_closed	ExpV2_N_P4R1	ExpV2_N_P4R1b
+hcom2_invitro	hcom2_SRR21819276	SRR21819276	pe	hcom2_closed	ExpV2_N_P4R1	ExpV2_N_P4R1a
+hcom2_invitro	hcom2_SRR21819277	SRR21819277	pe	hcom2_closed	ExpV2_AS_P1R2	ExpV2_AS_P1R2c
+hcom2_invitro	hcom2_SRR21819278	SRR21819278	pe	hcom2_closed	ExpV2_AS_P1R2	ExpV2_AS_P1R2b
+hcom2_invitro	hcom2_SRR21819279	SRR21819279	pe	hcom2_closed	ExpV2_AS_P1R2	ExpV2_AS_P1R2a
+hcom2_invitro	hcom2_SRR21819280	SRR21819280	pe	hcom2_closed	ExpV2_AS_P1R1	ExpV2_AS_P1R1c
+hcom2_invitro	hcom2_SRR21819281	SRR21819281	pe	hcom2_closed	ExpV2_AS_P1R1	ExpV2_AS_P1R1b
+hcom2_invitro	hcom2_SRR21819282	SRR21819282	pe	hcom2_closed	ExpV2_AS_P1R1	ExpV2_AS_P1R1a
+hcom2_invitro	hcom2_SRR21819283	SRR21819283	pe	hcom2_closed	ExpV2_AS_P0R3	ExpV2_AS_P0R3c
+hcom2_invitro	hcom2_SRR21819284	SRR21819284	pe	hcom2_closed	ExpV2_MB_P1R3	ExpV2_MB_P1R3c
+hcom2_invitro	hcom2_SRR21819285	SRR21819285	pe	hcom2_closed	ExpV2_AS_P0R3	ExpV2_AS_P0R3b
+hcom2_invitro	hcom2_SRR21819286	SRR21819286	pe	hcom2_closed	ExpV2_AS_P0R3	ExpV2_AS_P0R3a
+hcom2_invitro	hcom2_SRR21819287	SRR21819287	pe	hcom2_closed	ExpV2_AS_P0R2	ExpV2_AS_P0R2c
+hcom2_invitro	hcom2_SRR21819288	SRR21819288	pe	hcom2_closed	ExpV2_AS_P0R2	ExpV2_AS_P0R2b
+hcom2_invitro	hcom2_SRR21819289	SRR21819289	pe	hcom2_closed	ExpV2_AS_P0R2	ExpV2_AS_P0R2a
+hcom2_invitro	hcom2_SRR21819290	SRR21819290	pe	hcom2_closed	ExpV2_AS_P0R1	ExpV2_AS_P0R1c
+hcom2_invitro	hcom2_SRR21819291	SRR21819291	pe	hcom2_closed	ExpV2_AS_P0R1	ExpV2_AS_P0R1b
+hcom2_invitro	hcom2_SRR21819292	SRR21819292	pe	hcom2_closed	ExpV2_AS_P0R1	ExpV2_AS_P0R1a
+hcom2_invitro	hcom2_SRR21819293	SRR21819293	pe	hcom2_closed	ExpV2_MS_P5R3	ExpV2_MS_P5R3c
+hcom2_invitro	hcom2_SRR21819294	SRR21819294	pe	hcom2_closed	ExpV2_MS_P5R3	ExpV2_MS_P5R3b
+hcom2_invitro	hcom2_SRR21819295	SRR21819295	pe	hcom2_closed	ExpV2_MB_P1R3	ExpV2_MB_P1R3b
+hcom2_invitro	hcom2_SRR21819296	SRR21819296	pe	hcom2_closed	ExpV2_MS_P5R3	ExpV2_MS_P5R3a
+hcom2_invitro	hcom2_SRR21819297	SRR21819297	pe	hcom2_closed	ExpV2_MS_P5R2	ExpV2_MS_P5R2c
+hcom2_invitro	hcom2_SRR21819298	SRR21819298	pe	hcom2_closed	ExpV2_MS_P5R2	ExpV2_MS_P5R2b
+hcom2_invitro	hcom2_SRR21819299	SRR21819299	pe	hcom2_closed	ExpV2_MS_P5R2	ExpV2_MS_P5R2a
+hcom2_invitro	hcom2_SRR21819300	SRR21819300	pe	hcom2_closed	ExpV2_MS_P5R1	ExpV2_MS_P5R1c
+hcom2_invitro	hcom2_SRR21819301	SRR21819301	pe	hcom2_closed	ExpV2_MS_P5R1	ExpV2_MS_P5R1b
+hcom2_invitro	hcom2_SRR21819302	SRR21819302	pe	hcom2_closed	ExpV2_MS_P5R1	ExpV2_MS_P5R1a
+hcom2_invitro	hcom2_SRR21819303	SRR21819303	pe	hcom2_closed	ExpV2_MS_P4R3	ExpV2_MS_P4R3c
+hcom2_invitro	hcom2_SRR21819304	SRR21819304	pe	hcom2_closed	ExpV2_AB_P0R2	ExpV2_AB_P0R2b
+hcom2_invitro	hcom2_SRR21819305	SRR21819305	pe	hcom2_closed	ExpV2_MS_P4R3	ExpV2_MS_P4R3b
+hcom2_invitro	hcom2_SRR21819306	SRR21819306	pe	hcom2_closed	ExpV2_AB_P0R2	ExpV2_AB_P0R2a
+hcom2_invitro	hcom2_SRR21819307	SRR21819307	pe	hcom2_closed	ExpV2_AB_P0R1	ExpV2_AB_P0R1c
+hcom2_invitro	hcom2_SRR21819308	SRR21819308	pe	hcom2_closed	ExpV2_AB_P0R1	ExpV2_AB_P0R1b
+hcom2_invitro	hcom2_SRR21819309	SRR21819309	pe	hcom2_closed	ExpV2_AB_P0R1	ExpV2_AB_P0R1a
+hcom2_invitro	hcom2_SRR21819310	SRR21819310	pe	hcom2_closed	ExpV2_MB_P5R3	ExpV2_MB_P5R3c
+hcom2_invitro	hcom2_SRR21819311	SRR21819311	pe	hcom2_closed	ExpV2_MB_P5R3	ExpV2_MB_P5R3b
+hcom2_invitro	hcom2_SRR21819312	SRR21819312	pe	hcom2_closed	ExpV2_MB_P5R3	ExpV2_MB_P5R3a
+hcom2_invitro	hcom2_SRR21819313	SRR21819313	pe	hcom2_closed	ExpV2_MB_P5R2	ExpV2_MB_P5R2c
+hcom2_invitro	hcom2_SRR21819314	SRR21819314	pe	hcom2_closed	ExpV2_MB_P0R2	ExpV2_MB_P0R2c
+hcom2_invitro	hcom2_SRR21819315	SRR21819315	pe	hcom2_closed	ExpV2_MB_P5R2	ExpV2_MB_P5R2b
+hcom2_invitro	hcom2_SRR21819316	SRR21819316	pe	hcom2_closed	ExpV2_MB_P5R2	ExpV2_MB_P5R2a
+hcom2_invitro	hcom2_SRR21819317	SRR21819317	pe	hcom2_closed	ExpV2_MB_P5R1	ExpV2_MB_P5R1c
+hcom2_invitro	hcom2_SRR21819318	SRR21819318	pe	hcom2_closed	ExpV2_MB_P5R1	ExpV2_MB_P5R1b
+hcom2_invitro	hcom2_SRR21819319	SRR21819319	pe	hcom2_closed	ExpV2_MB_P5R1	ExpV2_MB_P5R1a
+hcom2_invitro	hcom2_SRR21819320	SRR21819320	pe	hcom2_closed	ExpV2_MB_P4R3	ExpV2_MB_P4R3c
+hcom2_invitro	hcom2_SRR21819321	SRR21819321	pe	hcom2_closed	ExpV2_MB_P4R3	ExpV2_MB_P4R3b
+hcom2_invitro	hcom2_SRR21819322	SRR21819322	pe	hcom2_closed	ExpV2_MB_P4R3	ExpV2_MB_P4R3a
+hcom2_invitro	hcom2_SRR21819323	SRR21819323	pe	hcom2_closed	ExpV2_MB_P4R2	ExpV2_MB_P4R2c
+hcom2_invitro	hcom2_SRR21819324	SRR21819324	pe	hcom2_closed	ExpV2_MB_P4R2	ExpV2_MB_P4R2b
+hcom2_invitro	hcom2_SRR21819325	SRR21819325	pe	hcom2_closed	ExpV2_MB_P0R2	ExpV2_MB_P0R2b
+hcom2_invitro	hcom2_SRR21819326	SRR21819326	pe	hcom2_closed	ExpV2_MB_P4R2	ExpV2_MB_P4R2a
+hcom2_invitro	hcom2_SRR21819327	SRR21819327	pe	hcom2_closed	ExpV2_MB_P4R1	ExpV2_MB_P4R1c
+hcom2_invitro	hcom2_SRR21819328	SRR21819328	pe	hcom2_closed	ExpV2_MB_P4R1	ExpV2_MB_P4R1b
+hcom2_invitro	hcom2_SRR21819329	SRR21819329	pe	hcom2_closed	ExpV2_MB_P4R1	ExpV2_MB_P4R1a
+hcom2_invitro	hcom2_SRR21819330	SRR21819330	pe	hcom2_closed	ExpV2_MB_P3R3	ExpV2_MB_P3R3c
+hcom2_invitro	hcom2_SRR21819331	SRR21819331	pe	hcom2_closed	ExpV2_MB_P3R3	ExpV2_MB_P3R3b
+hcom2_invitro	hcom2_SRR21819332	SRR21819332	pe	hcom2_closed	ExpV2_MB_P3R3	ExpV2_MB_P3R3a
+hcom2_invitro	hcom2_SRR21819333	SRR21819333	pe	hcom2_closed	ExpV2_N_P3R3	ExpV2_N_P3R3c
+hcom2_invitro	hcom2_SRR21819334	SRR21819334	pe	hcom2_closed	ExpV2_N_P3R3	ExpV2_N_P3R3b
+hcom2_invitro	hcom2_SRR21819335	SRR21819335	pe	hcom2_closed	ExpV2_MB_P2R3	ExpV2_MB_P2R3b
+hcom2_invitro	hcom2_SRR21819336	SRR21819336	pe	hcom2_closed	ExpV2_N_P3R3	ExpV2_N_P3R3a
+hcom2_invitro	hcom2_SRR21819337	SRR21819337	pe	hcom2_closed	ExpV2_N_P3R2	ExpV2_N_P3R2c
+hcom2_invitro	hcom2_SRR21819338	SRR21819338	pe	hcom2_closed	ExpV2_N_P3R2	ExpV2_N_P3R2b
+hcom2_invitro	hcom2_SRR21819339	SRR21819339	pe	hcom2_closed	ExpV2_N_P3R2	ExpV2_N_P3R2a
+hcom2_invitro	hcom2_SRR21819340	SRR21819340	pe	hcom2_closed	ExpV2_N_P3R1	ExpV2_N_P3R1c
+hcom2_invitro	hcom2_SRR21819341	SRR21819341	pe	hcom2_closed	ExpV2_N_P3R1	ExpV2_N_P3R1b
+hcom2_invitro	hcom2_SRR21819342	SRR21819342	pe	hcom2_closed	ExpV2_N_P3R1	ExpV2_N_P3R1a
+hcom2_invitro	hcom2_SRR21819343	SRR21819343	pe	hcom2_closed	ExpV2_N_P2R3	ExpV2_N_P2R3c
+hcom2_invitro	hcom2_SRR21819344	SRR21819344	pe	hcom2_closed	ExpV2_N_P2R3	ExpV2_N_P2R3b
+hcom2_invitro	hcom2_SRR21819345	SRR21819345	pe	hcom2_closed	ExpV2_N_P2R3	ExpV2_N_P2R3a
+hcom2_invitro	hcom2_SRR21819346	SRR21819346	pe	hcom2_closed	ExpV2_MB_P2R3	ExpV2_MB_P2R3a
+hcom2_invitro	hcom2_SRR21819347	SRR21819347	pe	hcom2_closed	ExpV2_N_P2R2	ExpV2_N_P2R2c
+hcom2_invitro	hcom2_SRR21819348	SRR21819348	pe	hcom2_closed	ExpV2_N_P2R2	ExpV2_N_P2R2b
+hcom2_invitro	hcom2_SRR21819349	SRR21819349	pe	hcom2_closed	ExpV2_N_P2R2	ExpV2_N_P2R2a
+hcom2_invitro	hcom2_SRR21819350	SRR21819350	pe	hcom2_closed	ExpV2_N_P2R1	ExpV2_N_P2R1c
+hcom2_invitro	hcom2_SRR21819351	SRR21819351	pe	hcom2_closed	ExpV2_N_P2R1	ExpV2_N_P2R1b
+hcom2_invitro	hcom2_SRR21819352	SRR21819352	pe	hcom2_closed	ExpV2_N_P2R1	ExpV2_N_P2R1a
+hcom2_invitro	hcom2_SRR21819353	SRR21819353	pe	hcom2_closed	ExpV2_N_P1R3	ExpV2_N_P1R3c
+hcom2_invitro	hcom2_SRR21819354	SRR21819354	pe	hcom2_closed	ExpV2_N_P1R3	ExpV2_N_P1R3b
+hcom2_invitro	hcom2_SRR21819355	SRR21819355	pe	hcom2_closed	ExpV2_N_P1R3	ExpV2_N_P1R3a
+hcom2_invitro	hcom2_SRR21819356	SRR21819356	pe	hcom2_closed	ExpV2_N_P1R2	ExpV2_N_P1R2c
+hcom2_invitro	hcom2_SRR21819357	SRR21819357	pe	hcom2_closed	ExpV2_MB_P2R2	ExpV2_MB_P2R2c
+hcom2_invitro	hcom2_SRR21819358	SRR21819358	pe	hcom2_closed	ExpV2_N_P1R2	ExpV2_N_P1R2b
+hcom2_invitro	hcom2_SRR21819359	SRR21819359	pe	hcom2_closed	ExpV2_N_P1R2	ExpV2_N_P1R2a
+hcom2_invitro	hcom2_SRR21819360	SRR21819360	pe	hcom2_closed	ExpV2_N_P1R1	ExpV2_N_P1R1c
+hcom2_invitro	hcom2_SRR21819361	SRR21819361	pe	hcom2_closed	ExpV2_MS_P4R3	ExpV2_MS_P4R3a
+hcom2_invitro	hcom2_SRR21819362	SRR21819362	pe	hcom2_closed	ExpV2_MB_P1R3	ExpV2_MB_P1R3a
+hcom2_invitro	hcom2_SRR21819363	SRR21819363	pe	hcom2_closed	ExpV2_MS_P4R2	ExpV2_MS_P4R2c
+hcom2_invitro	hcom2_SRR21819364	SRR21819364	pe	hcom2_closed	ExpV2_MS_P4R2	ExpV2_MS_P4R2b
+hcom2_invitro	hcom2_SRR21819365	SRR21819365	pe	hcom2_closed	ExpV2_MS_P4R2	ExpV2_MS_P4R2a
+hcom2_invitro	hcom2_SRR21819366	SRR21819366	pe	hcom2_closed	ExpV2_MS_P4R1	ExpV2_MS_P4R1c
+hcom2_invitro	hcom2_SRR21819367	SRR21819367	pe	hcom2_closed	ExpV2_MS_P4R1	ExpV2_MS_P4R1b
+hcom2_invitro	hcom2_SRR21819368	SRR21819368	pe	hcom2_closed	ExpV2_MS_P4R1	ExpV2_MS_P4R1a
+hcom2_invitro	hcom2_SRR21819369	SRR21819369	pe	hcom2_closed	ExpV2_MS_P3R3	ExpV2_MS_P3R3c
+hcom2_invitro	hcom2_SRR21819370	SRR21819370	pe	hcom2_closed	ExpV2_MS_P3R3	ExpV2_MS_P3R3b
+hcom2_invitro	hcom2_SRR21819371	SRR21819371	pe	hcom2_closed	ExpV2_MS_P3R3	ExpV2_MS_P3R3a
+hcom2_invitro	hcom2_SRR21819372	SRR21819372	pe	hcom2_closed	ExpV2_MS_P3R2	ExpV2_MS_P3R2c
+hcom2_invitro	hcom2_SRR21819373	SRR21819373	pe	hcom2_closed	ExpV2_MB_P1R2	ExpV2_MB_P1R2c
+hcom2_invitro	hcom2_SRR21819374	SRR21819374	pe	hcom2_closed	ExpV2_MS_P3R2	ExpV2_MS_P3R2b
+hcom2_invitro	hcom2_SRR21819375	SRR21819375	pe	hcom2_closed	ExpV2_MS_P3R2	ExpV2_MS_P3R2a
+hcom2_invitro	hcom2_SRR21819376	SRR21819376	pe	hcom2_closed	ExpV2_MS_P3R1	ExpV2_MS_P3R1c
+hcom2_invitro	hcom2_SRR21819377	SRR21819377	pe	hcom2_closed	ExpV2_MS_P3R1	ExpV2_MS_P3R1b
+hcom2_invitro	hcom2_SRR21819378	SRR21819378	pe	hcom2_closed	ExpV2_MS_P3R1	ExpV2_MS_P3R1a
+hcom2_invitro	hcom2_SRR21819379	SRR21819379	pe	hcom2_closed	ExpV2_MS_P2R3	ExpV2_MS_P2R3c
+hcom2_invitro	hcom2_SRR21819380	SRR21819380	pe	hcom2_closed	ExpV2_MS_P2R3	ExpV2_MS_P2R3b
+hcom2_invitro	hcom2_SRR21819381	SRR21819381	pe	hcom2_closed	ExpV2_MS_P2R3	ExpV2_MS_P2R3a
+hcom2_invitro	hcom2_SRR21819382	SRR21819382	pe	hcom2_closed	ExpV2_MS_P2R2	ExpV2_MS_P2R2c
+hcom2_invitro	hcom2_SRR21819383	SRR21819383	pe	hcom2_closed	ExpV2_MS_P2R2	ExpV2_MS_P2R2b
+hcom2_invitro	hcom2_SRR21819384	SRR21819384	pe	hcom2_closed	ExpV2_MB_P1R2	ExpV2_MB_P1R2b
+hcom2_invitro	hcom2_SRR21819385	SRR21819385	pe	hcom2_closed	ExpV2_MS_P2R2	ExpV2_MS_P2R2a
+hcom2_invitro	hcom2_SRR21819386	SRR21819386	pe	hcom2_closed	ExpV2_MS_P2R1	ExpV2_MS_P2R1c
+hcom2_invitro	hcom2_SRR21819387	SRR21819387	pe	hcom2_closed	ExpV2_MS_P2R1	ExpV2_MS_P2R1b
+hcom2_invitro	hcom2_SRR21819388	SRR21819388	pe	hcom2_closed	ExpV2_N_P1R1	ExpV2_N_P1R1b
+hcom2_invitro	hcom2_SRR21819389	SRR21819389	pe	hcom2_closed	ExpV2_MS_P2R1	ExpV2_MS_P2R1a
+hcom2_invitro	hcom2_SRR21819390	SRR21819390	pe	hcom2_closed	ExpV2_N_P1R1	ExpV2_N_P1R1a
+hcom2_invitro	hcom2_SRR21819391	SRR21819391	pe	hcom2_closed	ExpV2_N_P0R3	ExpV2_N_P0R3c
+hcom2_invitro	hcom2_SRR21819392	SRR21819392	pe	hcom2_closed	ExpV2_N_P0R3	ExpV2_N_P0R3b
+hcom2_invitro	hcom2_SRR21819393	SRR21819393	pe	hcom2_closed	ExpV2_N_P0R3	ExpV2_N_P0R3a
+hcom2_invitro	hcom2_SRR21819394	SRR21819394	pe	hcom2_closed	ExpV2_N_P0R2	ExpV2_N_P0R2c
+hcom2_invitro	hcom2_SRR21819395	SRR21819395	pe	hcom2_closed	ExpV2_N_P0R2	ExpV2_N_P0R2b
+hcom2_invitro	hcom2_SRR21819396	SRR21819396	pe	hcom2_closed	ExpV2_MB_P2R2	ExpV2_MB_P2R2b
+hcom2_invitro	hcom2_SRR21819397	SRR21819397	pe	hcom2_closed	ExpV2_N_P0R2	ExpV2_N_P0R2a
+hcom2_invitro	hcom2_SRR21819398	SRR21819398	pe	hcom2_closed	ExpV2_N_P0R1	ExpV2_N_P0R1c
+hcom2_invitro	hcom2_SRR21819399	SRR21819399	pe	hcom2_closed	ExpV2_N_P0R1	ExpV2_N_P0R1b
+hcom2_invitro	hcom2_SRR21819400	SRR21819400	pe	hcom2_closed	ExpV2_N_P0R1	ExpV2_N_P0R1a
+hcom2_invitro	hcom2_SRR21819401	SRR21819401	pe	hcom2_closed	ExpV2_AS_P5R3	ExpV2_AS_P5R3c
+hcom2_invitro	hcom2_SRR21819402	SRR21819402	pe	hcom2_closed	ExpV2_AS_P5R3	ExpV2_AS_P5R3b
+hcom2_invitro	hcom2_SRR21819403	SRR21819403	pe	hcom2_closed	ExpV2_AS_P5R3	ExpV2_AS_P5R3a
+hcom2_invitro	hcom2_SRR21819404	SRR21819404	pe	hcom2_closed	ExpV2_AS_P5R2	ExpV2_AS_P5R2c
+hcom2_invitro	hcom2_SRR21819405	SRR21819405	pe	hcom2_closed	ExpV2_AS_P5R2	ExpV2_AS_P5R2b
+hcom2_invitro	hcom2_SRR21819406	SRR21819406	pe	hcom2_closed	ExpV2_AS_P5R2	ExpV2_AS_P5R2a
+hcom2_invitro	hcom2_SRR21819407	SRR21819407	pe	hcom2_closed	ExpV2_MB_P2R2	ExpV2_MB_P2R2a
+hcom2_invitro	hcom2_SRR21819408	SRR21819408	pe	hcom2_closed	ExpV2_AS_P5R1	ExpV2_AS_P5R1c
+hcom2_invitro	hcom2_SRR21819409	SRR21819409	pe	hcom2_closed	ExpV2_AS_P5R1	ExpV2_AS_P5R1b
+hcom2_invitro	hcom2_SRR21819410	SRR21819410	pe	hcom2_closed	ExpV2_AS_P5R1	ExpV2_AS_P5R1a
+hcom2_invitro	hcom2_SRR21819411	SRR21819411	pe	hcom2_closed	ExpV2_AS_P4R3	ExpV2_AS_P4R3c
+hcom2_invitro	hcom2_SRR21819412	SRR21819412	pe	hcom2_closed	ExpV2_AS_P4R3	ExpV2_AS_P4R3b
+hcom2_invitro	hcom2_SRR21819413	SRR21819413	pe	hcom2_closed	ExpV2_AS_P4R3	ExpV2_AS_P4R3a
+hcom2_invitro	hcom2_SRR21819414	SRR21819414	pe	hcom2_closed	ExpV2_AS_P4R2	ExpV2_AS_P4R2c
+hcom2_invitro	hcom2_SRR21819415	SRR21819415	pe	hcom2_closed	ExpV2_AS_P4R2	ExpV2_AS_P4R2b
+hcom2_invitro	hcom2_SRR21819416	SRR21819416	pe	hcom2_closed	ExpV2_AS_P4R2	ExpV2_AS_P4R2a
+hcom2_invitro	hcom2_SRR21819417	SRR21819417	pe	hcom2_closed	ExpV2_MS_P1R3	ExpV2_MS_P1R3c
+hcom2_invitro	hcom2_SRR21819418	SRR21819418	pe	hcom2_closed	ExpV2_MS_P1R3	ExpV2_MS_P1R3b
+hcom2_invitro	hcom2_SRR21819419	SRR21819419	pe	hcom2_closed	ExpV2_MS_P1R3	ExpV2_MS_P1R3a
+hcom2_invitro	hcom2_SRR21819420	SRR21819420	pe	hcom2_closed	ExpV2_MS_P1R2	ExpV2_MS_P1R2c
+hcom2_invitro	hcom2_SRR21819421	SRR21819421	pe	hcom2_closed	ExpV2_MS_P1R2	ExpV2_MS_P1R2b
+hcom2_invitro	hcom2_SRR21819422	SRR21819422	pe	hcom2_closed	ExpV2_MS_P1R2	ExpV2_MS_P1R2a
+hcom2_invitro	hcom2_SRR21819423	SRR21819423	pe	hcom2_closed	ExpV2_MB_P1R2	ExpV2_MB_P1R2a
+hcom2_invitro	hcom2_SRR21819424	SRR21819424	pe	hcom2_closed	ExpV2_MS_P1R1	ExpV2_MS_P1R1c
+hcom2_invitro	hcom2_SRR21819425	SRR21819425	pe	hcom2_closed	ExpV2_MS_P1R1	ExpV2_MS_P1R1b
+hcom2_invitro	hcom2_SRR21819426	SRR21819426	pe	hcom2_closed	ExpV2_MS_P1R1	ExpV2_MS_P1R1a
+hcom2_invitro	hcom2_SRR21819427	SRR21819427	pe	hcom2_closed	ExpV2_MS_P0R3	ExpV2_MS_P0R3c
+hcom2_invitro	hcom2_SRR21819428	SRR21819428	pe	hcom2_closed	ExpV2_MS_P0R3	ExpV2_MS_P0R3b
+hcom2_invitro	hcom2_SRR21819429	SRR21819429	pe	hcom2_closed	ExpV2_MS_P0R3	ExpV2_MS_P0R3a
+hcom2_invitro	hcom2_SRR21819430	SRR21819430	pe	hcom2_closed	ExpV2_MS_P0R2	ExpV2_MS_P0R2c
+hcom2_invitro	hcom2_SRR21819431	SRR21819431	pe	hcom2_closed	ExpV2_MS_P0R2	ExpV2_MS_P0R2b
+hcom2_invitro	hcom2_SRR21819432	SRR21819432	pe	hcom2_closed	ExpV2_MS_P0R2	ExpV2_MS_P0R2a
+hcom2_invitro	hcom2_SRR21819433	SRR21819433	pe	hcom2_closed	ExpV2_MS_P0R1	ExpV2_MS_P0R1c
+hcom2_invitro	hcom2_SRR21819434	SRR21819434	pe	hcom2_closed	ExpV2_MB_P1R1	ExpV2_MB_P1R1c
+hcom2_invitro	hcom2_SRR21819435	SRR21819435	pe	hcom2_closed	ExpV2_MS_P0R1	ExpV2_MS_P0R1b
+hcom2_invitro	hcom2_SRR21819436	SRR21819436	pe	hcom2_closed	ExpV2_MS_P0R1	ExpV2_MS_P0R1a
+hcom2_invitro	hcom2_SRR21819437	SRR21819437	pe	hcom2_closed	ExpV2_AB_P5R3	ExpV2_AB_P5R3c
+hcom2_invitro	hcom2_SRR21819438	SRR21819438	pe	hcom2_closed	ExpV2_AB_P5R3	ExpV2_AB_P5R3b
+hcom2_invitro	hcom2_SRR21819439	SRR21819439	pe	hcom2_closed	ExpV2_AB_P5R3	ExpV2_AB_P5R3a
+hcom2_invitro	hcom2_SRR21819440	SRR21819440	pe	hcom2_closed	ExpV2_AB_P5R2	ExpV2_AB_P5R2c
+hcom2_invitro	hcom2_SRR21819441	SRR21819441	pe	hcom2_closed	ExpV2_AB_P5R2	ExpV2_AB_P5R2b
+hcom2_invitro	hcom2_SRR21819442	SRR21819442	pe	hcom2_closed	ExpV2_AB_P5R2	ExpV2_AB_P5R2a
+hcom2_invitro	hcom2_SRR21819443	SRR21819443	pe	hcom2_closed	ExpV2_AB_P5R1	ExpV2_AB_P5R1c
+hcom2_invitro	hcom2_SRR21819444	SRR21819444	pe	hcom2_closed	ExpV2_AB_P5R1	ExpV2_AB_P5R1b
+hcom2_invitro	hcom2_SRR21819445	SRR21819445	pe	hcom2_closed	ExpV2_MB_P1R1	ExpV2_MB_P1R1b
+hcom2_invitro	hcom2_SRR21819446	SRR21819446	pe	hcom2_closed	ExpV2_MB_P0R1	ExpV2_MB_P0R1b
+hcom2_invitro	hcom2_SRR21819447	SRR21819447	pe	hcom2_closed	ExpV2_MB_P0R1	ExpV2_MB_P0R1a
+hcom2_invitro	hcom2_SRR29248669	SRR29248669	pe	hcom2_closed	Innoculum_PBS_P0_Rep2	Innoculum_PBS_P0_Rep2_KAPA
+hcom2_invitro	hcom2_SRR29248670	SRR29248670	pe	hcom2_closed	Innoculum_PBS_P0_Rep1	Innoculum_PBS_P0_Rep1_KAPA
+hcom2_invitro	hcom2_SRR29248671	SRR29248671	pe	hcom2_closed	Innoculum_PBS_P0_Rep2	Innoculum_PBS_P0_Rep2_Flex
+hcom2_invitro	hcom2_SRR29248672	SRR29248672	pe	hcom2_closed	Innoculum_PBS_P0_Rep1	Innoculum_PBS_P0_Rep1_Flex
+hcom1a_dropouts	hcom1a_SRR24799807	SRR24799807	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m11 (20221004_MW-Rev-PlateA_FLEX_H3_Cecum_w4_m11_S87)
+hcom1a_dropouts	hcom1a_SRR24799808	SRR24799808	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m9 (20221004_MW-Rev-PlateA_FLEX_H1_Cecum_w4_m9_S85)
+hcom1a_dropouts	hcom1a_SRR24799809	SRR24799809	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m8 (20221004_MW-Rev-PlateA_FLEX_G11_Cecum_w4_m8_S83)
+hcom1a_dropouts	hcom1a_SRR24799810	SRR24799810	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m7 (20221004_MW-Rev-PlateA_FLEX_G10_Cecum_w4_m7_S82)
+hcom1a_dropouts	hcom1a_SRR24799811	SRR24799811	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m6 (20221004_MW-Rev-PlateA_FLEX_G9_Cecum_w4_m6_S81)
+hcom1a_dropouts	hcom1a_SRR24799812	SRR24799812	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m5 (20221004_MW-Rev-PlateA_FLEX_G8_Cecum_w4_m5_S80)
+hcom1a_dropouts	hcom1a_SRR24799813	SRR24799813	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m4 (20221004_MW-Rev-PlateA_FLEX_G7_Cecum_w4_m4_S79)
+hcom1a_dropouts	hcom1a_SRR24799814	SRR24799814	pe	hcom1a_full	hcom1a_full_inoculum	hCom1a_Inoculum (20190508_SynCom1_Input_S81)
+hcom1a_dropouts	hcom1a_SRR24799815	SRR24799815	pe	hcom1a_full	hcom1a_full_inoculum	hCom1a_Inoculum (20190606_SynCom5_Input_S160)
+hcom1a_dropouts	hcom1a_SRR24799816	SRR24799816	pe	hcom1a_full	hcom1a_full_inoculum	hCom1a_Inoculum (20190607_SynCom10_Input_S120)
+hcom1a_dropouts	hcom1a_SRR24799817	SRR24799817	pe	hcom1a_minus_cs	hcom1a_minus_cs_inoculum	ΔCs_Inoculum (20190607_SynCom9_Input_S128)
+hcom1a_dropouts	hcom1a_SRR24799818	SRR24799818	pe	hcom1a_minus_ch	hcom1a_minus_ch_inoculum	ΔCh_Inoculum (20190607_SynCom8_Input_S136)
+hcom1a_dropouts	hcom1a_SRR24799819	SRR24799819	pe	hcom1a_minus_chcs	hcom1a_minus_chcs_inoculum	ΔChΔCs_Inoculum (20190607_SynCom7_Input_S144)
+hcom1a_dropouts	hcom1a_SRR24799820	SRR24799820	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m3 (20190716_B6_Mouse12_SynCom10_Cecum_Week3_S145)
+hcom1a_dropouts	hcom1a_SRR24799821	SRR24799821	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m2 (20190716_B6_Mouse11_SynCom10_Cecum_Week3_S177)
+hcom1a_dropouts	hcom1a_SRR24799822	SRR24799822	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m3 (20221004_MW-Rev-PlateA_FLEX_G6_Cecum_w4_m3_S78)
+hcom1a_dropouts	hcom1a_SRR24799823	SRR24799823	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m1 (20190716_B6_Mouse10_SynCom10_Cecum_Week3_S114)
+hcom1a_dropouts	hcom1a_SRR24799824	SRR24799824	pe	hcom1a_minus_cs	hcom1a_minus_cs_cecum	ΔCs_Cecum_m3 (20190716_B6_Mouse9_SynCom9_Cecum_Week3_S146)
+hcom1a_dropouts	hcom1a_SRR24799825	SRR24799825	pe	hcom1a_minus_cs	hcom1a_minus_cs_cecum	ΔCs_Cecum_m2 (20190716_B6_Mouse8_SynCom9_Cecum_Week3_S178)
+hcom1a_dropouts	hcom1a_SRR24799826	SRR24799826	pe	hcom1a_minus_cs	hcom1a_minus_cs_cecum	ΔCs_Cecum_m1 (20190716_B6_Mouse7_SynCom9_Cecum_Week3_S115)
+hcom1a_dropouts	hcom1a_SRR24799827	SRR24799827	pe	hcom1a_minus_ch	hcom1a_minus_ch_cecum	ΔCh_Cecum_m3 (20190716_B6_Mouse6_SynCom8_Cecum_Week3_S147)
+hcom1a_dropouts	hcom1a_SRR24799828	SRR24799828	pe	hcom1a_minus_ch	hcom1a_minus_ch_cecum	ΔCh_Cecum_m2 (20190716_B6_Mouse5_SynCom8_Cecum_Week3_S179)
+hcom1a_dropouts	hcom1a_SRR24799829	SRR24799829	pe	hcom1a_minus_ch	hcom1a_minus_ch_cecum	ΔCh_Cecum_m1 (20190716_B6_Mouse4_SynCom8_Cecum_Week3_S116)
+hcom1a_dropouts	hcom1a_SRR24799830	SRR24799830	pe	hcom1a_minus_chcs	hcom1a_minus_chcs_cecum	ΔChΔCs_Cecum_m3 (20190716_B6_Mouse3_SynCom7_Cecum_Week3_S148)
+hcom1a_dropouts	hcom1a_SRR24799831	SRR24799831	pe	hcom1a_minus_chcs	hcom1a_minus_chcs_cecum	ΔChΔCs_Cecum_m2 (20190716_B6_Mouse2_SynCom7_Cecum_Week3_S180)
+hcom1a_dropouts	hcom1a_SRR24799832	SRR24799832	pe	hcom1a_minus_chcs	hcom1a_minus_chcs_cecum	ΔChΔCs_Cecum_m1 (20190716_B6_Mouse1_SynCom7_Cecum_Week3_S117)
+hcom1a_dropouts	hcom1a_SRR24799833	SRR24799833	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m2 (20221004_MW-Rev-PlateA_FLEX_G5_Cecum_w4_m2_S77)
+hcom1a_dropouts	hcom1a_SRR24799834	SRR24799834	pe	hcom1a_full	hcom1a_full_cecum	hCom1a_Cecum_m1 (20221004_MW-Rev-PlateA_FLEX_G4_Cecum_w4_m1_S76)
+plant_syncoms	plant_SRR29709934	SRR29709934	pe	-	At_AtSC	At_AtSC_ES_low_B1 (SSC_9)
+plant_syncoms	plant_SRR29709935	SRR29709935	pe	-	At_NS	At_NS_ES_HL_orig_B4 (SSC_80)
+plant_syncoms	plant_SRR29709936	SRR29709936	pe	-	At_NS	At_NS_ES_HL_orig_B3 (SSC_79)
+plant_syncoms	plant_SRR29709937	SRR29709937	pe	-	At_NS	At_NS_ES_HL_orig_B2 (SSC_78)
+plant_syncoms	plant_SRR29709938	SRR29709938	pe	-	At_NS	At_NS_ES_HL_orig_B1 (SSC_77)
+plant_syncoms	plant_SRR29709939	SRR29709939	pe	-	At_NS	At_NS_ES_high_B4 (SSC_76)
+plant_syncoms	plant_SRR29709940	SRR29709940	pe	-	At_NS	At_NS_ES_high_B3 (SSC_75)
+plant_syncoms	plant_SRR29709941	SRR29709941	pe	-	At_NS	At_NS_ES_high_B2 (SSC_74)
+plant_syncoms	plant_SRR29709942	SRR29709942	pe	-	At_NS	At_NS_ES_high_B1 (SSC_73)
+plant_syncoms	plant_SRR29709943	SRR29709943	pe	-	At_LjSC	At_LjSC_RZ_low_B4 (SSC_72)
+plant_syncoms	plant_SRR29709944	SRR29709944	pe	-	At_LjSC	At_LjSC_RZ_low_B3 (SSC_71)
+plant_syncoms	plant_SRR29709945	SRR29709945	pe	-	At_AtSC	At_AtSC_ES_HL_orig_B4 (SSC_8)
+plant_syncoms	plant_SRR29709946	SRR29709946	pe	-	At_LjSC	At_LjSC_RZ_low_B2 (SSC_70)
+plant_syncoms	plant_SRR29709947	SRR29709947	pe	-	At_LjSC	At_LjSC_RZ_low_B1 (SSC_69)
+plant_syncoms	plant_SRR29709948	SRR29709948	pe	-	At_LjSC	At_LjSC_RZ_HL_orig_B4 (SSC_68)
+plant_syncoms	plant_SRR29709949	SRR29709949	pe	-	At_LjSC	At_LjSC_RZ_HL_orig_B3 (SSC_67)
+plant_syncoms	plant_SRR29709950	SRR29709950	pe	-	At_LjSC	At_LjSC_RZ_HL_orig_B2 (SSC_66)
+plant_syncoms	plant_SRR29709951	SRR29709951	pe	-	At_LjSC	At_LjSC_RZ_HL_orig_B1 (SSC_65)
+plant_syncoms	plant_SRR29709952	SRR29709952	pe	-	At_LjSC	At_LjSC_RZ_high_B4 (SSC_64)
+plant_syncoms	plant_SRR29709953	SRR29709953	pe	-	At_LjSC	At_LjSC_RZ_high_B3 (SSC_63)
+plant_syncoms	plant_SRR29709954	SRR29709954	pe	-	At_LjSC	At_LjSC_RZ_high_B2 (SSC_62)
+plant_syncoms	plant_SRR29709955	SRR29709955	pe	-	At_LjSC	At_LjSC_RZ_high_B1 (SSC_61)
+plant_syncoms	plant_SRR29709956	SRR29709956	pe	-	At_AtSC	At_AtSC_ES_HL_orig_B3 (SSC_7)
+plant_syncoms	plant_SRR29709957	SRR29709957	pe	-	At_LjSC	At_LjSC_ES_low_B4 (SSC_60)
+plant_syncoms	plant_SRR29709958	SRR29709958	pe	-	At_LjSC	At_LjSC_ES_low_B3 (SSC_59)
+plant_syncoms	plant_SRR29709959	SRR29709959	pe	-	R1_At	R1_At_GC2_SSC_ES_B3 (SSC_385)
+plant_syncoms	plant_SRR29709960	SRR29709960	pe	-	R1_At	R1_At_GC2_SSC_ES_B2 (SSC_384)
+plant_syncoms	plant_SRR29709961	SRR29709961	pe	-	R1_At	R1_At_GC2_SSC_ES_B1 (SSC_383)
+plant_syncoms	plant_SRR29709962	SRR29709962	pe	-	R1_At	R1_At_GC2_LjSC_ES_B4 (SSC_382)
+plant_syncoms	plant_SRR29709963	SRR29709963	pe	-	R1_At	R1_At_GC2_LjSC_ES_B2 (SSC_381)
+plant_syncoms	plant_SRR29709964	SRR29709964	pe	-	At_HvSC	At_HvSC_RZ_high_B3 (SSC_39)
+plant_syncoms	plant_SRR29709965	SRR29709965	pe	-	R1_At	R1_At_GC2_LjSC_ES_B1 (SSC_380)
+plant_syncoms	plant_SRR29709966	SRR29709966	pe	-	R1_At	R1_At_GC2_HvSC_ES_B5 (SSC_379)
+plant_syncoms	plant_SRR29709967	SRR29709967	pe	-	R1_At	R1_At_GC2_HvSC_ES_B4 (SSC_378)
+plant_syncoms	plant_SRR29709968	SRR29709968	pe	-	R1_At	R1_At_GC2_HvSC_ES_B2 (SSC_377)
+plant_syncoms	plant_SRR29709969	SRR29709969	pe	-	R1_At	R1_At_GC2_HvSC_ES_B1 (SSC_376)
+plant_syncoms	plant_SRR29709970	SRR29709970	pe	-	R1_At	R1_At_GC2_AtSC_ES_B5 (SSC_375)
+plant_syncoms	plant_SRR29709971	SRR29709971	pe	-	R1_At	R1_At_GC2_AtSC_ES_B4 (SSC_374)
+plant_syncoms	plant_SRR29709972	SRR29709972	pe	-	R1_At	R1_At_GC2_AtSC_ES_B3 (SSC_373)
+plant_syncoms	plant_SRR29709973	SRR29709973	pe	-	R1_At	R1_At_GC2_AtSC_ES_B2 (SSC_372)
+plant_syncoms	plant_SRR29709974	SRR29709974	pe	-	R1_At	R1_At_GC2_AtSC_ES_B1 (SSC_371)
+plant_syncoms	plant_SRR29709975	SRR29709975	pe	-	At_HvSC	At_HvSC_RZ_high_B2 (SSC_38)
+plant_syncoms	plant_SRR29709976	SRR29709976	pe	-	R1_At	R1_At_GC1_SSC_RZ_B4 (SSC_370)
+plant_syncoms	plant_SRR29709977	SRR29709977	pe	-	R1_At	R1_At_GC1_SSC_RZ_B3 (SSC_369)
+plant_syncoms	plant_SRR29709978	SRR29709978	pe	-	R1_At	R1_At_GC1_SSC_ES_B4 (SSC_368)
+plant_syncoms	plant_SRR29709979	SRR29709979	pe	-	R1_At	R1_At_GC1_SSC_ES_B3 (SSC_367)
+plant_syncoms	plant_SRR29709980	SRR29709980	pe	-	R1_At	R1_At_GC1_SSC_ES_B2 (SSC_366)
+plant_syncoms	plant_SRR29709981	SRR29709981	pe	-	R1_At	R1_At_GC1_SSC_ES_B1 (SSC_365)
+plant_syncoms	plant_SRR29709982	SRR29709982	pe	-	NP_SSC	NP_SSC_low_B4 (SSC_364)
+plant_syncoms	plant_SRR29709983	SRR29709983	pe	-	NP_SSC	NP_SSC_low_B3 (SSC_363)
+plant_syncoms	plant_SRR29709984	SRR29709984	pe	-	Lj_NS	Lj_NS_ES_low_B4 (SSC_288)
+plant_syncoms	plant_SRR29709985	SRR29709985	pe	-	Lj_NS	Lj_NS_ES_low_B3 (SSC_287)
+plant_syncoms	plant_SRR29709986	SRR29709986	pe	-	Lj_NS	Lj_NS_ES_low_B2 (SSC_286)
+plant_syncoms	plant_SRR29709987	SRR29709987	pe	-	Lj_NS	Lj_NS_ES_low_B1 (SSC_285)
+plant_syncoms	plant_SRR29709988	SRR29709988	pe	-	Lj_NS	Lj_NS_ES_high_B4 (SSC_284)
+plant_syncoms	plant_SRR29709989	SRR29709989	pe	-	Lj_NS	Lj_NS_ES_high_B3 (SSC_283)
+plant_syncoms	plant_SRR29709990	SRR29709990	pe	-	Lj_NS	Lj_NS_ES_high_B2 (SSC_282)
+plant_syncoms	plant_SRR29709991	SRR29709991	pe	-	Lj_NS	Lj_NS_ES_high_B1 (SSC_281)
+plant_syncoms	plant_SRR29709992	SRR29709992	pe	-	At_HvSC	At_HvSC_ES_HL_orig_B1 (SSC_29)
+plant_syncoms	plant_SRR29709993	SRR29709993	pe	-	Lj_LjSC	Lj_LjSC_RZ_low_B4 (SSC_280)
+plant_syncoms	plant_SRR29709994	SRR29709994	pe	-	Lj_LjSC	Lj_LjSC_RZ_low_B3 (SSC_279)
+plant_syncoms	plant_SRR29709995	SRR29709995	pe	-	Lj_LjSC	Lj_LjSC_RZ_low_B2 (SSC_278)
+plant_syncoms	plant_SRR29709996	SRR29709996	pe	-	Lj_LjSC	Lj_LjSC_RZ_low_B1 (SSC_277)
+plant_syncoms	plant_SRR29709997	SRR29709997	pe	-	Lj_LjSC	Lj_LjSC_RZ_high_B4 (SSC_276)
+plant_syncoms	plant_SRR29709998	SRR29709998	pe	-	Lj_LjSC	Lj_LjSC_RZ_high_B3 (SSC_275)
+plant_syncoms	plant_SRR29709999	SRR29709999	pe	-	Lj_LjSC	Lj_LjSC_RZ_high_B2 (SSC_274)
+plant_syncoms	plant_SRR29710000	SRR29710000	pe	-	Lj_LjSC	Lj_LjSC_RZ_high_B1 (SSC_273)
+plant_syncoms	plant_SRR29710001	SRR29710001	pe	-	Lj_LjSC	Lj_LjSC_NOD_low_B4 (SSC_272)
+plant_syncoms	plant_SRR29710002	SRR29710002	pe	-	Lj_LjSC	Lj_LjSC_NOD_low_B3 (SSC_271)
+plant_syncoms	plant_SRR29710003	SRR29710003	pe	-	At_HvSC	At_HvSC_ES_high_B4 (SSC_28)
+plant_syncoms	plant_SRR29710004	SRR29710004	pe	-	Lj_LjSC	Lj_LjSC_NOD_low_B2 (SSC_270)
+plant_syncoms	plant_SRR29710005	SRR29710005	pe	-	Lj_LjSC	Lj_LjSC_NOD_low_B1 (SSC_269)
+plant_syncoms	plant_SRR29710006	SRR29710006	pe	-	Lj_LjSC	Lj_LjSC_NOD_high_B4 (SSC_268)
+plant_syncoms	plant_SRR29710007	SRR29710007	pe	-	Lj_LjSC	Lj_LjSC_NOD_high_B3 (SSC_267)
+plant_syncoms	plant_SRR29710008	SRR29710008	pe	-	Lj_LjSC	Lj_LjSC_NOD_high_B2 (SSC_266)
+plant_syncoms	plant_SRR29710009	SRR29710009	pe	-	Lj_LjSC	Lj_LjSC_NOD_high_B1 (SSC_265)
+plant_syncoms	plant_SRR29710010	SRR29710010	pe	-	Lj_LjSC	Lj_LjSC_ES_low_B4 (SSC_264)
+plant_syncoms	plant_SRR29710011	SRR29710011	pe	-	input_SSC	Input_SSC_B3 (SSC_215)
+plant_syncoms	plant_SRR29710012	SRR29710012	pe	-	input_SSC	Input_SSC_B2 (SSC_214)
+plant_syncoms	plant_SRR29710013	SRR29710013	pe	-	input_SSC	Input_SSC_B1 (SSC_213)
+plant_syncoms	plant_SRR29710014	SRR29710014	pe	-	input_LjSC	Input_LjSC_B4 (SSC_212)
+plant_syncoms	plant_SRR29710015	SRR29710015	pe	-	input_LjSC	Input_LjSC_B3 (SSC_211)
+plant_syncoms	plant_SRR29710016	SRR29710016	pe	-	At_AtSC	At_AtSC_RZ_low_B2 (SSC_22)
+plant_syncoms	plant_SRR29710017	SRR29710017	pe	-	input_LjSC	Input_LjSC_B2 (SSC_210)
+plant_syncoms	plant_SRR29710018	SRR29710018	pe	-	input_LjSC	Input_LjSC_B1 (SSC_209)
+plant_syncoms	plant_SRR29710019	SRR29710019	pe	-	input_HvSC	Input_HvSC_B4 (SSC_208)
+plant_syncoms	plant_SRR29710020	SRR29710020	pe	-	input_HvSC	Input_HvSC_B3 (SSC_207)
+plant_syncoms	plant_SRR29710021	SRR29710021	pe	-	input_HvSC	Input_HvSC_B2 (SSC_206)
+plant_syncoms	plant_SRR29710022	SRR29710022	pe	-	input_HvSC	Input_HvSC_B1 (SSC_205)
+plant_syncoms	plant_SRR29710023	SRR29710023	pe	-	input_AtSC	Input_AtSC_B4 (SSC_204)
+plant_syncoms	plant_SRR29710024	SRR29710024	pe	-	input_AtSC	Input_AtSC_B3 (SSC_203)
+plant_syncoms	plant_SRR29710025	SRR29710025	pe	-	input_AtSC	Input_AtSC_B2 (SSC_202)
+plant_syncoms	plant_SRR29710026	SRR29710026	pe	-	input_AtSC	Input_AtSC_B1 (SSC_201)
+plant_syncoms	plant_SRR29710027	SRR29710027	pe	-	At_AtSC	At_AtSC_RZ_low_B1 (SSC_21)
+plant_syncoms	plant_SRR29710028	SRR29710028	pe	-	At_AtSC	At_AtSC_ES_high_B3 (SSC_3)
+plant_syncoms	plant_SRR29710029	SRR29710029	pe	-	Hv_SSC	Hv_SSC_RZ_low_B4 (SSC_200)
+plant_syncoms	plant_SRR29710030	SRR29710030	pe	-	Hv_SSC	Hv_SSC_RZ_low_B3 (SSC_199)
+plant_syncoms	plant_SRR29710031	SRR29710031	pe	-	Hv_SSC	Hv_SSC_RZ_low_B2 (SSC_198)
+plant_syncoms	plant_SRR29710032	SRR29710032	pe	-	Hv_SSC	Hv_SSC_RZ_low_B1 (SSC_197)
+plant_syncoms	plant_SRR29710033	SRR29710033	pe	-	Hv_SSC	Hv_SSC_RZ_high_B4 (SSC_196)
+plant_syncoms	plant_SRR29710034	SRR29710034	pe	-	Hv_SSC	Hv_SSC_RZ_high_B3 (SSC_195)
+plant_syncoms	plant_SRR29710035	SRR29710035	pe	-	Hv_SSC	Hv_SSC_RZ_high_B2 (SSC_194)
+plant_syncoms	plant_SRR29710036	SRR29710036	pe	-	Hv_SSC	Hv_SSC_RZ_high_B1 (SSC_193)
+plant_syncoms	plant_SRR29710037	SRR29710037	pe	-	Hv_SSC	Hv_SSC_ES_low_B4 (SSC_192)
+plant_syncoms	plant_SRR29710038	SRR29710038	pe	-	Hv_SSC	Hv_SSC_ES_low_B3 (SSC_191)
+plant_syncoms	plant_SRR29710039	SRR29710039	pe	-	At_AtSC	At_AtSC_RZ_HL_orig_B4 (SSC_20)
+plant_syncoms	plant_SRR29710040	SRR29710040	pe	-	Hv_SSC	Hv_SSC_ES_low_B2 (SSC_190)
+plant_syncoms	plant_SRR29710041	SRR29710041	pe	-	Hv_SSC	Hv_SSC_ES_low_B1 (SSC_189)
+plant_syncoms	plant_SRR29710042	SRR29710042	pe	-	Hv_SSC	Hv_SSC_ES_high_B4 (SSC_188)
+plant_syncoms	plant_SRR29710043	SRR29710043	pe	-	Hv_SSC	Hv_SSC_ES_high_B3 (SSC_187)
+plant_syncoms	plant_SRR29710044	SRR29710044	pe	-	Hv_SSC	Hv_SSC_ES_high_B2 (SSC_186)
+plant_syncoms	plant_SRR29710045	SRR29710045	pe	-	Hv_SSC	Hv_SSC_ES_high_B1 (SSC_185)
+plant_syncoms	plant_SRR29710046	SRR29710046	pe	-	Hv_NS	Hv_NS_RZ_low_B4 (SSC_184)
+plant_syncoms	plant_SRR29710047	SRR29710047	pe	-	Hv_NS	Hv_NS_RZ_low_B3 (SSC_183)
+plant_syncoms	plant_SRR29710048	SRR29710048	pe	-	Hv_NS	Hv_NS_RZ_low_B2 (SSC_182)
+plant_syncoms	plant_SRR29710049	SRR29710049	pe	-	Hv_NS	Hv_NS_RZ_low_B1 (SSC_181)
+plant_syncoms	plant_SRR29710050	SRR29710050	pe	-	At_AtSC	At_AtSC_RZ_HL_orig_B3 (SSC_19)
+plant_syncoms	plant_SRR29710051	SRR29710051	pe	-	Hv_NS	Hv_NS_RZ_high_B4 (SSC_180)
+plant_syncoms	plant_SRR29710052	SRR29710052	pe	-	Hv_NS	Hv_NS_RZ_high_B3 (SSC_179)
+plant_syncoms	plant_SRR29710053	SRR29710053	pe	-	Hv_NS	Hv_NS_RZ_high_B2 (SSC_178)
+plant_syncoms	plant_SRR29710054	SRR29710054	pe	-	Hv_NS	Hv_NS_RZ_high_B1 (SSC_177)
+plant_syncoms	plant_SRR29710055	SRR29710055	pe	-	Hv_NS	Hv_NS_ES_low_B4 (SSC_176)
+plant_syncoms	plant_SRR29710056	SRR29710056	pe	-	Hv_NS	Hv_NS_ES_low_B3 (SSC_175)
+plant_syncoms	plant_SRR29710057	SRR29710057	pe	-	Hv_NS	Hv_NS_ES_low_B2 (SSC_174)
+plant_syncoms	plant_SRR29710058	SRR29710058	pe	-	Hv_NS	Hv_NS_ES_low_B1 (SSC_173)
+plant_syncoms	plant_SRR29710059	SRR29710059	pe	-	Hv_NS	Hv_NS_ES_high_B4 (SSC_172)
+plant_syncoms	plant_SRR29710060	SRR29710060	pe	-	Hv_NS	Hv_NS_ES_high_B3 (SSC_171)
+plant_syncoms	plant_SRR29710061	SRR29710061	pe	-	At_AtSC	At_AtSC_RZ_HL_orig_B2 (SSC_18)
+plant_syncoms	plant_SRR29710062	SRR29710062	pe	-	Hv_NS	Hv_NS_ES_high_B2 (SSC_170)
+plant_syncoms	plant_SRR29710063	SRR29710063	pe	-	Hv_NS	Hv_NS_ES_high_B1 (SSC_169)
+plant_syncoms	plant_SRR29710064	SRR29710064	pe	-	Hv_LjSC	Hv_LjSC_RZ_low_B4 (SSC_168)
+plant_syncoms	plant_SRR29710065	SRR29710065	pe	-	Hv_LjSC	Hv_LjSC_RZ_low_B3 (SSC_167)
+plant_syncoms	plant_SRR29710066	SRR29710066	pe	-	At_LjSC	At_LjSC_ES_low_B2 (SSC_58)
+plant_syncoms	plant_SRR29710067	SRR29710067	pe	-	At_LjSC	At_LjSC_ES_low_B1 (SSC_57)
+plant_syncoms	plant_SRR29710068	SRR29710068	pe	-	At_LjSC	At_LjSC_ES_HL_orig_B4 (SSC_56)
+plant_syncoms	plant_SRR29710069	SRR29710069	pe	-	At_LjSC	At_LjSC_ES_HL_orig_B3 (SSC_55)
+plant_syncoms	plant_SRR29710070	SRR29710070	pe	-	At_LjSC	At_LjSC_ES_HL_orig_B2 (SSC_54)
+plant_syncoms	plant_SRR29710071	SRR29710071	pe	-	At_LjSC	At_LjSC_ES_HL_orig_B1 (SSC_53)
+plant_syncoms	plant_SRR29710072	SRR29710072	pe	-	At_LjSC	At_LjSC_ES_high_B4 (SSC_52)
+plant_syncoms	plant_SRR29710073	SRR29710073	pe	-	At_LjSC	At_LjSC_ES_high_B3 (SSC_51)
+plant_syncoms	plant_SRR29710074	SRR29710074	pe	-	At_AtSC	At_AtSC_ES_HL_orig_B2 (SSC_6)
+plant_syncoms	plant_SRR29710075	SRR29710075	pe	-	At_LjSC	At_LjSC_ES_high_B2 (SSC_50)
+plant_syncoms	plant_SRR29710076	SRR29710076	pe	-	At_LjSC	At_LjSC_ES_high_B1 (SSC_49)
+plant_syncoms	plant_SRR29710077	SRR29710077	pe	-	At_HvSC	At_HvSC_RZ_low_B4 (SSC_48)
+plant_syncoms	plant_SRR29710078	SRR29710078	pe	-	At_HvSC	At_HvSC_RZ_low_B3 (SSC_47)
+plant_syncoms	plant_SRR29710079	SRR29710079	pe	-	At_HvSC	At_HvSC_RZ_low_B2 (SSC_46)
+plant_syncoms	plant_SRR29710080	SRR29710080	pe	-	R1_Lj	R1_Lj_GC3_SSC_ES_B4 (SSC_442)
+plant_syncoms	plant_SRR29710081	SRR29710081	pe	-	R1_Lj	R1_Lj_GC3_SSC_ES_B3 (SSC_441)
+plant_syncoms	plant_SRR29710082	SRR29710082	pe	-	At_HvSC	At_HvSC_RZ_low_B1 (SSC_45)
+plant_syncoms	plant_SRR29710083	SRR29710083	pe	-	R1_Lj	R1_Lj_GC3_SSC_ES_B2 (SSC_440)
+plant_syncoms	plant_SRR29710084	SRR29710084	pe	-	R1_Lj	R1_Lj_GC3_SSC_ES_B1 (SSC_439)
+plant_syncoms	plant_SRR29710085	SRR29710085	pe	-	R1_Lj	R1_Lj_GC2_SSC_ES_B4 (SSC_438)
+plant_syncoms	plant_SRR29710086	SRR29710086	pe	-	R1_Lj	R1_Lj_GC2_SSC_ES_B3 (SSC_437)
+plant_syncoms	plant_SRR29710087	SRR29710087	pe	-	R1_Lj	R1_Lj_GC2_SSC_ES_B2 (SSC_436)
+plant_syncoms	plant_SRR29710088	SRR29710088	pe	-	R1_Lj	R1_Lj_GC2_SSC_ES_B1 (SSC_435)
+plant_syncoms	plant_SRR29710089	SRR29710089	pe	-	R1_Lj	R1_Lj_GC1_SSC_RZ_B3 (SSC_434)
+plant_syncoms	plant_SRR29710090	SRR29710090	pe	-	R1_Lj	R1_Lj_GC1_SSC_RZ_B1 (SSC_433)
+plant_syncoms	plant_SRR29710091	SRR29710091	pe	-	NP_SSC	NP_SSC_low_B2 (SSC_362)
+plant_syncoms	plant_SRR29710092	SRR29710092	pe	-	NP_SSC	NP_SSC_low_B1 (SSC_361)
+plant_syncoms	plant_SRR29710093	SRR29710093	pe	-	At_HvSC	At_HvSC_RZ_high_B1 (SSC_37)
+plant_syncoms	plant_SRR29710094	SRR29710094	pe	-	NP_SSC	NP_SSC_high_B4 (SSC_360)
+plant_syncoms	plant_SRR29710095	SRR29710095	pe	-	NP_SSC	NP_SSC_high_B3 (SSC_359)
+plant_syncoms	plant_SRR29710096	SRR29710096	pe	-	NP_SSC	NP_SSC_high_B2 (SSC_358)
+plant_syncoms	plant_SRR29710097	SRR29710097	pe	-	NP_SSC	NP_SSC_high_B1 (SSC_357)
+plant_syncoms	plant_SRR29710098	SRR29710098	pe	-	NP_NS	NP_NS_low_GC2_B4 (SSC_356)
+plant_syncoms	plant_SRR29710099	SRR29710099	pe	-	NP_NS	NP_NS_low_GC2_B3 (SSC_355)
+plant_syncoms	plant_SRR29710100	SRR29710100	pe	-	NP_NS	NP_NS_low_GC2_B2 (SSC_354)
+plant_syncoms	plant_SRR29710101	SRR29710101	pe	-	NP_NS	NP_NS_low_GC2_B1 (SSC_353)
+plant_syncoms	plant_SRR29710102	SRR29710102	pe	-	NP_NS	NP_NS_low_GC1_B4 (SSC_352)
+plant_syncoms	plant_SRR29710103	SRR29710103	pe	-	NP_NS	NP_NS_low_GC1_B3 (SSC_351)
+plant_syncoms	plant_SRR29710104	SRR29710104	pe	-	At_HvSC	At_HvSC_ES_low_B4 (SSC_36)
+plant_syncoms	plant_SRR29710105	SRR29710105	pe	-	NP_NS	NP_NS_low_GC1_B2 (SSC_350)
+plant_syncoms	plant_SRR29710106	SRR29710106	pe	-	NP_NS	NP_NS_low_GC1_B1 (SSC_349)
+plant_syncoms	plant_SRR29710107	SRR29710107	pe	-	NP_NS	NP_NS_AM_low_B4 (SSC_348)
+plant_syncoms	plant_SRR29710108	SRR29710108	pe	-	NP_NS	NP_NS_AM_low_B3 (SSC_347)
+plant_syncoms	plant_SRR29710109	SRR29710109	pe	-	NP_NS	NP_NS_AM_low_B2 (SSC_346)
+plant_syncoms	plant_SRR29710110	SRR29710110	pe	-	NP_NS	NP_NS_AM_low_B1 (SSC_345)
+plant_syncoms	plant_SRR29710111	SRR29710111	pe	-	NP_LjSC	NP_LjSC_low_B4 (SSC_344)
+plant_syncoms	plant_SRR29710112	SRR29710112	pe	-	NP_LjSC	NP_LjSC_low_B3 (SSC_343)
+plant_syncoms	plant_SRR29710113	SRR29710113	pe	-	NP_LjSC	NP_LjSC_low_B2 (SSC_342)
+plant_syncoms	plant_SRR29710114	SRR29710114	pe	-	NP_LjSC	NP_LjSC_low_B1 (SSC_341)
+plant_syncoms	plant_SRR29710115	SRR29710115	pe	-	At_HvSC	At_HvSC_ES_low_B3 (SSC_35)
+plant_syncoms	plant_SRR29710116	SRR29710116	pe	-	NP_LjSC	NP_LjSC_high_B4 (SSC_340)
+plant_syncoms	plant_SRR29710117	SRR29710117	pe	-	NP_LjSC	NP_LjSC_high_B3 (SSC_339)
+plant_syncoms	plant_SRR29710118	SRR29710118	pe	-	NP_LjSC	NP_LjSC_high_B2 (SSC_338)
+plant_syncoms	plant_SRR29710119	SRR29710119	pe	-	At_SSC	At_SSC_ES_high_B4 (SSC_100)
+plant_syncoms	plant_SRR29710120	SRR29710120	pe	-	At_SSC	At_SSC_ES_high_B3 (SSC_99)
+plant_syncoms	plant_SRR29710121	SRR29710121	pe	-	At_SSC	At_SSC_ES_high_B2 (SSC_98)
+plant_syncoms	plant_SRR29710122	SRR29710122	pe	-	At_SSC	At_SSC_ES_high_B1 (SSC_97)
+plant_syncoms	plant_SRR29710123	SRR29710123	pe	-	At_NS	At_NS_RZ_low_B4 (SSC_96)
+plant_syncoms	plant_SRR29710124	SRR29710124	pe	-	At_NS	At_NS_RZ_low_B3 (SSC_95)
+plant_syncoms	plant_SRR29710125	SRR29710125	pe	-	At_NS	At_NS_RZ_low_B2 (SSC_94)
+plant_syncoms	plant_SRR29710126	SRR29710126	pe	-	At_NS	At_NS_RZ_low_B1 (SSC_93)
+plant_syncoms	plant_SRR29710127	SRR29710127	pe	-	At_NS	At_NS_RZ_HL_orig_B4 (SSC_92)
+plant_syncoms	plant_SRR29710128	SRR29710128	pe	-	At_NS	At_NS_RZ_HL_orig_B3 (SSC_91)
+plant_syncoms	plant_SRR29710129	SRR29710129	pe	-	At_AtSC	At_AtSC_ES_low_B2 (SSC_10)
+plant_syncoms	plant_SRR29710130	SRR29710130	pe	-	At_NS	At_NS_RZ_HL_orig_B2 (SSC_90)
+plant_syncoms	plant_SRR29710131	SRR29710131	pe	-	At_NS	At_NS_RZ_HL_orig_B1 (SSC_89)
+plant_syncoms	plant_SRR29710132	SRR29710132	pe	-	At_NS	At_NS_RZ_high_B4 (SSC_88)
+plant_syncoms	plant_SRR29710133	SRR29710133	pe	-	At_NS	At_NS_RZ_high_B3 (SSC_87)
+plant_syncoms	plant_SRR29710134	SRR29710134	pe	-	At_NS	At_NS_RZ_high_B2 (SSC_86)
+plant_syncoms	plant_SRR29710135	SRR29710135	pe	-	At_NS	At_NS_RZ_high_B1 (SSC_85)
+plant_syncoms	plant_SRR29710136	SRR29710136	pe	-	At_NS	At_NS_ES_low_B4 (SSC_84)
+plant_syncoms	plant_SRR29710137	SRR29710137	pe	-	At_NS	At_NS_ES_low_B3 (SSC_83)
+plant_syncoms	plant_SRR29710138	SRR29710138	pe	-	At_NS	At_NS_ES_low_B2 (SSC_82)
+plant_syncoms	plant_SRR29710139	SRR29710139	pe	-	R1_Hv	R1_Hv_GC3_SSC_ES_B2 (SSC_409)
+plant_syncoms	plant_SRR29710140	SRR29710140	pe	-	At_NS	At_NS_ES_low_B1 (SSC_81)
+plant_syncoms	plant_SRR29710141	SRR29710141	pe	-	R1_Hv	R1_Hv_GC3_SSC_ES_B1 (SSC_408)
+plant_syncoms	plant_SRR29710142	SRR29710142	pe	-	R1_Hv	R1_Hv_GC3_LjSC_ES_B4 (SSC_407)
+plant_syncoms	plant_SRR29710143	SRR29710143	pe	-	R1_Hv	R1_Hv_GC3_LjSC_ES_B3 (SSC_406)
+plant_syncoms	plant_SRR29710144	SRR29710144	pe	-	R1_Hv	R1_Hv_GC3_LjSC_ES_B2 (SSC_405)
+plant_syncoms	plant_SRR29710145	SRR29710145	pe	-	R1_Hv	R1_Hv_GC3_LjSC_ES_B1 (SSC_404)
+plant_syncoms	plant_SRR29710146	SRR29710146	pe	-	R1_Hv	R1_Hv_GC3_HvSC_ES_B4 (SSC_403)
+plant_syncoms	plant_SRR29710147	SRR29710147	pe	-	R1_Hv	R1_Hv_GC3_HvSC_ES_B3 (SSC_402)
+plant_syncoms	plant_SRR29710148	SRR29710148	pe	-	R1_Hv	R1_Hv_GC3_HvSC_ES_B2 (SSC_401)
+plant_syncoms	plant_SRR29710149	SRR29710149	pe	-	At_HvSC	At_HvSC_RZ_HL_orig_B1 (SSC_41)
+plant_syncoms	plant_SRR29710150	SRR29710150	pe	-	At_AtSC	At_AtSC_ES_HL_orig_B1 (SSC_5)
+plant_syncoms	plant_SRR29710151	SRR29710151	pe	-	R1_Hv	R1_Hv_GC3_HvSC_ES_B1 (SSC_400)
+plant_syncoms	plant_SRR29710152	SRR29710152	pe	-	R1_Hv	R1_Hv_GC3_AtSC_ES_B4 (SSC_399)
+plant_syncoms	plant_SRR29710153	SRR29710153	pe	-	R1_Hv	R1_Hv_GC3_AtSC_ES_B3 (SSC_398)
+plant_syncoms	plant_SRR29710154	SRR29710154	pe	-	R1_Hv	R1_Hv_GC3_AtSC_ES_B2 (SSC_397)
+plant_syncoms	plant_SRR29710155	SRR29710155	pe	-	R1_Hv	R1_Hv_GC3_AtSC_ES_B1 (SSC_396)
+plant_syncoms	plant_SRR29710156	SRR29710156	pe	-	R1_Hv	R1_Hv_GC2_SSC_ES_B4 (SSC_395)
+plant_syncoms	plant_SRR29710157	SRR29710157	pe	-	R1_Hv	R1_Hv_GC2_SSC_ES_B3 (SSC_394)
+plant_syncoms	plant_SRR29710158	SRR29710158	pe	-	R1_Hv	R1_Hv_GC2_SSC_ES_B2 (SSC_393)
+plant_syncoms	plant_SRR29710159	SRR29710159	pe	-	R1_Hv	R1_Hv_GC2_SSC_ES_B1 (SSC_392)
+plant_syncoms	plant_SRR29710160	SRR29710160	pe	-	R1_Hv	R1_Hv_GC1_SSC_RZ_B1 (SSC_391)
+plant_syncoms	plant_SRR29710161	SRR29710161	pe	-	At_HvSC	At_HvSC_RZ_high_B4 (SSC_40)
+plant_syncoms	plant_SRR29710162	SRR29710162	pe	-	R1_Hv	R1_Hv_GC1_SSC_ES_B4 (SSC_390)
+plant_syncoms	plant_SRR29710163	SRR29710163	pe	-	R1_Hv	R1_Hv_GC1_SSC_ES_B3 (SSC_389)
+plant_syncoms	plant_SRR29710164	SRR29710164	pe	-	R1_Hv	R1_Hv_GC1_SSC_ES_B2 (SSC_388)
+plant_syncoms	plant_SRR29710165	SRR29710165	pe	-	R1_Hv	R1_Hv_GC1_SSC_ES_B1 (SSC_387)
+plant_syncoms	plant_SRR29710166	SRR29710166	pe	-	R1_At	R1_At_GC2_SSC_ES_B4 (SSC_386)
+plant_syncoms	plant_SRR29710167	SRR29710167	pe	-	Lj_SSC	Lj_SSC_NOD_low_B4 (SSC_312)
+plant_syncoms	plant_SRR29710168	SRR29710168	pe	-	Lj_SSC	Lj_SSC_NOD_low_B3 (SSC_311)
+plant_syncoms	plant_SRR29710169	SRR29710169	pe	-	At_HvSC	At_HvSC_ES_HL_orig_B4 (SSC_32)
+plant_syncoms	plant_SRR29710170	SRR29710170	pe	-	Lj_SSC	Lj_SSC_NOD_low_B2 (SSC_310)
+plant_syncoms	plant_SRR29710171	SRR29710171	pe	-	Lj_SSC	Lj_SSC_NOD_low_B1 (SSC_309)
+plant_syncoms	plant_SRR29710172	SRR29710172	pe	-	Lj_SSC	Lj_SSC_NOD_high_B4 (SSC_308)
+plant_syncoms	plant_SRR29710173	SRR29710173	pe	-	Lj_SSC	Lj_SSC_NOD_high_B3 (SSC_307)
+plant_syncoms	plant_SRR29710174	SRR29710174	pe	-	Lj_SSC	Lj_SSC_NOD_high_B2 (SSC_306)
+plant_syncoms	plant_SRR29710175	SRR29710175	pe	-	Lj_SSC	Lj_SSC_NOD_high_B1 (SSC_305)
+plant_syncoms	plant_SRR29710176	SRR29710176	pe	-	Lj_SSC	Lj_SSC_ES_low_B4 (SSC_304)
+plant_syncoms	plant_SRR29710177	SRR29710177	pe	-	Lj_SSC	Lj_SSC_ES_low_B3 (SSC_303)
+plant_syncoms	plant_SRR29710178	SRR29710178	pe	-	Lj_SSC	Lj_SSC_ES_low_B2 (SSC_302)
+plant_syncoms	plant_SRR29710179	SRR29710179	pe	-	Lj_SSC	Lj_SSC_ES_low_B1 (SSC_301)
+plant_syncoms	plant_SRR29710180	SRR29710180	pe	-	At_HvSC	At_HvSC_ES_HL_orig_B3 (SSC_31)
+plant_syncoms	plant_SRR29710181	SRR29710181	pe	-	At_AtSC	At_AtSC_ES_high_B4 (SSC_4)
+plant_syncoms	plant_SRR29710182	SRR29710182	pe	-	Lj_SSC	Lj_SSC_ES_high_B4 (SSC_300)
+plant_syncoms	plant_SRR29710183	SRR29710183	pe	-	Lj_SSC	Lj_SSC_ES_high_B3 (SSC_299)
+plant_syncoms	plant_SRR29710184	SRR29710184	pe	-	Lj_SSC	Lj_SSC_ES_high_B2 (SSC_298)
+plant_syncoms	plant_SRR29710185	SRR29710185	pe	-	Lj_SSC	Lj_SSC_ES_high_B1 (SSC_297)
+plant_syncoms	plant_SRR29710186	SRR29710186	pe	-	Lj_NS	Lj_NS_RZ_low_B4 (SSC_296)
+plant_syncoms	plant_SRR29710187	SRR29710187	pe	-	Lj_NS	Lj_NS_RZ_low_B3 (SSC_295)
+plant_syncoms	plant_SRR29710188	SRR29710188	pe	-	Lj_NS	Lj_NS_RZ_low_B2 (SSC_294)
+plant_syncoms	plant_SRR29710189	SRR29710189	pe	-	Lj_NS	Lj_NS_RZ_low_B1 (SSC_293)
+plant_syncoms	plant_SRR29710190	SRR29710190	pe	-	Lj_NS	Lj_NS_RZ_high_B4 (SSC_292)
+plant_syncoms	plant_SRR29710191	SRR29710191	pe	-	Lj_NS	Lj_NS_RZ_high_B3 (SSC_291)
+plant_syncoms	plant_SRR29710192	SRR29710192	pe	-	At_HvSC	At_HvSC_ES_HL_orig_B2 (SSC_30)
+plant_syncoms	plant_SRR29710193	SRR29710193	pe	-	Lj_NS	Lj_NS_RZ_high_B2 (SSC_290)
+plant_syncoms	plant_SRR29710194	SRR29710194	pe	-	Lj_HvSC	Lj_HvSC_ES_low_B4 (SSC_240)
+plant_syncoms	plant_SRR29710195	SRR29710195	pe	-	Lj_NS	Lj_NS_RZ_high_B1 (SSC_289)
+plant_syncoms	plant_SRR29710196	SRR29710196	pe	-	Lj_HvSC	Lj_HvSC_ES_low_B3 (SSC_239)
+plant_syncoms	plant_SRR29710197	SRR29710197	pe	-	Lj_HvSC	Lj_HvSC_ES_low_B2 (SSC_238)
+plant_syncoms	plant_SRR29710198	SRR29710198	pe	-	Lj_HvSC	Lj_HvSC_ES_low_B1 (SSC_237)
+plant_syncoms	plant_SRR29710199	SRR29710199	pe	-	Lj_HvSC	Lj_HvSC_ES_high_B4 (SSC_236)
+plant_syncoms	plant_SRR29710200	SRR29710200	pe	-	Lj_HvSC	Lj_HvSC_ES_high_B3 (SSC_235)
+plant_syncoms	plant_SRR29710201	SRR29710201	pe	-	Lj_HvSC	Lj_HvSC_ES_high_B2 (SSC_234)
+plant_syncoms	plant_SRR29710202	SRR29710202	pe	-	Lj_HvSC	Lj_HvSC_ES_high_B1 (SSC_233)
+plant_syncoms	plant_SRR29710203	SRR29710203	pe	-	Lj_AtSC	Lj_AtSC_RZ_low_B4 (SSC_232)
+plant_syncoms	plant_SRR29710204	SRR29710204	pe	-	Lj_AtSC	Lj_AtSC_RZ_low_B3 (SSC_231)
+plant_syncoms	plant_SRR29710205	SRR29710205	pe	-	At_AtSC	At_AtSC_RZ_low_B4 (SSC_24)
+plant_syncoms	plant_SRR29710206	SRR29710206	pe	-	Lj_AtSC	Lj_AtSC_RZ_low_B2 (SSC_230)
+plant_syncoms	plant_SRR29710207	SRR29710207	pe	-	Lj_AtSC	Lj_AtSC_RZ_low_B1 (SSC_229)
+plant_syncoms	plant_SRR29710208	SRR29710208	pe	-	Lj_AtSC	Lj_AtSC_RZ_high_B4 (SSC_228)
+plant_syncoms	plant_SRR29710209	SRR29710209	pe	-	Lj_AtSC	Lj_AtSC_RZ_high_B3 (SSC_227)
+plant_syncoms	plant_SRR29710210	SRR29710210	pe	-	Lj_AtSC	Lj_AtSC_RZ_high_B2 (SSC_226)
+plant_syncoms	plant_SRR29710211	SRR29710211	pe	-	Lj_AtSC	Lj_AtSC_RZ_high_B1 (SSC_225)
+plant_syncoms	plant_SRR29710212	SRR29710212	pe	-	Lj_AtSC	Lj_AtSC_ES_low_B4 (SSC_224)
+plant_syncoms	plant_SRR29710213	SRR29710213	pe	-	Lj_AtSC	Lj_AtSC_ES_low_B3 (SSC_223)
+plant_syncoms	plant_SRR29710214	SRR29710214	pe	-	Lj_AtSC	Lj_AtSC_ES_low_B2 (SSC_222)
+plant_syncoms	plant_SRR29710215	SRR29710215	pe	-	Lj_AtSC	Lj_AtSC_ES_low_B1 (SSC_221)
+plant_syncoms	plant_SRR29710216	SRR29710216	pe	-	At_AtSC	At_AtSC_RZ_low_B3 (SSC_23)
+plant_syncoms	plant_SRR29710217	SRR29710217	pe	-	Lj_AtSC	Lj_AtSC_ES_high_B4 (SSC_220)
+plant_syncoms	plant_SRR29710218	SRR29710218	pe	-	Lj_AtSC	Lj_AtSC_ES_high_B3 (SSC_219)
+plant_syncoms	plant_SRR29710219	SRR29710219	pe	-	Lj_AtSC	Lj_AtSC_ES_high_B2 (SSC_218)
+plant_syncoms	plant_SRR29710220	SRR29710220	pe	-	Lj_AtSC	Lj_AtSC_ES_high_B1 (SSC_217)
+plant_syncoms	plant_SRR29710221	SRR29710221	pe	-	input_SSC	Input_SSC_B4 (SSC_216)
+plant_syncoms	plant_SRR29710222	SRR29710222	pe	-	Hv_HvSC	Hv_HvSC_ES_low_B2 (SSC_142)
+plant_syncoms	plant_SRR29710223	SRR29710223	pe	-	Hv_HvSC	Hv_HvSC_ES_low_B1 (SSC_141)
+plant_syncoms	plant_SRR29710224	SRR29710224	pe	-	At_AtSC	At_AtSC_RZ_high_B3 (SSC_15)
+plant_syncoms	plant_SRR29710225	SRR29710225	pe	-	Hv_HvSC	Hv_HvSC_ES_high_B4 (SSC_140)
+plant_syncoms	plant_SRR29710226	SRR29710226	pe	-	Hv_HvSC	Hv_HvSC_ES_high_B3 (SSC_139)
+plant_syncoms	plant_SRR29710227	SRR29710227	pe	-	Hv_HvSC	Hv_HvSC_ES_high_B2 (SSC_138)
+plant_syncoms	plant_SRR29710228	SRR29710228	pe	-	Hv_HvSC	Hv_HvSC_ES_high_B1 (SSC_137)
+plant_syncoms	plant_SRR29710229	SRR29710229	pe	-	Hv_AtSC	Hv_AtSC_RZ_low_B4 (SSC_136)
+plant_syncoms	plant_SRR29710230	SRR29710230	pe	-	Hv_AtSC	Hv_AtSC_RZ_low_B3 (SSC_135)
+plant_syncoms	plant_SRR29710231	SRR29710231	pe	-	Hv_AtSC	Hv_AtSC_RZ_low_B2 (SSC_134)
+plant_syncoms	plant_SRR29710232	SRR29710232	pe	-	Hv_AtSC	Hv_AtSC_RZ_low_B1 (SSC_133)
+plant_syncoms	plant_SRR29710233	SRR29710233	pe	-	Hv_AtSC	Hv_AtSC_RZ_high_B4 (SSC_132)
+plant_syncoms	plant_SRR29710234	SRR29710234	pe	-	Hv_AtSC	Hv_AtSC_RZ_high_B3 (SSC_131)
+plant_syncoms	plant_SRR29710235	SRR29710235	pe	-	At_AtSC	At_AtSC_RZ_high_B2 (SSC_14)
+plant_syncoms	plant_SRR29710236	SRR29710236	pe	-	Hv_AtSC	Hv_AtSC_RZ_high_B2 (SSC_130)
+plant_syncoms	plant_SRR29710237	SRR29710237	pe	-	Hv_AtSC	Hv_AtSC_RZ_high_B1 (SSC_129)
+plant_syncoms	plant_SRR29710238	SRR29710238	pe	-	Hv_AtSC	Hv_AtSC_ES_low_B4 (SSC_128)
+plant_syncoms	plant_SRR29710239	SRR29710239	pe	-	Hv_AtSC	Hv_AtSC_ES_low_B3 (SSC_127)
+plant_syncoms	plant_SRR29710240	SRR29710240	pe	-	Hv_AtSC	Hv_AtSC_ES_low_B2 (SSC_126)
+plant_syncoms	plant_SRR29710241	SRR29710241	pe	-	Hv_AtSC	Hv_AtSC_ES_low_B1 (SSC_125)
+plant_syncoms	plant_SRR29710242	SRR29710242	pe	-	Hv_AtSC	Hv_AtSC_ES_high_B4 (SSC_124)
+plant_syncoms	plant_SRR29710243	SRR29710243	pe	-	Hv_AtSC	Hv_AtSC_ES_high_B3 (SSC_123)
+plant_syncoms	plant_SRR29710244	SRR29710244	pe	-	Hv_AtSC	Hv_AtSC_ES_high_B2 (SSC_122)
+plant_syncoms	plant_SRR29710245	SRR29710245	pe	-	Hv_AtSC	Hv_AtSC_ES_high_B1 (SSC_121)
+plant_syncoms	plant_SRR29710246	SRR29710246	pe	-	At_AtSC	At_AtSC_RZ_high_B1 (SSC_13)
+plant_syncoms	plant_SRR29710247	SRR29710247	pe	-	R1_Lj	R1_Lj_GC1_SSC_ES_B4 (SSC_432)
+plant_syncoms	plant_SRR29710248	SRR29710248	pe	-	R1_Lj	R1_Lj_GC1_SSC_ES_B3 (SSC_431)
+plant_syncoms	plant_SRR29710249	SRR29710249	pe	-	At_HvSC	At_HvSC_RZ_HL_orig_B4 (SSC_44)
+plant_syncoms	plant_SRR29710250	SRR29710250	pe	-	R1_Lj	R1_Lj_GC1_SSC_ES_B2 (SSC_430)
+plant_syncoms	plant_SRR29710251	SRR29710251	pe	-	R1_Lj	R1_Lj_GC1_SSC_ES_B1 (SSC_429)
+plant_syncoms	plant_SRR29710252	SRR29710252	pe	-	R1_Lj	R1_Lj_GC1_LjSC_ES_B4 (SSC_428)
+plant_syncoms	plant_SRR29710253	SRR29710253	pe	-	R1_Lj	R1_Lj_GC1_LjSC_ES_B3 (SSC_427)
+plant_syncoms	plant_SRR29710254	SRR29710254	pe	-	R1_Lj	R1_Lj_GC1_LjSC_ES_B2 (SSC_426)
+plant_syncoms	plant_SRR29710255	SRR29710255	pe	-	R1_Lj	R1_Lj_GC1_LjSC_ES_B1 (SSC_425)
+plant_syncoms	plant_SRR29710256	SRR29710256	pe	-	R1_Lj	R1_Lj_GC1_HvSC_ES_B4 (SSC_424)
+plant_syncoms	plant_SRR29710257	SRR29710257	pe	-	R1_Lj	R1_Lj_GC1_HvSC_ES_B3 (SSC_423)
+plant_syncoms	plant_SRR29710258	SRR29710258	pe	-	R1_Lj	R1_Lj_GC1_HvSC_ES_B2 (SSC_422)
+plant_syncoms	plant_SRR29710259	SRR29710259	pe	-	R1_Lj	R1_Lj_GC1_HvSC_ES_B1 (SSC_421)
+plant_syncoms	plant_SRR29710260	SRR29710260	pe	-	At_HvSC	At_HvSC_RZ_HL_orig_B3 (SSC_43)
+plant_syncoms	plant_SRR29710261	SRR29710261	pe	-	R1_Lj	R1_Lj_GC1_AtSC_ES_B4 (SSC_420)
+plant_syncoms	plant_SRR29710262	SRR29710262	pe	-	R1_Lj	R1_Lj_GC1_AtSC_ES_B3 (SSC_419)
+plant_syncoms	plant_SRR29710263	SRR29710263	pe	-	R1_Lj	R1_Lj_GC1_AtSC_ES_B2 (SSC_418)
+plant_syncoms	plant_SRR29710264	SRR29710264	pe	-	R1_Lj	R1_Lj_GC1_AtSC_ES_B1 (SSC_417)
+plant_syncoms	plant_SRR29710265	SRR29710265	pe	-	R1_Input	R1_Input_LjSC_2 (SSC_416)
+plant_syncoms	plant_SRR29710266	SRR29710266	pe	-	R1_Input	R1_Input_LjSC (SSC_415)
+plant_syncoms	plant_SRR29710267	SRR29710267	pe	-	R1_Input	R1_Input_HvSC (SSC_414)
+plant_syncoms	plant_SRR29710268	SRR29710268	pe	-	R1_Input	R1_Input_AtSC (SSC_413)
+plant_syncoms	plant_SRR29710269	SRR29710269	pe	-	R1_Hv	R1_Hv_GC3_SSC_RZ_B1 (SSC_412)
+plant_syncoms	plant_SRR29710270	SRR29710270	pe	-	R1_Hv	R1_Hv_GC3_SSC_ES_B4 (SSC_411)
+plant_syncoms	plant_SRR29710271	SRR29710271	pe	-	At_HvSC	At_HvSC_RZ_HL_orig_B2 (SSC_42)
+plant_syncoms	plant_SRR29710272	SRR29710272	pe	-	R1_Hv	R1_Hv_GC3_SSC_ES_B3 (SSC_410)
+plant_syncoms	plant_SRR29710273	SRR29710273	pe	-	NP_LjSC	NP_LjSC_high_B1 (SSC_337)
+plant_syncoms	plant_SRR29710274	SRR29710274	pe	-	NP_HvSC	NP_HvSC_low_B4 (SSC_336)
+plant_syncoms	plant_SRR29710275	SRR29710275	pe	-	NP_HvSC	NP_HvSC_low_B3 (SSC_335)
+plant_syncoms	plant_SRR29710276	SRR29710276	pe	-	NP_HvSC	NP_HvSC_low_B2 (SSC_334)
+plant_syncoms	plant_SRR29710277	SRR29710277	pe	-	NP_HvSC	NP_HvSC_low_B1 (SSC_333)
+plant_syncoms	plant_SRR29710278	SRR29710278	pe	-	NP_HvSC	NP_HvSC_high_B4 (SSC_332)
+plant_syncoms	plant_SRR29710279	SRR29710279	pe	-	NP_HvSC	NP_HvSC_high_B3 (SSC_331)
+plant_syncoms	plant_SRR29710280	SRR29710280	pe	-	At_HvSC	At_HvSC_ES_low_B2 (SSC_34)
+plant_syncoms	plant_SRR29710281	SRR29710281	pe	-	NP_HvSC	NP_HvSC_high_B2 (SSC_330)
+plant_syncoms	plant_SRR29710282	SRR29710282	pe	-	NP_HvSC	NP_HvSC_high_B1 (SSC_329)
+plant_syncoms	plant_SRR29710283	SRR29710283	pe	-	NP_AtSC	NP_AtSC_low_B4 (SSC_328)
+plant_syncoms	plant_SRR29710284	SRR29710284	pe	-	NP_AtSC	NP_AtSC_low_B3 (SSC_327)
+plant_syncoms	plant_SRR29710285	SRR29710285	pe	-	NP_AtSC	NP_AtSC_low_B2 (SSC_326)
+plant_syncoms	plant_SRR29710286	SRR29710286	pe	-	NP_AtSC	NP_AtSC_low_B1 (SSC_325)
+plant_syncoms	plant_SRR29710287	SRR29710287	pe	-	NP_AtSC	NP_AtSC_high_B4 (SSC_324)
+plant_syncoms	plant_SRR29710288	SRR29710288	pe	-	NP_AtSC	NP_AtSC_high_B3 (SSC_323)
+plant_syncoms	plant_SRR29710289	SRR29710289	pe	-	NP_AtSC	NP_AtSC_high_B2 (SSC_322)
+plant_syncoms	plant_SRR29710290	SRR29710290	pe	-	NP_AtSC	NP_AtSC_high_B1 (SSC_321)
+plant_syncoms	plant_SRR29710291	SRR29710291	pe	-	At_HvSC	At_HvSC_ES_low_B1 (SSC_33)
+plant_syncoms	plant_SRR29710292	SRR29710292	pe	-	Lj_SSC	Lj_SSC_RZ_low_B4 (SSC_320)
+plant_syncoms	plant_SRR29710293	SRR29710293	pe	-	Lj_SSC	Lj_SSC_RZ_low_B3 (SSC_319)
+plant_syncoms	plant_SRR29710294	SRR29710294	pe	-	Lj_SSC	Lj_SSC_RZ_low_B2 (SSC_318)
+plant_syncoms	plant_SRR29710295	SRR29710295	pe	-	Lj_SSC	Lj_SSC_RZ_low_B1 (SSC_317)
+plant_syncoms	plant_SRR29710296	SRR29710296	pe	-	Lj_SSC	Lj_SSC_RZ_high_B4 (SSC_316)
+plant_syncoms	plant_SRR29710297	SRR29710297	pe	-	Lj_SSC	Lj_SSC_RZ_high_B3 (SSC_315)
+plant_syncoms	plant_SRR29710298	SRR29710298	pe	-	Lj_SSC	Lj_SSC_RZ_high_B2 (SSC_314)
+plant_syncoms	plant_SRR29710299	SRR29710299	pe	-	Lj_SSC	Lj_SSC_RZ_high_B1 (SSC_313)
+plant_syncoms	plant_SRR29710300	SRR29710300	pe	-	Lj_LjSC	Lj_LjSC_ES_low_B3 (SSC_263)
+plant_syncoms	plant_SRR29710301	SRR29710301	pe	-	Lj_LjSC	Lj_LjSC_ES_low_B2 (SSC_262)
+plant_syncoms	plant_SRR29710302	SRR29710302	pe	-	Lj_LjSC	Lj_LjSC_ES_low_B1 (SSC_261)
+plant_syncoms	plant_SRR29710303	SRR29710303	pe	-	At_HvSC	At_HvSC_ES_high_B3 (SSC_27)
+plant_syncoms	plant_SRR29710304	SRR29710304	pe	-	Lj_LjSC	Lj_LjSC_ES_high_B4 (SSC_260)
+plant_syncoms	plant_SRR29710305	SRR29710305	pe	-	Lj_LjSC	Lj_LjSC_ES_high_B3 (SSC_259)
+plant_syncoms	plant_SRR29710306	SRR29710306	pe	-	Lj_LjSC	Lj_LjSC_ES_high_B2 (SSC_258)
+plant_syncoms	plant_SRR29710307	SRR29710307	pe	-	Lj_LjSC	Lj_LjSC_ES_high_B1 (SSC_257)
+plant_syncoms	plant_SRR29710308	SRR29710308	pe	-	Lj_HvSC	Lj_HvSC_RZ_low_B4 (SSC_256)
+plant_syncoms	plant_SRR29710309	SRR29710309	pe	-	Lj_HvSC	Lj_HvSC_RZ_low_B3 (SSC_255)
+plant_syncoms	plant_SRR29710310	SRR29710310	pe	-	Lj_HvSC	Lj_HvSC_RZ_low_B2 (SSC_254)
+plant_syncoms	plant_SRR29710311	SRR29710311	pe	-	Lj_HvSC	Lj_HvSC_RZ_low_B1 (SSC_253)
+plant_syncoms	plant_SRR29710312	SRR29710312	pe	-	Lj_HvSC	Lj_HvSC_RZ_high_B4 (SSC_252)
+plant_syncoms	plant_SRR29710313	SRR29710313	pe	-	Lj_HvSC	Lj_HvSC_RZ_high_B3 (SSC_251)
+plant_syncoms	plant_SRR29710314	SRR29710314	pe	-	At_HvSC	At_HvSC_ES_high_B2 (SSC_26)
+plant_syncoms	plant_SRR29710315	SRR29710315	pe	-	Lj_HvSC	Lj_HvSC_RZ_high_B2 (SSC_250)
+plant_syncoms	plant_SRR29710316	SRR29710316	pe	-	Lj_HvSC	Lj_HvSC_RZ_high_B1 (SSC_249)
+plant_syncoms	plant_SRR29710317	SRR29710317	pe	-	Lj_HvSC	Lj_HvSC_NOD_low_B4 (SSC_248)
+plant_syncoms	plant_SRR29710318	SRR29710318	pe	-	Lj_HvSC	Lj_HvSC_NOD_low_B3 (SSC_247)
+plant_syncoms	plant_SRR29710319	SRR29710319	pe	-	Lj_HvSC	Lj_HvSC_NOD_low_B2 (SSC_246)
+plant_syncoms	plant_SRR29710320	SRR29710320	pe	-	Lj_HvSC	Lj_HvSC_NOD_low_B1 (SSC_245)
+plant_syncoms	plant_SRR29710321	SRR29710321	pe	-	Lj_HvSC	Lj_HvSC_NOD_high_B4 (SSC_244)
+plant_syncoms	plant_SRR29710322	SRR29710322	pe	-	Lj_HvSC	Lj_HvSC_NOD_high_B3 (SSC_243)
+plant_syncoms	plant_SRR29710323	SRR29710323	pe	-	Lj_HvSC	Lj_HvSC_NOD_high_B2 (SSC_242)
+plant_syncoms	plant_SRR29710324	SRR29710324	pe	-	Lj_HvSC	Lj_HvSC_NOD_high_B1 (SSC_241)
+plant_syncoms	plant_SRR29710325	SRR29710325	pe	-	At_HvSC	At_HvSC_ES_high_B1 (SSC_25)
+plant_syncoms	plant_SRR29710326	SRR29710326	pe	-	Hv_LjSC	Hv_LjSC_RZ_low_B2 (SSC_166)
+plant_syncoms	plant_SRR29710327	SRR29710327	pe	-	Hv_LjSC	Hv_LjSC_RZ_low_B1 (SSC_165)
+plant_syncoms	plant_SRR29710328	SRR29710328	pe	-	Hv_LjSC	Hv_LjSC_RZ_high_B4 (SSC_164)
+plant_syncoms	plant_SRR29710329	SRR29710329	pe	-	Hv_LjSC	Hv_LjSC_RZ_high_B3 (SSC_163)
+plant_syncoms	plant_SRR29710330	SRR29710330	pe	-	Hv_LjSC	Hv_LjSC_RZ_high_B2 (SSC_162)
+plant_syncoms	plant_SRR29710331	SRR29710331	pe	-	Hv_LjSC	Hv_LjSC_RZ_high_B1 (SSC_161)
+plant_syncoms	plant_SRR29710332	SRR29710332	pe	-	At_AtSC	At_AtSC_RZ_HL_orig_B1 (SSC_17)
+plant_syncoms	plant_SRR29710333	SRR29710333	pe	-	Hv_LjSC	Hv_LjSC_ES_low_B4 (SSC_160)
+plant_syncoms	plant_SRR29710334	SRR29710334	pe	-	Hv_LjSC	Hv_LjSC_ES_low_B3 (SSC_159)
+plant_syncoms	plant_SRR29710335	SRR29710335	pe	-	Hv_LjSC	Hv_LjSC_ES_low_B2 (SSC_158)
+plant_syncoms	plant_SRR29710336	SRR29710336	pe	-	Hv_LjSC	Hv_LjSC_ES_low_B1 (SSC_157)
+plant_syncoms	plant_SRR29710337	SRR29710337	pe	-	Hv_LjSC	Hv_LjSC_ES_high_B4 (SSC_156)
+plant_syncoms	plant_SRR29710338	SRR29710338	pe	-	Hv_LjSC	Hv_LjSC_ES_high_B3 (SSC_155)
+plant_syncoms	plant_SRR29710339	SRR29710339	pe	-	Hv_LjSC	Hv_LjSC_ES_high_B2 (SSC_154)
+plant_syncoms	plant_SRR29710340	SRR29710340	pe	-	Hv_LjSC	Hv_LjSC_ES_high_B1 (SSC_153)
+plant_syncoms	plant_SRR29710341	SRR29710341	pe	-	Hv_HvSC	Hv_HvSC_RZ_low_B4 (SSC_152)
+plant_syncoms	plant_SRR29710342	SRR29710342	pe	-	Hv_HvSC	Hv_HvSC_RZ_low_B3 (SSC_151)
+plant_syncoms	plant_SRR29710343	SRR29710343	pe	-	At_AtSC	At_AtSC_RZ_high_B4 (SSC_16)
+plant_syncoms	plant_SRR29710344	SRR29710344	pe	-	Hv_HvSC	Hv_HvSC_RZ_low_B2 (SSC_150)
+plant_syncoms	plant_SRR29710345	SRR29710345	pe	-	Hv_HvSC	Hv_HvSC_RZ_low_B1 (SSC_149)
+plant_syncoms	plant_SRR29710346	SRR29710346	pe	-	Hv_HvSC	Hv_HvSC_RZ_high_B4 (SSC_148)
+plant_syncoms	plant_SRR29710347	SRR29710347	pe	-	Hv_HvSC	Hv_HvSC_RZ_high_B3 (SSC_147)
+plant_syncoms	plant_SRR29710348	SRR29710348	pe	-	Hv_HvSC	Hv_HvSC_RZ_high_B2 (SSC_146)
+plant_syncoms	plant_SRR29710349	SRR29710349	pe	-	Hv_HvSC	Hv_HvSC_RZ_high_B1 (SSC_145)
+plant_syncoms	plant_SRR29710350	SRR29710350	pe	-	Hv_HvSC	Hv_HvSC_ES_low_B4 (SSC_144)
+plant_syncoms	plant_SRR29710351	SRR29710351	pe	-	At_SSC	At_SSC_RZ_low_B4 (SSC_120)
+plant_syncoms	plant_SRR29710352	SRR29710352	pe	-	Hv_HvSC	Hv_HvSC_ES_low_B3 (SSC_143)
+plant_syncoms	plant_SRR29710353	SRR29710353	pe	-	At_SSC	At_SSC_RZ_low_B3 (SSC_119)
+plant_syncoms	plant_SRR29710354	SRR29710354	pe	-	At_SSC	At_SSC_RZ_low_B2 (SSC_118)
+plant_syncoms	plant_SRR29710355	SRR29710355	pe	-	At_SSC	At_SSC_RZ_low_B1 (SSC_117)
+plant_syncoms	plant_SRR29710356	SRR29710356	pe	-	At_SSC	At_SSC_RZ_HL_orig_B4 (SSC_116)
+plant_syncoms	plant_SRR29710357	SRR29710357	pe	-	At_SSC	At_SSC_RZ_HL_orig_B3 (SSC_115)
+plant_syncoms	plant_SRR29710358	SRR29710358	pe	-	At_SSC	At_SSC_RZ_HL_orig_B2 (SSC_114)
+plant_syncoms	plant_SRR29710359	SRR29710359	pe	-	At_SSC	At_SSC_RZ_HL_orig_B1 (SSC_113)
+plant_syncoms	plant_SRR29710360	SRR29710360	pe	-	At_SSC	At_SSC_RZ_high_B4 (SSC_112)
+plant_syncoms	plant_SRR29710361	SRR29710361	pe	-	At_SSC	At_SSC_RZ_high_B3 (SSC_111)
+plant_syncoms	plant_SRR29710362	SRR29710362	pe	-	At_AtSC	At_AtSC_ES_low_B4 (SSC_12)
+plant_syncoms	plant_SRR29710363	SRR29710363	pe	-	At_SSC	At_SSC_RZ_high_B2 (SSC_110)
+plant_syncoms	plant_SRR29710364	SRR29710364	pe	-	At_SSC	At_SSC_RZ_high_B1 (SSC_109)
+plant_syncoms	plant_SRR29710365	SRR29710365	pe	-	At_SSC	At_SSC_ES_low_B4 (SSC_108)
+plant_syncoms	plant_SRR29710366	SRR29710366	pe	-	At_SSC	At_SSC_ES_low_B3 (SSC_107)
+plant_syncoms	plant_SRR29710367	SRR29710367	pe	-	At_SSC	At_SSC_ES_low_B2 (SSC_106)
+plant_syncoms	plant_SRR29710368	SRR29710368	pe	-	At_SSC	At_SSC_ES_low_B1 (SSC_105)
+plant_syncoms	plant_SRR29710369	SRR29710369	pe	-	At_SSC	At_SSC_ES_HL_orig_B4 (SSC_104)
+plant_syncoms	plant_SRR29710370	SRR29710370	pe	-	At_SSC	At_SSC_ES_HL_orig_B3 (SSC_103)
+plant_syncoms	plant_SRR29710371	SRR29710371	pe	-	At_SSC	At_SSC_ES_HL_orig_B2 (SSC_102)
+plant_syncoms	plant_SRR29710372	SRR29710372	pe	-	At_SSC	At_SSC_ES_HL_orig_B1 (SSC_101)
+plant_syncoms	plant_SRR29710373	SRR29710373	pe	-	At_AtSC	At_AtSC_ES_low_B3 (SSC_11)
+plant_syncoms	plant_SRR29710374	SRR29710374	pe	-	At_AtSC	At_AtSC_ES_high_B2 (SSC_2)
+plant_syncoms	plant_SRR29710375	SRR29710375	pe	-	At_AtSC	At_AtSC_ES_high_B1 (SSC_1)
+plant_syncoms	plant_SRR37935101	SRR37935101	pe	-	AtSC_7x200	- (AtSC_7x200_10)
+plant_syncoms	plant_SRR37935102	SRR37935102	pe	-	input_AtSC_7x200	S7 (AtSC_7x200_88)
+plant_syncoms	plant_SRR37935103	SRR37935103	pe	-	input_AtSC_7x200	S6 (AtSC_7x200_87)
+plant_syncoms	plant_SRR37935104	SRR37935104	pe	-	input_AtSC_7x200	S5 (AtSC_7x200_86)
+plant_syncoms	plant_SRR37935105	SRR37935105	pe	-	input_AtSC_7x200	S4 (AtSC_7x200_85)
+plant_syncoms	plant_SRR37935106	SRR37935106	pe	-	input_AtSC_7x200	S3 (AtSC_7x200_84)
+plant_syncoms	plant_SRR37935107	SRR37935107	pe	-	input_AtSC_7x200	S2 (AtSC_7x200_83)
+plant_syncoms	plant_SRR37935108	SRR37935108	pe	-	input_AtSC_7x200	S1 (AtSC_7x200_82)
+plant_syncoms	plant_SRR37935109	SRR37935109	pe	-	AtSC_7x200	- (AtSC_7x200_81)
+plant_syncoms	plant_SRR37935110	SRR37935110	pe	-	AtSC_7x200	- (AtSC_7x200_9)
+plant_syncoms	plant_SRR37935111	SRR37935111	pe	-	AtSC_7x200	- (AtSC_7x200_80)
+plant_syncoms	plant_SRR37935112	SRR37935112	pe	-	AtSC_7x200	- (AtSC_7x200_79)
+plant_syncoms	plant_SRR37935113	SRR37935113	pe	-	AtSC_7x200	- (AtSC_7x200_78)
+plant_syncoms	plant_SRR37935114	SRR37935114	pe	-	AtSC_7x200	- (AtSC_7x200_77)
+plant_syncoms	plant_SRR37935115	SRR37935115	pe	-	AtSC_7x200	- (AtSC_7x200_76)
+plant_syncoms	plant_SRR37935116	SRR37935116	pe	-	AtSC_7x200	- (AtSC_7x200_75)
+plant_syncoms	plant_SRR37935117	SRR37935117	pe	-	AtSC_7x200	- (AtSC_7x200_74)
+plant_syncoms	plant_SRR37935118	SRR37935118	pe	-	AtSC_7x200	- (AtSC_7x200_73)
+plant_syncoms	plant_SRR37935119	SRR37935119	pe	-	AtSC_7x200	- (AtSC_7x200_72)
+plant_syncoms	plant_SRR37935120	SRR37935120	pe	-	AtSC_7x200	- (AtSC_7x200_71)
+plant_syncoms	plant_SRR37935121	SRR37935121	pe	-	AtSC_7x200	- (AtSC_7x200_8)
+plant_syncoms	plant_SRR37935122	SRR37935122	pe	-	AtSC_7x200	- (AtSC_7x200_70)
+plant_syncoms	plant_SRR37935123	SRR37935123	pe	-	AtSC_7x200	- (AtSC_7x200_69)
+plant_syncoms	plant_SRR37935124	SRR37935124	pe	-	AtSC_7x200	- (AtSC_7x200_68)
+plant_syncoms	plant_SRR37935125	SRR37935125	pe	-	AtSC_7x200	- (AtSC_7x200_67)
+plant_syncoms	plant_SRR37935126	SRR37935126	pe	-	AtSC_7x200	- (AtSC_7x200_66)
+plant_syncoms	plant_SRR37935127	SRR37935127	pe	-	AtSC_7x200	- (AtSC_7x200_65)
+plant_syncoms	plant_SRR37935128	SRR37935128	pe	-	AtSC_7x200	- (AtSC_7x200_64)
+plant_syncoms	plant_SRR37935129	SRR37935129	pe	-	AtSC_7x200	- (AtSC_7x200_63)
+plant_syncoms	plant_SRR37935130	SRR37935130	pe	-	AtSC_7x200	- (AtSC_7x200_62)
+plant_syncoms	plant_SRR37935131	SRR37935131	pe	-	AtSC_7x200	- (AtSC_7x200_61)
+plant_syncoms	plant_SRR37935132	SRR37935132	pe	-	AtSC_7x200	- (AtSC_7x200_7)
+plant_syncoms	plant_SRR37935133	SRR37935133	pe	-	AtSC_7x200	- (AtSC_7x200_60)
+plant_syncoms	plant_SRR37935134	SRR37935134	pe	-	AtSC_7x200	- (AtSC_7x200_59)
+plant_syncoms	plant_SRR37935135	SRR37935135	pe	-	AtSC_7x200	- (AtSC_7x200_58)
+plant_syncoms	plant_SRR37935136	SRR37935136	pe	-	AtSC_7x200	- (AtSC_7x200_57)
+plant_syncoms	plant_SRR37935137	SRR37935137	pe	-	AtSC_7x200	- (AtSC_7x200_56)
+plant_syncoms	plant_SRR37935138	SRR37935138	pe	-	AtSC_7x200	- (AtSC_7x200_55)
+plant_syncoms	plant_SRR37935139	SRR37935139	pe	-	AtSC_7x200	- (AtSC_7x200_54)
+plant_syncoms	plant_SRR37935140	SRR37935140	pe	-	AtSC_7x200	- (AtSC_7x200_53)
+plant_syncoms	plant_SRR37935141	SRR37935141	pe	-	AtSC_7x200	- (AtSC_7x200_52)
+plant_syncoms	plant_SRR37935142	SRR37935142	pe	-	AtSC_7x200	- (AtSC_7x200_51)
+plant_syncoms	plant_SRR37935143	SRR37935143	pe	-	AtSC_7x200	- (AtSC_7x200_6)
+plant_syncoms	plant_SRR37935144	SRR37935144	pe	-	AtSC_7x200	- (AtSC_7x200_50)
+plant_syncoms	plant_SRR37935145	SRR37935145	pe	-	AtSC_7x200	- (AtSC_7x200_49)
+plant_syncoms	plant_SRR37935146	SRR37935146	pe	-	AtSC_7x200	- (AtSC_7x200_48)
+plant_syncoms	plant_SRR37935147	SRR37935147	pe	-	AtSC_7x200	- (AtSC_7x200_47)
+plant_syncoms	plant_SRR37935148	SRR37935148	pe	-	AtSC_7x200	- (AtSC_7x200_46)
+plant_syncoms	plant_SRR37935149	SRR37935149	pe	-	AtSC_7x200	- (AtSC_7x200_45)
+plant_syncoms	plant_SRR37935150	SRR37935150	pe	-	AtSC_7x200	- (AtSC_7x200_44)
+plant_syncoms	plant_SRR37935151	SRR37935151	pe	-	AtSC_7x200	- (AtSC_7x200_43)
+plant_syncoms	plant_SRR37935152	SRR37935152	pe	-	AtSC_7x200	- (AtSC_7x200_42)
+plant_syncoms	plant_SRR37935153	SRR37935153	pe	-	AtSC_7x200	- (AtSC_7x200_41)
+plant_syncoms	plant_SRR37935154	SRR37935154	pe	-	AtSC_7x200	- (AtSC_7x200_5)
+plant_syncoms	plant_SRR37935155	SRR37935155	pe	-	AtSC_7x200	- (AtSC_7x200_40)
+plant_syncoms	plant_SRR37935156	SRR37935156	pe	-	AtSC_7x200	- (AtSC_7x200_39)
+plant_syncoms	plant_SRR37935157	SRR37935157	pe	-	AtSC_7x200	- (AtSC_7x200_38)
+plant_syncoms	plant_SRR37935158	SRR37935158	pe	-	AtSC_7x200	- (AtSC_7x200_37)
+plant_syncoms	plant_SRR37935159	SRR37935159	pe	-	AtSC_7x200	- (AtSC_7x200_36)
+plant_syncoms	plant_SRR37935160	SRR37935160	pe	-	AtSC_7x200	- (AtSC_7x200_35)
+plant_syncoms	plant_SRR37935161	SRR37935161	pe	-	AtSC_7x200	- (AtSC_7x200_34)
+plant_syncoms	plant_SRR37935162	SRR37935162	pe	-	AtSC_7x200	- (AtSC_7x200_33)
+plant_syncoms	plant_SRR37935163	SRR37935163	pe	-	AtSC_7x200	- (AtSC_7x200_32)
+plant_syncoms	plant_SRR37935164	SRR37935164	pe	-	AtSC_7x200	- (AtSC_7x200_31)
+plant_syncoms	plant_SRR37935165	SRR37935165	pe	-	AtSC_7x200	- (AtSC_7x200_4)
+plant_syncoms	plant_SRR37935166	SRR37935166	pe	-	AtSC_7x200	- (AtSC_7x200_30)
+plant_syncoms	plant_SRR37935167	SRR37935167	pe	-	AtSC_7x200	- (AtSC_7x200_29)
+plant_syncoms	plant_SRR37935168	SRR37935168	pe	-	AtSC_7x200	- (AtSC_7x200_28)
+plant_syncoms	plant_SRR37935169	SRR37935169	pe	-	AtSC_7x200	- (AtSC_7x200_27)
+plant_syncoms	plant_SRR37935170	SRR37935170	pe	-	AtSC_7x200	- (AtSC_7x200_26)
+plant_syncoms	plant_SRR37935171	SRR37935171	pe	-	AtSC_7x200	- (AtSC_7x200_25)
+plant_syncoms	plant_SRR37935172	SRR37935172	pe	-	AtSC_7x200	- (AtSC_7x200_24)
+plant_syncoms	plant_SRR37935173	SRR37935173	pe	-	AtSC_7x200	- (AtSC_7x200_23)
+plant_syncoms	plant_SRR37935174	SRR37935174	pe	-	AtSC_7x200	- (AtSC_7x200_22)
+plant_syncoms	plant_SRR37935175	SRR37935175	pe	-	AtSC_7x200	- (AtSC_7x200_21)
+plant_syncoms	plant_SRR37935176	SRR37935176	pe	-	AtSC_7x200	- (AtSC_7x200_3)
+plant_syncoms	plant_SRR37935177	SRR37935177	pe	-	AtSC_7x200	- (AtSC_7x200_20)
+plant_syncoms	plant_SRR37935178	SRR37935178	pe	-	AtSC_7x200	- (AtSC_7x200_19)
+plant_syncoms	plant_SRR37935179	SRR37935179	pe	-	AtSC_7x200	- (AtSC_7x200_18)
+plant_syncoms	plant_SRR37935180	SRR37935180	pe	-	AtSC_7x200	- (AtSC_7x200_17)
+plant_syncoms	plant_SRR37935181	SRR37935181	pe	-	AtSC_7x200	- (AtSC_7x200_16)
+plant_syncoms	plant_SRR37935182	SRR37935182	pe	-	AtSC_7x200	- (AtSC_7x200_15)
+plant_syncoms	plant_SRR37935183	SRR37935183	pe	-	AtSC_7x200	- (AtSC_7x200_14)
+plant_syncoms	plant_SRR37935184	SRR37935184	pe	-	AtSC_7x200	- (AtSC_7x200_13)
+plant_syncoms	plant_SRR37935185	SRR37935185	pe	-	AtSC_7x200	- (AtSC_7x200_12)
+plant_syncoms	plant_SRR37935186	SRR37935186	pe	-	AtSC_7x200	- (AtSC_7x200_11)
+plant_syncoms	plant_SRR37935187	SRR37935187	pe	-	AtSC_7x200	- (AtSC_7x200_2)
+plant_syncoms	plant_SRR37935188	SRR37935188	pe	-	AtSC_7x200	- (AtSC_7x200_1)

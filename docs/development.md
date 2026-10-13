@@ -94,7 +94,9 @@ build end to end (`test_gtdb_pipeline.py`) and the ancestry true-positive test's
 quick run (`test_ancestry_world.py`); `scripts/test_*.py` the trainer and the model's PMML export
 (`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`,
 `composition_accuracy.py`, the profile scripts, the strain test scripts, `ancestry_sites.py` and
-`foreign_rates.py`. A test whose prerequisite is missing is skipped; `PROTAL_TESTS_REQUIRED=1` makes it
+`foreign_rates.py`; `scripts/mock_benchmark/test_mock_benchmark.py` the
+[benchmark on public mock communities](#benchmark-on-public-mock-communities) (downloads from a local
+stand-in of ENA, scores, protal runs of a stand-in binary). A test whose prerequisite is missing is skipped; `PROTAL_TESTS_REQUIRED=1` makes it
 fail instead (`scripts/prerequisites.py`). With everything present they run in about 6 minutes on 4
 cores, the GTDB build 3 of them:
 
@@ -103,7 +105,8 @@ PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes PROTAL_TESTS_R
     python3 -m unittest scripts/mini_db/test_*.py
 python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
     scripts/test_composition_accuracy.py scripts/test_profile_scripts.py scripts/test_strain_scripts.py \
-    scripts/test_ancestry_sites.py scripts/test_foreign_rates.py scripts/test_model_pmml.py
+    scripts/test_ancestry_sites.py scripts/test_foreign_rates.py scripts/test_model_pmml.py \
+    scripts/mock_benchmark/test_mock_benchmark.py
 ```
 
 **The GTDB build end to end** (`test_gtdb_pipeline.py`, `GtdbBuildTest`) needs `$PROTAL`, `$SIMULATE`,
@@ -257,6 +260,51 @@ sample's. The read settings come from the command line (`--read_length`, `--sequ
 `run_params.tsv`. Sampling options are ignored. A manifest without `run_seed` and `host_seed` (before
 2026-10-07) replays its genomes' fragments with this run's qualities, so other errors and reads; one
 without `art_seed` (the ART days) replays the composition with fresh reads (pass `--genome_table`).
+
+## Benchmark on public mock communities
+
+`scripts/mock_benchmark/` scores protal on real reads of communities whose members are known. The datasets come from
+the [survey of public mocks](claude/2026-10-13-public-mock-communities/README.md). This is unlike the builds' test
+samples, which are simulated.
+
+| File | |
+|---|---|
+| `samples.tsv` | 1,330 samples in 13 sets, one row per library: its runs, read type, truth table and replicate group (from `prepare_tables.py samples`, ENA's metadata) |
+| `truth/*.tsv` | what each mock holds as GTDB r226 species, by kind (see below), with each member's strain (from `prepare_tables.py truth --gtdb ~/GTDB/r226`, which prints the evidence for each assignment) |
+| `download_mocks.py` | fetches the runs from ENA |
+| `score_mocks.py run`, `score` | runs protal per set, or per chunk of a set as a SLURM array, and scores the profiles |
+
+**Sets.** `d6331_dna`, `d6331_host`, `meslier`, `treichel`, `d6331_hifi`, `atcc1003_hifi`, `d6331_ont`,
+`d6322_basecalls`, `strain_mixes`, `nibsc_multilab`, `hcom2_invitro`, `hcom1a_dropouts`, `plant_syncoms`.
+
+**Truth tables.** Their kinds:
+- **`abundance`:** shares are known, as genome copies, since protal's abundances are shares of cells. A design by DNA mass is converted by genome size.
+- **`closed`:** members are known but not their shares, so any other species called is false.
+- **`dropout`:** strains left out by design must not be called.
+- **`negative`:** a control without a community.
+
+The shares add up to 1 together with a `?` row: the members protal cannot place, such as yeasts and strains the release lacks. The plant SynComs have no truth, only replicate groups.
+
+**Downloading.** Run it on a node that reaches the internet. It resumes where it stopped.
+- A sample keeps its first `--max-pairs` read pairs (default 20M) or, for long reads, its first `--max-bases` bases (default 20 Gb). A run is cut while it streams, so only what is kept is downloaded.
+- A run within the limit is copied whole and checked against ENA's MD5.
+- With these limits all sets take about 1.6 TB; `--dry-run` prints what each set would take.
+
+**Running and scoring.** `score_mocks.py run` writes a map per set into `OUT/protal/<set>/` and runs protal with `--no_strains`, skipping samples that already have a profile. `score_mocks.py score` writes `OUT/scores/`:
+- `samples.tsv`: true and false positives, precision, recall and F1, the L1 distance and Bray-Curtis dissimilarity to the truth, and protal's `?` against the expected share.
+- `species.tsv`: each species of the truth or the profile, with both shares and its status.
+- `replicates.tsv` and `groups.tsv`: Bray-Curtis of profiles and Jaccard of calls within each replicate group, e.g. one ONT flow cell basecalled several ways, or one library sequenced on several platforms.
+- `summary.tsv`: medians per set, read type and truth kind.
+
+```bash
+python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --dry-run
+python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --sets d6331_dna,meslier,d6331_hifi,d6331_ont --jobs 8
+sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS --db $DB -t 32 \
+    --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
+sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS \
+    --db $DB -t 16 --sets hcom2_invitro --chunks 10"
+python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS
+```
 
 ## Continuous integration
 

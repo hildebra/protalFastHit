@@ -1,0 +1,25 @@
+#name	nibsc_guthilo
+#kind	abundance
+#source	NIBSC Gut-HiLo-RR (WHO 20/304), Amos et al. 2020 Table 1
+#basis	genome copies
+species	share	members
+s__Bifidobacterium longum	0.19822	Bifidobacterium longum subsp. longum DSM 20219
+s__Bifidobacterium infantis	0.172017	Bifidobacterium longum subsp. infantis DSM 20088
+s__Prevotella copri	0.138414	Prevotella copri DSM 18205
+s__Clostridium butyricum	0.105911	Clostridium butyricum DSM 10702
+s__Parabacteroides distasonis	0.10101	Parabacteroides distasonis DSM 20701 (ATCC 8503)
+s__Escherichia coli	0.0933093	Escherichia coli DSM 1103 (ATCC 25922)
+s__Bacteroides thetaiotaomicron	0.0772077	Bacteroides thetaiotaomicron DSM 2079
+s__Collinsella aerofaciens_AL	0.019902	Collinsella aerofaciens DSM 13712
+s__Anaerostipes hadrus	0.0175018	Anaerostipes hadrus DSM 3319
+s__Prevotella melaninogenica	0.0153015	Prevotella melaninogenica DSM 7089 (ATCC 25845)
+s__Anaerobutyricum hallii	0.0148015	Eubacterium hallii DSM 3353
+s__Roseburia hominis	0.0135014	Roseburia hominis DSM 16839 (A2-183)
+s__Alistipes finegoldii	0.0130013	Alistipes finegoldii DSM 17242
+s__Bacteroides uniformis	0.0105011	Bacteroides uniformis DSM 6597
+s__Lactobacillus gasseri	0.00260026	Lactobacillus gasseri DSM 20077 (ATCC 33323)
+s__Akkermansia muciniphila	0.00180018	Akkermansia muciniphila DSM 22959
+s__Faecalibacterium duncaniae	0.00160016	Faecalibacterium prausnitzii DSM 17677 (A2-165, now F. duncaniae)
+s__Ruminococcus_G gauvreauii	0.00120012	Ruminococcus gauvreauii DSM 19829
+s__Blautia_A wexlerae	0.00110011	Blautia wexlerae DSM 19850
+s__Roseburia intestinalis	0.00110011	Roseburia intestinalis DSM 14610 (L1-82)

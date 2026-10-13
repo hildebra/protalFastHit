@@ -1,0 +1,13 @@
+#name	zymo_d6322
+#kind	abundance
+#source	ZymoBIOMICS HMW DNA Standard D6322, manual
+#basis	genome copies
+species	share	members
+s__Staphylococcus aureus	0.196137	Staphylococcus aureus B-41012
+s__Enterococcus faecalis	0.188132	Enterococcus faecalis B-537
+s__Listeria monocytogenes_B	0.178125	Listeria monocytogenes B-33116
+s__Bacillus spizizenii	0.132092	Bacillus subtilis B-354 (NCBI: B. spizizenii)
+s__Salmonella enterica	0.112078	Salmonella enterica B-4212
+s__Escherichia coli	0.109076	Escherichia coli B-1109
+s__Pseudomonas aeruginosa	0.0780546	Pseudomonas aeruginosa B-3509
+?	0.00630441	Saccharomyces cerevisiae Y-567

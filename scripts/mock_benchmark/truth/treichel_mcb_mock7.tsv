@@ -1,0 +1,29 @@
+#name	treichel_mcb_mock7
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes), multi-coverage-binning mocks
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Bacteroides hominis	0.241143	Bacteroides fragilis CLA-AA-H207
+s__Thomasclavelia ramosa	0.213588	Thomasclavelia ramosa CLA-JM-H52
+s__Kosakonia cowanii	0.207405	Kosakonia cowanii CLA-AP-13
+s__Ruminococcus_B gnavus	0.163768	Mediterraneibacter gnavus CLA-JM-H50
+s__Fusicatenibacter saccharivorans	0.0704681	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Roseburia_C amylophila	0.0247005	Roseburia amylophila CLA-AA-H204
+s__Phocaeicola vulgatus	0.0240088	Phocaeicola vulgatus CLA-KB-H118
+s__Bacillus licheniformis	0.023964	Bacillus licheniformis CLA-AP-5
+s__Escherichia coli	0.0105345	Escherichia coli CLA-AA-H239
+s__Lactococcus lactis	0.00967453	Lactococcus lactis CLA-AV-14
+s__Limivivens faecihominis	0.00323371	Fusicatenibacter faecihominis CLA-AA-H277
+s__Blautia_A fusiformis	0.00273322	Blautia fusiformis CLA-AA-11
+s__Enterocloster clostridioformis	0.00138984	Enterocloster clostridioformis CLA-JM-H51
+s__Veillonella_A intestinalis	0.00117551	Veillonella intestinalis CLA-AV-13
+s__Parabacteroides goldsteinii	0.000738718	Parabacteroides goldsteinii CLA-AP-3
+s__Collinsella sp040092445	0.000567766	Collinsella sp nov CLA-ER-H11
+s__Hominifimenecus microfluidus	0.00027436	Hominifimenecus microfluidus CLA-JM-H9
+s__Hominilimicola fabiformis	0.00024269	Hominilimicola fabiformis CLA-AA-H232
+s__Bifidobacterium pseudocatenulatum	0.000224454	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	8.41419e-05	Hominicoprocola fusiformis CLA-AA-H188
+s__Enterococcus faecalis	4.61723e-05	Enterococcus faecalis CLA-SR-172
+s__Hominenteromicrobium mulieris	3.50861e-05	Hominenteromicrobium mulieris CLA-AA-H250
+s__Bacteroides ovatus	0	Bacteroides ovatus CLA-AA-H168
+s__Phocaeicola sartorii	0	Phocaeicola sartorii CLA-AV-12

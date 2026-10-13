@@ -1,0 +1,21 @@
+#name	d6331
+#kind	abundance
+#source	ZymoBIOMICS Gut Microbiome Standard D6331, manual v1.2.0
+#basis	genome copies
+species	share	members
+s__Veillonella rogosae	0.199384	Veillonella rogosae AC2811 AN NA 2
+s__Faecalibacterium prausnitzii_E	0.147688	Faecalibacterium prausnitzii AP34BHI
+s__Roseburia hominis	0.12429	Roseburia hominis OB EAV1 11 DCM
+s__Limosilactobacillus fermentum	0.0967921	Limosilactobacillus fermentum B-1840
+s__Bifidobacterium adolescentis	0.0882928	Bifidobacterium adolescentis LMG 10502
+s__Escherichia coli	0.0870929	Escherichia coli JM109; Escherichia coli B-3008; Escherichia coli B-2207; Escherichia coli B-766; Escherichia coli B-1109
+s__Bacteroides fragilis	0.0832932	Bacteroides fragilis OB EAV1 11 D6 FAA
+s__Fusobacterium animalis	0.0752938	Fusobacterium nucleatum 2/1/50A
+s__Prevotella corporis	0.0625949	Prevotella corporis OB21 FMU 4
+s__Akkermansia muciniphila	0.0161987	Akkermansia muciniphila OB21 FAA NB 28
+s__Clostridioides difficile	0.0109991	Clostridioides difficile P4D3A1-1
+s__Methanocatella smithii	0.00169986	Methanobrevibacter smithii DSM 861
+s__Salmonella enterica	6.99943e-05	Salmonella enterica B-4212
+s__Enterococcus faecalis	1.09991e-05	Enterococcus faecalis IP101412 AER FAA 2
+s__Sarcina perfringens	8.99926e-07	Clostridium perfringens OB21 TSA 19
+?	0.00629948	Candida albicans IHEM 3108; Saccharomyces cerevisiae Y-567

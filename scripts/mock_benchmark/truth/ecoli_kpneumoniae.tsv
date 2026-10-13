@@ -1,0 +1,7 @@
+#name	ecoli_kpneumoniae
+#kind	closed
+#source	Afolayan et al. 2024: mixes of 2-3 strains of E. coli or K. pneumoniae (one species per mix)
+#basis	membership
+species	share	members
+s__Escherichia coli	NA	Escherichia coli strains
+s__Klebsiella pneumoniae	NA	Klebsiella pneumoniae strains

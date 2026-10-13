@@ -1,0 +1,29 @@
+#name	treichel_mcb_mock6
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes), multi-coverage-binning mocks
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Enterococcus faecalis	0.389904	Enterococcus faecalis CLA-SR-172
+s__Hominenteromicrobium mulieris	0.296287	Hominenteromicrobium mulieris CLA-AA-H250
+s__Phocaeicola sartorii	0.123296	Phocaeicola sartorii CLA-AV-12
+s__Bacteroides ovatus	0.0574293	Bacteroides ovatus CLA-AA-H168
+s__Bacteroides hominis	0.0407269	Bacteroides fragilis CLA-AA-H207
+s__Thomasclavelia ramosa	0.0240487	Thomasclavelia ramosa CLA-JM-H52
+s__Kosakonia cowanii	0.021893	Kosakonia cowanii CLA-AP-13
+s__Ruminococcus_B gnavus	0.0207442	Mediterraneibacter gnavus CLA-JM-H50
+s__Fusicatenibacter saccharivorans	0.0119014	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Phocaeicola vulgatus	0.00405487	Phocaeicola vulgatus CLA-KB-H118
+s__Roseburia_C amylophila	0.00278113	Roseburia amylophila CLA-AA-H204
+s__Bacillus licheniformis	0.00252957	Bacillus licheniformis CLA-AP-5
+s__Lactococcus lactis	0.00163394	Lactococcus lactis CLA-AV-14
+s__Escherichia coli	0.00133439	Escherichia coli CLA-AA-H239
+s__Limivivens faecihominis	0.000546145	Fusicatenibacter faecihominis CLA-AA-H277
+s__Blautia_A fusiformis	0.00028851	Blautia fusiformis CLA-AA-11
+s__Veillonella_A intestinalis	0.000198534	Veillonella intestinalis CLA-AV-13
+s__Enterocloster clostridioformis	0.000156487	Enterocloster clostridioformis CLA-JM-H51
+s__Collinsella sp040092445	9.58905e-05	Collinsella sp nov CLA-ER-H11
+s__Parabacteroides goldsteinii	9.35722e-05	Parabacteroides goldsteinii CLA-AP-3
+s__Hominifimenecus microfluidus	2.89606e-05	Hominifimenecus microfluidus CLA-JM-H9
+s__Hominilimicola fabiformis	2.73255e-05	Hominilimicola fabiformis CLA-AA-H232
+s__Bifidobacterium pseudocatenulatum	0	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	0	Hominicoprocola fusiformis CLA-AA-H188

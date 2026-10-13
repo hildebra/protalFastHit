@@ -1,0 +1,25 @@
+#name	nibsc_wc_gut
+#kind	abundance
+#source	NIBSC WC-Gut-RR (whole cells, equal numbers), Amos et al. 2022
+#basis	cells
+species	share	members
+s__Akkermansia muciniphila	0.05	Akkermansia muciniphila DSM 22959
+s__Alistipes finegoldii	0.05	Alistipes finegoldii DSM 17242
+s__Anaerobutyricum hallii	0.05	Eubacterium hallii DSM 3353
+s__Anaerostipes hadrus	0.05	Anaerostipes hadrus DSM 3319
+s__Bacteroides thetaiotaomicron	0.05	Bacteroides thetaiotaomicron DSM 2079
+s__Bacteroides uniformis	0.05	Bacteroides uniformis DSM 6597
+s__Bifidobacterium infantis	0.05	Bifidobacterium longum subsp. infantis DSM 20088
+s__Bifidobacterium longum	0.05	Bifidobacterium longum subsp. longum DSM 20219
+s__Blautia_A wexlerae	0.05	Blautia wexlerae DSM 19850
+s__Clostridium butyricum	0.05	Clostridium butyricum DSM 10702
+s__Collinsella aerofaciens_AL	0.05	Collinsella aerofaciens DSM 13712
+s__Escherichia coli	0.05	Escherichia coli DSM 1103 (ATCC 25922)
+s__Faecalibacterium duncaniae	0.05	Faecalibacterium prausnitzii DSM 17677 (A2-165, now F. duncaniae)
+s__Lactobacillus gasseri	0.05	Lactobacillus gasseri DSM 20077 (ATCC 33323)
+s__Parabacteroides distasonis	0.05	Parabacteroides distasonis DSM 20701 (ATCC 8503)
+s__Prevotella copri	0.05	Prevotella copri DSM 18205
+s__Prevotella melaninogenica	0.05	Prevotella melaninogenica DSM 7089 (ATCC 25845)
+s__Roseburia hominis	0.05	Roseburia hominis DSM 16839 (A2-183)
+s__Roseburia intestinalis	0.05	Roseburia intestinalis DSM 14610 (L1-82)
+s__Ruminococcus_G gauvreauii	0.05	Ruminococcus gauvreauii DSM 19829

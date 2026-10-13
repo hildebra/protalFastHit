@@ -1,0 +1,29 @@
+#name	treichel_mcb_mock3
+#kind	abundance
+#source	Treichel et al. 2026, Supplementary Tables 1-2 (DNA ratio; genome sizes), multi-coverage-binning mocks
+#basis	genome copies from DNA mass by genome size
+species	share	members
+s__Kosakonia cowanii	0.291282	Kosakonia cowanii CLA-AP-13
+s__Bacteroides hominis	0.216745	Bacteroides fragilis CLA-AA-H207
+s__Bacteroides ovatus	0.114613	Bacteroides ovatus CLA-AA-H168
+s__Phocaeicola sartorii	0.109362	Phocaeicola sartorii CLA-AV-12
+s__Hominenteromicrobium mulieris	0.0985507	Hominenteromicrobium mulieris CLA-AA-H250
+s__Enterococcus faecalis	0.0518759	Enterococcus faecalis CLA-SR-172
+s__Bifidobacterium pseudocatenulatum	0.0378271	Bifidobacterium pseudocatenulatum CLA-AA-H257
+s__Hominicoprocola sp934835795	0.0378143	Hominicoprocola fusiformis CLA-AA-H188
+s__Hominilimicola fabiformis	0.018178	Hominilimicola fabiformis CLA-AA-H232
+s__Hominifimenecus microfluidus	0.00770629	Hominifimenecus microfluidus CLA-JM-H9
+s__Collinsella sp040092445	0.00637901	Collinsella sp nov CLA-ER-H11
+s__Veillonella_A intestinalis	0.0052829	Veillonella intestinalis CLA-AV-13
+s__Parabacteroides goldsteinii	0.00124496	Parabacteroides goldsteinii CLA-AP-3
+s__Enterocloster clostridioformis	0.00104101	Enterocloster clostridioformis CLA-JM-H51
+s__Blautia_A fusiformis	0.000767712	Blautia fusiformis CLA-AA-11
+s__Lactococcus lactis	0.000434785	Lactococcus lactis CLA-AV-14
+s__Limivivens faecihominis	0.000363317	Fusicatenibacter faecihominis CLA-AA-H277
+s__Roseburia_C amylophila	0.000185012	Roseburia amylophila CLA-AA-H204
+s__Escherichia coli	0.000177537	Escherichia coli CLA-AA-H239
+s__Bacillus licheniformis	6.73106e-05	Bacillus licheniformis CLA-AP-5
+s__Fusicatenibacter saccharivorans	3.16692e-05	Fusicatenibacter saccharivorans CLA-AA-H252
+s__Ruminococcus_B gnavus	2.75997e-05	Mediterraneibacter gnavus CLA-JM-H50
+s__Phocaeicola vulgatus	2.69746e-05	Phocaeicola vulgatus CLA-KB-H118
+s__Thomasclavelia ramosa	1.59981e-05	Thomasclavelia ramosa CLA-JM-H52
