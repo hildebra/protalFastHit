@@ -1009,10 +1009,11 @@ class GtdbBuildTest(unittest.TestCase):
 
     def test_j_sparse_first_gates(self):
         # The full build's databases record the default gates (--sparse-first pe:1,se:1,...), which its collections'
-        # runs followed. Again in a copy of it with --test-c-gates: the test samples profiled at pe's gates 0 and 2 and
-        # se's 0 too (their rows <sample>__c<C> in the same protal run), each model scores them, c_gates.tsv has a row
-        # per gate with F1 and the alignment's CPU seconds; the training data kept, both main tables as the full
-        # build's.
+        # runs followed. Again in a copy of it with --test-c-gates, profiled as the simulations go on (--profile-blocks,
+        # as GTDB builds run: a protal run per design point here): the test samples profiled at pe's gates 0 and 2 and
+        # se's 0 too (their rows <sample>__c<C> in the same protal runs, each run once), each model scores them,
+        # c_gates.tsv has a row per gate with F1 and the alignment's CPU seconds; the training data kept, both main
+        # tables as the full build's; the console says each protal run, what it holds, and the trainers' evaluations.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         gates, scratch = self.copy_of_full("gates")  # the full build as it left it (test_a builds out again)
@@ -1030,9 +1031,22 @@ class GtdbBuildTest(unittest.TestCase):
             with open(path) as fh:
                 self.assertIn("sparse first: pe 1, se 1, score 14, 1 hit(s); the database's models were trained with pe 1, "
                               "se 1, score 14, 1 hit(s)", fh.read(), path)
-        result = self.build(gates, "--scratch", scratch, "--profile-blocks", "0", "--test-c-gates", "pe:0/1/2,se:0")
+        result = self.build(gates, "--scratch", scratch, "--profile-blocks", "0.00001", "--test-c-gates", "pe:0/1/2,se:0")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertNotRegex(result.stdout, r"built (protal|training)_db")
+        # Each test design point profiled once (its pe and se units in one run), not again and again.
+        log = self.text(gates, "logs", "test_data.log")
+        runs = re.findall(r"^protal run (\d+): (\d+) design points", log, re.M)
+        self.assertTrue(runs, log[-2000:])
+        units = {row["meta_design"] for table in ("training_data.tsv", "training_data_se.tsv")
+                 for row in self.samples(gates, "test", table)[1]}
+        self.assertLessEqual(sum(int(n) for _, n in runs), len(units), log[-3000:])
+        self.assertRegex(result.stdout, r"independent test set: protal run 1: \d+ design points")
+        self.assertRegex(result.stdout, r"independent test set: profiling \d+ samples .*; of them at other sparse-first gates: "
+                                        r"\d+ pe c0, \d+ pe c2, \d+ se c0")
+        self.assertRegex(result.stdout, r"independent test set: protal run \d+ done")
+        self.assertIn("pe model: Extra test tables", result.stdout)
+        self.assertIn("se model: Independent test set", result.stdout)
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
                 self.assertEqual(self.text(gates, "work", collection, table), self.text("full_tables", collection, table),

@@ -74,7 +74,7 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_spec(bad)
         self.assertEqual(build.sparse_first_levels(build.DEFAULT_TEST_C_GATES),
-                         {"pe": [0, 2, 4], "se": [0, 2, 4], "pb": [0, 4, 16], "ont": [0, 4, 8]})
+                         {"pe": [0, 1, 2, 4], "se": [0, 1, 2, 4], "pb": [0, 4, 8, 16], "ont": [0, 1, 4, 8]})
         self.assertEqual(build.sparse_first_levels("pb:16/4/4"), {"pb": [4, 16]})
         self.assertEqual(build.levels_text({"pe": [0, 2], "pb": [4]}), "pe:0/2,pb:4")
         for bad in ("pb:3", "pb", "xx:1", "pe:64"):

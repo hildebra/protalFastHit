@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mini_db_fixtures  # noqa: E402,F401  (the scripts' folders on sys.path)
@@ -898,6 +899,33 @@ class CollectorTest(unittest.TestCase):
             for name in names:
                 others = {s: lin for s, lin in in_sample.items() if s != name}
                 self.assertEqual(relations.neighbour(in_sample[name], name), collect.relation(in_sample[name], others, {})[0])
+
+    def test_no_rows_at_other_gates_in_a_streamed_run(self):
+        # --sparse_first_levels: each sample profiled at the other gates too (rows <sample>__c<C> beside its own), but not
+        # in a streamed run (paths_of given), whose samples' reads come through pipes, each read once: a long-read unit's
+        # rows name their pipes themselves and are in no paths_of (until 2026-10-13 they kept their rows at other
+        # gates, and protal waited forever on a pipe opened a second time).
+        root = os.path.join(self.tmp.name, "levels")
+        opts = argparse.Namespace(out=root, sparse_first_levels={"pe": [0], "pb": [0, 4]})
+        units = [{"type": "pe", "name": "rl100_p10", "point": {"name": "rl100_p10"}, "samples": 1},
+                 {"type": "pb", "name": "pb_b1e6", "point": {"name": "pb_b1e6"}, "samples": 1}]
+
+        def rows_of(unit, _opts):
+            out = os.path.join(root, unit["name"])
+            sample = unit["name"] + "_s_1"
+            return [{"SAMPLEID": sample, "FIRST": os.path.join(out, sample + ".fq"), "SECOND": "-",
+                     "SAM": os.path.join(out, sample + ".sam.zst"), "PREFIX": os.path.join(out, sample),
+                     "PROFILE": os.path.join(out, sample + ".profile"), "PROFILE_TRUTH": "/t",
+                     "READ_TYPE": unit["type"]}], [out]
+
+        with unittest.mock.patch.object(collect, "unit_map_rows_of", rows_of):
+            written = collect.profile_map(units, opts, os.path.join(root, "written.map"))
+            streamed = collect.profile_map(units, opts, os.path.join(root, "streamed.map"), paths_of={})
+        self.assertEqual(sorted(r["SAMPLEID"] for r in written),
+                         ["pb_b1e6_s_1", "pb_b1e6_s_1__c0", "pb_b1e6_s_1__c4", "rl100_p10_s_1", "rl100_p10_s_1__c0"])
+        self.assertEqual({r["SAMPLEID"]: r["SPARSE_FIRST"] for r in collect.read_map(os.path.join(root, "written.map"))
+                          if "__c" in r["SAMPLEID"]}, {"pb_b1e6_s_1__c0": "0", "pb_b1e6_s_1__c4": "4", "rl100_p10_s_1__c0": "0"})
+        self.assertEqual(sorted(r["SAMPLEID"] for r in streamed), ["pb_b1e6_s_1", "rl100_p10_s_1"])
 
     def test_collector_scenario_units(self):
         # The scenarios' points and units after the design's: a community point per scenario (its paired-end reads

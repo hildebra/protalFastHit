@@ -59,7 +59,8 @@ Both databases record each read type's sparse-first gate (--sparse-first, defaul
 pe:1,se:1,pb:8,ont:1: protal --sparse_first, a read looked up by 1/C of its cores
 first and given up without a near-exact hit) in build_settings.tsv, and every
 run on them follows it, the collections' too: the models learn from gated runs.
-With --test-c-gates (default pe:0/2/4,se:0/2/4,pb:0/4/16,ont:0/4/8) the test
+With --test-c-gates (default pe:0/1/2/4,se:0/1/2/4,pb:0/4/8/16,ont:0/1/4/8: the
+default gates among them, which are the test set itself when the database has them) the test
 samples are profiled at the other gates too (in the same protal runs), each
 read type's model scores them, and model_logs/c_gates.tsv gives F1 and the
 alignment's CPU seconds by gate: a gate whose F1 holds with a model trained at
@@ -527,10 +528,11 @@ class Job:
     scratch = None  # a Scratch with --scratch
     cpu_log = None  # logs/cpu_jobs.tsv: a row per command that ended (cpu_row), not said on the console
 
-    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False):
+    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False, relay=None):
         """nice: the command's niceness, more than the script's (the simulations, beside the profiling); idle: the idle
         scheduling class instead (lower_priority: the finished database's build, on the cores the others leave); append:
-        its output added to the log (a step of several commands, one after the other), not replacing it."""
+        its output added to the log (a step of several commands, one after the other), not replacing it; relay:
+        (pattern, format) for the lines of its log said on the console as they come (relay_lines)."""
         os.makedirs(os.path.dirname(log), exist_ok=True)
         self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
         self.label = label or os.path.basename(log).removesuffix(".log")
@@ -540,6 +542,8 @@ class Job:
         self.nice, self.idle = nice, idle
         self.paused = False
         self.fh = open(log, "a" if append else "w")
+        self.relay = relay
+        self.relayed = self.fh.tell()  # the log's bytes looked at by relay_lines
         if append:
             self.fh.write(f"--- {' '.join(command)}\n")
             self.fh.flush()
@@ -561,8 +565,29 @@ class Job:
                 self.cpu = usage.ru_utime + usage.ru_stime
         return self.process.returncode
 
+    def relay_lines(self):
+        """Says on the console the whole lines its log has gained that match its relay pattern, formatted (what a long
+        step is at: a collection's protal runs, a trainer's evaluations)."""
+        if not self.relay:
+            return
+        try:
+            with open(self.log, "rb") as fh:
+                fh.seek(self.relayed)
+                new = fh.read()
+        except OSError:
+            return
+        end = new.rfind(b"\n")
+        if end < 0:
+            return
+        self.relayed += end + 1
+        pattern, form = self.relay
+        for line in new[:end].decode(errors="replace").splitlines():
+            if pattern.search(line):
+                say(form(line))
+
     def ended(self, rc):
         self.fh.close()
+        self.relay_lines()
         Job.running.remove(self)
         self.seconds = time.time() - self.started
         self.cpu_row(rc)
@@ -582,6 +607,8 @@ class Job:
             time.sleep(0.2)
             now = time.time()
             if now - checked >= 1:  # a wait4 per job and one statvfs
+                for job in list(Job.running):
+                    job.relay_lines()
                 check_jobs()
                 if Job.scratch:
                     Job.scratch.look()
@@ -686,8 +713,22 @@ def check_jobs():
             job.ended(rc)
 
 
-def run(command, log, on_success=None, label=None, append=False):
-    return Job(command, log, on_success, label, append=append).finish()
+def run(command, log, on_success=None, label=None, append=False, relay=None):
+    return Job(command, log, on_success, label, append=append, relay=relay).finish()
+
+
+# What the console says of a long step as it goes (Job relay): a collection's protal runs, what they hold (the samples
+# at other sparse-first gates too) and when they end; a trainer's evaluations as each begins.
+COLLECTOR_PROGRESS = re.compile(r"^(protal run \d+|profiling \d+ samples)")
+TRAINER_PROGRESS = re.compile(r"^## (How well|Independent test set \(|Extra test tables|Scenarios|Marker truth)")
+
+
+def collector_relay(what):
+    return COLLECTOR_PROGRESS, lambda line: f"    {what}: {line}"
+
+
+def trainer_relay(read_type):
+    return TRAINER_PROGRESS, lambda line: f"    {read_type} model: {line[3:].split(' (')[0]}"
 
 
 def log_says(path, text):
@@ -2162,8 +2203,9 @@ TRACEBACK_ARGS = []
 # (docs/claude/2026-10-12-sparse-first): paired-end C = 1 loses 0.01% of the records for -35% of the alignment's time,
 # C = 2 0.37% for -52%; HiFi C = 8 0.54% for -62%; ONT C = 1 a trial.
 DEFAULT_SPARSE_FIRST = "pe:1,se:1,pb:8,ont:1"
-# --test-c-gates without a value: the other gates each read type's test samples are profiled at too.
-DEFAULT_TEST_C_GATES = "pe:0/2/4,se:0/2/4,pb:0/4/16,ont:0/4/8"
+# --test-c-gates without a value: the gates each read type's test samples are profiled at too, the default ones of
+# --sparse-first among them (the database's own gate is the test set itself, and is left out: c_gates.tsv's database row).
+DEFAULT_TEST_C_GATES = "pe:0/1/2/4,se:0/1/2/4,pb:0/4/8/16,ont:0/1/4/8"
 
 
 def sparse_first_spec(text):
@@ -3990,7 +4032,7 @@ def main():
             if os.path.isfile(other_map):
                 command = command + ["--also_profile", other_map]
                 Steps.done(f"profiling the {other}'s samples in the same protal run")
-        report(opts, log, run(command, log, label=f"collecting {what}"))
+        report(opts, log, run(command, log, label=f"collecting {what}", relay=collector_relay(what)))
 
     def follow_all():
         """--profile-blocks: a collector per collection profiles its samples as they are simulated
@@ -4009,7 +4051,7 @@ def main():
             stream = ["--stream_above", repr(stream_above)] if stream_above > 0 else []
             followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock,
                                              "--profile_block_max", f"{args.profile_block_max:g}"] + stream,
-                                  log, label=f"profiling the {what}")
+                                  log, label=f"profiling the {what}", relay=collector_relay(what))
         for what, command, log in collections_:
             opts = announce(what, command, log)
             Steps.done(f"profiled as its simulations go on, in protal runs of {args.profile_blocks:g} GB of reads or "
@@ -4058,7 +4100,7 @@ def main():
                 if os.path.isfile(table):
                     command += ["--extra-test-file", f"c{c}={table}"]
         trainers[t] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
-                          label=f"training the {t} model")
+                          label=f"training the {t} model", relay=trainer_relay(t))
     seconds = max(job.finish().seconds for job in trainers.values())
     if paused:
         final_build.resume()

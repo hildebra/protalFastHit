@@ -1705,8 +1705,12 @@ def profile_map(units, opts, path, paths_of=None):
         unit_rows, dirs = unit_map_rows(unit, opts)
         for d in dirs:
             os.makedirs(d, exist_ok=True)
-        # A sample whose reads come through a pipe is profiled once: its rows at other gates are left out.
-        unit_rows = [row for row in unit_rows if not (paths_of and row.get("_level_of") in paths_of)]
+        # A streamed run's samples (paths_of given) read their reads from pipes, each once: their rows at other gates are
+        # left out, the long-read units' too (whose map rows name their pipes themselves: they are in no paths_of).
+        # Until 2026-10-13 only the paired-end samples' were, and protal waited forever on a long-read sample's pipe
+        # opened a second time.
+        if paths_of is not None:
+            unit_rows = [row for row in unit_rows if not row.get("_level_of")]
         rows += [{**row, **dict(zip(("FIRST", "SECOND"), paths_of[row["SAMPLEID"]]))}
                  if paths_of and row["SAMPLEID"] in paths_of else row for row in unit_rows]
     write_map(path, rows)
@@ -1725,9 +1729,12 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
         rows += list(extra)
         write_map(combined, rows)
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
+    gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}" for row in rows
+                                if row.get("SPARSE_FIRST", "-") not in ("", "-"))  # this and the other collection's
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
-          "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run",
-          flush=True)
+          "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run" +
+          (f"; of them at other sparse-first gates: {', '.join(f'{n} {k}' for k, n in sorted(gated.items()))}"
+           if gated else ""), flush=True)
     # protal's table of its stages' CPU time (in the map's output folder's misc/): an earlier run's in this folder (a
     # --follow rerun numbers its runs from 1 again) is not this run's.
     stages = os.path.join(folder, "misc", "cpu.tsv")
