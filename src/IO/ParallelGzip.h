@@ -1,17 +1,20 @@
-// ParallelGzip.h - one gzip file inflated on several threads (rapidgzip, lib/rapidgzip), for
-// ThreadedGzStreambuf.
+// ParallelGzip.h - one gzip file inflated on several threads with ISA-L, for ThreadedGzStreambuf.
 //
 // A gzip member (as gzip and most tools write .fastq.gz files: the whole file one member) cannot be cut
 // at block boundaries as BGZF can: its deflate blocks are found only by decoding it from the start, and
-// refer back up to 32 KB. rapidgzip decodes pieces of the file (1 MiB of it each) on its threads at once,
-// each from a deflate block it finds by trial near the piece's start, with the 32 KB before it unknown at
-// first (its bytes marked, and filled in once the piece before is done); once 32 KB of a piece are known,
-// ISA-L inflates the rest of it. Read gives the file's bytes in order, its members one after the other;
-// each member's CRC-32 and length are checked, and that the file ends with a whole member (rapidgzip
-// alone reads a cut file as a shorter one: ParallelGzip.cpp). ParallelGzip.cpp is the only file that
-// includes rapidgzip, whose headers are large.
+// refer back up to 32 KB. Here the file is cut into pieces (kChunkBytes of it each), each beginning at a
+// deflate block found by its header near the piece's start. Worker threads decode pieces ahead with ISA-L,
+// twice, with the unknown 32 KB before the piece as two sets of labels: where the two outputs differ the
+// byte is a copy from that window, and the labels say from where, so the bytes are filled in once the piece
+// before is done. The reader's own thread decodes in order, with the true window, the pieces no worker took,
+// and chains the windows. A piece is used only if the one before ends exactly where it begins, so a block
+// header found by chance is never used; ISA-L's stock API is all it needs
+// (docs/claude/2026-10-12-isal-parallel-inflate). Read gives the file's bytes in order, its members one
+// after the other; each member's CRC-32 and length are checked, and that the file ends with a whole
+// member (or zero bytes of padding).
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -20,13 +23,13 @@ namespace protal {
 
     class ParallelGzip {
     public:
-        // Bytes of the compressed file each piece decoded on a thread holds. rapidgzip's default of 4 MiB held ~780 MB
-        // on 4 threads for a FASTQ file, 1 MiB ~200 MB, ~5% slower (docs/claude/2026-10-12-rapidgzip-input).
+        // Bytes of the compressed file per piece: on FASTQ ~4 MB of output, decoded twice ahead (1 MiB pieces were the
+        // fastest of 1, 4 and 16 MiB in docs/claude/2026-10-12-isal-parallel-inflate, and held the least memory).
         static constexpr size_t kChunkBytes = size_t{1} << 20;
 
-        // A reader of the regular file open as fd, from its start, on `threads` threads (rapidgzip's own):
-        // fd is duplicated, so its offset and the descriptor stay the caller's. Null if the reader cannot
-        // be made (error then says why).
+        // A reader of the regular file open as fd, from its start, on `threads` threads (the caller's and threads - 1
+        // of its own; at least 2): the file is mapped, so its offset and the descriptor stay the caller's. Null if the
+        // reader cannot be made (error then says why: not a regular file, no gzip header at its start).
         static std::unique_ptr<ParallelGzip> Open(int fd, unsigned threads, std::string& error);
 
         ~ParallelGzip();
@@ -39,8 +42,27 @@ namespace protal {
 
         std::string const& Error() const { return m_error; }
 
+        // How the file's ranges were decoded so far: pieces decoded ahead by the workers and used, ranges the reader's
+        // thread decoded in order, ranges decoded on to their member's end (no piece start after them, or a corrupt or
+        // too large piece), block starts found by their headers that were none, and pieces decoded ahead in vain.
+        struct Counts {
+            size_t ahead = 0, in_order = 0, streamed = 0, dropped_starts = 0;
+            size_t unused = 0;  // pieces decoded ahead that were not used (a failed decode, another end)
+        };
+        Counts counts() const;
+
+        // For tests: the bytes of the compressed file per piece of the readers opened from now on (0: kChunkBytes), so
+        // that a small file has many, and how far ahead of the reader's thread the workers begin (pieces; 0: 2 per
+        // thread and 4), so that they decode pieces the reader then takes even in a small file.
+        static void SetPieceBytes(size_t bytes, size_t gap = 0) {
+            PieceBytesSetting().store(bytes, std::memory_order_relaxed);
+            GapSetting().store(gap, std::memory_order_relaxed);
+        }
+
     private:
         ParallelGzip();
+        static std::atomic<size_t>& PieceBytesSetting();
+        static std::atomic<size_t>& GapSetting();
 
         struct Impl;
         std::unique_ptr<Impl> m_impl;

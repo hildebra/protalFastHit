@@ -209,15 +209,15 @@ thread of its own, so the alignment threads only copy reads that are already dec
 file (as `bgzip` and, by default, bcl2fastq write) is inflated on 1 to 4 threads per file (one per 4
 alignment threads and file: 4 per file for a paired-end run on 32 threads), about 1 GB/s of FASTQ
 each. Another gzip file (one member, as `gzip` and most pipelines write it) cannot be cut at block
-boundaries: protal inflates it with ISA-L on one thread (1.2-1.6 GB/s of FASTQ), or, in runs with 16
-or more threads per file (a paired-end run on 32 or more), with rapidgzip on 8 to 16 threads per file
-(one per 2 alignment threads and file), which decodes pieces of the file at once. On FASTQ that costs
-about four times ISA-L's CPU (about 0.3 GB/s per thread), so it pays only with that many threads; a
-pipe, or a gzip file ending in zero bytes, is read on one thread. zstd files are read on one thread.
-`--verbose` says how each file is read. For runs on many threads, BGZF is still the fastest and the
-cheapest: `bgzip -@ 8 -c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 >
-reads.bgz.fq.gz`) turns a gzip file into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the
-threads per gzip file, BGZF or not (for a gzip file that is not BGZF, more than one: rapidgzip's).
+boundaries, as its blocks refer back to the 32 KB before them: protal inflates it with ISA-L in pieces
+on 1 to 8 threads per file (one per 4 alignment threads and file: 2 per file for a paired-end run on
+16 threads, 4 on 32). Pieces of the file are decoded ahead with the 32 KB before them unknown (marked,
+and filled in once the piece before is done) while the file's own thread decodes the others in order;
+on FASTQ about 1.7, 2.0 and 2.4 GB/s on 1, 2 and 4 threads (on 4 cores), as a piece decoded ahead costs
+about 2.6 times one decoded in order. A pipe is read on one thread, and so are zstd files. `--verbose` says how
+each file is read. For runs on many threads, BGZF is still the fastest and the cheapest: `bgzip -@ 8
+-c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 > reads.bgz.fq.gz`) turns a gzip file
+into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the threads per gzip file, BGZF or not.
 
 A read file that is missing, a directory or not readable stops protal before the index is loaded.
 A sample fails (exit 1, no SAM file) when its reads are not FASTQ or FASTA, when a record is

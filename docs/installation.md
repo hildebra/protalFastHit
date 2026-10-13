@@ -31,12 +31,15 @@ To build them yourself:
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
 ```
 
-`just static` downloads zstd 1.5.7 (a pinned release, sha256-checked) and builds its static library
-in `build/static-deps` (CMake option `-DPROTAL_STATIC_FETCH_DEPS=ON`, see
-[lib/static-deps.cmake](../lib/static-deps.cmake)), so the system needs no `libzstd.a`. ISA-L is in
-`lib/isa-l` and built as a static library for every binary (below). Without network access,
-download the zstd tarball elsewhere and pass its path with `-DPROTAL_ZSTD_URL=...`, or link the
-system's `libzstd.a` with `just static_fetch_deps=OFF static`.
+`just static` downloads zstd 1.5.7 and ISA-L 2.32.1 (pinned releases, sha256-checked) and builds
+their static libraries in `build/static-deps` (CMake option `-DPROTAL_STATIC_FETCH_DEPS=ON`, see
+[lib/static-deps.cmake](../lib/static-deps.cmake)), so the system needs no `libzstd.a` or
+`libisal.a`. ISA-L's x86-64 code is assembled with nasm: the one on the `PATH` if it is 2.14.01 or
+later (Ubuntu: `sudo apt-get install nasm`), otherwise nasm 2.16.03 is downloaded and built too
+(about 30 s, a C compiler and make are all it needs). Without network access, download the tarballs
+elsewhere and pass their paths with `-DPROTAL_ZSTD_URL=...`, `-DPROTAL_ISAL_URL=...` and
+`-DPROTAL_NASM_URL=...`, or link the system's static libraries with `just static_fetch_deps=OFF static`
+(Ubuntu's `libisal-dev` has no `libisal.a`).
 
 They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU, and use AVX2 where the CPU
 has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-cpu)).
@@ -44,20 +47,18 @@ has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-c
 ## Building from source
 
 Requirements: CMake 3.22 or later, a C++20 compiler with OpenMP (GCC 13 and 14 are tested),
-zstd development files, and nasm 2.14.01 or later. On Ubuntu:
+zstd and ISA-L development files. On Ubuntu:
 
 ```bash
-sudo apt-get install cmake ninja-build g++ libzstd-dev nasm python3
+sudo apt-get install cmake ninja-build g++ libzstd-dev libisal-dev python3
 ```
 
-nasm assembles ISA-L's x86-64 code: ISA-L (protal's gzip, read and written) is in `lib/isa-l`, ISA-L
-2.32.1 with the changes rapidgzip needs (see [lib/isa-l.cmake](../lib/isa-l.cmake)), and is built as a
-static library with protal; no ISA-L of the system is used. Without a nasm of 2.14.01 or later on the
-`PATH`, nasm 2.16.03 is downloaded and built in the build tree (about 30 s, a C compiler and make are
-all it needs; offline, pass its tarball with `-DPROTAL_NASM_URL=...`).
+Without root, build ISA-L into a prefix of your own (its CMake build, which needs nasm) and pass it
+with `-DCMAKE_PREFIX_PATH=<prefix>`, or use conda (`isa-l` from conda-forge), or `just static`, which
+builds it itself.
 
-All other libraries (zlib-ng, rapidgzip, WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/` and
-built with protal; no system zlib is needed. Then:
+All other libraries (zlib-ng, WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/` and built
+with protal; no system zlib is needed. Then:
 
 ```bash
 git clone https://github.com/4less/protal.git
@@ -75,7 +76,7 @@ it against its own checkout.
 | Target | Binary | |
 |---|---|---|
 | `protal` | `build/protal` | runs on any x86-64 CPU, with AVX2 where the CPU has it ([below](#one-binary-for-every-cpu)) |
-| `protal_static` | `build/protal_<version>_static` | fully static build of `protal` (in the default build only where a `libzstd.a` is found; `just static` builds it in any case) |
+| `protal_static` | `build/protal_<version>_static` | fully static build of `protal` (in the default build only where a `libisal.a` is found; `just static` builds it in any case) |
 | `simulate_metagenomes` | `build/simulate_metagenomes` | read simulator, see [development.md](development.md#simulating-metagenomes) |
 | `simulate_metagenomes_static` | `build/simulate_metagenomes_static` | static simulator |
 | `protal_tests` | `build/tests/protal_tests` | unit tests; needs `-DPROTAL_BUILD_TESTS=ON` and GoogleTest, see [development.md](development.md) |

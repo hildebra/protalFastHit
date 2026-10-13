@@ -1,0 +1,4 @@
+seq	gzip_crc	chunk_KiB	0	total_out	1681851361	wall_s	1.060	cpu_s	1.059	GBps	1.586	cpu_s_per_GB	0.630	mmap_s	0.000	maxrss_MiB	383
+seq	raw_nocrc	chunk_KiB	0	total_out	1681851361	wall_s	1.054	cpu_s	1.017	GBps	1.596	cpu_s_per_GB	0.604	mmap_s	0.000	maxrss_MiB	383
+seq	gzip_crc	chunk_KiB	128	total_out	1681851361	wall_s	1.074	cpu_s	1.069	GBps	1.567	cpu_s_per_GB	0.636	mmap_s	0.000	maxrss_MiB	383
+seq	raw_nocrc	chunk_KiB	128	total_out	1681851361	wall_s	1.114	cpu_s	1.114	GBps	1.510	cpu_s_per_GB	0.662	mmap_s	0.000	maxrss_MiB	383

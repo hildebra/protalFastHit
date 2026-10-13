@@ -1,0 +1,7 @@
+cost	piece_MiB	4.00	pieces	94	out_total	1681851361	crc_ok	1	size_ok	1	ref_checked	0	ref_mismatch_pieces	0	spec_mismatch_pieces	0
+cost_s_per_GB	true_window_1pass	0.5883	v3_pass1	0.5921	v3_pass2	0.5945	v3_pass3	0.5848	v3_merge	0.6950	v3_resolve	0.2830	v2_passA	0.5842	v2_passB	0.5797	v2_merge	0.7143	v2_resolve	0.2856	v2_fused_merge_resolve	0.3519	v3_fused_merge_resolve	0.3658	first_piece_s	0.0160
+markers	total	635645638	share_of_spec_output	0.382052	runs	484976803	mean_run_len	1.31	p_ge_16384	526362616	share_p_ge_16384	0.8281	ambig_L1eqL2	3461728	pieces_where_markers_die	0	of	93
+markers_by_line	header	bytes_share	0.0970	markers_share_of_all_markers	0.1860	marker_share_within_line_type	0.7327
+markers_by_line	sequence	bytes_share	0.4485	markers_share_of_all_markers	0.0201	marker_share_within_line_type	0.0172
+markers_by_line	plus	bytes_share	0.0059	markers_share_of_all_markers	0.0155	marker_share_within_line_type	0.9966
+markers_by_line	quality	bytes_share	0.4485	markers_share_of_all_markers	0.7783	marker_share_within_line_type	0.6630

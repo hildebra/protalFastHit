@@ -51,14 +51,16 @@ for this page.
   strain whose reads tie with a congener's reference is not counted as nothing;
   `build_gtdb_database.py --fragment-count soft` builds and trains with it. The default stays `mapq`. Untested
   at r226.
-- **gzip files that are not BGZF on several threads, and ISA-L built with protal** (2026-10-12). A gzip
-  read file of one member (as `gzip` writes it) is inflated by rapidgzip (vendored, `lib/rapidgzip`) on 8 to 16
-  threads per file in runs with 16 or more threads per file (a paired-end run on 32 or more), else by ISA-L on
-  one thread as before; on FASTQ rapidgzip costs about four times ISA-L's CPU (0.3 GB/s per thread against
-  1.2-1.6 GB/s on one), so BGZF input stays the fastest
-  ([report](claude/2026-10-12-rapidgzip-input/README.md)). rapidgzip needs a few changes to ISA-L, so ISA-L 2.32.1
-  with them is now in `lib/isa-l` and built with protal (static and not): a build needs nasm instead of an
-  installed ISA-L. The outputs are the same.
+- **gzip files that are not BGZF on several threads** (2026-10-12, reworked 2026-10-13). A gzip read file of
+  one member (as `gzip` writes it) is inflated by ISA-L in pieces on 1 to 8 threads per file (one per 4 of `-t`
+  and file: 2 per file for a paired-end run on 16 threads, 4 on 32): pieces are decoded ahead twice with the
+  32 KB before them as labels, which say where each copied byte comes from once that window is known, while
+  the file's own thread decodes the others in order. On FASTQ about 2.0 and 2.4 GB/s on 2 and 4 threads
+  against 1.7 on one (4 cores) ([report](claude/2026-10-12-isal-parallel-inflate/README.md)); BGZF input stays the
+  fastest. It replaces rapidgzip (2026-10-12 only: 0.3 GB/s per thread on FASTQ,
+  [report](claude/2026-10-12-rapidgzip-input/README.md)), and with it the copy of ISA-L in `lib/isa-l` and the
+  nasm it needed: protal links the system's ISA-L again (libisal-dev, conda's isa-l), as before. The outputs
+  are the same.
 - **Sparse-first gates recorded by the database** (2026-10-12). `--sparse_first` takes a gate per read type
   (`pe:1,se:1,pb:8,ont:1`), `--build` records them in `build_settings.tsv`, and runs follow the database's
   gates unless told otherwise (`auto`, the default; a map's `SPARSE_FIRST` column gates one sample), saying

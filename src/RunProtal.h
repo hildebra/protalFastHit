@@ -1053,8 +1053,7 @@ namespace protal {
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
                 // A gzip read file inflates on several threads by -t (ThreadedGzStream.h): a BGZF one on 1 to 4 of protal's
-                // per file, another gzip file (a regular one) on 8 to 16 of rapidgzip's with 16 or more threads per file,
-                // else on one.
+                // per file, another gzip file (a regular one) in pieces on 1 to 8 (a thread per 4 of -t and file, ParallelGzip.h).
                 std::size_t const files = single_file ? 1 : 2;
                 ThreadedGzStreambuf::SetInflateThreads(ThreadedGzStreambuf::InflateThreadsFor(options.GetThreads(), files));
                 ThreadedGzStreambuf::SetGzipThreads(ThreadedGzStreambuf::GzipThreadsFor(options.GetThreads(), files));
@@ -1079,17 +1078,17 @@ namespace protal {
                     return message.empty() ? std::string() : ": " + message;
                 };
                 // With --verbose, how each input is inflated as it is opened: a gzip file on several threads (BGZF blocks on
-                // protal's, another gzip file on rapidgzip's), any other on one.
+                // protal's, another gzip file in pieces), any other on one.
                 ThreadedGzStreambuf::OnOpen tell_input;
                 if (options.Verbose()) {
                     tell_input = [](std::string const& path, ThreadedGzStreambuf const& buf) {
                         std::string const threads = std::to_string(buf.inflate_threads()) + " thread(s)";
                         std::cout << "Input " << path << ": "
                                   << (buf.opened_as_bgzf()  ? "BGZF, inflated on " + threads
-                                      : buf.parallel_gzip() ? "gzip (not BGZF), inflated on " + threads + " by rapidgzip"
+                                      : buf.parallel_gzip() ? "gzip (not BGZF), inflated in pieces on " + threads
                                                             : std::string("not BGZF (gzip, zstd or uncompressed), read on one thread"))
                                   << (buf.parallel_gzip_error().empty() ? std::string()
-                                                                        : " (rapidgzip: " + buf.parallel_gzip_error() + ")")
+                                                                        : " (not in pieces: " + buf.parallel_gzip_error() + ")")
                                   << std::endl;
                     };
                 }

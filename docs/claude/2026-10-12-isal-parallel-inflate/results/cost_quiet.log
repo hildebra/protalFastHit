@@ -1,0 +1,27 @@
+load: 0.61 1.61 2.58 2/225 1447145
+seq	gzip_crc	chunk_KiB	0	total_out	1681851361	wall_s	0.990	cpu_s	0.989	GBps	1.698	cpu_s_per_GB	0.588	mmap_s	0.000	maxrss_MiB	383
+cost	piece_MiB	1.00	pieces	376	out_total	1681851361	crc_ok	1	size_ok	1	ref_checked	0	ref_mismatch_pieces	0	spec_mismatch_pieces	0
+cost_s_per_GB	true_window_1pass	0.5706	v3_pass1	0.5753	v3_pass2	0.5939	v3_pass3	0.6068	v3_merge	0.8003	v3_resolve	0.3302	v2_passA	0.5750	v2_passB	0.5756	v2_merge	0.8101	v2_resolve	0.3240	v2_fused_merge_resolve	0.3850	v3_fused_merge_resolve	0.4022	first_piece_s	0.0047
+markers	total	787845621	share_of_spec_output	0.469693	runs	577711990	mean_run_len	1.36	p_ge_16384	644011327	share_p_ge_16384	0.8174	ambig_L1eqL2	6190391	pieces_where_markers_die	0	of	375
+markers_by_line	header	bytes_share	0.0970	markers_share_of_all_markers	0.1667	marker_share_within_line_type	0.8074
+markers_by_line	sequence	bytes_share	0.4485	markers_share_of_all_markers	0.0477	marker_share_within_line_type	0.0499
+markers_by_line	plus	bytes_share	0.0059	markers_share_of_all_markers	0.0126	marker_share_within_line_type	0.9993
+markers_by_line	quality	bytes_share	0.4485	markers_share_of_all_markers	0.7730	marker_share_within_line_type	0.8094
+load: 0.72 1.57 2.54 1/223 1447158
+seq	gzip_crc	chunk_KiB	0	total_out	1681851361	wall_s	0.987	cpu_s	0.986	GBps	1.704	cpu_s_per_GB	0.586	mmap_s	0.000	maxrss_MiB	383
+cost	piece_MiB	16.00	pieces	24	out_total	1681851361	crc_ok	1	size_ok	1	ref_checked	0	ref_mismatch_pieces	0	spec_mismatch_pieces	0
+cost_s_per_GB	true_window_1pass	0.5951	v3_pass1	0.6023	v3_pass2	0.6134	v3_pass3	0.6130	v3_merge	0.4836	v3_resolve	0.1410	v2_passA	0.5916	v2_passB	0.5830	v2_merge	0.4597	v2_resolve	0.1385	v2_fused_merge_resolve	0.2337	v3_fused_merge_resolve	0.2543	first_piece_s	0.0615
+markers	total	306024467	share_of_spec_output	0.190059	runs	193121211	mean_run_len	1.58	p_ge_16384	259778497	share_p_ge_16384	0.8489	ambig_L1eqL2	1550499	pieces_where_markers_die	0	of	23
+markers_by_line	header	bytes_share	0.0970	markers_share_of_all_markers	0.3375	marker_share_within_line_type	0.6611
+markers_by_line	sequence	bytes_share	0.4485	markers_share_of_all_markers	0.0199	marker_share_within_line_type	0.0084
+markers_by_line	plus	bytes_share	0.0059	markers_share_of_all_markers	0.0311	marker_share_within_line_type	0.9943
+markers_by_line	quality	bytes_share	0.4485	markers_share_of_all_markers	0.6116	marker_share_within_line_type	0.2592
+load: 0.78 1.54 2.52 1/223 1447170
+seq	gzip_crc	chunk_KiB	0	total_out	1681851361	wall_s	1.011	cpu_s	1.010	GBps	1.663	cpu_s_per_GB	0.601	mmap_s	0.000	maxrss_MiB	383
+cost	piece_MiB	4.00	pieces	94	out_total	1681851361	crc_ok	1	size_ok	1	ref_checked	0	ref_mismatch_pieces	0	spec_mismatch_pieces	0
+cost_s_per_GB	true_window_1pass	0.5879	v3_pass1	0.5900	v3_pass2	0.5871	v3_pass3	0.5787	v3_merge	0.6802	v3_resolve	0.2791	v2_passA	0.5784	v2_passB	0.5772	v2_merge	0.6869	v2_resolve	0.2706	v2_fused_merge_resolve	0.3481	v3_fused_merge_resolve	0.3624	first_piece_s	0.0158
+markers	total	635645638	share_of_spec_output	0.382052	runs	484976803	mean_run_len	1.31	p_ge_16384	526362616	share_p_ge_16384	0.8281	ambig_L1eqL2	3461728	pieces_where_markers_die	0	of	93
+markers_by_line	header	bytes_share	0.0970	markers_share_of_all_markers	0.1860	marker_share_within_line_type	0.7327
+markers_by_line	sequence	bytes_share	0.4485	markers_share_of_all_markers	0.0201	marker_share_within_line_type	0.0172
+markers_by_line	plus	bytes_share	0.0059	markers_share_of_all_markers	0.0155	marker_share_within_line_type	0.9966
+markers_by_line	quality	bytes_share	0.4485	markers_share_of_all_markers	0.7783	marker_share_within_line_type	0.6630

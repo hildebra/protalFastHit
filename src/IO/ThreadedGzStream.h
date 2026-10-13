@@ -62,13 +62,13 @@ namespace protal {
     // them: the same bytes, and an error (a corrupt block, a cut file) where the file has it, with
     // everything before it read. One gzip member cannot be split this way (its deflate blocks are
     // found only by decoding it from the start, and refer back up to 32 KB): another gzip file, if
-    // it is a regular file and gets more than one thread, is inflated by rapidgzip on that many
-    // threads of its own (ParallelGzip.h), and this file's thread copies its output into the blocks;
-    // with one thread, from a pipe (which rapidgzip would have to buffer), or ending in zero bytes
-    // (padding, which rapidgzip fails on), ISA-L inflates it here on one thread. The bytes are the
-    // same either way; a cut file, a corrupt member, a wrong CRC-32 or length, a damaged member header
-    // or data after the last member fail either way, in other words (what was read before may differ:
-    // a corrupt member's bytes up to where the damage shows; ParallelGzip checks what rapidgzip does not).
+    // it is a regular file and gets more than one thread, is inflated in pieces on that many threads
+    // with ISA-L (ParallelGzip.h: this file's thread decodes in order what the others have not decoded
+    // ahead, and copies the output into the blocks); with one thread, or from a pipe (which would have
+    // to be kept), ISA-L inflates it here on one thread. The bytes are the same either way; a cut file,
+    // a corrupt member, a wrong CRC-32 or length, a damaged member header or data after the last member
+    // fail either way, in other words (what was read before may differ: a corrupt member's bytes up to
+    // where the damage shows).
     //
     // Several files (open with a list: a sample's lanes) read as one stream, one after the other, each in
     // its own format: a file whose last line lacks its '\n' gets one, TakeLines ends a batch with its file
@@ -83,11 +83,11 @@ namespace protal {
         static constexpr size_t kBlocks = 4;                   // with one inflating thread; 2 per worker + 2 with more
         static constexpr uint32_t kInputBuffer = 1u << 17;     // compressed bytes per read()
         static constexpr unsigned kMaxInflateThreads = 16;
-        // The fewest threads rapidgzip gets for a gzip file that is not BGZF: on FASTQ it inflates ~0.3 GB/s a
-        // thread, as its first-pass decoder does nearly all of it (a FASTQ file's copies of names and qualities
-        // keep pointing back to the unknown 32 KB before a piece, so ISA-L seldom takes over), against ISA-L's
-        // 1.2-1.6 GB/s on one (docs/claude/2026-10-12-rapidgzip-input): fewer than ~6 are slower than one.
-        static constexpr unsigned kMinParallelGzipThreads = 8;
+        // The most threads protal gives a gzip file that is not BGZF (ParallelGzip): a piece decoded ahead costs ~2.6
+        // times one decoded in order (two passes, and its copies from the unknown window filled in: on FASTQ ~40% of
+        // the bytes), so each thread adds less (on 4 cores 1.7, 2.0, 2.35, 2.4 GB/s of FASTQ on 1-4 threads,
+        // docs/claude/2026-10-12-isal-parallel-inflate).
+        static constexpr unsigned kMaxGzipThreads = 8;
 
         // Threads that inflate a BGZF file opened from now on (1: the file's own thread does it; at most
         // kMaxInflateThreads). PROTAL_INFLATE_THREADS in the environment overrides it, and GzipThreads (for
@@ -107,8 +107,8 @@ namespace protal {
             return static_cast<unsigned>(std::clamp<size_t>(per_file, 1, 4));
         }
 
-        // Threads that inflate a gzip file that is not BGZF (a regular file) opened from now on: rapidgzip's, with
-        // more than one (ParallelGzip); 1: ISA-L on the file's own thread.
+        // Threads that inflate a gzip file that is not BGZF (a regular file) opened from now on: more than one inflate
+        // it in pieces (ParallelGzip); 1: ISA-L on the file's own thread.
         static void SetGzipThreads(unsigned threads) {
             GzipThreadsSetting().store(std::clamp(threads, 1u, kMaxInflateThreads), std::memory_order_relaxed);
         }
@@ -116,14 +116,12 @@ namespace protal {
             if (unsigned const n = InflateThreadsOfTheEnvironment()) return n;
             return GzipThreadsSetting().load(std::memory_order_relaxed);
         }
-        // protal's choice: a thread per 2 alignment threads and file, if that is kMinParallelGzipThreads or more (a
-        // paired-end run on 32 threads or more, one file on 16 or more), at most kMaxInflateThreads; else 1. The
-        // threads come on top of -t; they wait for room, not spin, while the alignment takes the reads slower than
-        // they inflate them.
+        // protal's choice: a thread per 4 alignment threads and file, 1 to kMaxGzipThreads (a paired-end run on 16
+        // threads: 2 per file, on 32: 4). The threads come on top of -t; they wait for room, not spin, while the
+        // alignment takes the reads slower than they inflate them.
         static unsigned GzipThreadsFor(size_t threads, size_t files) {
-            size_t const per_file = threads / (2 * std::max<size_t>(files, 1));
-            if (per_file < kMinParallelGzipThreads) return 1;
-            return static_cast<unsigned>(std::min<size_t>(per_file, kMaxInflateThreads));
+            size_t const per_file = threads / (4 * std::max<size_t>(files, 1));
+            return static_cast<unsigned>(std::clamp<size_t>(per_file, 1, kMaxGzipThreads));
         }
 
         ThreadedGzStreambuf() = default;
@@ -189,15 +187,9 @@ namespace protal {
                 m_block_in.resize(bgzf::kMaxBlock);
                 m_last_empty = false;
             } else if (peeked >= 2 && head[0] == 0x1f && head[1] == 0x8b && threads > 1) {
-                // A gzip file that is not BGZF, on several threads: rapidgzip's (ParallelGzip); on one if it cannot
-                // be had (m_parallel_error says why), or if the file ends in four zero bytes: rapidgzip fails on zero
-                // padding after the last member, which gzip and FillStream skip. (An empty last member ends so too,
-                // and one of 4 GiB times n bytes; read on one thread, those are read all the same.)
-                unsigned char tail[4] = { 1, 1, 1, 1 };
-                bool const zero_tail = st.st_size >= 4 && ::pread(m_fd, tail, sizeof(tail), st.st_size - 4) == 4 &&
-                                       tail[0] == 0 && tail[1] == 0 && tail[2] == 0 && tail[3] == 0;
-                if (zero_tail) m_parallel_error = "the file ends in zero bytes (padding?), which it does not read";
-                else m_parallel = ParallelGzip::Open(m_fd, threads, m_parallel_error);
+                // A gzip file that is not BGZF, on several threads (ParallelGzip); on one if that cannot be had
+                // (m_parallel_error says why).
+                m_parallel = ParallelGzip::Open(m_fd, threads, m_parallel_error);
             }
             if (!m_bgzf && !m_parallel && !StartGzip(0, m_open_error)) {
                 ::close(m_fd);
@@ -250,17 +242,20 @@ namespace protal {
         }
 
     public:
-        // The threads inflating the open file: BGZF blocks, or rapidgzip's for other gzip (1: the file's own thread).
+        // The threads inflating the open file: BGZF blocks, or another gzip file's pieces (1: the file's own thread).
         unsigned inflate_threads() const { return m_parallel_threads > 0 ? m_parallel_threads : m_workers; }
 
         // Whether the open file began as BGZF (else gzip, zstd or uncompressed).
         bool opened_as_bgzf() const { return m_opened_bgzf; }
 
-        // Whether the open file, gzip but not BGZF, is inflated by rapidgzip on several threads (ParallelGzip).
+        // Whether the open file, gzip but not BGZF, is inflated in pieces on several threads (ParallelGzip).
         bool parallel_gzip() const { return m_parallel_threads > 0; }
 
         // Why a gzip file that would have been inflated on several threads is inflated on one (empty if none).
         std::string const& parallel_gzip_error() const { return m_parallel_error; }
+
+        // How the open file's pieces were decoded (ParallelGzip::Counts; none if not in pieces), once it is read.
+        ParallelGzip::Counts parallel_gzip_counts() const { return m_parallel ? m_parallel->counts() : ParallelGzip::Counts{}; }
 
         bool is_open() const { return m_fd >= 0; }
 
@@ -652,7 +647,7 @@ namespace protal {
             return false;
         }
 
-        // Copies the file's next inflated bytes from rapidgzip (m_parallel) into data (from size) until the block is
+        // Copies the file's next inflated bytes from its pieces (m_parallel) into data (from size) until the block is
         // full; true at the end of the file or on an error (then set).
         bool FillParallel(char* data, size_t& size, std::string& error) {
             while (size < kBlockSize) {
@@ -917,7 +912,7 @@ namespace protal {
 
         std::thread m_thread;                            // Inflate, or with several inflating threads Dispatch
         unsigned m_workers = 1;                          // threads inflating BGZF blocks (1: m_thread does)
-        std::unique_ptr<ParallelGzip> m_parallel;        // a gzip file's inflating on rapidgzip's threads (Inflate copies)
+        std::unique_ptr<ParallelGzip> m_parallel;        // a gzip file inflated in pieces on several threads (Inflate copies)
         unsigned m_parallel_threads = 0;                 // its threads (0: none)
         std::string m_parallel_error;                    // why a gzip file is not inflated on several threads after all
         bool m_opened_bgzf = false;                      // the file began as BGZF

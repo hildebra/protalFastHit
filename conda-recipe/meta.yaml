@@ -19,15 +19,15 @@ requirements:
     - {{ stdlib('c') }}
     - cmake >=3.22
     - make
-    - nasm >=2.14.01          # ISA-L's assembly (lib/isa-l, built and linked in: gzip read and written)
   host:
     - zstd                    # database.protal and its compressed parts, .sam.zst
+    - isa-l                   # gzip: every gzip input, and gzip as protal writes it (BGZF .sam.gz, simulated reads)
     - libgomp                 # OpenMP
   run:
     - python >=3.8            # qcmsa (standard library only), protal_map_utils, protal_profile_utils
     - libgomp
     - matplotlib-base         # only for qcmsa --plot
-    # zstd comes with its run_exports; zlib-ng, ISA-L and rapidgzip are vendored and linked in (lib/).
+    # zstd and isa-l come with their run_exports; zlib-ng is vendored and linked in (lib/zlib-ng).
     # Building and training a database needs more (numpy, pandas, scikit-learn, NCBI datasets):
     # see envs/protal-db-build.yaml.
 

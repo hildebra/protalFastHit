@@ -213,39 +213,51 @@ get_filename_component(ZSTD_LIBRARY_DIR ${ZSTD_LIBRARY} DIRECTORY)
 message(STATUS "zstd: ${ZSTD_LIBRARY} (${ZSTD_INCLUDE_DIR})")
 target_include_directories(protal_lib PUBLIC ${ZSTD_INCLUDE_DIR})
 
-# The static binaries link zstd statically: the system's libzstd.a (by name, next to the library
-# found above), or with PROTAL_STATIC_FETCH_DEPS (`just static`) a release downloaded and built in
-# the build tree (lib/static-deps.cmake).
-option(PROTAL_STATIC_FETCH_DEPS "Download and build zstd for the static binaries" OFF)
+# The static binaries link zstd and ISA-L statically: the system's libzstd.a and libisal.a (by
+# name, next to the libraries found below; Ubuntu's libisal-dev has no libisal.a), or with
+# PROTAL_STATIC_FETCH_DEPS (`just static`) releases downloaded and built in the build tree
+# (lib/static-deps.cmake).
+option(PROTAL_STATIC_FETCH_DEPS "Download and build zstd and ISA-L for the static binaries" OFF)
 if (PROTAL_STATIC_FETCH_DEPS)
     include(${PROJECT_SOURCE_DIR}/../lib/static-deps.cmake)
 endif()
 
 # ISA-L (igzip): gzip as protal writes it (BGZF: .sam.gz, the simulator's reads) and every gzip
-# input it reads, BGZF or not, with rapidgzip's changes; lib/isa-l, built for every binary as a static
-# library (lib/isa-l.cmake: needs nasm, or builds one). rapidgzip (lib/rapidgzip, header-only): a gzip
-# file that is not BGZF inflated on several threads, in IO/ParallelGzip.cpp only.
-include(${PROJECT_SOURCE_DIR}/../lib/isa-l.cmake)
-include(${PROJECT_SOURCE_DIR}/../lib/rapidgzip.cmake)
-target_include_directories(protal_lib PUBLIC ${PROTAL_ISAL_INCLUDE_DIR})
-target_include_directories(protal_lib_static PUBLIC ${PROTAL_ISAL_INCLUDE_DIR})
-add_dependencies(protal_lib protal_isal_build)
-add_dependencies(protal_lib_static protal_isal_build)
+# input it reads, BGZF or not. Ubuntu: libisal-dev, conda: isa-l (or an install of its own, through
+# CMAKE_PREFIX_PATH). Without one, `just static` (PROTAL_STATIC_FETCH_DEPS) links the ISA-L it
+# builds into every binary.
+find_path(ISAL_INCLUDE_DIR isa-l/igzip_lib.h)
+find_library(ISAL_LIBRARY NAMES isal)
+if (ISAL_INCLUDE_DIR AND ISAL_LIBRARY)
+    get_filename_component(ISAL_LIBRARY_DIR ${ISAL_LIBRARY} DIRECTORY)
+    message(STATUS "ISA-L: ${ISAL_LIBRARY} (${ISAL_INCLUDE_DIR})")
+elseif (PROTAL_STATIC_FETCH_DEPS)
+    set(ISAL_INCLUDE_DIR ${PROTAL_STATIC_ISAL_INCLUDE_DIR})
+    set(ISAL_LIBRARY protal_static_isal)
+    add_dependencies(protal_lib protal_static_isal_build)
+    message(STATUS "ISA-L: none on the system; every binary links the one built in ${PROTAL_STATIC_DEPS_DIR}")
+else()
+    message(FATAL_ERROR "ISA-L not found (isa-l/igzip_lib.h, libisal): install it (Ubuntu: libisal-dev, conda: isa-l) "
+                        "or name its prefix with -DCMAKE_PREFIX_PATH=...; `just static` builds it itself.")
+endif()
+target_include_directories(protal_lib PUBLIC ${ISAL_INCLUDE_DIR})
 
 if (PROTAL_STATIC_FETCH_DEPS)
-    message(STATUS "Static binaries: zstd built in ${PROTAL_STATIC_DEPS_DIR}")
-    # BEFORE: its headers, not the system's, which a conda include directory may also hold.
-    target_include_directories(protal_lib_static BEFORE PUBLIC ${PROTAL_STATIC_DEPS_INCLUDE_DIR})
-    add_dependencies(protal_lib_static protal_static_zstd_build)
+    message(STATUS "Static binaries: zstd and ISA-L built in ${PROTAL_STATIC_DEPS_DIR}")
+    # BEFORE: their headers, not the system's, which a conda include directory may also hold.
+    target_include_directories(protal_lib_static BEFORE PUBLIC ${PROTAL_STATIC_DEPS_INCLUDE_DIR} ${PROTAL_STATIC_ISAL_INCLUDE_DIR})
+    add_dependencies(protal_lib_static protal_static_zstd_build protal_static_isal_build)
     set(PROTAL_STATIC_ZSTD protal_static_zstd)
+    set(PROTAL_STATIC_ISAL protal_static_isal)
 else()
-    target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR})
-    target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR})
+    target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR} ${ISAL_INCLUDE_DIR})
+    target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR} ${ISAL_LIBRARY_DIR})
     set(PROTAL_STATIC_ZSTD zstd)
-    # Without a libzstd.a the static binaries cannot be linked, and are left out of the default build
-    # (`just static` builds zstd for them).
-    if (NOT EXISTS ${ZSTD_LIBRARY_DIR}/libzstd.a)
-        message(STATUS "No libzstd.a next to ${ZSTD_LIBRARY}: protal_static and simulate_metagenomes_static are left out of "
+    set(PROTAL_STATIC_ISAL isal)
+    # Ubuntu's libisal-dev has no libisal.a: the static binaries cannot be linked then, and are left out of the
+    # default build (`just static` builds ISA-L for them).
+    if (NOT EXISTS ${ISAL_LIBRARY_DIR}/libisal.a)
+        message(STATUS "No libisal.a next to ${ISAL_LIBRARY}: protal_static and simulate_metagenomes_static are left out of "
                        "the default build (`just static` builds them)")
         set_target_properties(protal_static simulate_metagenomes_static PROPERTIES EXCLUDE_FROM_ALL TRUE)
     endif()
@@ -319,11 +331,8 @@ target_link_libraries(protal_lib
         gzstream_lib
         zlib-ng
         ${ZSTD_LIBRARY}
-        protal_isal
+        ${ISAL_LIBRARY}
 )
-# rapidgzip's include path (its headers, ISA-L's without the isa-l/ prefix, its zlib.h) for
-# IO/ParallelGzip.cpp alone: PRIVATE, as the rest of protal includes none of them.
-target_link_libraries(protal_lib PRIVATE protal_rapidgzip)
 
 target_link_libraries(protal_lib_static
         LINK_PUBLIC
@@ -333,9 +342,8 @@ target_link_libraries(protal_lib_static
         gzstream_lib_static
         zlib-ng
         ${PROTAL_STATIC_ZSTD}
-        protal_isal
+        ${PROTAL_STATIC_ISAL}
 )
-target_link_libraries(protal_lib_static PRIVATE protal_rapidgzip)
 
 message("CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")
 

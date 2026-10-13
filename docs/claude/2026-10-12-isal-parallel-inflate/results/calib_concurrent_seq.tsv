@@ -1,0 +1,12 @@
+round	1	N	1	sum_GBps	0.988	mean_per_proc	0.988	min	0.988
+round	1	N	2	sum_GBps	2.442	mean_per_proc	1.221	min	1.218
+round	1	N	3	sum_GBps	3.225	mean_per_proc	1.075	min	1.070
+round	1	N	4	sum_GBps	2.553	mean_per_proc	0.638	min	0.479
+round	2	N	1	sum_GBps	1.116	mean_per_proc	1.116	min	1.116
+round	2	N	2	sum_GBps	2.369	mean_per_proc	1.184	min	1.176
+round	2	N	3	sum_GBps	2.277	mean_per_proc	0.759	min	0.744
+round	2	N	4	sum_GBps	2.826	mean_per_proc	0.707	min	0.544
+round	3	N	1	sum_GBps	1.231	mean_per_proc	1.231	min	1.231
+round	3	N	2	sum_GBps	2.449	mean_per_proc	1.224	min	1.221
+round	3	N	3	sum_GBps	2.327	mean_per_proc	0.776	min	0.723
+round	3	N	4	sum_GBps	2.623	mean_per_proc	0.656	min	0.574
