@@ -1,0 +1,164 @@
+dataset	mock	read_type	group	run	note
+Dohlman2026	Zymo D6331 DNA	pe	D6331_dohlman_dna	SRR38158100	DNA only, replicate 2; NovaSeq X; subsample
+Dohlman2026	Zymo D6331 DNA	pe	D6331_dohlman_dna	SRR38158090	DNA only, replicate 3; no replicate 1 deposited
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158095	host dilution series 1:1..1:1e8 x3 in PRJNA1454942; human reads included
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158094	replicate 2
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158093	replicate 3
+Dohlman2026	human HCT116 DNA only	pe	D6331_dohlman_host_only	SRR38158104	negative: every call is a false positive
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926931	P1 PowerSoil Pro; 12 NovaSeq runs in PRJNA804004
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926928	P1 FastDNA
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926922	P1 Zymo kit
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324253	biological replicate 1
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324252	biological replicate 2
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324251	biological replicate 3
+Nicholls2019	Zymo D6300 cells, even	pe	D6300_nicholls	ERR2984773	MiSeq; same extract as the ONT runs
+Nicholls2019	Zymo D6310 cells, log	pe	D6310_nicholls	ERR2935805	HiSeq 1500; 10 log steps down to 1e-4 %
+Auckland	Zymo D6300 cells	pe	D6300_vs_D6305_auckland	SRR33710517	replicate 1
+Auckland	Zymo D6300 cells	pe	D6300_vs_D6305_auckland	SRR33710516	replicate 2
+Auckland	Zymo D6305 DNA	pe	D6300_vs_D6305_auckland	SRR33710467	replicate 1; cells vs DNA of one composition
+Auckland	Zymo D6305 DNA	pe	D6300_vs_D6305_auckland	SRR33710466	replicate 2
+Auckland	Zymo D6331 cells	pe	D6331_auckland	SRR33710519	replicate 1
+Auckland	Zymo D6331 cells	pe	D6331_auckland	SRR33710518	replicate 2
+sbvIMPROVER	Zymo DNA standard	pe	zymo_dna_sbv	SRR12829162	same read and base counts as SRR12829163: likely one library twice
+sbvIMPROVER	Zymo DNA standard	pe	zymo_dna_sbv	SRR12829163	see SRR12829162
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487937	5 libraries of one DNA, MiSeq 2x300
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487938	-
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487939	-
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487940	-
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487941	-
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487931	5 libraries of one DNA; staggered 0.11-19.8 %
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487932	-
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487933	-
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487934	-
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487935	-
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487948	5 libraries of one DNA
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487949	-
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487950	-
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487951	-
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487952	-
+Anwar2025	NIBSC Gut-Mix-RR DNA	pe	nibsc_multilab_deep	SRR34838295	Lab 15, NextSeq 2000; 23-lab study PRJNA1238537, the deepest run
+Anwar2025	NIBSC Gut-Mix-RR DNA	pe	nibsc_multilab_deep	SRR34838304	Lab 11, NovaSeq 6000; same lab and run as the HiLo SRR34838305
+Anwar2025	NIBSC Gut-HiLo-RR DNA	pe	nibsc_multilab_deep	SRR34838305	Lab 11, NovaSeq 6000
+ATCC_SRA	ATCC MSA-1003 DNA	pe	atcc1003_illumina	SRR8359173	HiSeq 2500 2x125
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380124	lab C HiSeq 2500; 3 labs, 20 DNA-mock and 36 cell-mock runs in PRJNA747117
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380125	-
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380126	-
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380113	lab C HiSeq 2500
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380114	-
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380115	-
+Mori2023	18 gut type strains, DNA mix	pe	mori_dna_mix	DRR466894	HiSeq 2500; same extract on NovaSeq as DRR466895
+Mori2023	18 gut type strains, DNA mix	pe	mori_dna_mix	DRR466895	NovaSeq 6000
+Mori2023	18 gut type strains, cells (Zymo kit)	pe	mori_cells_zymo	DRR466885	HiSeq 2500; 6 extraction kits in PRJDB10817
+Mori2023	18 gut type strains, cells (Zymo kit)	pe	mori_cells_zymo	DRR466886	NovaSeq 6000
+Treichel2026	Clavel-lab gut mocks (24-70 strains)	pe	treichel	ERR14788567	Mock-even-70, depth step 8, facility 1; one of 94 NovaSeq runs in PRJEB83573: 9 depths x 2 facilities x +-mouse DNA; map runs via the GitHub xlsx
+Meslier2022	mock 1 (71 strains incl. archaea)	pe	meslier_mock1	ERR9765746	HiSeq 3000 2x150
+Meslier2022	mock 1	pe	meslier_mock1	ERR9765742	DNBSEQ-G400 PE100, same DNA
+Meslier2022	mock 1	pe	meslier_mock1	ERR9765744	DNBSEQ-T7 PE100, same DNA, 75 Gb
+Meslier2022	mock 1	se	meslier_mock1	ERR9765777	Ion S5 single-end, same DNA
+Meslier2022	mock 1	ont	meslier_mock1	ERR9765780	MinION R9.4.1, Guppy 2.3.1
+Meslier2022	mock 1	pb	meslier_mock1	ERR9765783	Sequel II CCS, 5.4 Gb; size-selected
+Meslier2022	mock 2 (87 strains)	pe	meslier_mock2	ERR9765747	HiSeq 3000; Table 2 of the paper swaps mock 2 and 3
+Meslier2022	mock 2	pe	meslier_mock2	ERR9765743	DNBSEQ-G400
+Meslier2022	mock 2	pe	meslier_mock2	ERR9765745	DNBSEQ-T7
+Meslier2022	mock 2	se	meslier_mock2	ERR9765778	Ion S5
+Meslier2022	mock 2	ont	meslier_mock2	ERR9765781	MinION R9.4.1
+Meslier2022	mock 3 (64 strains)	pe	meslier_mock3	ERR9765748	HiSeq 3000, one library over two runs with ERR9765749
+Meslier2022	mock 3	pe	meslier_mock3	ERR9765749	-
+Meslier2022	mock 3	se	meslier_mock3	ERR9765779	Ion S5
+Meslier2022	mock 3	ont	meslier_mock3	ERR9765782	MinION R9.4.1
+Goussarov2024	HC227 (227 strains, even DNA)	pe	hc227	ERR5321934	NovaSeq 2x150, 83 Gb
+Goussarov2024	HC227	ont	hc227	ERR6109821	PromethION R9.4.1, Guppy 3.2.6, 75 Gb
+Goussarov2024	HC227	pb	hc227	ERR6178439	Sequel subreads: run ccs; 4 SMRT cells give ~5.8 Gb HiFi in all
+Goussarov2024	HC227	pb	hc227	ERR6178440	-
+Goussarov2024	HC227	pb	hc227	ERR6178441	-
+Goussarov2024	HC227	pb	hc227	ERR6178442	-
+Singer2016	MBARC-26 (23 bacteria, 3 archaea)	pe	mbarc26	SRR3656745	HiSeq 2000; Thermobacillus composti contaminant
+Sevim2019	BMock12	pe	bmock12	SRR8073716	HiSeq 2500; Micromonospora coxensis absent from the reads
+Sevim2019	BMock12	ont	bmock12	SRR8073713	MinION R9.4.1, 10 kb size-selected
+Sevim2019	BMock12	ont	bmock12	SRR8351023	MinION R9.4, no size selection
+Shakya2013	64 genomes (48 bacteria, 16 archaea)	pe	shakya	SRR606249	HiSeq 2000 2x101; >=4 contaminant species reported
+HMP	HMP mock B even	se	hmp_gaii	SRR172902	GAII 75 bp; 16S-operon truth
+HMP	HMP mock B staggered	se	hmp_gaii	SRR172903	-
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726606	HiSeq 2500, Nextera; 4 kits x 2 runs in PRJNA298489
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726667	TruSeq
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726669	Kapa
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726671	Kapa PCR-free
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128014	Sequel II HiFi, standard input
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128013	low input, same DNA
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128012	ultra-low input with amplification (WGA)
+Hon2020	ATCC MSA-1003 DNA	pb	atcc1003_hifi	SRR11606871	Sequel II HiFi 59 Gb; SRR11469785 is the same data
+Hon2020	ATCC MSA-1003 DNA	pb	atcc1003_hifi	SRR11469785	duplicate deposit of SRR11606871: do not count twice
+PacBio	ATCC MSA-1003 DNA	pb	atcc1003_hifi_2019	SRR9328980	Sequel II CCS 2019
+PacBio	ATCC MSA-1003 DNA	pb	atcc1003_hifi_2019	SRR9202034	same library name as SRR9328980
+INRAE	Zymo D6300 cells	pb	zymo_inrae_hifi	ERR12085099	Sequel II; cells vs DNA
+INRAE	Zymo D6305 DNA	pb	zymo_inrae_hifi	ERR12085100	-
+Chen2025	Zymo D6331 cells	ont	D6331_ont_deep	SRR31222153	PromethION LSK114 R10.4.1, 128 Gb
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251410	R10.4.1, Dorado 0.8.2 sup v5.0.0; same reads as the next three
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251409	hac v5.0.0
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251408	fast v5.0.0
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR15459768	Dorado 1.0.0 sup v5.2.0 (BAM with modified bases)
+MicroBench	Zymo D6332 oral (ZymoOral)	ont	D6332_microbench	ERR14251413	sup v5.0.0; truth per strain not checked
+Benoit2026	Zymo D6331	ont	D6331_ont_small	ERR15316007	P2 Solo LSK114, Dorado sup v5, 12 Gb
+Chen2024	Zymo D6331	ont	D6331_ont_small	SRR26387398	NBD114, Guppy 6.5.7 sup, 3.6 Gb
+Liu2022_HKU	Zymo D6331 cells	ont	D6331_hku_ont	SRR17913200	R9.4.1 Kit 9, 28 Gb; reads pre-filtered
+Liu2022_HKU	Zymo D6331 cells	ont	D6331_hku_ont	SRR17913199	Kit 12 (Q20+), 7 Gb
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421465	one R10.4.1 flow cell (PAS01578), Dorado fast v4.3.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421467	hac v4.3.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421469	sup v4.3.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421468	duplex sup v4.3.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR11901474	sup v4.2.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR14294023	MicroBench: Dorado 0.7.3 sup v5.0.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR15459724	MicroBench: Dorado 1.0.0 sup v5.2.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR15459721	MicroBench: Dorado 1.0.0 hyp v5.0.0
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893244	GridION 5 kHz, sup; same reads as the next two
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893245	hac
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893246	fast
+Sereika2022	Zymo D6322 HMW DNA	pe	D6322_sereika	ERR7255689	MiSeq; same DNA as the ONT runs
+Sereika2022	Zymo D6322 HMW DNA	ont	D6322_sereika	ERR7255742	MinION R9.4.1
+Sereika2022	Zymo D6322 HMW DNA	ont	D6322_sereika	ERR7287988	PromethION R10.4 (Kit 12)
+Aalborg	Zymo DNA standard (Q20 early access)	ont	zymo_q20ea	ERR5396170	R10.4 Q20 early access, Bonito 0.3.5
+Nicholls2019	Zymo D6300 cells, even	ont	D6300_nicholls	ERR3152364	GridION R9.4.1, Guppy 2.2.2 flip-flop
+Nicholls2019	Zymo D6300 cells, even	ont	D6300_nicholls	ERR3152365	PromethION R9.4.1, 152 Gb
+Nicholls2019	Zymo D6310 cells, log	ont	D6310_nicholls	ERR3152366	GridION R9.4.1
+Treichel2026	Clavel-lab Mock-stag-70	ont	treichel	ERR16002257	PromethION R10.4.1 LSK114, Dorado 1.0.0 sup v5.2.0, 117 Gb
+Afolayan2024	2-3 E. coli or K. pneumoniae strains	ont	strainmix_r9_r10	ERR13964249	R9.4.1, strains 13723+17053+12926; ERR13964249+k and ERR13964269+k are one mix (k 0-19)
+Afolayan2024	2-3 E. coli or K. pneumoniae strains	ont	strainmix_r9_r10	ERR13964269	R10.4.1
+Afolayan2024	2 K. pneumoniae strains 50:50	ont	strainmix_kp_ratio	ERR15465280	EE007/TU48010 50:50
+Afolayan2024	2 K. pneumoniae strains 70:30	ont	strainmix_kp_ratio	ERR15465284	EE007/TU48010 70:30
+Hu2020	HMP mock B even (HM-276D)	ont	hmp_ont	SRR11700265	GridION R9-era, 36 Gb; 16S-operon truth
+Hu2020	HMP mock B staggered (HM-277D)	ont	hmp_ont	SRR11700264	GridION, 72 Gb
+Wu2025_Stanford	labelled mock_dna (product not stated)	ultima	ultima_mocks	SRR31481588	UG 100; likely a Zymo DNA standard: profile to identify
+Wu2025_Stanford	labelled mock_gut (product not stated)	ultima	ultima_mocks	SRR31481586	UG 100; likely D6331
+Wu2025_Stanford	labelled mock_cellular (product not stated)	ultima	ultima_mocks	SRR31481591	UG 100; likely D6300
+Element	Zymo community standard (catalogue not stated)	pe	element	SRR30875866	the only Element AVITI mock run found
+Nicholls2019	Zymo D6310 cells, log	ont	D6310_nicholls	ERR2906230	PromethION R9.4.1, first release (ERR3152367, the flip-flop call, has 0 reads in ENA)
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	pe	atcc1002_bari	ERR15084348	NovaSeq; same DNA as the next two
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	ont	atcc1002_bari	ERR15084349	R10.4.1 LSK114, 2.8 Gb
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	pb	atcc1002_bari	ERR15084350	Sequel IIe HiFi, 0.8 Gb
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR21819256	one inoculum library set three ways: this run, KAPA (SRR29248670), Flex (SRR29248672)
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR29248670	KAPA library
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR29248672	Flex library
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819182	technical triplet a/b/c of one culture (90 such triplets in PRJNA885585)
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819181	b
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819180	c
+Wang2023	hCom1a (107 strains): inoculum	pe	hcom1a_dropouts	SRR24799814	SynCom1 input; P. barengoltzii spike-in added before extraction in every sample
+Wang2023	hCom1a minus C. hylemonae: inoculum	pe	hcom1a_dropouts	SRR24799818	SynCom8 input (dropout arms per the survey; check against the paper)
+Wang2023	hCom1a minus C. scindens: inoculum	pe	hcom1a_dropouts	SRR24799817	SynCom9 input
+Wang2023	hCom1a minus both: inoculum	pe	hcom1a_dropouts	SRR24799819	SynCom7 input
+Wang2023	hCom1a minus C. hylemonae: mouse caecum	pe	hcom1a_dropouts	SRR24799829	SynCom8 mouse 4, week 3; mouse DNA included
+Muench2023	OMM12 mouse, day 0	pe	omm12_day0	SRR25305803	mouse 1681; 12 complete genomes; 112 runs in PRJNA838765
+Muench2023	OMM12 mouse, day 0	pe	omm12_day0	SRR25305828	mouse 1683 (start of its 16-point series)
+Proctor2022	Altered Schaedler Flora (8 strains), mouse colon	pe	asf	SRR19241958	one BioSample, two runs; truth = groEL qPCR
+Proctor2022	Altered Schaedler Flora (8 strains), mouse colon	pe	asf	SRR19241959	
+Zimmermann2022	18 human gut strains, mouse caecum	pe	zk18	ERR10107056	mouse M011; 10 DNA runs in PRJEB33195
+Selten2026	AtSC 447-strain Arabidopsis SynCom, inoculum	pe	plant_syncom_inoculum	SRR29710026	most members not in GTDB r226
+Selten2026	SuperSynCom (988 genomes), inoculum	pe	plant_syncom_inoculum	SRR29710013	most members not in GTDB r226
+Selten2026	200-strain Arabidopsis SynCom 7, inoculum	pe	plant_syncom_200	SRR37935102	PRJNA1449013, 7 inocula SRR37935102-108
+Kleiner2017	32-member cell mock, equal cells	pe	kleiner	ERR1877474	C1; 3 designs x 3 mixes (ERR1877474-482); NextSeq 2x75
+Saak2023	16-member cheese-rind community, input	pe	cheese_rind	SRR19846572	day 0
+Saak2023	cheese-rind community without G. geotrichum	pe	cheese_rind	SRR19846570	dropout, day 7, replicate 1
+Ziegler2025	Prochlorococcus MED4 + 5 heterotrophs	pe	prochlorococcus	SRR35585684	replicate A, day 0; Thermus spike-in
+NIST	NIST Mosaic Standards Challenge DNA Mix A	pe	mosaic	SRR38976713	sample lib_MC2_Mosaic_MG
+NIST	Zymo D6331	pe	mosaic	SRR38976715	sample lib_MC1_Zymo_MG, same submission
+vanDijk2022	4 E. coli strains in human DNA	pe	straingE	SRR13355226	80/15/4.9/0.1 % of the E. coli
+vanDijk2022	4 E. coli strains in human DNA, enriched	pe	straingE	SRR24529635	same BioSample after pangenome hybrid selection: not a replicate

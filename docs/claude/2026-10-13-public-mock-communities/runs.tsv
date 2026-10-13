@@ -1,0 +1,164 @@
+dataset	mock	read_type	group	run	note	study	instrument	layout	strategy	reads	gbases	sample_title	check
+Dohlman2026	Zymo D6331 DNA	pe	D6331_dohlman_dna	SRR38158100	DNA only, replicate 2; NovaSeq X; subsample	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	1015614997	305.64	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 2	ok
+Dohlman2026	Zymo D6331 DNA	pe	D6331_dohlman_dna	SRR38158090	DNA only, replicate 3; no replicate 1 deposited	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	915836049	275.70	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 3	ok
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158095	host dilution series 1:1..1:1e8 x3 in PRJNA1454942; human reads included	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	398862723	119.61	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 1	ok
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158094	replicate 2	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	422521697	126.71	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 2	ok
+Dohlman2026	Zymo D6331 DNA in human DNA 1:100	pe	D6331_dohlman_host_1e2	SRR38158093	replicate 3	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	494482414	147.58	ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2, replicate 3	ok
+Dohlman2026	human HCT116 DNA only	pe	D6331_dohlman_host_only	SRR38158104	negative: every call is a false positive	PRJNA1454942	Illumina NovaSeq X	PAIRED	WGS	479643110	143.89	Human DNA only control (HCT116), replicate 1	ok
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926931	P1 PowerSoil Pro; 12 NovaSeq runs in PRJNA804004	PRJNA804004	Illumina NovaSeq 6000	PAIRED	WGS	28031935	8.41	Nanopore long reads for ZymoBIOMICS Gut Microbiome Standard metagenome	ok
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926928	P1 FastDNA	PRJNA804004	Illumina NovaSeq 6000	PAIRED	WGS	33731960	10.12	Nanopore long reads for ZymoBIOMICS Gut Microbiome Standard metagenome	ok
+Liu2022_HKU	Zymo D6331 cells	pe	D6331_hku_illumina	SRR23926922	P1 Zymo kit	PRJNA804004	Illumina NovaSeq 6000	PAIRED	WGS	33271460	9.98	Nanopore long reads for ZymoBIOMICS Gut Microbiome Standard metagenome	ok
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324253	biological replicate 1	PRJNA648136	Illumina NovaSeq 6000	PAIRED	WGS	51466358	15.39	ZymoBIOMICS Microbial Community Standard	ok
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324252	biological replicate 2	PRJNA648136	Illumina NovaSeq 6000	PAIRED	WGS	35951499	10.75	ZymoBIOMICS Microbial Community Standard	ok
+Olm2021	Zymo D6300 cells	pe	D6300_olm	SRR12324251	biological replicate 3	PRJNA648136	Illumina NovaSeq 6000	PAIRED	WGS	29386307	8.79	ZymoBIOMICS Microbial Community Standard	ok
+Nicholls2019	Zymo D6300 cells, even	pe	D6300_nicholls	ERR2984773	MiSeq; same extract as the ONT runs	PRJEB29504	Illumina MiSeq	PAIRED	WGS	8785731	2.65	in732_0_even_community_shotgun	ok
+Nicholls2019	Zymo D6310 cells, log	pe	D6310_nicholls	ERR2935805	HiSeq 1500; 10 log steps down to 1e-4 %	PRJEB29504	Illumina HiSeq 1500	PAIRED	WGS	47832553	9.66	in745_0_log_community_shotgun	ok
+Auckland	Zymo D6300 cells	pe	D6300_vs_D6305_auckland	SRR33710517	replicate 1	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	21158603	5.67	Zymobiomics Microbial Community Standard (catalogue no. D6300) Replicate 1	ok
+Auckland	Zymo D6300 cells	pe	D6300_vs_D6305_auckland	SRR33710516	replicate 2	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	28268008	7.58	Zymobiomics Microbial Community Standard (catalogue no. D6300) Replicate 2	ok
+Auckland	Zymo D6305 DNA	pe	D6300_vs_D6305_auckland	SRR33710467	replicate 1; cells vs DNA of one composition	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	28401423	7.62	Zymobiomics Microbial DNA Standard (catalogue no. D6305) Replicate 1	ok
+Auckland	Zymo D6305 DNA	pe	D6300_vs_D6305_auckland	SRR33710466	replicate 2	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	27920780	7.49	Zymobiomics Microbial DNA Standard (catalogue no. D6305) Replicate 2	ok
+Auckland	Zymo D6331 cells	pe	D6331_auckland	SRR33710519	replicate 1	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	23342973	6.26	Zymobiomics Gut Microbiome Standard (catelogue no. D6331) Replicate 1	ok
+Auckland	Zymo D6331 cells	pe	D6331_auckland	SRR33710518	replicate 2	PRJNA1268178	Illumina NovaSeq 6000	PAIRED	WGS	20068731	5.38	Zymobiomics Gut Microbiome Standard (catelogue no. D6331) Replicate 2	ok
+sbvIMPROVER	Zymo DNA standard	pe	zymo_dna_sbv	SRR12829162	same read and base counts as SRR12829163: likely one library twice	PRJNA669653	Illumina HiSeq 4000	PAIRED	WGS	39913564	12.05	ZymoBIOMICS Microbial Community DNA Standard	ok
+sbvIMPROVER	Zymo DNA standard	pe	zymo_dna_sbv	SRR12829163	see SRR12829162	PRJNA669653	Illumina HiSeq 4000	PAIRED	WGS	39913564	12.05	ZymoBIOMICS Microbial Community DNA Standard	ok
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487937	5 libraries of one DNA, MiSeq 2x300	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2322015	1.40	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487938	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2554899	1.54	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487939	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2096299	1.26	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487940	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2566496	1.55	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-Mix-RR DNA	pe	nibsc_gutmix_miseq	SRR11487941	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2315209	1.39	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487931	5 libraries of one DNA; staggered 0.11-19.8 %	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2322317	1.40	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487932	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2581333	1.55	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487933	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2276274	1.37	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487934	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2211718	1.33	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	NIBSC Gut-HiLo-RR DNA	pe	nibsc_guthilo_miseq	SRR11487935	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	2108083	1.27	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487948	5 libraries of one DNA	PRJNA622674	Illumina MiSeq	PAIRED	WGS	917110	0.55	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487949	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	651297	0.39	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487950	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	636463	0.38	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487951	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	620234	0.37	Metagenome or environmental sample from synthetic metagenome	ok
+Amos2020	ATCC MSA-1003 DNA	pe	atcc1003_nibsc_miseq	SRR11487952	-	PRJNA622674	Illumina MiSeq	PAIRED	WGS	550634	0.33	Metagenome or environmental sample from synthetic metagenome	ok
+Anwar2025	NIBSC Gut-Mix-RR DNA	pe	nibsc_multilab_deep	SRR34838295	Lab 15, NextSeq 2000; 23-lab study PRJNA1238537, the deepest run	PRJNA1238537	NextSeq 2000	PAIRED	WGS	773992417	226.81	MIMS Environmental/Metagenome sample from human gut metagenome	ok
+Anwar2025	NIBSC Gut-Mix-RR DNA	pe	nibsc_multilab_deep	SRR34838304	Lab 11, NovaSeq 6000; same lab and run as the HiLo SRR34838305	PRJNA1238537	Illumina NovaSeq 6000	PAIRED	WGS	190357500	57.49	MIMS Environmental/Metagenome sample from human gut metagenome	ok
+Anwar2025	NIBSC Gut-HiLo-RR DNA	pe	nibsc_multilab_deep	SRR34838305	Lab 11, NovaSeq 6000	PRJNA1238537	Illumina NovaSeq 6000	PAIRED	WGS	208692996	63.03	MIMS Environmental/Metagenome sample from human gut metagenome	ok
+ATCC_SRA	ATCC MSA-1003 DNA	pe	atcc1003_illumina	SRR8359173	HiSeq 2500 2x125	PRJNA510527	Illumina HiSeq 2500	PAIRED	WGS	5019157	1.25	Metagenome from ATCC MSA-1003 product	ok
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380124	lab C HiSeq 2500; 3 labs, 20 DNA-mock and 36 cell-mock runs in PRJNA747117	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	23797974	4.76	DNA mock community, blend of 20 bacterial species	ok
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380125	-	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	21099508	4.22	DNA mock community, blend of 20 bacterial species	ok
+Tourlousse2022	NBRC DNA mock (20 strains)	pe	nbrc_dna_labC	SRR17380126	-	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	21501429	4.30	DNA mock community, blend of 20 bacterial species	ok
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380113	lab C HiSeq 2500	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	25214599	5.04	Cell mock community, blend of 18 bacterial species	ok
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380114	-	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	22386928	4.48	Cell mock community, blend of 18 bacterial species	ok
+Tourlousse2022	NBRC cell mock (18 strains)	pe	nbrc_cell_labC	SRR17380115	-	PRJNA747117	Illumina HiSeq 2500	PAIRED	WGS	20196999	4.04	Cell mock community, blend of 18 bacterial species	ok
+Mori2023	18 gut type strains, DNA mix	pe	mori_dna_mix	DRR466894	HiSeq 2500; same extract on NovaSeq as DRR466895	PRJDB10817	Illumina HiSeq 2500	PAIRED	WGS	4053473	2.03	DNA-mix mock communiy of 18 human gut bacterial species	ok
+Mori2023	18 gut type strains, DNA mix	pe	mori_dna_mix	DRR466895	NovaSeq 6000	PRJDB10817	Illumina NovaSeq 6000	PAIRED	WGS	29575712	14.79	DNA-mix mock communiy of 18 human gut bacterial species	ok
+Mori2023	18 gut type strains, cells (Zymo kit)	pe	mori_cells_zymo	DRR466885	HiSeq 2500; 6 extraction kits in PRJDB10817	PRJDB10817	Illumina HiSeq 2500	PAIRED	WGS	4768063	2.38	Cell-mix mock communiy of 18 human gut bacterial species	ok
+Mori2023	18 gut type strains, cells (Zymo kit)	pe	mori_cells_zymo	DRR466886	NovaSeq 6000	PRJDB10817	Illumina NovaSeq 6000	PAIRED	WGS	28756333	14.38	Cell-mix mock communiy of 18 human gut bacterial species	ok
+Treichel2026	Clavel-lab gut mocks (24-70 strains)	pe	treichel	ERR14788567	Mock-even-70, depth step 8, facility 1; one of 94 NovaSeq runs in PRJEB83573: 9 depths x 2 facilities x +-mouse DNA; map runs via the GitHub xlsx	PRJEB83573	Illumina NovaSeq 6000	PAIRED	WGS	88891808	13.42	Metagenomic sequencing of bacterial mock community	ok
+Meslier2022	mock 1 (71 strains incl. archaea)	pe	meslier_mock1	ERR9765746	HiSeq 3000 2x150	PRJEB52977	Illumina HiSeq 3000	PAIRED	WGS	41195050	6.14	synthetic metagenome	ok
+Meslier2022	mock 1	pe	meslier_mock1	ERR9765742	DNBSEQ-G400 PE100, same DNA	PRJEB52977	DNBSEQ-G400	PAIRED	WGS	70843444	7.08	synthetic metagenome	ok
+Meslier2022	mock 1	pe	meslier_mock1	ERR9765744	DNBSEQ-T7 PE100, same DNA, 75 Gb	PRJEB52977	DNBSEQ-T7	PAIRED	WGS	750254564	74.71	synthetic metagenome	ok
+Meslier2022	mock 1	se	meslier_mock1	ERR9765777	Ion S5 single-end, same DNA	PRJEB52977	Ion Torrent S5	SINGLE	WGS	28517051	4.14	synthetic metagenome	ok
+Meslier2022	mock 1	ont	meslier_mock1	ERR9765780	MinION R9.4.1, Guppy 2.3.1	PRJEB52977	MinION	SINGLE	WGS	696944	3.13	synthetic metagenome	ok
+Meslier2022	mock 1	pb	meslier_mock1	ERR9765783	Sequel II CCS, 5.4 Gb; size-selected	PRJEB52977	Sequel	SINGLE	WGS	524805	5.40	synthetic metagenome	ok
+Meslier2022	mock 2 (87 strains)	pe	meslier_mock2	ERR9765747	HiSeq 3000; Table 2 of the paper swaps mock 2 and 3	PRJEB52977	Illumina HiSeq 3000	PAIRED	WGS	46347928	6.89	synthetic metagenome	ok
+Meslier2022	mock 2	pe	meslier_mock2	ERR9765743	DNBSEQ-G400	PRJEB52977	DNBSEQ-G400	PAIRED	WGS	74292816	7.42	synthetic metagenome	ok
+Meslier2022	mock 2	pe	meslier_mock2	ERR9765745	DNBSEQ-T7	PRJEB52977	DNBSEQ-T7	PAIRED	WGS	752095804	75.01	synthetic metagenome	ok
+Meslier2022	mock 2	se	meslier_mock2	ERR9765778	Ion S5	PRJEB52977	Ion Torrent S5	SINGLE	WGS	24170950	3.57	synthetic metagenome	ok
+Meslier2022	mock 2	ont	meslier_mock2	ERR9765781	MinION R9.4.1	PRJEB52977	MinION	SINGLE	WGS	831802	3.69	synthetic metagenome	ok
+Meslier2022	mock 3 (64 strains)	pe	meslier_mock3	ERR9765748	HiSeq 3000, one library over two runs with ERR9765749	PRJEB52977	Illumina HiSeq 3000	PAIRED	WGS	91466212	13.66	synthetic metagenome	ok
+Meslier2022	mock 3	pe	meslier_mock3	ERR9765749	-	PRJEB52977	Illumina HiSeq 3000	PAIRED	WGS	32701572	4.87	synthetic metagenome	ok
+Meslier2022	mock 3	se	meslier_mock3	ERR9765779	Ion S5	PRJEB52977	Ion Torrent S5	SINGLE	WGS	25906013	3.75	synthetic metagenome	ok
+Meslier2022	mock 3	ont	meslier_mock3	ERR9765782	MinION R9.4.1	PRJEB52977	MinION	SINGLE	WGS	791715	3.41	synthetic metagenome	ok
+Goussarov2024	HC227 (227 strains, even DNA)	pe	hc227	ERR5321934	NovaSeq 2x150, 83 Gb	PRJEB43026	Illumina NovaSeq 6000	PAIRED	OTHER	573601466	82.72	Evenly Mixed Bacterial gDNA Mock	ok
+Goussarov2024	HC227	ont	hc227	ERR6109821	PromethION R9.4.1, Guppy 3.2.6, 75 Gb	PRJEB45868	PromethION	SINGLE	WGS	13754142	74.69	Evenly Mixed Bacterial gDNA Mock	ok
+Goussarov2024	HC227	pb	hc227	ERR6178439	Sequel subreads: run ccs; 4 SMRT cells give ~5.8 Gb HiFi in all	PRJEB45869	Sequel	SINGLE	WGS	2818324	15.33	Sequel subreads from an evenly Mixed Bacterial gDNA Mock 1	ok
+Goussarov2024	HC227	pb	hc227	ERR6178440	-	PRJEB45869	Sequel	SINGLE	WGS	3633340	18.86	Sequel subreads from an evenly Mixed Bacterial gDNA Mock 2	ok
+Goussarov2024	HC227	pb	hc227	ERR6178441	-	PRJEB45869	Sequel	SINGLE	WGS	4383628	22.65	Sequel subreads from an evenly Mixed Bacterial gDNA Mock 3	ok
+Goussarov2024	HC227	pb	hc227	ERR6178442	-	PRJEB45869	Sequel	SINGLE	WGS	3808069	18.48	Sequel subreads from an evenly Mixed Bacterial gDNA Mock 4	ok
+Singer2016	MBARC-26 (23 bacteria, 3 archaea)	pe	mbarc26	SRR3656745	HiSeq 2000; Thermobacillus composti contaminant	PRJNA324704	Illumina HiSeq 2000	PAIRED	WGS	173981994	51.90	Illumina shotgun sequences generated from MBARC-26	ok
+Sevim2019	BMock12	pe	bmock12	SRR8073716	HiSeq 2500; Micromonospora coxensis absent from the reads	PRJNA496047	Illumina HiSeq 2500	PAIRED	OTHER	213367823	64.44	Mock microbial community from Joint Genome Institute, Walnut Creek, USA - BMock12	ok
+Sevim2019	BMock12	ont	bmock12	SRR8073713	MinION R9.4.1, 10 kb size-selected	PRJNA496047	MinION	SINGLE	WGS	187507	3.74	Mock microbial community from Joint Genome Institute, Walnut Creek, USA - BMock12	ok
+Sevim2019	BMock12	ont	bmock12	SRR8351023	MinION R9.4, no size selection	PRJNA496047	MinION	SINGLE	WGS	144976	0.92	Mock microbial community from Joint Genome Institute, Walnut Creek, USA - BMock12	ok
+Shakya2013	64 genomes (48 bacteria, 16 archaea)	pe	shakya	SRR606249	HiSeq 2000 2x101; >=4 contaminant species reported	PRJNA175870	Illumina HiSeq 2000	PAIRED	WGS	54814748	11.07	Mixture of archaeal and bacterial synthetic communities	ok
+HMP	HMP mock B even	se	hmp_gaii	SRR172902	GAII 75 bp; 16S-operon truth	PRJNA48475	Illumina Genome Analyzer II	SINGLE	WGS	6562065	0.49	HMP Mock Community Even sample	ok
+HMP	HMP mock B staggered	se	hmp_gaii	SRR172903	-	PRJNA48475	Illumina Genome Analyzer II	SINGLE	WGS	7932819	0.59	HMP Mock Community Staggered sample	ok
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726606	HiSeq 2500, Nextera; 4 kits x 2 runs in PRJNA298489	PRJNA298489	Illumina HiSeq 2500	PAIRED	WGS	40612087	10.15	Mock_community	ok
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726667	TruSeq	PRJNA298489	Illumina HiSeq 2500	PAIRED	WGS	20779179	5.19	Mock_community	ok
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726669	Kapa	PRJNA298489	Illumina HiSeq 2500	PAIRED	WGS	33683214	8.42	Mock_community	ok
+Jones2015	HMP mock B even (BEI)	pe	hmp_kits	SRR2726671	Kapa PCR-free	PRJNA298489	Illumina HiSeq 2500	PAIRED	WGS	39590745	9.90	Mock_community	ok
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128014	Sequel II HiFi, standard input	PRJNA680590	Sequel II	SINGLE	WGS	1978852	17.99	ZymoBIOMICS Gut Microbiome Standard D6331	ok
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128013	low input, same DNA	PRJNA680590	Sequel II	SINGLE	WGS	2770833	25.78	ZymoBIOMICS Gut Microbiome Standard D6331	ok
+PacBio	Zymo D6331 cells	pb	D6331_hifi	SRR13128012	ultra-low input with amplification (WGA)	PRJNA680590	Sequel II	SINGLE	WGA	2480208	21.33	ZymoBIOMICS Gut Microbiome Standard D6331	ok
+Hon2020	ATCC MSA-1003 DNA	pb	atcc1003_hifi	SRR11606871	Sequel II HiFi 59 Gb; SRR11469785 is the same data	PRJNA627939	Sequel II	SINGLE	WGS	5646628	59.15	Model organism or animal sample from synthetic metagenome	ok
+Hon2020	ATCC MSA-1003 DNA	pb	atcc1003_hifi	SRR11469785	duplicate deposit of SRR11606871: do not count twice	PRJNA597914	Sequel II	SINGLE	WGS	5646628	59.15	Metagenome from ATCC MSA-1003 product	ok
+PacBio	ATCC MSA-1003 DNA	pb	atcc1003_hifi_2019	SRR9328980	Sequel II CCS 2019	PRJNA546278	Sequel II	SINGLE	WGS	2419037	20.54	Metagenome from ATCC MSA-1003 product	ok
+PacBio	ATCC MSA-1003 DNA	pb	atcc1003_hifi_2019	SRR9202034	same library name as SRR9328980	PRJNA546278	Sequel II	SINGLE	WGS	2358257	19.49	Metagenome from ATCC MSA-1003 product	ok
+INRAE	Zymo D6300 cells	pb	zymo_inrae_hifi	ERR12085099	Sequel II; cells vs DNA	PRJEB60080	Sequel	SINGLE	WGS	890071	4.34	microbial control Mock ZymoBiomics	ok
+INRAE	Zymo D6305 DNA	pb	zymo_inrae_hifi	ERR12085100	-	PRJEB60080	Sequel	SINGLE	WGS	1125556	5.74	DNA control Mock ZymoBiomics	ok
+Chen2025	Zymo D6331 cells	ont	D6331_ont_deep	SRR31222153	PromethION LSK114 R10.4.1, 128 Gb	PRJNA1181840	PromethION	SINGLE	WGS	23429059	128.37	Metagenome or environmental sample from synthetic metagenome	ok
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251410	R10.4.1, Dorado 0.8.2 sup v5.0.0; same reads as the next three	PRJEB85558	PromethION	SINGLE	WGS	9219198	46.50	ZymoGut	ok
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251409	hac v5.0.0	PRJEB85558	PromethION	SINGLE	WGS	9219096	46.42	ZymoGut	ok
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR14251408	fast v5.0.0	PRJEB85558	PromethION	SINGLE	WGS	9215781	46.22	ZymoGut	ok
+MicroBench	Zymo D6331 (ZymoGut)	ont	D6331_microbench	ERR15459768	Dorado 1.0.0 sup v5.2.0 (BAM with modified bases)	PRJEB85558	PromethION	SINGLE	WGS	9220254	46.50	ZymoGut	ok
+MicroBench	Zymo D6332 oral (ZymoOral)	ont	D6332_microbench	ERR14251413	sup v5.0.0; truth per strain not checked	PRJEB85558	PromethION	SINGLE	WGS	1140052	7.53	ZymoOral	ok
+Benoit2026	Zymo D6331	ont	D6331_ont_small	ERR15316007	P2 Solo LSK114, Dorado sup v5, 12 Gb	PRJEB88618	PromethION	SINGLE	WGS	3092552	12.33	Zymo	ok
+Chen2024	Zymo D6331	ont	D6331_ont_small	SRR26387398	NBD114, Guppy 6.5.7 sup, 3.6 Gb	PRJNA1028177	PromethION	SINGLE	WGS	713445	3.59	MIMS Environmental/Metagenome sample from synthetic metagenome	ok
+Liu2022_HKU	Zymo D6331 cells	ont	D6331_hku_ont	SRR17913200	R9.4.1 Kit 9, 28 Gb; reads pre-filtered	PRJNA804004	GridION	SINGLE	WGS	5757345	28.44	Nanopore long reads for ZymoBIOMICS Gut Microbiome Standard metagenome	ok
+Liu2022_HKU	Zymo D6331 cells	ont	D6331_hku_ont	SRR17913199	Kit 12 (Q20+), 7 Gb	PRJNA804004	GridION	SINGLE	WGS	1679780	7.21	Nanopore long reads for ZymoBIOMICS Gut Microbiome Standard metagenome	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421465	one R10.4.1 flow cell (PAS01578), Dorado fast v4.3.0	PRJEB65462	PromethION	SINGLE	WGS	12397108	53.97	zymo hmw mock	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421467	hac v4.3.0	PRJEB65462	PromethION	SINGLE	WGS	7416597	20.38	zymo hmw mock	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421469	sup v4.3.0	PRJEB65462	PromethION	SINGLE	WGS	7391302	20.33	zymo hmw mock	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR12421468	duplex sup v4.3.0	PRJEB65462	PromethION	SINGLE	WGS	2702061	16.30	zymo hmw mock	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR11901474	sup v4.2.0	PRJEB65462	PromethION	SINGLE	WGS	7436752	23.15	zymo hmw mock	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR14294023	MicroBench: Dorado 0.7.3 sup v5.0.0	PRJEB85558	PromethION	SINGLE	WGS	7388650	20.19	ZymoHMW	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR15459724	MicroBench: Dorado 1.0.0 sup v5.2.0	PRJEB85558	PromethION	SINGLE	WGS	12644740	54.34	ZymoHMW	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_PAS01578	ERR15459721	MicroBench: Dorado 1.0.0 hyp v5.0.0	PRJEB85558	PromethION	SINGLE	WGS	2935129	12.68	ZymoHMW	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893244	GridION 5 kHz, sup; same reads as the next two	PRJNA934154	GridION	SINGLE	WGS	2510981	16.34	Metagenome or environmental sample from synthetic metagenome	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893245	hac	PRJNA934154	GridION	SINGLE	WGS	2510981	16.30	Metagenome or environmental sample from synthetic metagenome	ok
+Aalborg	Zymo D6322 HMW DNA	ont	D6322_5khz_gridion	SRR24893246	fast	PRJNA934154	GridION	SINGLE	WGS	2510981	16.07	Metagenome or environmental sample from synthetic metagenome	ok
+Sereika2022	Zymo D6322 HMW DNA	pe	D6322_sereika	ERR7255689	MiSeq; same DNA as the ONT runs	PRJEB48692	Illumina MiSeq	PAIRED	WGS	49774986	7.52	Reads for ZymoBIOMICS HMW DNA Standard	ok
+Sereika2022	Zymo D6322 HMW DNA	ont	D6322_sereika	ERR7255742	MinION R9.4.1	PRJEB48692	MinION	SINGLE	WGS	8851918	32.00	Reads for ZymoBIOMICS HMW DNA Standard	ok
+Sereika2022	Zymo D6322 HMW DNA	ont	D6322_sereika	ERR7287988	PromethION R10.4 (Kit 12)	PRJEB48692	PromethION	SINGLE	WGS	18831686	53.22	Reads for ZymoBIOMICS HMW DNA Standard	ok
+Aalborg	Zymo DNA standard (Q20 early access)	ont	zymo_q20ea	ERR5396170	R10.4 Q20 early access, Bonito 0.3.5	PRJEB43406	PromethION	SINGLE	WGS	5436512	17.95	SA-RHK-2038	ok
+Nicholls2019	Zymo D6300 cells, even	ont	D6300_nicholls	ERR3152364	GridION R9.4.1, Guppy 2.2.2 flip-flop	PRJEB29504	GridION	SINGLE	WGS	3491390	14.38	Zymo-EVEN	ok
+Nicholls2019	Zymo D6300 cells, even	ont	D6300_nicholls	ERR3152365	PromethION R9.4.1, 152 Gb	PRJEB29504	PromethION	SINGLE	WGS	35810963	151.54	Zymo-EVEN	ok
+Nicholls2019	Zymo D6310 cells, log	ont	D6310_nicholls	ERR3152366	GridION R9.4.1	PRJEB29504	GridION	SINGLE	WGS	3667480	16.51	Zymo-LOG	ok
+Treichel2026	Clavel-lab Mock-stag-70	ont	treichel	ERR16002257	PromethION R10.4.1 LSK114, Dorado 1.0.0 sup v5.2.0, 117 Gb	PRJEB83573	PromethION	SINGLE	WGS	34251722	116.75	Metagenomic sequencing of bacterial mock community	ok
+Afolayan2024	2-3 E. coli or K. pneumoniae strains	ont	strainmix_r9_r10	ERR13964249	R9.4.1, strains 13723+17053+12926; ERR13964249+k and ERR13964269+k are one mix (k 0-19)	PRJEB82665	GridION	SINGLE	WGS	23777	0.25		ok
+Afolayan2024	2-3 E. coli or K. pneumoniae strains	ont	strainmix_r9_r10	ERR13964269	R10.4.1	PRJEB82665	GridION	SINGLE	WGS	72293	1.00		ok
+Afolayan2024	2 K. pneumoniae strains 50:50	ont	strainmix_kp_ratio	ERR15465280	EE007/TU48010 50:50	PRJEB82665	GridION	SINGLE	WGS	622241	2.02		ok
+Afolayan2024	2 K. pneumoniae strains 70:30	ont	strainmix_kp_ratio	ERR15465284	EE007/TU48010 70:30	PRJEB82665	GridION	SINGLE	WGS	770501	2.57		ok
+Hu2020	HMP mock B even (HM-276D)	ont	hmp_ont	SRR11700265	GridION R9-era, 36 Gb; 16S-operon truth	PRJNA630658	GridION	SINGLE	WGS	11610183	35.58	Genomic DNA from Microbial Mock Community B (Even, High Concentration), v5.1H, for Whole Genome Shotgun Sequencing	ok
+Hu2020	HMP mock B staggered (HM-277D)	ont	hmp_ont	SRR11700264	GridION, 72 Gb	PRJNA630658	GridION	SINGLE	WGS	18254839	72.31	Genomic DNA from Microbial Mock Community B (Staggered, High Concentration), v5.2H, for Whole Genome Shotgun Sequencing	ok
+Wu2025_Stanford	labelled mock_dna (product not stated)	ultima	ultima_mocks	SRR31481588	UG 100; likely a Zymo DNA standard: profile to identify	PRJNA1189566	UG 100	PAIRED	OTHER	193700044	44.99	Metagenome or environmental sample from metagenome	ok
+Wu2025_Stanford	labelled mock_gut (product not stated)	ultima	ultima_mocks	SRR31481586	UG 100; likely D6331	PRJNA1189566	UG 100	PAIRED	OTHER	229126436	55.45	Metagenome or environmental sample from metagenome	ok
+Wu2025_Stanford	labelled mock_cellular (product not stated)	ultima	ultima_mocks	SRR31481591	UG 100; likely D6300	PRJNA1189566	UG 100	PAIRED	OTHER	189161366	44.27	Metagenome or environmental sample from metagenome	ok
+Element	Zymo community standard (catalogue not stated)	pe	element	SRR30875866	the only Element AVITI mock run found	PRJNA946141	Element AVITI	PAIRED	WGS	19749771	2.96	PositiveControl_ZymoCommunityStandard	ok
+Nicholls2019	Zymo D6310 cells, log	ont	D6310_nicholls	ERR2906230	PromethION R9.4.1, first release (ERR3152367, the flip-flop call, has 0 reads in ENA)	PRJEB29504	PromethION	SINGLE	WGS	35118078	148.03	Zymo-LOG	ok
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	pe	atcc1002_bari	ERR15084348	NovaSeq; same DNA as the next two	PRJEB89875	Illumina NovaSeq 6000	PAIRED	WGS	231493376	32.68	20 Strain Mock	ok
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	ont	atcc1002_bari	ERR15084349	R10.4.1 LSK114, 2.8 Gb	PRJEB89875	PromethION	SINGLE	WGS	2301340	2.81	20 Strain Mock	ok
+Visci2026	ATCC MSA-1002 DNA (20 strains, even)	pb	atcc1002_bari	ERR15084350	Sequel IIe HiFi, 0.8 Gb	PRJEB89875	Sequel IIe	SINGLE	WGS	111629	0.81	20 Strain Mock	ok
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR21819256	one inoculum library set three ways: this run, KAPA (SRR29248670), Flex (SRR29248672)	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	7754142	2.26	Innoculum_PBS_P0_Rep1	ok
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR29248670	KAPA library	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	5423210	1.58	Innoculum_PBS_P0_Rep1	ok
+Jin2023	117-strain hCom2-like community, in vitro: inoculum	pe	hcom_invitro_inoculum	SRR29248672	Flex library	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	4692011	1.37	Innoculum_PBS_P0_Rep1	ok
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819182	technical triplet a/b/c of one culture (90 such triplets in PRJNA885585)	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	11024420	3.22	ExpV2_AB_P4R2a	ok
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819181	b	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	6470911	1.89	ExpV2_AB_P4R2b	ok
+Jin2023	117-strain hCom2-like community, passage 4	pe	hcom_invitro_triplet	SRR21819180	c	PRJNA885585	Illumina NovaSeq 6000	PAIRED	WGS	14790147	4.32	ExpV2_AB_P4R2c	ok
+Wang2023	hCom1a (107 strains): inoculum	pe	hcom1a_dropouts	SRR24799814	SynCom1 input; P. barengoltzii spike-in added before extraction in every sample	PRJNA978640	Illumina NovaSeq 6000	PAIRED	WGS	34666816	10.12	hCom1a_Inoculum	ok
+Wang2023	hCom1a minus C. hylemonae: inoculum	pe	hcom1a_dropouts	SRR24799818	SynCom8 input (dropout arms per the survey; check against the paper)	PRJNA978640	Illumina NovaSeq 6000	PAIRED	WGS	63975756	18.68	ΔCh_Inoculum	ok
+Wang2023	hCom1a minus C. scindens: inoculum	pe	hcom1a_dropouts	SRR24799817	SynCom9 input	PRJNA978640	Illumina NovaSeq 6000	PAIRED	WGS	72019270	21.03	ΔCs_Inoculum	ok
+Wang2023	hCom1a minus both: inoculum	pe	hcom1a_dropouts	SRR24799819	SynCom7 input	PRJNA978640	Illumina NovaSeq 6000	PAIRED	WGS	52018531	15.19	ΔChΔCs_Inoculum	ok
+Wang2023	hCom1a minus C. hylemonae: mouse caecum	pe	hcom1a_dropouts	SRR24799829	SynCom8 mouse 4, week 3; mouse DNA included	PRJNA978640	Illumina NovaSeq 6000	PAIRED	WGS	34526874	10.08	ΔCh_Cecum_m1	ok
+Muench2023	OMM12 mouse, day 0	pe	omm12_day0	SRR25305803	mouse 1681; 12 complete genomes; 112 runs in PRJNA838765	PRJNA838765	Illumina NovaSeq 6000	PAIRED	WGS	13847332	4.18	Metagenomic sample from mouse ID 1681 of day 0 from the Control group	ok
+Muench2023	OMM12 mouse, day 0	pe	omm12_day0	SRR25305828	mouse 1683 (start of its 16-point series)	PRJNA838765	Illumina NovaSeq 6000	PAIRED	WGS	24188745	7.31	Metagenomic sample from mouse ID 1683 of day 0 from the Control group	ok
+Proctor2022	Altered Schaedler Flora (8 strains), mouse colon	pe	asf	SRR19241958	one BioSample, two runs; truth = groEL qPCR	PRJNA838940	Illumina HiSeq 4000	PAIRED	WGS	24370779	7.31	MIMS Environmental/Metagenome sample from mouse gut metagenome	ok
+Proctor2022	Altered Schaedler Flora (8 strains), mouse colon	pe	asf	SRR19241959		PRJNA838940	Illumina HiSeq 4000	PAIRED	WGS	26021185	7.81	MIMS Environmental/Metagenome sample from mouse gut metagenome	ok
+Zimmermann2022	18 human gut strains, mouse caecum	pe	zk18	ERR10107056	mouse M011; 10 DNA runs in PRJEB33195	PRJEB33195	Illumina NovaSeq 6000	PAIRED	WGS	28278888	4.27	M011_diet_defined_community_dna	ok
+Selten2026	AtSC 447-strain Arabidopsis SynCom, inoculum	pe	plant_syncom_inoculum	SRR29710026	most members not in GTDB r226	PRJNA1131994	Illumina NovaSeq 6000	PAIRED	WGS	1955881	0.51	Metagenome or environmental sample from synthetic metagenome	ok
+Selten2026	SuperSynCom (988 genomes), inoculum	pe	plant_syncom_inoculum	SRR29710013	most members not in GTDB r226	PRJNA1131994	Illumina NovaSeq 6000	PAIRED	WGS	2429415	0.63	Metagenome or environmental sample from synthetic metagenome	ok
+Selten2026	200-strain Arabidopsis SynCom 7, inoculum	pe	plant_syncom_200	SRR37935102	PRJNA1449013, 7 inocula SRR37935102-108	PRJNA1449013	Illumina NovaSeq X	PAIRED	WGS	45039811	10.64	Metagenome or environmental sample from synthetic metagenome	ok
+Kleiner2017	32-member cell mock, equal cells	pe	kleiner	ERR1877474	C1; 3 designs x 3 mixes (ERR1877474-482); NextSeq 2x75	PRJEB19901	NextSeq 500	PAIRED	WGS	17367829	2.57	Equal cell number mock community, replicate 1	ok
+Saak2023	16-member cheese-rind community, input	pe	cheese_rind	SRR19846572	day 0	PRJNA852571	Illumina NovaSeq 6000	PAIRED	WGS	27823222	8.35	synthetic metagenome	ok
+Saak2023	cheese-rind community without G. geotrichum	pe	cheese_rind	SRR19846570	dropout, day 7, replicate 1	PRJNA852571	Illumina NovaSeq 6000	PAIRED	WGS	40510093	12.15	synthetic metagenome	ok
+Ziegler2025	Prochlorococcus MED4 + 5 heterotrophs	pe	prochlorococcus	SRR35585684	replicate A, day 0; Thermus spike-in	PRJNA1333906	NextSeq 500	PAIRED	WGS	6772617	0.54	Metagenome of synthetic community of MED4 and heterotrophic bacteria: Day 0	ok
+NIST	NIST Mosaic Standards Challenge DNA Mix A	pe	mosaic	SRR38976713	sample lib_MC2_Mosaic_MG	PRJNA1474435	Illumina NovaSeq 6000	PAIRED	WGS	17533221	5.28		ok
+NIST	Zymo D6331	pe	mosaic	SRR38976715	sample lib_MC1_Zymo_MG, same submission	PRJNA1474435	Illumina NovaSeq 6000	PAIRED	WGS	8143484	2.03		ok
+vanDijk2022	4 E. coli strains in human DNA	pe	straingE	SRR13355226	80/15/4.9/0.1 % of the E. coli	PRJNA685748	HiSeq X Ten	PAIRED	WGS	21459865	6.48	Mock community with 99% human and 1% E. coli	ok
+vanDijk2022	4 E. coli strains in human DNA, enriched	pe	straingE	SRR24529635	same BioSample after pangenome hybrid selection: not a replicate	PRJNA685748	HiSeq X Ten	PAIRED	WGS	21396199	6.46	Mock community with 99% human and 1% E. coli	ok

@@ -1,0 +1,699 @@
+standard	bioproject	run	instrument	layout	spots	gbases	group	replicate	what_differs	note
+ATCC MSA-1002	PRJNA622674	SRR11487906	Illumina MiSeq	PAIRED	977734	0.59	NIBSC2020_MSA_1002	4	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+NIBSC Gut-HiLo-RR (DNA)	PRJNA622674	SRR11487934	Illumina MiSeq	PAIRED	2211718	1.33	NIBSC2020_NIBSC_GutHiLo	2	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-HiLo-RR (DNA)	PRJNA622674	SRR11487935	Illumina MiSeq	PAIRED	2108083	1.27	NIBSC2020_NIBSC_GutHiLo	1	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-Mix-RR (DNA)	PRJNA622674	SRR11487940	Illumina MiSeq	PAIRED	2566496	1.55	NIBSC2020_NIBSC_GutMix	2	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+ATCC MSA-1003	PRJNA622674	SRR11487948	Illumina MiSeq	PAIRED	917110	0.55	NIBSC2020_MSA_1003	5	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1001	PRJNA622674	SRR11487957	Illumina MiSeq	PAIRED	693667	0.42	NIBSC2020_MSA_1001	1	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+NIBSC Gut-Mix-RR (DNA)	PRJNA622674	SRR11487937	Illumina MiSeq	PAIRED	2322015	1.40	NIBSC2020_NIBSC_GutMix	5	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-Mix-RR (DNA)	PRJNA622674	SRR11487941	Illumina MiSeq	PAIRED	2315209	1.39	NIBSC2020_NIBSC_GutMix	1	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+Zymo DNA standard (D6305/6 presumed)	PRJNA622674	SRR11487944	Illumina MiSeq	PAIRED	706697	0.43	NIBSC2020_Zymo	3	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1003	PRJNA622674	SRR11487950	Illumina MiSeq	PAIRED	636463	0.38	NIBSC2020_MSA_1003	3	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1003	PRJNA622674	SRR11487951	Illumina MiSeq	PAIRED	620234	0.37	NIBSC2020_MSA_1003	2	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1003	PRJNA622674	SRR11487952	Illumina MiSeq	PAIRED	550634	0.33	NIBSC2020_MSA_1003	1	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1001	PRJNA622674	SRR11487953	Illumina MiSeq	PAIRED	843727	0.51	NIBSC2020_MSA_1001	5	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1001	PRJNA622674	SRR11487954	Illumina MiSeq	PAIRED	842091	0.51	NIBSC2020_MSA_1001	4	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1000	PRJNA622674	SRR11487959	Illumina MiSeq	PAIRED	944477	0.52	NIBSC2020_MSA_1000	1	independent library (same DNA)	MiSeq run id 127 (library_name prefix)
+ATCC MSA-1002	PRJNA622674	SRR11487905	Illumina MiSeq	PAIRED	1444780	0.87	NIBSC2020_MSA_1002	5	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1002	PRJNA622674	SRR11487908	Illumina MiSeq	PAIRED	1172018	0.71	NIBSC2020_MSA_1002	2	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+NIBSC Gut-HiLo-RR (DNA)	PRJNA622674	SRR11487933	Illumina MiSeq	PAIRED	2276274	1.37	NIBSC2020_NIBSC_GutHiLo	3	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-Mix-RR (DNA)	PRJNA622674	SRR11487938	Illumina MiSeq	PAIRED	2554899	1.54	NIBSC2020_NIBSC_GutMix	4	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+Zymo DNA standard (D6305/6 presumed)	PRJNA622674	SRR11487943	Illumina MiSeq	PAIRED	635145	0.38	NIBSC2020_Zymo	4	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1001	PRJNA622674	SRR11487956	Illumina MiSeq	PAIRED	678634	0.41	NIBSC2020_MSA_1001	2	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1002	PRJNA622674	SRR11487914	Illumina MiSeq	PAIRED	965085	0.58	NIBSC2020_MSA_1002	1	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1000	PRJNA622674	SRR11487936	Illumina MiSeq	PAIRED	931555	0.51	NIBSC2020_MSA_1000	4	independent library (same DNA)	MiSeq run id 127 (library_name prefix)
+Zymo DNA standard (D6305/6 presumed)	PRJNA622674	SRR11487945	Illumina MiSeq	PAIRED	648076	0.39	NIBSC2020_Zymo	2	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+Zymo DNA standard (D6305/6 presumed)	PRJNA622674	SRR11487946	Illumina MiSeq	PAIRED	784122	0.47	NIBSC2020_Zymo	1	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1000	PRJNA622674	SRR11487947	Illumina MiSeq	PAIRED	947867	0.52	NIBSC2020_MSA_1000	3	independent library (same DNA)	MiSeq run id 127 (library_name prefix)
+ATCC MSA-1003	PRJNA622674	SRR11487949	Illumina MiSeq	PAIRED	651297	0.39	NIBSC2020_MSA_1003	4	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1000	PRJNA622674	SRR11487958	Illumina MiSeq	PAIRED	827617	0.45	NIBSC2020_MSA_1000	2	independent library (same DNA)	MiSeq run id 127 (library_name prefix)
+ATCC MSA-1002	PRJNA622674	SRR11487907	Illumina MiSeq	PAIRED	1177497	0.71	NIBSC2020_MSA_1002	3	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+ATCC MSA-1000	PRJNA622674	SRR11487925	Illumina MiSeq	PAIRED	1031102	0.57	NIBSC2020_MSA_1000	5	independent library (same DNA)	MiSeq run id 127 (library_name prefix)
+NIBSC Gut-HiLo-RR (DNA)	PRJNA622674	SRR11487931	Illumina MiSeq	PAIRED	2322317	1.40	NIBSC2020_NIBSC_GutHiLo	5	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-HiLo-RR (DNA)	PRJNA622674	SRR11487932	Illumina MiSeq	PAIRED	2581333	1.55	NIBSC2020_NIBSC_GutHiLo	4	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+NIBSC Gut-Mix-RR (DNA)	PRJNA622674	SRR11487939	Illumina MiSeq	PAIRED	2096299	1.26	NIBSC2020_NIBSC_GutMix	3	independent library (same DNA)	MiSeq run id 210 (library_name prefix)
+Zymo DNA standard (D6305/6 presumed)	PRJNA622674	SRR11487942	Illumina MiSeq	PAIRED	650721	0.39	NIBSC2020_Zymo	5	independent library (same DNA)	MiSeq run id 157 (library_name prefix)
+ATCC MSA-1001	PRJNA622674	SRR11487955	Illumina MiSeq	PAIRED	794934	0.48	NIBSC2020_MSA_1001	3	independent library (same DNA)	MiSeq run id 176 (library_name prefix)
+NIBSC WC-Gut RR	PRJNA855455	SRR20340692	NextSeq 500	PAIRED	5030452	1.50	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit6	3	extraction kit 6; replicate extraction; pre-lyophilisation material	sequencing batch 354
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340705	NextSeq 500	PAIRED	1161739	0.35	NIBSC2022_standards comparison - ZYMO kit2	1	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340708	NextSeq 500	PAIRED	1621624	0.48	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit2	1	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340710	NextSeq 500	PAIRED	1452916	0.43	NIBSC2022_standards comparison - ATCC-MSA-2006 kit2	2	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340718	NextSeq 500	PAIRED	1382587	0.41	NIBSC2022_standards comparison - ATCC-MSA-2002 kit2	1	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340720	NextSeq 500	PAIRED	6046463	1.80	NIBSC2022_NIBSC WC-Gut RR kit8	5	extraction kit 8; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340724	NextSeq 500	PAIRED	6220784	1.85	NIBSC2022_NIBSC WC-Gut RR kit8	1	extraction kit 8; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340731	NextSeq 500	PAIRED	4361398	1.30	NIBSC2022_NIBSC WC-Gut RR kit6	5	extraction kit 6; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340733	NextSeq 500	PAIRED	4350667	1.30	NIBSC2022_NIBSC WC-Gut RR kit6	3	extraction kit 6; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340769	NextSeq 500	PAIRED	6051248	1.23	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit2	1	extraction kit 2; replicate extraction; pre-lyophilisation material	sequencing batch 354
+control	PRJNA855455	SRR20340771	NextSeq 500	PAIRED	805	0.00	NIBSC2022_blank for kit5	-	negative control	sequencing batch 354
+control	PRJNA855455	SRR20340774	NextSeq 500	PAIRED	262	0.00	NIBSC2022_blank for kit2	-	negative control	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340776	NextSeq 500	PAIRED	5962974	1.78	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit8	3	extraction kit 8; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340777	NextSeq 500	PAIRED	5843439	1.74	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit8	2	extraction kit 8; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340778	NextSeq 500	PAIRED	5804501	1.73	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit8	1	extraction kit 8; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340785	NextSeq 500	PAIRED	3002272	0.89	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit7	3	extraction kit 7; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340799	NextSeq 500	PAIRED	4634538	1.38	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit5	2	extraction kit 5; replicate extraction; pre-lyophilisation material	sequencing batch 354
+control	PRJNA855455	SRR20340803	NextSeq 500	PAIRED	10	0.00	NIBSC2022_standards comparison - negative NGS control	-	negative control	sequencing batch 391
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340804	NextSeq 500	PAIRED	1203149	0.36	NIBSC2022_standards comparison - NIBSC DNA-Gut-Mix RR	3	replicate library of DNA reagent	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340810	NextSeq 500	PAIRED	1223935	0.36	NIBSC2022_standards comparison - ZYMO kit7	3	extraction kit 7; replicate extraction	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340813	NextSeq 500	PAIRED	2152100	0.64	NIBSC2022_standards comparison - ZYMO kit7	1	extraction kit 7; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340815	NextSeq 500	PAIRED	1501392	0.45	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit7	2	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340821	NextSeq 500	PAIRED	1586592	0.47	NIBSC2022_standards comparison - ATCC-MSA-2003 kit7	2	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340823	NextSeq 500	PAIRED	1556491	0.46	NIBSC2022_standards comparison - ATCC-MSA-2003 kit7	1	extraction kit 7; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340836	NextSeq 500	PAIRED	4824083	1.44	NIBSC2022_NIBSC WC-Gut RR kit5	2	extraction kit 5; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340843	NextSeq 500	PAIRED	5629978	1.68	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit2	3	extraction kit 2; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340851	NextSeq 500	PAIRED	5036356	1.50	NIBSC2022_NIBSC WC-Gut RR kit2	3	extraction kit 2; replicate extraction	sequencing batch 354
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340861	NextSeq 500	PAIRED	4867894	1.45	NIBSC2022_NIBSC DNA-Gut-Mix RR	2	replicate library of DNA reagent	sequencing batch 354
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340871	NextSeq 500	PAIRED	877884	0.26	NIBSC2022_standards comparison - ATCC-MSA-2002 kit6	2	extraction kit 6; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340872	NextSeq 500	PAIRED	805508	0.24	NIBSC2022_standards comparison - ATCC-MSA-2002 kit6	1	extraction kit 6; replicate extraction	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340873	NextSeq 500	PAIRED	834802	0.25	NIBSC2022_standards comparison - ZYMO kit2	3	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340875	NextSeq 500	PAIRED	2654838	0.79	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit4	1	extraction kit 4; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340876	NextSeq 500	PAIRED	5249654	1.56	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit4	2	extraction kit 4; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340706	NextSeq 500	PAIRED	1624774	0.48	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit2	3	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340707	NextSeq 500	PAIRED	1593673	0.47	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit2	2	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340712	NextSeq 500	PAIRED	1451650	0.43	NIBSC2022_standards comparison - ATCC-MSA-2003 kit2	3	extraction kit 2; replicate extraction	sequencing batch 391
+control	PRJNA855455	SRR20340719	NextSeq 500	PAIRED	192	0.00	NIBSC2022_negative NGS control	-	negative control	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340727	NextSeq 500	PAIRED	4796000	1.43	NIBSC2022_NIBSC WC-Gut RR kit7	4	extraction kit 7; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340736	NextSeq 500	PAIRED	5028661	1.50	NIBSC2022_NIBSC WC-Gut RR kit6	1	extraction kit 6; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340746	NextSeq 500	PAIRED	6189916	1.84	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit6	1	extraction kit 6; replicate extraction; pre-lyophilisation material	sequencing batch 354
+control	PRJNA855455	SRR20340770	NextSeq 500	PAIRED	126	0.00	NIBSC2022_blank for kit6	-	negative control	sequencing batch 354
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340806	NextSeq 500	PAIRED	1536767	0.46	NIBSC2022_standards comparison - NIBSC DNA-Gut-Mix RR	1	replicate library of DNA reagent	sequencing batch 391
+control	PRJNA855455	SRR20340807	NextSeq 500	PAIRED	20	0.00	NIBSC2022_standards comparison - blank for kit7	-	negative control	sequencing batch 391
+control	PRJNA855455	SRR20340808	NextSeq 500	PAIRED	17	0.00	NIBSC2022_standards comparison - blank for kit6	-	negative control	sequencing batch 391
+control	PRJNA855455	SRR20340809	NextSeq 500	PAIRED	10	0.00	NIBSC2022_standards comparison - blank for kit2	-	negative control	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340812	NextSeq 500	PAIRED	1181083	0.35	NIBSC2022_standards comparison - ZYMO kit7	2	extraction kit 7; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340822	NextSeq 500	PAIRED	6105663	1.82	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit4	3	extraction kit 4; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340832	NextSeq 500	PAIRED	2114589	0.63	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit3	1	extraction kit 3; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340842	NextSeq 500	PAIRED	4775567	1.42	NIBSC2022_NIBSC WC-Gut RR kit4	1	extraction kit 4; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340847	NextSeq 500	PAIRED	5044489	1.50	NIBSC2022_NIBSC WC-Gut RR kit3	2	extraction kit 3; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340849	NextSeq 500	PAIRED	3910115	1.17	NIBSC2022_NIBSC WC-Gut RR kit2	5	extraction kit 2; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340852	NextSeq 500	PAIRED	4114082	1.23	NIBSC2022_NIBSC WC-Gut RR kit2	2	extraction kit 2; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340857	NextSeq 500	PAIRED	4055076	1.21	NIBSC2022_NIBSC WC-Gut RR kit1	3	extraction kit 1; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340859	NextSeq 500	PAIRED	4180019	1.25	NIBSC2022_NIBSC WC-Gut RR kit1	1	extraction kit 1; replicate extraction	sequencing batch 354
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340860	NextSeq 500	PAIRED	4796484	1.43	NIBSC2022_NIBSC DNA-Gut-Mix RR	3	replicate library of DNA reagent	sequencing batch 354
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340862	NextSeq 500	PAIRED	5035342	1.50	NIBSC2022_NIBSC DNA-Gut-Mix RR	1	replicate library of DNA reagent	sequencing batch 354
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340863	NextSeq 500	PAIRED	812190	0.24	NIBSC2022_standards comparison - ATCC-MSA-2006 kit6	3	extraction kit 6; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340713	NextSeq 500	PAIRED	1097994	0.33	NIBSC2022_standards comparison - ATCC-MSA-2003 kit2	2	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340714	NextSeq 500	PAIRED	2316504	0.69	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit3	3	extraction kit 3; replicate extraction; pre-lyophilisation material	sequencing batch 354
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340715	NextSeq 500	PAIRED	1265104	0.38	NIBSC2022_standards comparison - ATCC-MSA-2003 kit2	1	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340717	NextSeq 500	PAIRED	1425222	0.42	NIBSC2022_standards comparison - ATCC-MSA-2002 kit2	2	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340722	NextSeq 500	PAIRED	3094519	0.92	NIBSC2022_NIBSC WC-Gut RR kit8	3	extraction kit 8; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340723	NextSeq 500	PAIRED	7013387	2.09	NIBSC2022_NIBSC WC-Gut RR kit8	2	extraction kit 8; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340726	NextSeq 500	PAIRED	4843853	1.44	NIBSC2022_NIBSC WC-Gut RR kit7	5	extraction kit 7; replicate extraction	sequencing batch 354
+control	PRJNA855455	SRR20340768	NextSeq 500	PAIRED	166	0.00	NIBSC2022_blank for kit7	-	negative control	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340797	NextSeq 500	PAIRED	5039239	1.50	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit7	2	extraction kit 7; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA855455	SRR20340805	NextSeq 500	PAIRED	904747	0.27	NIBSC2022_standards comparison - NIBSC DNA-Gut-Mix RR	2	replicate library of DNA reagent	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340818	NextSeq 500	PAIRED	1052664	0.31	NIBSC2022_standards comparison - ATCC-MSA-2006 kit7	2	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340819	NextSeq 500	PAIRED	1131289	0.34	NIBSC2022_standards comparison - ATCC-MSA-2006 kit7	1	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340826	NextSeq 500	PAIRED	1516277	0.45	NIBSC2022_standards comparison - ATCC-MSA-2002 kit7	1	extraction kit 7; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340834	NextSeq 500	PAIRED	3507954	1.05	NIBSC2022_NIBSC WC-Gut RR kit5	4	extraction kit 5; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340839	NextSeq 500	PAIRED	4403289	1.31	NIBSC2022_NIBSC WC-Gut RR kit4	4	extraction kit 4; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340840	NextSeq 500	PAIRED	6424136	1.91	NIBSC2022_NIBSC WC-Gut RR kit4	3	extraction kit 4; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340845	NextSeq 500	PAIRED	5093768	1.52	NIBSC2022_NIBSC WC-Gut RR kit3	4	extraction kit 3; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340850	NextSeq 500	PAIRED	4206275	1.25	NIBSC2022_NIBSC WC-Gut RR kit2	4	extraction kit 2; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340856	NextSeq 500	PAIRED	4013345	1.20	NIBSC2022_NIBSC WC-Gut RR kit1	4	extraction kit 1; replicate extraction	sequencing batch 354
+control	PRJNA855455	SRR20340864	NextSeq 500	PAIRED	170	0.00	NIBSC2022_blank for kit8	-	negative control	sequencing batch 354
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340869	NextSeq 500	PAIRED	1300268	0.39	NIBSC2022_standards comparison - ATCC-MSA-2003 kit6	1	extraction kit 6; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340870	NextSeq 500	PAIRED	899138	0.27	NIBSC2022_standards comparison - ATCC-MSA-2002 kit6	3	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340877	NextSeq 500	PAIRED	4676973	1.39	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit1	2	extraction kit 1; replicate extraction; pre-lyophilisation material	sequencing batch 354
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340704	NextSeq 500	PAIRED	932950	0.28	NIBSC2022_standards comparison - ZYMO kit2	2	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340709	NextSeq 500	PAIRED	950135	0.28	NIBSC2022_standards comparison - ATCC-MSA-2006 kit2	3	extraction kit 2; replicate extraction	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340711	NextSeq 500	PAIRED	947232	0.28	NIBSC2022_standards comparison - ATCC-MSA-2006 kit2	1	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340728	NextSeq 500	PAIRED	4467165	1.33	NIBSC2022_NIBSC WC-Gut RR kit7	3	extraction kit 7; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340729	NextSeq 500	PAIRED	4948911	1.47	NIBSC2022_NIBSC WC-Gut RR kit7	2	extraction kit 7; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340732	NextSeq 500	PAIRED	5504407	1.64	NIBSC2022_NIBSC WC-Gut RR kit6	4	extraction kit 6; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340757	NextSeq 500	PAIRED	4473363	1.33	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit5	3	extraction kit 5; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340811	NextSeq 500	PAIRED	5377634	1.60	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit5	1	extraction kit 5; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340814	NextSeq 500	PAIRED	818401	0.24	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit7	3	extraction kit 7; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340816	NextSeq 500	PAIRED	1475354	0.44	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit7	1	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340820	NextSeq 500	PAIRED	1343948	0.40	NIBSC2022_standards comparison - ATCC-MSA-2003 kit7	3	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340824	NextSeq 500	PAIRED	1487931	0.44	NIBSC2022_standards comparison - ATCC-MSA-2002 kit7	3	extraction kit 7; replicate extraction	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340827	NextSeq 500	PAIRED	763116	0.23	NIBSC2022_standards comparison - ZYMO kit6	3	extraction kit 6; replicate extraction	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340829	NextSeq 500	PAIRED	560874	0.17	NIBSC2022_standards comparison - ZYMO kit6	1	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340830	NextSeq 500	PAIRED	1668209	0.50	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit6	3	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340835	NextSeq 500	PAIRED	3684575	1.10	NIBSC2022_NIBSC WC-Gut RR kit5	3	extraction kit 5; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340837	NextSeq 500	PAIRED	4889253	1.46	NIBSC2022_NIBSC WC-Gut RR kit5	1	extraction kit 5; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340838	NextSeq 500	PAIRED	6402159	1.91	NIBSC2022_NIBSC WC-Gut RR kit4	5	extraction kit 4; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340841	NextSeq 500	PAIRED	6138502	1.83	NIBSC2022_NIBSC WC-Gut RR kit4	2	extraction kit 4; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340844	NextSeq 500	PAIRED	7408785	2.21	NIBSC2022_NIBSC WC-Gut RR kit3	5	extraction kit 3; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340846	NextSeq 500	PAIRED	2289139	0.68	NIBSC2022_NIBSC WC-Gut RR kit3	3	extraction kit 3; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340853	NextSeq 500	PAIRED	4749261	1.42	NIBSC2022_NIBSC WC-Gut RR kit2	1	extraction kit 2; replicate extraction	sequencing batch 354
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340868	NextSeq 500	PAIRED	1594025	0.48	NIBSC2022_standards comparison - ATCC-MSA-2003 kit6	2	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340681	NextSeq 500	PAIRED	5330873	1.59	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit7	1	extraction kit 7; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340703	NextSeq 500	PAIRED	3726602	1.11	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit6	2	extraction kit 6; replicate extraction; pre-lyophilisation material	sequencing batch 354
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340716	NextSeq 500	PAIRED	1257313	0.37	NIBSC2022_standards comparison - ATCC-MSA-2002 kit2	3	extraction kit 2; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340721	NextSeq 500	PAIRED	5003725	1.49	NIBSC2022_NIBSC WC-Gut RR kit8	4	extraction kit 8; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340725	NextSeq 500	PAIRED	2424923	0.72	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit3	2	extraction kit 3; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340730	NextSeq 500	PAIRED	5429767	1.62	NIBSC2022_NIBSC WC-Gut RR kit7	1	extraction kit 7; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340734	NextSeq 500	PAIRED	4521977	1.35	NIBSC2022_NIBSC WC-Gut RR kit6	2	extraction kit 6; replicate extraction	sequencing batch 354
+control	PRJNA855455	SRR20340772	NextSeq 500	PAIRED	299	0.00	NIBSC2022_blank for kit4	-	negative control	sequencing batch 354
+control	PRJNA855455	SRR20340773	NextSeq 500	PAIRED	412	0.00	NIBSC2022_blank for kit3	-	negative control	sequencing batch 354
+control	PRJNA855455	SRR20340775	NextSeq 500	PAIRED	255	0.00	NIBSC2022_blank for kit1	-	negative control	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340786	NextSeq 500	PAIRED	5066042	1.51	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit1	3	extraction kit 1; replicate extraction; pre-lyophilisation material	sequencing batch 354
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340817	NextSeq 500	PAIRED	1044300	0.31	NIBSC2022_standards comparison - ATCC-MSA-2006 kit7	3	extraction kit 7; replicate extraction	sequencing batch 391
+ATCC MSA-2002 (whole cell)	PRJNA855455	SRR20340825	NextSeq 500	PAIRED	1310516	0.39	NIBSC2022_standards comparison - ATCC-MSA-2002 kit7	2	extraction kit 7; replicate extraction	sequencing batch 391
+Zymo D6300 lot ZRC187326 (old strains)	PRJNA855455	SRR20340828	NextSeq 500	PAIRED	1228658	0.37	NIBSC2022_standards comparison - ZYMO kit6	2	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340831	NextSeq 500	PAIRED	1703579	0.51	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit6	2	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340833	NextSeq 500	PAIRED	4667733	1.39	NIBSC2022_NIBSC WC-Gut RR kit5	5	extraction kit 5; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340848	NextSeq 500	PAIRED	7307292	2.18	NIBSC2022_NIBSC WC-Gut RR kit3	1	extraction kit 3; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340854	NextSeq 500	PAIRED	6098786	1.82	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit2	2	extraction kit 2; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340855	NextSeq 500	PAIRED	4268342	1.27	NIBSC2022_NIBSC WC-Gut RR kit1	5	extraction kit 1; replicate extraction	sequencing batch 354
+NIBSC WC-Gut RR	PRJNA855455	SRR20340858	NextSeq 500	PAIRED	4880729	1.45	NIBSC2022_NIBSC WC-Gut RR kit1	2	extraction kit 1; replicate extraction	sequencing batch 354
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340865	NextSeq 500	PAIRED	667501	0.20	NIBSC2022_standards comparison - ATCC-MSA-2006 kit6	2	extraction kit 6; replicate extraction	sequencing batch 391
+ATCC MSA-2006 (whole cell)	PRJNA855455	SRR20340866	NextSeq 500	PAIRED	889242	0.26	NIBSC2022_standards comparison - ATCC-MSA-2006 kit6	1	extraction kit 6; replicate extraction	sequencing batch 391
+ATCC MSA-2003 (whole cell)	PRJNA855455	SRR20340867	NextSeq 500	PAIRED	1599110	0.48	NIBSC2022_standards comparison - ATCC-MSA-2003 kit6	3	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340874	NextSeq 500	PAIRED	1151114	0.34	NIBSC2022_standards comparison - NIBSC WC-Gut RR kit6	1	extraction kit 6; replicate extraction	sequencing batch 391
+NIBSC WC-Gut RR	PRJNA855455	SRR20340878	NextSeq 500	PAIRED	5949302	1.77	NIBSC2022_Pre-lyo NIBSC WC-Gut RR kit1	1	extraction kit 1; replicate extraction; pre-lyophilisation material	sequencing batch 354
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344555	NextSeq 2000	PAIRED	5737009	1.73	MHRA_Lab_2_M4	3	extraction by Lab 2 with Custom	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344558	NextSeq 2000	PAIRED	5182285	1.57	MHRA_Lab_18_M32	1	extraction by Lab 18 with QIAamp PowerFecal Pro DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344566	NextSeq 2000	PAIRED	5545940	1.67	MHRA_Lab_19_M34	1	extraction by Lab 19 with DNeasy 96 PowerSoil Pro QIAcube HT Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344567	NextSeq 2000	PAIRED	6039731	1.82	MHRA_Lab_19_M33	5	extraction by Lab 19 with Qiagens DNeasy PowerLyzer PowerSoil Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344569	NextSeq 2000	PAIRED	9670959	2.92	MHRA_Lab_19_M33	3	extraction by Lab 19 with Qiagens DNeasy PowerLyzer PowerSoil Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344572	NextSeq 2000	PAIRED	6221067	1.88	MHRA_Lab_19_M33	1	extraction by Lab 19 with Qiagens DNeasy PowerLyzer PowerSoil Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344579	NextSeq 2000	PAIRED	4441352	1.34	MHRA_Lab_10_M17	2	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (without proteinase K step)	
+control	PRJNA1337664	SRR36344581	NextSeq 2000	PAIRED	40	0.00	MHRA_Lab_8_M14	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344582	NextSeq 2000	PAIRED	5812625	1.76	MHRA_Lab_8_M14	1	extraction by Lab 8 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344586	NextSeq 2000	PAIRED	7848843	2.37	MHRA_Lab_1_M1	3	extraction by Lab 1 with Qiagen Dneasy Powersoil pro kit	
+NIBSC DNA-Gut-HiLo RR 20/304	PRJNA1337664	SRR36344594	NextSeq 2000	PAIRED	5280709	1.59	MHRA_DNA_HiLo_RR	2	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344604	NextSeq 2000	PAIRED	5299856	1.60	MHRA_Lab_23_M40	4	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344609	NextSeq 2000	PAIRED	6365953	1.92	MHRA_Lab_16_M28	5	extraction by Lab 16 with Promega ReliaPrep gDNA Tissue miniprep system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344550	NextSeq 2000	PAIRED	6182553	1.87	MHRA_Lab_25_M44	1	extraction by Lab 25 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344614	NextSeq 2000	PAIRED	7050271	2.13	MHRA_Lab_18_M31	2	extraction by Lab 18 with Maxwell RSC Fecal Microbiome DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344627	NextSeq 2000	PAIRED	5215844	1.58	MHRA_Lab_2_M3	5	extraction by Lab 2 with ISOSPIN Fecal DNA	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344553	NextSeq 2000	PAIRED	4851536	1.47	MHRA_Lab_25_M43	4	extraction by Lab 25 with Solg Genomic DNA Prep Kit	
+control	PRJNA1337664	SRR36344631	NextSeq 2000	PAIRED	29	0.00	MHRA_Lab_15_M25	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344559	NextSeq 2000	PAIRED	4941090	1.49	MHRA_Lab_22_M37	5	extraction by Lab 22 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344560	NextSeq 2000	PAIRED	6917117	2.09	MHRA_Lab_18_M31	5	extraction by Lab 18 with Maxwell RSC Fecal Microbiome DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344633	NextSeq 2000	PAIRED	5757594	1.74	MHRA_Lab_16_M28	2	extraction by Lab 16 with Promega ReliaPrep gDNA Tissue miniprep system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344638	NextSeq 2000	PAIRED	5597076	1.69	MHRA_Lab_9_M16	1	extraction by Lab 9 with Qiagen QIAamp PowerFecal Pro DNA Kits	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344561	NextSeq 2000	PAIRED	5683649	1.72	MHRA_Lab_19_M34	3	extraction by Lab 19 with DNeasy 96 PowerSoil Pro QIAcube HT Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344651	NextSeq 2000	PAIRED	6218091	1.88	MHRA_Lab_8_M13	4	extraction by Lab 8 with Zymo Quick-DNA Fecal/Soil Microbe Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344563	NextSeq 2000	PAIRED	6547750	1.98	MHRA_Lab_2_M4	2	extraction by Lab 2 with Custom	
+control	PRJNA1337664	SRR36344659	NextSeq 2000	PAIRED	39	0.00	MHRA_Lab_3_M5	-	negative control	
+control	PRJNA1337664	SRR36344565	NextSeq 2000	PAIRED	43	0.00	MHRA_Lab_19_M34	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344663	NextSeq 2000	PAIRED	6342887	1.92	MHRA_Lab_24_M42	1	extraction by Lab 24 with Aus Diagnostics MP Pathogen Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344574	NextSeq 2000	PAIRED	5747133	1.74	MHRA_Lab_18_M32	4	extraction by Lab 18 with QIAamp PowerFecal Pro DNA Kit	
+control	PRJNA1337664	SRR36344676	NextSeq 2000	PAIRED	40	0.00	MHRA_Lab_23_M39	-	negative control	
+control	PRJNA1337664	SRR36344583	NextSeq 2000	PAIRED	24	0.00	MHRA_Lab_10_M17	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344682	NextSeq 2000	PAIRED	5101304	1.54	MHRA_Lab_16_M28	1	extraction by Lab 16 with Promega ReliaPrep gDNA Tissue miniprep system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344585	NextSeq 2000	PAIRED	6051029	1.83	MHRA_Lab_25_M43	3	extraction by Lab 25 with Solg Genomic DNA Prep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344549	NextSeq 2000	PAIRED	6483447	1.96	MHRA_Lab_5_M10	1	extraction by Lab 5 with EZNA Soil DNA kit	
+control	PRJNA1337664	SRR36344683	NextSeq 2000	PAIRED	17	0.00	MHRA_Lab_18_M31	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344587	NextSeq 2000	PAIRED	6149798	1.86	MHRA_Lab_3_M5	5	extraction by Lab 3 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344684	NextSeq 2000	PAIRED	6107586	1.84	MHRA_Lab_16_M27	5	extraction by Lab 16 with Perkin Elmer Chemagic 360 for DNA extraction from stool	
+control	PRJNA1337664	SRR36344551	NextSeq 2000	PAIRED	38	0.00	MHRA_Lab_3_M6	-	negative control	
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA1337664	SRR36344590	NextSeq 2000	PAIRED	4831318	1.46	MHRA_DNA_Mix_RR	3	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344686	NextSeq 2000	PAIRED	6641498	2.01	MHRA_Lab_2_M3	4	extraction by Lab 2 with ISOSPIN Fecal DNA	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344556	NextSeq 2000	PAIRED	6593411	1.99	MHRA_Lab_18_M32	2	extraction by Lab 18 with QIAamp PowerFecal Pro DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344596	NextSeq 2000	PAIRED	5362739	1.62	MHRA_Lab_25_M44	5	extraction by Lab 25 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344688	NextSeq 2000	PAIRED	4854389	1.47	MHRA_Lab_16_M27	2	extraction by Lab 16 with Perkin Elmer Chemagic 360 for DNA extraction from stool	
+control	PRJNA1337664	SRR36344571	NextSeq 2000	PAIRED	40	0.00	MHRA_Lab_19_M33	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344598	NextSeq 2000	PAIRED	5721112	1.73	MHRA_Lab_25_M44	3	extraction by Lab 25 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344690	NextSeq 2000	PAIRED	5530448	1.67	MHRA_Lab_16_M27	1	extraction by Lab 16 with Perkin Elmer Chemagic 360 for DNA extraction from stool	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344578	NextSeq 2000	PAIRED	5424701	1.64	MHRA_Lab_17_M29	1	extraction by Lab 17 with AllPrep PowerFecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344600	NextSeq 2000	PAIRED	5917692	1.79	MHRA_Lab_3_M5	2	extraction by Lab 3 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344706	NextSeq 2000	PAIRED	6026934	1.82	MHRA_Lab_7_M12	3	extraction by Lab 7 with ZymoBIOMICS 96-MagBead DNA Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344580	NextSeq 2000	PAIRED	6323647	1.91	MHRA_Lab_1_M2	2	extraction by Lab 1 with Chaotropic	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344602	NextSeq 2000	PAIRED	5789795	1.75	MHRA_Lab_3_M5	1	extraction by Lab 3 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344709	NextSeq 2000	PAIRED	35	0.00	MHRA_Lab_7_M12	1	extraction by Lab 7 with ZymoBIOMICS 96-MagBead DNA Kit on Chemagen MSM I instrument	
+NIBSC DNA-Gut-HiLo RR 20/304	PRJNA1337664	SRR36344595	NextSeq 2000	PAIRED	5312920	1.60	MHRA_DNA_HiLo_RR	1	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344603	NextSeq 2000	PAIRED	5985496	1.81	MHRA_Lab_23_M40	5	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344714	NextSeq 2000	PAIRED	6629196	2.00	MHRA_Lab_7_M11	1	extraction by Lab 7 with Chemagic DNA Blood 4k Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344607	NextSeq 2000	PAIRED	4936181	1.49	MHRA_Lab_25_M43	2	extraction by Lab 25 with Solg Genomic DNA Prep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344605	NextSeq 2000	PAIRED	6797722	2.05	MHRA_Lab_23_M40	3	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344720	NextSeq 2000	PAIRED	5272265	1.59	MHRA_Lab_5_M10	2	extraction by Lab 5 with EZNA Soil DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344606	NextSeq 2000	PAIRED	5196688	1.57	MHRA_Lab_23_M40	2	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344721	NextSeq 2000	PAIRED	5144152	1.55	MHRA_Lab_3_M6	4	extraction by Lab 3 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344611	NextSeq 2000	PAIRED	5564698	1.68	MHRA_Lab_16_M28	3	extraction by Lab 16 with Promega ReliaPrep gDNA Tissue miniprep system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344610	NextSeq 2000	PAIRED	5308491	1.60	MHRA_Lab_16_M28	4	extraction by Lab 16 with Promega ReliaPrep gDNA Tissue miniprep system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344734	NextSeq 2000	PAIRED	7373780	2.23	MHRA_Lab_23_M39	1	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344623	NextSeq 2000	PAIRED	5960681	1.80	MHRA_Lab_17_M29	5	extraction by Lab 17 with AllPrep PowerFecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344739	NextSeq 2000	PAIRED	5162712	1.56	MHRA_Lab_20_M35	2	extraction by Lab 20 with Maxwell RSC PureFood GMO and Authentication Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344612	NextSeq 2000	PAIRED	5681027	1.72	MHRA_Lab_18_M31	4	extraction by Lab 18 with Maxwell RSC Fecal Microbiome DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344647	NextSeq 2000	PAIRED	6571830	1.98	MHRA_Lab_8_M14	4	extraction by Lab 8 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344616	NextSeq 2000	PAIRED	6306602	1.90	MHRA_Lab_2_M4	1	extraction by Lab 2 with Custom	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344743	NextSeq 2000	PAIRED	5018775	1.52	MHRA_Lab_22_M38	1	extraction by Lab 22 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+control	PRJNA1337664	SRR36344649	NextSeq 2000	PAIRED	21	0.00	MHRA_Lab_5_M10	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344747	NextSeq 2000	PAIRED	6541944	1.98	MHRA_Lab_20_M35	1	extraction by Lab 20 with Maxwell RSC PureFood GMO and Authentication Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344650	NextSeq 2000	PAIRED	6800564	2.05	MHRA_Lab_8_M13	5	extraction by Lab 8 with Zymo Quick-DNA Fecal/Soil Microbe Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344618	NextSeq 2000	PAIRED	5853508	1.77	MHRA_Lab_17_M30	4	extraction by Lab 17 with QIAamp UCP Pathogen Mini kit	
+control	PRJNA1337664	SRR36344654	NextSeq 2000	PAIRED	54	0.00	MHRA_Lab_8_M13	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344748	NextSeq 2000	PAIRED	5326554	1.61	MHRA_Lab_19_M34	5	extraction by Lab 19 with DNeasy 96 PowerSoil Pro QIAcube HT Kit	
+control	PRJNA1337664	SRR36344621	NextSeq 2000	PAIRED	48	0.00	MHRA_Lab_17_M30	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344664	NextSeq 2000	PAIRED	8193971	2.47	MHRA_Lab_24_M41	5	extraction by Lab 24 with QIAGEN EZ2 DNA Tissue Kit EZ2	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344759	NextSeq 2000	PAIRED	5320735	1.61	MHRA_Lab_14_M23	4	extraction by Lab 14 with Nucleospin Soil kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344624	NextSeq 2000	PAIRED	6900608	2.08	MHRA_Lab_17_M29	4	extraction by Lab 17 with AllPrep PowerFecal Pro DNA kit	
+control	PRJNA1337664	SRR36344764	NextSeq 2000	PAIRED	44	0.00	MHRA_Lab_15_M26	-	negative control	
+control	PRJNA1337664	SRR36344668	NextSeq 2000	PAIRED	22	0.00	MHRA_Lab_23_M40	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344625	NextSeq 2000	PAIRED	7524515	2.27	MHRA_Lab_17_M29	3	extraction by Lab 17 with AllPrep PowerFecal Pro DNA kit	
+control	PRJNA1337664	SRR36344669	NextSeq 2000	PAIRED	38	0.00	MHRA_Lab_24_M41	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344629	NextSeq 2000	PAIRED	7085645	2.14	MHRA_Lab_15_M25	3	extraction by Lab 15 with QIAamp 96 Powersoil Pro extraction kit on the Qiacube HT automation	
+control	PRJNA1337664	SRR36344767	NextSeq 2000	PAIRED	40	0.00	MHRA_Lab_2_M3	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344630	NextSeq 2000	PAIRED	7174749	2.17	MHRA_Lab_15_M25	2	extraction by Lab 15 with QIAamp 96 Powersoil Pro extraction kit on the Qiacube HT automation	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344768	NextSeq 2000	PAIRED	6391401	1.93	MHRA_Lab_13_M22	3	extraction by Lab 13 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344677	NextSeq 2000	PAIRED	6154564	1.86	MHRA_Lab_24_M42	5	extraction by Lab 24 with Aus Diagnostics MP Pathogen Kit	
+control	PRJNA1337664	SRR36344779	NextSeq 2000	PAIRED	29	0.00	MHRA_Lab_12_M19	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344678	NextSeq 2000	PAIRED	6423958	1.94	MHRA_Lab_22_M37	3	extraction by Lab 22 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344632	NextSeq 2000	PAIRED	5448705	1.65	MHRA_Lab_10_M17	1	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (without proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344780	NextSeq 2000	PAIRED	5627930	1.70	MHRA_Lab_1_M2	5	extraction by Lab 1 with Chaotropic	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344634	NextSeq 2000	PAIRED	5318584	1.61	MHRA_Lab_9_M16	5	extraction by Lab 9 with Qiagen QIAamp PowerFecal Pro DNA Kits	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344692	NextSeq 2000	PAIRED	6715899	2.03	MHRA_Lab_15_M26	4	extraction by Lab 15 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344554	NextSeq 2000	PAIRED	6119615	1.85	MHRA_Lab_20_M36	1	extraction by Lab 20 with AllPrep PowerFecal DNA/RNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344789	NextSeq 2000	PAIRED	5897562	1.78	MHRA_Lab_12_M20	4	extraction by Lab 12 with Qiagen QIAAmp DNA Microbiome Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344698	NextSeq 2000	PAIRED	7148646	2.16	MHRA_Lab_15_M25	4	extraction by Lab 15 with QIAamp 96 Powersoil Pro extraction kit on the Qiacube HT automation	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344635	NextSeq 2000	PAIRED	5362552	1.62	MHRA_Lab_9_M16	4	extraction by Lab 9 with Qiagen QIAamp PowerFecal Pro DNA Kits	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344636	NextSeq 2000	PAIRED	4697877	1.42	MHRA_Lab_9_M16	3	extraction by Lab 9 with Qiagen QIAamp PowerFecal Pro DNA Kits	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344700	NextSeq 2000	PAIRED	7434873	2.25	MHRA_Lab_13_M22	1	extraction by Lab 13 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344562	NextSeq 2000	PAIRED	5661927	1.71	MHRA_Lab_19_M34	2	extraction by Lab 19 with DNeasy 96 PowerSoil Pro QIAcube HT Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344701	NextSeq 2000	PAIRED	6001928	1.81	MHRA_Lab_15_M25	1	extraction by Lab 15 with QIAamp 96 Powersoil Pro extraction kit on the Qiacube HT automation	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344716	NextSeq 2000	PAIRED	6406283	1.93	MHRA_Lab_5_M10	5	extraction by Lab 5 with EZNA Soil DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344717	NextSeq 2000	PAIRED	5507054	1.66	MHRA_Lab_5_M10	4	extraction by Lab 5 with EZNA Soil DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344568	NextSeq 2000	PAIRED	7027756	2.12	MHRA_Lab_19_M33	4	extraction by Lab 19 with Qiagens DNeasy PowerLyzer PowerSoil Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344791	NextSeq 2000	PAIRED	6194330	1.87	MHRA_Lab_13_M21	2	extraction by Lab 13 with Qiagen DNeasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344724	NextSeq 2000	PAIRED	6778754	2.05	MHRA_Lab_5_M9	5	extraction by Lab 5 with Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344637	NextSeq 2000	PAIRED	6189717	1.87	MHRA_Lab_9_M16	2	extraction by Lab 9 with Qiagen QIAamp PowerFecal Pro DNA Kits	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344726	NextSeq 2000	PAIRED	6180709	1.87	MHRA_Lab_5_M9	3	extraction by Lab 5 with Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344796	NextSeq 2000	PAIRED	6958127	2.10	MHRA_Lab_10_M18	5	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (with proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344570	NextSeq 2000	PAIRED	7146594	2.16	MHRA_Lab_19_M33	2	extraction by Lab 19 with Qiagens DNeasy PowerLyzer PowerSoil Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344727	NextSeq 2000	PAIRED	5528059	1.67	MHRA_Lab_5_M9	2	extraction by Lab 5 with Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344640	NextSeq 2000	PAIRED	5671142	1.71	MHRA_Lab_9_M15	5	extraction by Lab 9 with MagPurix Bacterial DNA Extraction kit using automated Zinexts system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344802	NextSeq 2000	PAIRED	6797958	2.05	MHRA_Lab_5_M9	1	extraction by Lab 5 with Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344728	NextSeq 2000	PAIRED	6192424	1.87	MHRA_Lab_1_M1	5	extraction by Lab 1 with Qiagen Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344641	NextSeq 2000	PAIRED	4016064	1.21	MHRA_Lab_9_M15	4	extraction by Lab 9 with MagPurix Bacterial DNA Extraction kit using automated Zinexts system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344811	NextSeq 2000	PAIRED	8405752	2.54	MHRA_Lab_4_M7	5	extraction by Lab 4 with QIAmp Bacteremia Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344573	NextSeq 2000	PAIRED	5126159	1.55	MHRA_Lab_18_M32	5	extraction by Lab 18 with QIAamp PowerFecal Pro DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344729	NextSeq 2000	PAIRED	5268847	1.59	MHRA_Lab_22_M37	1	extraction by Lab 22 with ZymoBIOMICS DNA Miniprep Kit	
+control	PRJNA1337664	SRR36344644	NextSeq 2000	PAIRED	15	0.00	MHRA_Lab_9_M15	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344812	NextSeq 2000	PAIRED	6462190	1.95	MHRA_Lab_4_M7	4	extraction by Lab 4 with QIAmp Bacteremia Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344735	NextSeq 2000	PAIRED	5803520	1.75	MHRA_Lab_22_M38	5	extraction by Lab 22 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344814	NextSeq 2000	PAIRED	8290339	2.50	MHRA_Lab_4_M7	3	extraction by Lab 4 with QIAmp Bacteremia Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344646	NextSeq 2000	PAIRED	5669907	1.71	MHRA_Lab_8_M14	5	extraction by Lab 8 with PureLink Microbiome DNA Purification Kit	
+control	PRJNA1337664	SRR36344575	NextSeq 2000	PAIRED	64	0.00	MHRA_Lab_2_M4	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344741	NextSeq 2000	PAIRED	5042417	1.52	MHRA_Lab_22_M38	2	extraction by Lab 22 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344648	NextSeq 2000	PAIRED	5598895	1.69	MHRA_Lab_8_M14	2	extraction by Lab 8 with PureLink Microbiome DNA Purification Kit	
+control	PRJNA1337664	SRR36344742	NextSeq 2000	PAIRED	28	0.00	MHRA_Lab_22_M38	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344577	NextSeq 2000	PAIRED	6136548	1.85	MHRA_Lab_10_M17	3	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (without proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344652	NextSeq 2000	PAIRED	5816719	1.76	MHRA_Lab_8_M13	3	extraction by Lab 8 with Zymo Quick-DNA Fecal/Soil Microbe Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344753	NextSeq 2000	PAIRED	5808461	1.75	MHRA_Lab_14_M24	3	extraction by Lab 14 with Qiagen QIAamp Powerfecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344653	NextSeq 2000	PAIRED	6562548	1.98	MHRA_Lab_8_M13	2	extraction by Lab 8 with Zymo Quick-DNA Fecal/Soil Microbe Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344769	NextSeq 2000	PAIRED	4624739	1.40	MHRA_Lab_13_M22	2	extraction by Lab 13 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344584	NextSeq 2000	PAIRED	5173573	1.56	MHRA_Lab_3_M6	1	extraction by Lab 3 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344661	NextSeq 2000	PAIRED	6414989	1.94	MHRA_Lab_24_M42	2	extraction by Lab 24 with Aus Diagnostics MP Pathogen Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344771	NextSeq 2000	PAIRED	5738729	1.73	MHRA_Lab_10_M17	4	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (without proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344665	NextSeq 2000	PAIRED	4697597	1.42	MHRA_Lab_24_M41	4	extraction by Lab 24 with QIAGEN EZ2 DNA Tissue Kit EZ2	
+control	PRJNA1337664	SRR36344774	NextSeq 2000	PAIRED	27	0.00	MHRA_Lab_10_M18	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344588	NextSeq 2000	PAIRED	5557616	1.68	MHRA_Lab_3_M5	4	extraction by Lab 3 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344674	NextSeq 2000	PAIRED	4969230	1.50	MHRA_Lab_23_M39	2	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344787	NextSeq 2000	PAIRED	6026633	1.82	MHRA_Lab_12_M20	2	extraction by Lab 12 with Qiagen QIAAmp DNA Microbiome Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344679	NextSeq 2000	PAIRED	5779060	1.75	MHRA_Lab_22_M37	2	extraction by Lab 22 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344589	NextSeq 2000	PAIRED	5934905	1.79	MHRA_Lab_3_M5	3	extraction by Lab 3 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344794	NextSeq 2000	PAIRED	6264262	1.89	MHRA_Lab_10_M18	3	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (with proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344695	NextSeq 2000	PAIRED	5465300	1.65	MHRA_Lab_15_M26	1	extraction by Lab 15 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344795	NextSeq 2000	PAIRED	7612407	2.30	MHRA_Lab_10_M18	4	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (with proteinase K step)	
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA1337664	SRR36344592	NextSeq 2000	PAIRED	5164890	1.56	MHRA_DNA_Mix_RR	1	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344710	NextSeq 2000	PAIRED	6810066	2.06	MHRA_Lab_7_M11	5	extraction by Lab 7 with Chemagic DNA Blood 4k Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344798	NextSeq 2000	PAIRED	5478897	1.65	MHRA_Lab_1_M1	1	extraction by Lab 1 with Qiagen Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344719	NextSeq 2000	PAIRED	7269416	2.20	MHRA_Lab_5_M10	3	extraction by Lab 5 with EZNA Soil DNA kit	
+control	PRJNA1337664	SRR36344799	NextSeq 2000	PAIRED	77	0.00	MHRA_Lab_1_M1	-	negative control	
+NIBSC DNA-Gut-HiLo RR 20/304	PRJNA1337664	SRR36344593	NextSeq 2000	PAIRED	4700106	1.42	MHRA_DNA_HiLo_RR	3	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344722	NextSeq 2000	PAIRED	6095217	1.84	MHRA_Lab_3_M6	3	extraction by Lab 3 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344810	NextSeq 2000	PAIRED	6086465	1.84	MHRA_Lab_4_M8	1	extraction by Lab 4 with chemagic DNA Stool 360 prefilling VD160912.che protocol	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344817	NextSeq 2000	PAIRED	7319971	2.21	MHRA_Lab_4_M7	1	extraction by Lab 4 with QIAmp Bacteremia Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344597	NextSeq 2000	PAIRED	2508633	0.76	MHRA_Lab_25_M44	4	extraction by Lab 25 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344732	NextSeq 2000	PAIRED	5935231	1.79	MHRA_Lab_20_M36	3	extraction by Lab 20 with AllPrep PowerFecal DNA/RNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344736	NextSeq 2000	PAIRED	5116245	1.55	MHRA_Lab_22_M38	4	extraction by Lab 22 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+control	PRJNA1337664	SRR36344601	NextSeq 2000	PAIRED	60	0.00	MHRA_Lab_25_M44	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344746	NextSeq 2000	PAIRED	4713688	1.42	MHRA_Lab_20_M35	3	extraction by Lab 20 with Maxwell RSC PureFood GMO and Authentication Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344750	NextSeq 2000	PAIRED	5816169	1.76	MHRA_Lab_22_M37	4	extraction by Lab 22 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344613	NextSeq 2000	PAIRED	6951604	2.10	MHRA_Lab_18_M31	3	extraction by Lab 18 with Maxwell RSC Fecal Microbiome DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344755	NextSeq 2000	PAIRED	6807722	2.06	MHRA_Lab_2_M3	2	extraction by Lab 2 with ISOSPIN Fecal DNA	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344617	NextSeq 2000	PAIRED	5702485	1.72	MHRA_Lab_17_M30	5	extraction by Lab 17 with QIAamp UCP Pathogen Mini kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344758	NextSeq 2000	PAIRED	5993434	1.81	MHRA_Lab_14_M23	5	extraction by Lab 14 with Nucleospin Soil kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344760	NextSeq 2000	PAIRED	5582807	1.69	MHRA_Lab_14_M23	3	extraction by Lab 14 with Nucleospin Soil kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344622	NextSeq 2000	PAIRED	4935016	1.49	MHRA_Lab_17_M30	1	extraction by Lab 17 with QIAamp UCP Pathogen Mini kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344761	NextSeq 2000	PAIRED	6517415	1.97	MHRA_Lab_14_M23	2	extraction by Lab 14 with Nucleospin Soil kit	
+control	PRJNA1337664	SRR36344762	NextSeq 2000	PAIRED	31	0.00	MHRA_Lab_14_M23	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344626	NextSeq 2000	PAIRED	6102962	1.84	MHRA_Lab_17_M29	2	extraction by Lab 17 with AllPrep PowerFecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344763	NextSeq 2000	PAIRED	5320277	1.61	MHRA_Lab_14_M23	1	extraction by Lab 14 with Nucleospin Soil kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344642	NextSeq 2000	PAIRED	5265546	1.59	MHRA_Lab_9_M15	3	extraction by Lab 9 with MagPurix Bacterial DNA Extraction kit using automated Zinexts system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344781	NextSeq 2000	PAIRED	5312268	1.60	MHRA_Lab_12_M19	2	extraction by Lab 12 with Qiagen DNAEasy/ONT DNA Extraction Protocol for long and short reads	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344643	NextSeq 2000	PAIRED	4629055	1.40	MHRA_Lab_9_M15	2	extraction by Lab 9 with MagPurix Bacterial DNA Extraction kit using automated Zinexts system	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344790	NextSeq 2000	PAIRED	4845331	1.46	MHRA_Lab_12_M20	5	extraction by Lab 12 with Qiagen QIAAmp DNA Microbiome Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344645	NextSeq 2000	PAIRED	6070220	1.83	MHRA_Lab_9_M15	1	extraction by Lab 9 with MagPurix Bacterial DNA Extraction kit using automated Zinexts system	
+control	PRJNA1337664	SRR36344801	NextSeq 2000	PAIRED	38	0.00	MHRA_Lab_5_M9	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344804	NextSeq 2000	PAIRED	5920386	1.79	MHRA_Lab_4_M8	4	extraction by Lab 4 with chemagic DNA Stool 360 prefilling VD160912.che protocol	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344806	NextSeq 2000	PAIRED	6059671	1.83	MHRA_Lab_4_M8	3	extraction by Lab 4 with chemagic DNA Stool 360 prefilling VD160912.che protocol	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344813	NextSeq 2000	PAIRED	5049306	1.52	MHRA_Lab_1_M1	4	extraction by Lab 1 with Qiagen Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344658	NextSeq 2000	PAIRED	7155589	2.16	MHRA_Lab_24_M42	4	extraction by Lab 24 with Aus Diagnostics MP Pathogen Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344815	NextSeq 2000	PAIRED	5467813	1.65	MHRA_Lab_4_M7	2	extraction by Lab 4 with QIAmp Bacteremia Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344660	NextSeq 2000	PAIRED	4682932	1.41	MHRA_Lab_24_M42	3	extraction by Lab 24 with Aus Diagnostics MP Pathogen Kit	
+control	PRJNA1337664	SRR36344662	NextSeq 2000	PAIRED	52	0.00	MHRA_Lab_24_M42	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344670	NextSeq 2000	PAIRED	5792144	1.75	MHRA_Lab_24_M41	1	extraction by Lab 24 with QIAGEN EZ2 DNA Tissue Kit EZ2	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344672	NextSeq 2000	PAIRED	6347713	1.92	MHRA_Lab_23_M39	4	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344675	NextSeq 2000	PAIRED	6196022	1.87	MHRA_Lab_2_M4	5	extraction by Lab 2 with Custom	
+control	PRJNA1337664	SRR36344680	NextSeq 2000	PAIRED	64	0.00	MHRA_Lab_22_M37	-	negative control	
+control	PRJNA1337664	SRR36344681	NextSeq 2000	PAIRED	16	0.00	MHRA_Lab_16_M28	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344685	NextSeq 2000	PAIRED	6180890	1.87	MHRA_Lab_16_M27	4	extraction by Lab 16 with Perkin Elmer Chemagic 360 for DNA extraction from stool	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344687	NextSeq 2000	PAIRED	5533854	1.67	MHRA_Lab_16_M27	3	extraction by Lab 16 with Perkin Elmer Chemagic 360 for DNA extraction from stool	
+control	PRJNA1337664	SRR36344689	NextSeq 2000	PAIRED	24	0.00	MHRA_Lab_16_M27	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344691	NextSeq 2000	PAIRED	6298270	1.90	MHRA_Lab_15_M26	5	extraction by Lab 15 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344693	NextSeq 2000	PAIRED	3888161	1.17	MHRA_Lab_15_M26	3	extraction by Lab 15 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344694	NextSeq 2000	PAIRED	5329307	1.61	MHRA_Lab_15_M26	2	extraction by Lab 15 with Qiagen DNeasy PowerSoil Pro Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344696	NextSeq 2000	PAIRED	6367007	1.92	MHRA_Lab_2_M3	3	extraction by Lab 2 with ISOSPIN Fecal DNA	
+control	PRJNA1337664	SRR36344699	NextSeq 2000	PAIRED	34	0.00	MHRA_Lab_13_M22	-	negative control	
+control	PRJNA1337664	SRR36344704	NextSeq 2000	PAIRED	29	0.00	MHRA_Lab_1_M2	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344708	NextSeq 2000	PAIRED	5310078	1.60	MHRA_Lab_7_M12	2	extraction by Lab 7 with ZymoBIOMICS 96-MagBead DNA Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344712	NextSeq 2000	PAIRED	5439458	1.64	MHRA_Lab_7_M11	2	extraction by Lab 7 with Chemagic DNA Blood 4k Kit on Chemagen MSM I instrument	
+control	PRJNA1337664	SRR36344713	NextSeq 2000	PAIRED	62	0.00	MHRA_Lab_7_M11	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344715	NextSeq 2000	PAIRED	5589773	1.69	MHRA_Lab_1_M2	1	extraction by Lab 1 with Chaotropic	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344718	NextSeq 2000	PAIRED	4983556	1.51	MHRA_Lab_8_M14	3	extraction by Lab 8 with PureLink Microbiome DNA Purification Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344723	NextSeq 2000	PAIRED	6574498	1.99	MHRA_Lab_3_M6	2	extraction by Lab 3 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344725	NextSeq 2000	PAIRED	5012281	1.51	MHRA_Lab_5_M9	4	extraction by Lab 5 with Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344731	NextSeq 2000	PAIRED	6540450	1.98	MHRA_Lab_20_M36	4	extraction by Lab 20 with AllPrep PowerFecal DNA/RNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344737	NextSeq 2000	PAIRED	7222393	2.18	MHRA_Lab_23_M40	1	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344738	NextSeq 2000	PAIRED	5562694	1.68	MHRA_Lab_23_M39	5	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344745	NextSeq 2000	PAIRED	7557331	2.28	MHRA_Lab_20_M35	4	extraction by Lab 20 with Maxwell RSC PureFood GMO and Authentication Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344751	NextSeq 2000	PAIRED	6989681	2.11	MHRA_Lab_2_M4	4	extraction by Lab 2 with Custom	
+control	PRJNA1337664	SRR36344756	NextSeq 2000	PAIRED	41	0.00	MHRA_Lab_14_M24	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344765	NextSeq 2000	PAIRED	5392302	1.63	MHRA_Lab_13_M22	5	extraction by Lab 13 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344770	NextSeq 2000	PAIRED	6183239	1.87	MHRA_Lab_1_M2	4	extraction by Lab 1 with Chaotropic	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344772	NextSeq 2000	PAIRED	6234601	1.88	MHRA_Lab_10_M17	5	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (without proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344773	NextSeq 2000	PAIRED	6092550	1.84	MHRA_Lab_10_M18	1	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (with proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344775	NextSeq 2000	PAIRED	5474250	1.65	MHRA_Lab_10_M18	2	extraction by Lab 10 with QIAsymphony PowerFecal Pro DNA Kit (with proteinase K step)	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344776	NextSeq 2000	PAIRED	5788178	1.75	MHRA_Lab_13_M21	4	extraction by Lab 13 with Qiagen DNeasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344782	NextSeq 2000	PAIRED	5141875	1.55	MHRA_Lab_12_M19	3	extraction by Lab 12 with Qiagen DNAEasy/ONT DNA Extraction Protocol for long and short reads	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344785	NextSeq 2000	PAIRED	5908085	1.78	MHRA_Lab_12_M20	1	extraction by Lab 12 with Qiagen QIAAmp DNA Microbiome Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344788	NextSeq 2000	PAIRED	7136235	2.16	MHRA_Lab_12_M20	3	extraction by Lab 12 with Qiagen QIAAmp DNA Microbiome Kit	
+control	PRJNA1337664	SRR36344792	NextSeq 2000	PAIRED	36	0.00	MHRA_Lab_13_M21	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344793	NextSeq 2000	PAIRED	6450818	1.95	MHRA_Lab_13_M21	1	extraction by Lab 13 with Qiagen DNeasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344797	NextSeq 2000	PAIRED	5165416	1.56	MHRA_Lab_2_M3	1	extraction by Lab 2 with ISOSPIN Fecal DNA	
+control	PRJNA1337664	SRR36344809	NextSeq 2000	PAIRED	34	0.00	MHRA_Lab_4_M8	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344818	NextSeq 2000	PAIRED	5994122	1.81	MHRA_Lab_3_M6	5	extraction by Lab 3 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344552	NextSeq 2000	PAIRED	6145376	1.86	MHRA_Lab_25_M43	5	extraction by Lab 25 with Solg Genomic DNA Prep Kit	
+control	PRJNA1337664	SRR36344557	NextSeq 2000	PAIRED	23	0.00	MHRA_Lab_18_M32	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344564	NextSeq 2000	PAIRED	6071328	1.83	MHRA_Lab_1_M1	2	extraction by Lab 1 with Qiagen Dneasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344576	NextSeq 2000	PAIRED	6176361	1.87	MHRA_Lab_18_M32	3	extraction by Lab 18 with QIAamp PowerFecal Pro DNA Kit	
+NIBSC DNA-Gut-Mix RR 20/302	PRJNA1337664	SRR36344591	NextSeq 2000	PAIRED	5349691	1.62	MHRA_DNA_Mix_RR	2	DNA reagent replicate	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344599	NextSeq 2000	PAIRED	4950983	1.50	MHRA_Lab_25_M44	2	extraction by Lab 25 with Qiagen DNeasy PowerSoil Pro Kit	
+control	PRJNA1337664	SRR36344608	NextSeq 2000	PAIRED	185	0.00	MHRA_Lab_25_M43	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344615	NextSeq 2000	PAIRED	7398189	2.23	MHRA_Lab_18_M31	1	extraction by Lab 18 with Maxwell RSC Fecal Microbiome DNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344619	NextSeq 2000	PAIRED	5800260	1.75	MHRA_Lab_17_M30	3	extraction by Lab 17 with QIAamp UCP Pathogen Mini kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344620	NextSeq 2000	PAIRED	5813320	1.76	MHRA_Lab_17_M30	2	extraction by Lab 17 with QIAamp UCP Pathogen Mini kit	
+control	PRJNA1337664	SRR36344628	NextSeq 2000	PAIRED	32	0.00	MHRA_Lab_17_M29	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344639	NextSeq 2000	PAIRED	5292936	1.60	MHRA_Lab_1_M2	3	extraction by Lab 1 with Chaotropic	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344655	NextSeq 2000	PAIRED	5411423	1.63	MHRA_Lab_8_M13	1	extraction by Lab 8 with Zymo Quick-DNA Fecal/Soil Microbe Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344656	NextSeq 2000	PAIRED	5913153	1.79	MHRA_Lab_7_M12	4	extraction by Lab 7 with ZymoBIOMICS 96-MagBead DNA Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344657	NextSeq 2000	PAIRED	5766367	1.74	MHRA_Lab_25_M43	1	extraction by Lab 25 with Solg Genomic DNA Prep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344666	NextSeq 2000	PAIRED	5419939	1.64	MHRA_Lab_24_M41	3	extraction by Lab 24 with QIAGEN EZ2 DNA Tissue Kit EZ2	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344667	NextSeq 2000	PAIRED	5275256	1.59	MHRA_Lab_24_M41	2	extraction by Lab 24 with QIAGEN EZ2 DNA Tissue Kit EZ2	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344671	NextSeq 2000	PAIRED	5715495	1.73	MHRA_Lab_22_M38	3	extraction by Lab 22 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344673	NextSeq 2000	PAIRED	5832895	1.76	MHRA_Lab_23_M39	3	extraction by Lab 23 with ZymoBIOMICS 96 MagBead DNA Kit on KingFisher Flex	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344697	NextSeq 2000	PAIRED	6078509	1.84	MHRA_Lab_15_M25	5	extraction by Lab 15 with QIAamp 96 Powersoil Pro extraction kit on the Qiacube HT automation	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344702	NextSeq 2000	PAIRED	5471645	1.65	MHRA_Lab_14_M24	5	extraction by Lab 14 with Qiagen QIAamp Powerfecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344703	NextSeq 2000	PAIRED	6624429	2.00	MHRA_Lab_14_M24	4	extraction by Lab 14 with Qiagen QIAamp Powerfecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344705	NextSeq 2000	PAIRED	6949595	2.10	MHRA_Lab_13_M21	5	extraction by Lab 13 with Qiagen DNeasy Powersoil pro kit	
+control	PRJNA1337664	SRR36344707	NextSeq 2000	PAIRED	51	0.00	MHRA_Lab_9_M16	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344711	NextSeq 2000	PAIRED	5786875	1.75	MHRA_Lab_7_M11	3	extraction by Lab 7 with Chemagic DNA Blood 4k Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344730	NextSeq 2000	PAIRED	5757756	1.74	MHRA_Lab_20_M36	5	extraction by Lab 20 with AllPrep PowerFecal DNA/RNA Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344733	NextSeq 2000	PAIRED	6145542	1.86	MHRA_Lab_20_M36	2	extraction by Lab 20 with AllPrep PowerFecal DNA/RNA Kit	
+control	PRJNA1337664	SRR36344740	NextSeq 2000	PAIRED	26	0.00	MHRA_Lab_20_M35	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344744	NextSeq 2000	PAIRED	4766335	1.44	MHRA_Lab_20_M35	5	extraction by Lab 20 with Maxwell RSC PureFood GMO and Authentication Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344749	NextSeq 2000	PAIRED	5429266	1.64	MHRA_Lab_19_M34	4	extraction by Lab 19 with DNeasy 96 PowerSoil Pro QIAcube HT Kit	
+control	PRJNA1337664	SRR36344752	NextSeq 2000	PAIRED	22	0.00	MHRA_Lab_20_M36	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344754	NextSeq 2000	PAIRED	6219281	1.88	MHRA_Lab_14_M24	2	extraction by Lab 14 with Qiagen QIAamp Powerfecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344757	NextSeq 2000	PAIRED	6572796	1.98	MHRA_Lab_14_M24	1	extraction by Lab 14 with Qiagen QIAamp Powerfecal Pro DNA kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344766	NextSeq 2000	PAIRED	6213181	1.88	MHRA_Lab_13_M22	4	extraction by Lab 13 with ZymoBIOMICS DNA Miniprep Kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344777	NextSeq 2000	PAIRED	6730675	2.03	MHRA_Lab_13_M21	3	extraction by Lab 13 with Qiagen DNeasy Powersoil pro kit	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344778	NextSeq 2000	PAIRED	5997877	1.81	MHRA_Lab_12_M19	1	extraction by Lab 12 with Qiagen DNAEasy/ONT DNA Extraction Protocol for long and short reads	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344783	NextSeq 2000	PAIRED	7630773	2.30	MHRA_Lab_12_M19	4	extraction by Lab 12 with Qiagen DNAEasy/ONT DNA Extraction Protocol for long and short reads	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344784	NextSeq 2000	PAIRED	5169510	1.56	MHRA_Lab_12_M19	5	extraction by Lab 12 with Qiagen DNAEasy/ONT DNA Extraction Protocol for long and short reads	
+control	PRJNA1337664	SRR36344786	NextSeq 2000	PAIRED	137672	0.04	MHRA_Lab_12_M20	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344800	NextSeq 2000	PAIRED	6000101	1.81	MHRA_Lab_7_M12	5	extraction by Lab 7 with ZymoBIOMICS 96-MagBead DNA Kit on Chemagen MSM I instrument	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344803	NextSeq 2000	PAIRED	6129175	1.85	MHRA_Lab_4_M8	5	extraction by Lab 4 with chemagic DNA Stool 360 prefilling VD160912.che protocol	
+control	PRJNA1337664	SRR36344805	NextSeq 2000	PAIRED	22	0.00	MHRA_Lab_7_M12	-	negative control	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344807	NextSeq 2000	PAIRED	5654209	1.71	MHRA_Lab_4_M8	2	extraction by Lab 4 with chemagic DNA Stool 360 prefilling VD160912.che protocol	
+NIBSC WC-Gut RR 22/210	PRJNA1337664	SRR36344808	NextSeq 2000	PAIRED	6549212	1.98	MHRA_Lab_7_M11	4	extraction by Lab 7 with Chemagic DNA Blood 4k Kit on Chemagen MSM I instrument	
+control	PRJNA1337664	SRR36344816	NextSeq 2000	PAIRED	24	0.00	MHRA_Lab_4_M7	-	negative control	
+NBRC Cell mock	PRJNA747117	SRR17380116	Illumina HiSeq 2500	PAIRED	23671746	4.73	NBRC_Cell_labC	013	lab C; library 013	
+NBRC Dna mock	PRJNA747117	SRR17380124	Illumina HiSeq 2500	PAIRED	23797974	4.76	NBRC_Dna_labC	006	lab C; library 006	
+NBRC Dna mock	PRJNA747117	SRR17380127	Illumina HiSeq 2500	PAIRED	20571776	4.11	NBRC_Dna_labC	003	lab C; library 003	
+NBRC Cell mock	PRJNA747117	SRR17380117	Illumina HiSeq 2500	PAIRED	22493352	4.50	NBRC_Cell_labC	012	lab C; library 012	
+NBRC Cell mock	PRJNA747117	SRR17380215	NextSeq 500	PAIRED	8477932	2.56	NBRC_Cell_labB	048	lab B; library 048	
+NBRC Dna mock	PRJNA747117	SRR17380219	NextSeq 500	PAIRED	8006042	2.42	NBRC_Dna_labB	045	lab B; library 045	
+NBRC Cell mock	PRJNA747117	SRR17380222	NextSeq 500	PAIRED	8463501	2.56	NBRC_Cell_labB	042	lab B; library 042	
+NBRC Cell mock	PRJNA747117	SRR17380225	NextSeq 500	PAIRED	11024563	3.33	NBRC_Cell_labB	039	lab B; library 039	
+NBRC Cell mock	PRJNA747117	SRR17380230	NextSeq 500	PAIRED	6564692	1.98	NBRC_Cell_labA	035	lab A; library 035	
+NBRC Cell mock	PRJNA747117	SRR17380232	NextSeq 500	PAIRED	5911467	1.79	NBRC_Cell_labA	033	lab A; library 033	
+NBRC Dna mock	PRJNA747117	SRR17380241	NextSeq 500	PAIRED	5765392	1.74	NBRC_Dna_labA	025	lab A; library 025	
+NBRC Dna mock	PRJNA747117	SRR17380244	NextSeq 500	PAIRED	6924232	2.09	NBRC_Dna_labA	022	lab A; library 022	
+NBRC Dna mock	PRJNA747117	SRR17380210	NextSeq 500	PAIRED	9539982	2.88	NBRC_Dna_labB	053	lab B; library 053	
+NBRC Cell mock	PRJNA747117	SRR17380212	NextSeq 500	PAIRED	8670417	2.62	NBRC_Cell_labB	051	lab B; library 051	
+NBRC Cell mock	PRJNA747117	SRR17380221	NextSeq 500	PAIRED	7533342	2.28	NBRC_Cell_labB	043	lab B; library 043	
+NBRC Dna mock	PRJNA747117	SRR17380223	NextSeq 500	PAIRED	8760421	2.65	NBRC_Dna_labB	041	lab B; library 041	
+NBRC Cell mock	PRJNA747117	SRR17380227	NextSeq 500	PAIRED	6708689	2.03	NBRC_Cell_labA	037	lab A; library 037	
+NBRC Cell mock	PRJNA747117	SRR17380120	Illumina HiSeq 2500	PAIRED	21440011	4.29	NBRC_Cell_labC	009	lab C; library 009	
+NBRC Cell mock	PRJNA747117	SRR17380122	Illumina HiSeq 2500	PAIRED	21841557	4.37	NBRC_Cell_labC	007	lab C; library 007	
+NBRC Cell mock	PRJNA747117	SRR17380211	NextSeq 500	PAIRED	7392160	2.23	NBRC_Cell_labB	052	lab B; library 052	
+NBRC Cell mock	PRJNA747117	SRR17380213	NextSeq 500	PAIRED	7821998	2.36	NBRC_Cell_labB	050	lab B; library 050	
+NBRC Cell mock	PRJNA747117	SRR17380218	NextSeq 500	PAIRED	7456845	2.25	NBRC_Cell_labB	046	lab B; library 046	
+NBRC Cell mock	PRJNA747117	SRR17380224	NextSeq 500	PAIRED	10451856	3.16	NBRC_Cell_labB	040	lab B; library 040	
+NBRC Cell mock	PRJNA747117	SRR17380226	NextSeq 500	PAIRED	7051887	2.13	NBRC_Cell_labA	038	lab A; library 038	
+NBRC Dna mock	PRJNA747117	SRR17380229	NextSeq 500	PAIRED	6696810	2.02	NBRC_Dna_labA	036	lab A; library 036	
+NBRC Cell mock	PRJNA747117	SRR17380237	NextSeq 500	PAIRED	6445615	1.95	NBRC_Cell_labA	028	lab A; library 028	
+NBRC Dna mock	PRJNA747117	SRR17380240	NextSeq 500	PAIRED	7523413	2.27	NBRC_Dna_labA	026	lab A; library 026	
+NBRC Dna mock	PRJNA747117	SRR17380242	NextSeq 500	PAIRED	6263773	1.89	NBRC_Dna_labA	024	lab A; library 024	
+NBRC Cell mock	PRJNA747117	SRR17380247	NextSeq 500	PAIRED	6741046	2.04	NBRC_Cell_labA	019	lab A; library 019	
+NBRC Cell mock	PRJNA747117	SRR17380115	Illumina HiSeq 2500	PAIRED	20196999	4.04	NBRC_Cell_labC	014	lab C; library 014	
+NBRC Cell mock	PRJNA747117	SRR17380118	Illumina HiSeq 2500	PAIRED	20255404	4.05	NBRC_Cell_labC	011	lab C; library 011	
+NBRC Cell mock	PRJNA747117	SRR17380121	Illumina HiSeq 2500	PAIRED	23967123	4.79	NBRC_Cell_labC	008	lab C; library 008	
+NBRC Dna mock	PRJNA747117	SRR17380125	Illumina HiSeq 2500	PAIRED	21099508	4.22	NBRC_Dna_labC	005	lab C; library 005	
+NBRC Dna mock	PRJNA747117	SRR17380126	Illumina HiSeq 2500	PAIRED	21501429	4.30	NBRC_Dna_labC	004	lab C; library 004	
+NBRC Dna mock	PRJNA747117	SRR17380129	Illumina HiSeq 2500	PAIRED	21024640	4.20	NBRC_Dna_labC	001	lab C; library 001	
+NBRC Dna mock	PRJNA747117	SRR17380208	NextSeq 500	PAIRED	9374780	2.83	NBRC_Dna_labB	055	lab B; library 055	
+NBRC Dna mock	PRJNA747117	SRR17380214	NextSeq 500	PAIRED	9092650	2.75	NBRC_Dna_labB	049	lab B; library 049	
+NBRC Dna mock	PRJNA747117	SRR17380216	NextSeq 500	PAIRED	9215704	2.78	NBRC_Dna_labB	047	lab B; library 047	
+NBRC Cell mock	PRJNA747117	SRR17380220	NextSeq 500	PAIRED	8999118	2.72	NBRC_Cell_labB	044	lab B; library 044	
+NBRC Cell mock	PRJNA747117	SRR17380235	NextSeq 500	PAIRED	7008468	2.12	NBRC_Cell_labA	030	lab A; library 030	
+NBRC Cell mock	PRJNA747117	SRR17380238	NextSeq 500	PAIRED	6298763	1.90	NBRC_Cell_labA	027	lab A; library 027	
+NBRC Dna mock	PRJNA747117	SRR17380243	NextSeq 500	PAIRED	5946683	1.80	NBRC_Dna_labA	023	lab A; library 023	
+NBRC Cell mock	PRJNA747117	SRR17380248	Illumina HiSeq 2500	PAIRED	25076505	5.02	NBRC_Cell_labC	018	lab C; library 018	
+NBRC Cell mock	PRJNA747117	SRR17380249	Illumina HiSeq 2500	PAIRED	23003124	4.60	NBRC_Cell_labC	017	lab C; library 017	
+NBRC Cell mock	PRJNA747117	SRR17380113	Illumina HiSeq 2500	PAIRED	25214599	5.04	NBRC_Cell_labC	016	lab C; library 016	
+NBRC Cell mock	PRJNA747117	SRR17380114	Illumina HiSeq 2500	PAIRED	22386928	4.48	NBRC_Cell_labC	015	lab C; library 015	
+NBRC Cell mock	PRJNA747117	SRR17380119	Illumina HiSeq 2500	PAIRED	24137544	4.83	NBRC_Cell_labC	010	lab C; library 010	
+NBRC Dna mock	PRJNA747117	SRR17380128	Illumina HiSeq 2500	PAIRED	24150516	4.83	NBRC_Dna_labC	002	lab C; library 002	
+NBRC Cell mock	PRJNA747117	SRR17380207	NextSeq 500	PAIRED	8297429	2.51	NBRC_Cell_labB	056	lab B; library 056	
+NBRC Cell mock	PRJNA747117	SRR17380209	NextSeq 500	PAIRED	7036001	2.12	NBRC_Cell_labB	054	lab B; library 054	
+NBRC Cell mock	PRJNA747117	SRR17380231	NextSeq 500	PAIRED	6111677	1.85	NBRC_Cell_labA	034	lab A; library 034	
+NBRC Cell mock	PRJNA747117	SRR17380233	NextSeq 500	PAIRED	6390410	1.93	NBRC_Cell_labA	032	lab A; library 032	
+NBRC Cell mock	PRJNA747117	SRR17380234	NextSeq 500	PAIRED	6483178	1.96	NBRC_Cell_labA	031	lab A; library 031	
+NBRC Cell mock	PRJNA747117	SRR17380236	NextSeq 500	PAIRED	5878228	1.78	NBRC_Cell_labA	029	lab A; library 029	
+NBRC Dna mock	PRJNA747117	SRR17380245	NextSeq 500	PAIRED	6217665	1.88	NBRC_Dna_labA	021	lab A; library 021	
+NBRC Dna mock	PRJNA747117	SRR17380246	NextSeq 500	PAIRED	5939139	1.79	NBRC_Dna_labA	020	lab A; library 020	
+Zymo D6331	PRJNA1054518	SRR27313130	Illumina NovaSeq 6000	PAIRED	15252452	4.52	Litichevskiy_D6331_posctrl	POS_EXT_B114	extraction batch POS_EXT_B114; library batch LB128_E03	
+Zymo D6331	PRJNA1054518	SRR27313166	Illumina NovaSeq 6000	PAIRED	2091755	0.60	Litichevskiy_D6331_posctrl	POS_EXT_B092	extraction batch POS_EXT_B092; library batch LB92_A07	
+Zymo D6331	PRJNA1054518	SRR27313225	Illumina NovaSeq 6000	PAIRED	21493214	6.02	Litichevskiy_D6331_posctrl	POS_EXT_B084	extraction batch POS_EXT_B084; library batch LB84_H06	
+Zymo D6331	PRJNA1054518	SRR27313290	Illumina NovaSeq 6000	PAIRED	12013043	3.60	Litichevskiy_D6331_posctrl	POS_EXT_B075	extraction batch POS_EXT_B075; library batch LB75_D01	
+Zymo D6331	PRJNA1054518	SRR27313316	Illumina NovaSeq 6000	PAIRED	11464903	3.44	Litichevskiy_D6331_posctrl	POS_EXT_B077	extraction batch POS_EXT_B077; library batch LB77_E11	
+Zymo D6331	PRJNA1054518	SRR27313143	Illumina NovaSeq 6000	PAIRED	282796	0.08	Litichevskiy_D6331_posctrl	POS_EXT_B103	extraction batch POS_EXT_B103; library batch LB102_F09	
+Zymo D6331	PRJNA1054518	SRR27313180	Illumina NovaSeq 6000	PAIRED	24655907	7.07	Litichevskiy_D6331_posctrl	POS_EXT_B099	extraction batch POS_EXT_B099; library batch LB97_H06	
+Zymo D6331	PRJNA1054518	SRR27313188	Illumina NovaSeq 6000	PAIRED	23855625	7.01	Litichevskiy_D6331_posctrl	POS_EXT_B097	extraction batch POS_EXT_B097; library batch LB96_H08	
+Zymo D6331	PRJNA1054518	SRR27313491	Illumina NovaSeq 6000	PAIRED	13946271	4.18	Litichevskiy_D6331_posctrl	POS_EXT_B056	extraction batch POS_EXT_B056; library batch LB56_B02	
+Zymo D6331	PRJNA1054518	SRR27313541	Illumina NovaSeq 6000	PAIRED	22564800	6.61	Litichevskiy_D6331_posctrl	POS_EXT_B108	extraction batch POS_EXT_B108; library batch LB108_H06	
+Zymo D6331	PRJNA1054518	SRR27313590	Illumina NovaSeq 6000	PAIRED	7381450	2.08	Litichevskiy_D6331_posctrl	POS_EXT_B100	extraction batch POS_EXT_B100; library batch LB99_G05	
+Zymo D6331	PRJNA1054518	SRR27313038	Illumina NovaSeq 6000	PAIRED	11276615	3.15	Litichevskiy_D6331_posctrl	POS_EXT_B090	extraction batch POS_EXT_B090; library batch LB87_E07	
+Zymo D6331	PRJNA1054518	SRR27313103	Illumina NovaSeq 6000	PAIRED	19361086	5.77	Litichevskiy_D6331_posctrl	POS_EXT_B067	extraction batch POS_EXT_B067; library batch LB130_E03	
+Zymo D6331	PRJNA1054518	SRR27313134	Illumina NovaSeq 6000	PAIRED	109686	0.03	Litichevskiy_D6331_posctrl	POS_EXT_B104	extraction batch POS_EXT_B104; library batch LB104_B07	
+Zymo D6331	PRJNA1054518	SRR27313238	Illumina NovaSeq 6000	PAIRED	17522578	5.26	Litichevskiy_D6331_posctrl	POS_EXT_B081	extraction batch POS_EXT_B081; library batch LB81_B08	
+Zymo D6331	PRJNA1054518	SRR27313378	Illumina NovaSeq 6000	PAIRED	11419788	3.27	Litichevskiy_D6331_posctrl	POS_EXT_B110	extraction batch POS_EXT_B110; library batch LB109_G09	
+Zymo D6331	PRJNA1054518	SRR27312898	Illumina NovaSeq 6000	PAIRED	16084643	4.83	Litichevskiy_D6331_posctrl	POS_EXT_B070	extraction batch POS_EXT_B070; library batch LB70_B06	
+Zymo D6331	PRJNA1054518	SRR27313006	Illumina NovaSeq 6000	PAIRED	6678413	1.92	Litichevskiy_D6331_posctrl	POS_EXT_B124	extraction batch POS_EXT_B124; library batch LB122_D08	
+Zymo D6331	PRJNA1054518	SRR27313162	Illumina NovaSeq 6000	PAIRED	20950270	6.11	Litichevskiy_D6331_posctrl	POS_EXT_B095	extraction batch POS_EXT_B095; library batch LB92_G06	
+Zymo D6331	PRJNA1054518	SRR27313256	Illumina NovaSeq 6000	PAIRED	14050315	4.22	Litichevskiy_D6331_posctrl	POS_EXT_B079	extraction batch POS_EXT_B079; library batch LB81_A11	
+Zymo D6331	PRJNA1054518	SRR27313353	Illumina NovaSeq 6000	PAIRED	9202073	2.76	Litichevskiy_D6331_posctrl	POS_EXT_B064	extraction batch POS_EXT_B064; library batch LB63_C09	
+Zymo D6331	PRJNA1054518	SRR27313372	Illumina NovaSeq 6000	PAIRED	13094728	3.93	Litichevskiy_D6331_posctrl	POS_EXT_B060	extraction batch POS_EXT_B060; library batch LB60_C09	
+Zymo D6331	PRJNA1054518	SRR27313588	Illumina NovaSeq 6000	PAIRED	18137881	5.40	Litichevskiy_D6331_posctrl	POS_EXT_B116	extraction batch POS_EXT_B116; library batch LB115_F03	
+Zymo D6331	PRJNA1054518	SRR27312993	Illumina NovaSeq 6000	PAIRED	22655527	6.72	Litichevskiy_D6331_posctrl	POS_EXT_B126	extraction batch POS_EXT_B126; library batch LB126_A06	
+Zymo D6331	PRJNA1054518	SRR27313048	Illumina NovaSeq 6000	PAIRED	18540779	5.29	Litichevskiy_D6331_posctrl	POS_EXT_B089	extraction batch POS_EXT_B089; library batch LB85_H03	
+Zymo D6331	PRJNA1054518	SRR27313297	Illumina NovaSeq 6000	PAIRED	11227826	3.37	Litichevskiy_D6331_posctrl	POS_EXT_B073	extraction batch POS_EXT_B073; library batch LB73_B06	
+Zymo D6331	PRJNA804004	SRR17913199	GridION	SINGLE	1679780	7.21	HKU_D6331_ONT	Zymo-gut-mock-Kit20	design field: Kit 12 (Q20+)	submitted reads pre-filtered (>=1 kb, QA90)
+Zymo D6331	PRJNA804004	SRR23926917	Illumina NovaSeq 6000	PAIRED	36593773	10.98	HKU_D6331_Illumina	M45	design field: P1 Zymo	
+Zymo D6331	PRJNA804004	SRR23926920	Illumina NovaSeq 6000	PAIRED	37730063	11.32	HKU_D6331_Illumina	M43	design field: P1 Zymo	
+Zymo D6331	PRJNA804004	SRR23926924	GridION	SINGLE	1729863	6.34	HKU_D6331_ONT	M49	design field: P1 Zymo (2)	
+Zymo D6331	PRJNA804004	SRR23926934	Illumina NovaSeq 6000	PAIRED	34013135	10.20	HKU_D6331_Illumina	M20	design field: P2 Qiagen PowerSoil Pro	
+Zymo D6331	PRJNA804004	SRR23926921	Illumina NovaSeq 6000	PAIRED	35752777	10.73	HKU_D6331_Illumina	M42	design field: P1 Zymo	
+Zymo D6331	PRJNA804004	SRR23926922	Illumina NovaSeq 6000	PAIRED	33271460	9.98	HKU_D6331_Illumina	M41	design field: P1 Zymo	
+Zymo D6331	PRJNA804004	SRR23926923	GridION	SINGLE	1321731	6.00	HKU_D6331_ONT	M50	design field: P1 Zymo (3)	
+Zymo D6331	PRJNA804004	SRR23926927	GridION	SINGLE	1440858	6.77	HKU_D6331_ONT	M46	design field: P1 Zymo (1a)	
+Zymo D6331	PRJNA804004	SRR23926929	Illumina NovaSeq 6000	PAIRED	34478415	10.34	HKU_D6331_Illumina	M32	design field: P5 Qiagen PowerSoil Pro	
+Zymo D6331	PRJNA804004	SRR23926932	Illumina NovaSeq 6000	PAIRED	29374483	8.81	HKU_D6331_Illumina	M28	design field: P4 Qiagen PowerSoil Pro	
+Zymo D6331	PRJNA804004	SRR23926925	GridION	SINGLE	1467834	7.12	HKU_D6331_ONT	M48	design field: P1 Zymo (1c)	
+Zymo D6331	PRJNA804004	SRR23926933	Illumina NovaSeq 6000	PAIRED	29144685	8.74	HKU_D6331_Illumina	M24	design field: P3 Qiagen PowerSoil Pro	
+Zymo D6331	PRJNA804004	SRR23926935	Illumina NovaSeq 6000	PAIRED	28726993	8.62	HKU_D6331_Illumina	M13	design field: P1 Zymo	
+Zymo D6331	PRJNA804004	SRR17913200	GridION	SINGLE	5757345	28.44	HKU_D6331_ONT	Zymo-gut-mock-Kit9	design field: Kit 9 (LSK109)	submitted reads pre-filtered (>=1 kb, QA90)
+Zymo D6331	PRJNA804004	SRR23926926	GridION	SINGLE	1484367	7.19	HKU_D6331_ONT	M47	design field: P1 Zymo (1b)	
+Zymo D6331	PRJNA804004	SRR23926928	Illumina NovaSeq 6000	PAIRED	33731960	10.12	HKU_D6331_Illumina	M9	design field: P1 FastDNA	
+Zymo D6331	PRJNA804004	SRR23926931	Illumina NovaSeq 6000	PAIRED	28031935	8.41	HKU_D6331_Illumina	M3	design field: P1 Qiagen PowerSoil Pro	
+Zymo D6331	PRJNA804004	SRR23926918	Illumina NovaSeq 6000	PAIRED	35953570	10.79	HKU_D6331_Illumina	M44	design field: P1 Zymo	
+Zymo D6331	PRJNA1454942	SRR38158093	Illumina NovaSeq X	PAIRED	494482414	147.58	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2	3	microbe:host DNA ratio 1:10^2,	
+Zymo D6331	PRJNA1454942	SRR38158095	Illumina NovaSeq X	PAIRED	398862723	119.61	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2	1	microbe:host DNA ratio 1:10^2,	
+Zymo D6331	PRJNA1454942	SRR38158107	Illumina NovaSeq X	PAIRED	540311006	160.18	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8	1	microbe:host DNA ratio 1:10^8,	
+Zymo D6331	PRJNA1454942	SRR38158109	Illumina NovaSeq X	PAIRED	469454216	140.98	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7	2	microbe:host DNA ratio 1:10^7,	
+Zymo D6331	PRJNA1454942	SRR38158115	Illumina NovaSeq X	PAIRED	505744592	151.18	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5	3	microbe:host DNA ratio 1:10^5,	
+Zymo D6331	PRJNA1454942	SRR38158116	Illumina NovaSeq X	PAIRED	933824426	140.40	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5	2	microbe:host DNA ratio 1:10^5,	
+Zymo D6331	PRJNA1454942	SRR38158123	Illumina NovaSeq X	PAIRED	643377566	190.61	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1	2	microbe:host DNA ratio 1:1,	
+Zymo D6331	PRJNA1454942	SRR38158090	Illumina NovaSeq X	PAIRED	915836049	275.70	Dohlman_ZymoBIOMICS Gut Standard D6331 DNA only	3	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 3	
+Zymo D6331	PRJNA1454942	SRR38158092	Illumina NovaSeq X	PAIRED	506021191	151.38	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3	1	microbe:host DNA ratio 1:10^3,	
+Zymo D6331	PRJNA1454942	SRR38158100	Illumina NovaSeq X	PAIRED	1015614997	305.64	Dohlman_ZymoBIOMICS Gut Standard D6331 DNA only	2	ZymoBIOMICS Gut Standard D6331 DNA only, replicate 2	
+control	PRJNA1454942	SRR38158104	Illumina NovaSeq X	PAIRED	479643110	143.89	Dohlman_Human DNA only control (HCT116)	1	Human DNA only control (HCT116), replicate 1	
+Zymo D6331	PRJNA1454942	SRR38158119	Illumina NovaSeq X	PAIRED	413756759	123.30	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4	2	microbe:host DNA ratio 1:10^4,	
+Zymo D6331	PRJNA1454942	SRR38158121	Illumina NovaSeq X	PAIRED	500305128	149.53	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3	3	microbe:host DNA ratio 1:10^3,	
+Zymo D6331	PRJNA1454942	SRR38158122	Illumina NovaSeq X	PAIRED	379113520	113.19	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^3	2	microbe:host DNA ratio 1:10^3,	
+Zymo D6331	PRJNA1454942	SRR38158124	Illumina NovaSeq X	PAIRED	672460514	201.87	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1	1	microbe:host DNA ratio 1:1,	
+control	PRJNA1454942	SRR38158091	Illumina NovaSeq 6000	PAIRED	118899	0.04	Dohlman_Template-free extraction negative control	1	Template-free extraction negative control, replicate 1	
+Zymo D6331	PRJNA1454942	SRR38158096	Illumina NovaSeq X	PAIRED	533694460	160.42	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1	3	microbe:host DNA ratio 1:10^1,	
+Zymo D6331	PRJNA1454942	SRR38158105	Illumina NovaSeq X	PAIRED	468190442	140.21	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8	3	microbe:host DNA ratio 1:10^8,	
+Zymo D6331	PRJNA1454942	SRR38158106	Illumina NovaSeq X	PAIRED	469489971	140.52	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^8	2	microbe:host DNA ratio 1:10^8,	
+Zymo D6331	PRJNA1454942	SRR38158108	Illumina NovaSeq X	PAIRED	446158110	133.33	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7	3	microbe:host DNA ratio 1:10^7,	
+Zymo D6331	PRJNA1454942	SRR38158112	Illumina NovaSeq X	PAIRED	658404018	197.86	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:1	3	microbe:host DNA ratio 1:1,	
+control	PRJNA1454942	SRR38158098	Illumina NovaSeq 6000	PAIRED	190759	0.06	Dohlman_Template-free extraction negative control	3	Template-free extraction negative control, replicate 3	
+control	PRJNA1454942	SRR38158099	Illumina NovaSeq 6000	PAIRED	252619	0.08	Dohlman_Template-free extraction negative control	2	Template-free extraction negative control, replicate 2	
+Zymo D6331	PRJNA1454942	SRR38158101	Illumina NovaSeq X	PAIRED	476165905	141.90	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1	1	microbe:host DNA ratio 1:10^1,	
+control	PRJNA1454942	SRR38158103	Illumina NovaSeq X	PAIRED	448225613	133.32	Dohlman_Human DNA only control (HCT116)	2	Human DNA only control (HCT116), replicate 2	
+Zymo D6331	PRJNA1454942	SRR38158111	Illumina NovaSeq X	PAIRED	439720226	131.86	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6	3	microbe:host DNA ratio 1:10^6,	
+Zymo D6331	PRJNA1454942	SRR38158113	Illumina NovaSeq X	PAIRED	425458651	127.29	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6	2	microbe:host DNA ratio 1:10^6,	
+Zymo D6331	PRJNA1454942	SRR38158118	Illumina NovaSeq X	PAIRED	462028899	138.31	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4	3	microbe:host DNA ratio 1:10^4,	
+Zymo D6331	PRJNA1454942	SRR38158120	Illumina NovaSeq X	PAIRED	423638420	127.20	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^4	1	microbe:host DNA ratio 1:10^4,	
+Zymo D6331	PRJNA1454942	SRR38158094	Illumina NovaSeq X	PAIRED	422521697	126.71	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^2	2	microbe:host DNA ratio 1:10^2,	
+Zymo D6331	PRJNA1454942	SRR38158097	Illumina NovaSeq X	PAIRED	446154726	133.63	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^1	2	microbe:host DNA ratio 1:10^1,	
+control	PRJNA1454942	SRR38158102	Illumina NovaSeq X	PAIRED	465222618	138.06	Dohlman_Human DNA only control (HCT116)	3	Human DNA only control (HCT116), replicate 3	
+Zymo D6331	PRJNA1454942	SRR38158110	Illumina NovaSeq X	PAIRED	420005420	125.05	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^7	1	microbe:host DNA ratio 1:10^7,	
+Zymo D6331	PRJNA1454942	SRR38158114	Illumina NovaSeq X	PAIRED	515853297	154.00	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^6	1	microbe:host DNA ratio 1:10^6,	
+Zymo D6331	PRJNA1454942	SRR38158117	Illumina NovaSeq X	PAIRED	781371636	117.48	Dohlman_ZymoBIOMICS Gut Standard D6331 spike-in to HCT116 gDNA, microbe:host ratio 1:10^5	1	microbe:host DNA ratio 1:10^5,	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012159	NextSeq 2000	PAIRED	33097952	9.96	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012165	NextSeq 2000	PAIRED	28575046	8.60	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012163	NextSeq 2000	PAIRED	33164450	9.98	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012164	NextSeq 2000	PAIRED	36014640	10.84	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012168	NextSeq 2000	PAIRED	6871432	2.07	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012161	NextSeq 2000	PAIRED	32881034	9.89	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012169	NextSeq 2000	PAIRED	8139384	2.45	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012171	NextSeq 2000	PAIRED	8584568	2.58	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012160	NextSeq 2000	PAIRED	39388014	11.85	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012162	NextSeq 2000	PAIRED	37660612	11.33	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample Automated Enzymatic Prep NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012170	NextSeq 2000	PAIRED	8176882	2.46	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012172	NextSeq 2000	PAIRED	3323603	1.00	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012166	NextSeq 2000	PAIRED	8107906	2.44	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300 presumed (Mixed Microbial Standard)	PRJEB105240	ERR16012167	NextSeq 2000	PAIRED	7877042	2.37	Whitehead2026_Zymo	ZymoBiomics Mixed Microbial Standard Mixed Microbial Sample with Chemical Lysis NextSeq 2000 sequencing	library prep in library_name	
+Zymo D6300	PRJEB38036	ERR4097204	BGISEQ-500	PAIRED	81411250	14.71	Yang2020_D6300	D6300_4_23 D6300_4_23 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097211	BGISEQ-500	PAIRED	53572887	9.72	Yang2020_D6300	D6300_38 D6300_38 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097241	BGISEQ-500	PAIRED	78746813	14.20	Yang2020_D6300	D6300_2_2 D6300_2_2 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097242	BGISEQ-500	PAIRED	63345713	11.21	Yang2020_D6300	D6300_2_3 D6300_2_3 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097270	BGISEQ-500	PAIRED	49419149	8.62	Yang2020_D6300	D6300_17 D6300_17 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097171	BGISEQ-500	PAIRED	54016094	9.58	Yang2020_D6300	D6300_4_24 D6300_4_24 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097175	BGISEQ-500	PAIRED	63224762	11.22	Yang2020_D6300	D6300_6_19 D6300_6_19 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097177	BGISEQ-500	PAIRED	57691792	10.07	Yang2020_D6300	D6300_9 D6300_9 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097210	BGISEQ-500	PAIRED	38056018	6.84	Yang2020_D6300	D6300_39 D6300_39 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097212	BGISEQ-500	PAIRED	50356180	9.17	Yang2020_D6300	D6300_37 D6300_37 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097237	BGISEQ-500	PAIRED	76125050	13.65	Yang2020_D6300	D6300_30 D6300_30 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097244	BGISEQ-500	PAIRED	60150268	10.70	Yang2020_D6300	D6300_3_1 D6300_3_1 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097261	BGISEQ-500	PAIRED	70949532	12.77	Yang2020_D6300	D6300_2_1 D6300_2_1 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097262	BGISEQ-500	PAIRED	47798722	8.24	Yang2020_D6300	D6300_18 D6300_18 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097264	BGISEQ-500	PAIRED	54548928	9.62	Yang2020_D6300	D6300_11 D6300_11 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097268	BGISEQ-500	PAIRED	89976897	16.15	Yang2020_D6300	D6300_15 D6300_15 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097271	BGISEQ-500	PAIRED	62851823	11.20	Yang2020_D6300	D6300_16 D6300_16 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097276	BGISEQ-500	PAIRED	57188730	10.21	Yang2020_D6300	D6300_32 D6300_32 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097111	BGISEQ-500	PAIRED	63538788	11.23	Yang2020_D6300	D6300_28 D6300_28 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097172	BGISEQ-500	PAIRED	46660301	8.44	Yang2020_D6300	D6300_40 D6300_40 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097205	BGISEQ-500	PAIRED	71830233	12.43	Yang2020_D6300	D6300_4_22 D6300_4_22 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097240	BGISEQ-500	PAIRED	67132888	11.83	Yang2020_D6300	D6300_2_8 D6300_2_8 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097269	BGISEQ-500	PAIRED	77056831	13.75	Yang2020_D6300	D6300_14 D6300_14 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097272	BGISEQ-500	PAIRED	89632289	16.05	Yang2020_D6300	D6300_4_1 D6300_4_1 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097176	BGISEQ-500	PAIRED	57053746	9.96	Yang2020_D6300	D6300_7 D6300_7 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097206	BGISEQ-500	PAIRED	51802257	8.89	Yang2020_D6300	D6300_4_21 D6300_4_21 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097207	BGISEQ-500	PAIRED	77413234	13.47	Yang2020_D6300	D6300_4_20 D6300_4_20 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097232	BGISEQ-500	PAIRED	97086031	17.35	Yang2020_D6300	D6300_12 D6300_12 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097243	BGISEQ-500	PAIRED	71736875	12.90	Yang2020_D6300	D6300_29 D6300_29 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097245	BGISEQ-500	PAIRED	51186327	8.95	Yang2020_D6300	D6300_27 D6300_27 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097266	BGISEQ-500	PAIRED	68231279	12.27	Yang2020_D6300	D6300_13 D6300_13 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097173	BGISEQ-500	PAIRED	48790785	8.81	Yang2020_D6300	D6300_41 D6300_41 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097174	BGISEQ-500	PAIRED	45044605	8.20	Yang2020_D6300	D6300_42 D6300_42 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097208	BGISEQ-500	PAIRED	75670970	13.36	Yang2020_D6300	D6300_4_2 D6300_4_2 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097238	BGISEQ-500	PAIRED	61757653	10.98	Yang2020_D6300	D6300_31 D6300_31 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6300	PRJEB38036	ERR4097239	BGISEQ-500	PAIRED	-1	-0.00	Yang2020_D6300	D6300_2_7 D6300_2_7 BGISEQ-500 paired end sequencing: metagenomic sequencing of fecal samples	6 extraction protocols x 6 replicates; mapping in Suppl. Table S2	
+Zymo D6306	PRJNA1114129	SRR29111730	NextSeq 500	PAIRED	1237608	0.37	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_G1_44f10a93_GTTGACC	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111762	NextSeq 500	PAIRED	1499920	0.45	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_E3_94da995c_TTGCGAA	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111765	NextSeq 500	PAIRED	1203291	0.36	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_D3_b6ed4025_AGCACTT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111775	Illumina NovaSeq X	PAIRED	1510647	0.46	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_A1_64578656_CTGATCG	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111729	NextSeq 500	PAIRED	1424573	0.43	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_G2_58358272_CGTGTGT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111763	NextSeq 500	PAIRED	1204865	0.36	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_E2_2b6aee84_AGTTCGT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111770	NextSeq 500	PAIRED	1526289	0.46	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_B3_7d766f08_AGAGTAG	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111773	NextSeq 500	PAIRED	1244403	0.38	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_B1_89cea633_TACGCTA	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111774	NextSeq 500	PAIRED	2607	0.00	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_A3_5d0c4e2a_TGAGCTA	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111761	NextSeq 500	PAIRED	1152950	0.35	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_F1_77dc634a_TGGTAGC	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111772	NextSeq 500	PAIRED	1379582	0.42	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_B2_602a285d_TGGACTC	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111768	NextSeq 500	PAIRED	1188307	0.36	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_C3_776d34f0_ACCACGA	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111728	NextSeq 500	PAIRED	1362299	0.41	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_G3_1c7243d3_ACGACTT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111731	NextSeq 500	PAIRED	1455080	0.44	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_F3_4496b792_GATGTGT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111764	NextSeq 500	PAIRED	1265210	0.38	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_E1_7f2035c3_GAGCAGT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111766	NextSeq 500	PAIRED	1365423	0.41	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_D2_ae2d63e0_GTCATCG	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111767	NextSeq 500	PAIRED	698461	0.21	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_D1_6999f358_TGTGACT	library-prep variant (plate well)	
+Zymo D6306	PRJNA1114129	SRR29111769	NextSeq 500	PAIRED	1018390	0.31	Hackflex_D6306	ZymoBIOMICS Microbial Community DNA Standard (D6306), 12819_11845_147327_H5W2HAFX3_MG_test_C1_c339aae2_CCTTGAT	library-prep variant (plate well)	
+Zymo D6331	PRJNA1215043	SRR32629729	NextSeq 1000	PAIRED	9736448	1.94	D6331_extraction_methods	WGS Illumina sequencing, ZymoBIOMICS, ZymoMS_Modified ZymoMS_Modified NextSeq 1000 sequencing: WGS sequencing 	extraction method in sample name	
+Zymo D6331	PRJNA1215043	SRR32629731	NextSeq 1000	PAIRED	10717921	2.13	D6331_extraction_methods	WGS Illumina sequencing, ZymoBIOMICS, ZymoMS_KingFisher ZymoMS_KingFisher NextSeq 1000 sequencing: WGS sequenc	extraction method in sample name	
+Zymo D6331	PRJNA1215043	SRR32629732	NextSeq 1000	PAIRED	247229	0.05	D6331_extraction_methods	WGS Illumina sequencing, ZymoBIOMICS, ZymoMS_Thermo ZymoMS_Thermo NextSeq 1000 sequencing: WGS sequencing on I	extraction method in sample name	
+Zymo D6331	PRJNA1215043	SRR32629730	NextSeq 1000	PAIRED	10711512	2.12	D6331_extraction_methods	WGS Illumina sequencing, ZymoBIOMICS, ZymoMS_Promega ZymoMS_Promega NextSeq 1000 sequencing: WGS sequencing on	extraction method in sample name	
+Zymo DNA standard	PRJNA1271121	SRR33795049	Illumina MiSeq	PAIRED	15189631	9.14	LANL_Zymo	Metagenome or environmental sample from synthetic metagenome 1 Illumina MiSeq sequencing: ZymoBIOMICS Microbia	single run	
+Zymo D6332 oral	PRJNA1403203	SRR36842452	Illumina NovaSeq X Plus	PAIRED	34275194	10.35	HKU_D6332	MIMS Environmental/Metagenome sample from synthetic metagenome d6332 Illumina NovaSeq X Plus sequencing: d6332	single run	
+Zymo D6331 / NIST Mosaic Mix A	PRJNA1474435	SRR38976713	Illumina NovaSeq 6000	PAIRED	17533221	5.28	UNER2026	lib_MC2_Mosaic_MG Illumina NovaSeq 6000 sequencing: Shotgun metagenomics of Mosaic Standards Challenge Mix A N	single shotgun run each	
+Zymo D6331 / NIST Mosaic Mix A	PRJNA1474435	SRR38976715	Illumina NovaSeq 6000	PAIRED	8143484	2.03	UNER2026	lib_MC1_Zymo_MG Illumina NovaSeq 6000 sequencing: Shotgun metagenomics of ZymoBIOMICS Gut Microbiome Standard 	single shotgun run each	
+HMP Mock B (BEI)	PRJNA48475	SRR172902	Illumina Genome Analyzer II	SINGLE	6562065	0.49	HMP_mock_pilot	HMP Mock Community Even sample IWG_MGS0136.HSAP.00_000sA Illumina Genome Analyzer II sequencing: Illumina sequ	even vs staggered	
+HMP Mock B (BEI)	PRJNA48475	SRR072232	454 GS FLX Titanium	SINGLE	1225169	0.65	HMP_mock_pilot	HMP Mock Community Staggered sample 4WG_MGS0137.HSAP.00_000sA 454 GS FLX Titanium sequencing: 454 Sequencing o	even vs staggered	
+HMP Mock B (BEI)	PRJNA48475	SRR172903	Illumina Genome Analyzer II	SINGLE	7932819	0.59	HMP_mock_pilot	HMP Mock Community Staggered sample IWG_MGS0137.HSAP.00_000sA Illumina Genome Analyzer II sequencing: Illumina	even vs staggered	
+HMP Mock B (BEI)	PRJNA48475	SRR072233	454 GS FLX Titanium	SINGLE	1386198	0.73	HMP_mock_pilot	HMP Mock Community Even sample 4WG_MGS0136.HSAP.00_000sA 454 GS FLX Titanium sequencing: 454 Sequencing of HMP	even vs staggered	
+ATCC MSA-1003	PRJNA510527	SRR8359173	Illumina HiSeq 2500	PAIRED	5019157	1.25	IGA_MSA1003	Metagenome from ATCC MSA-1003 product ID964_ATCC Illumina HiSeq 2500 sequencing: Metagenome_ID964_ATCC	single run	
+ATCC MSA-2002 (whole cell)	PRJNA574968	SRR10203103	Illumina MiSeq	PAIRED	822969	0.17	Ye2019_MSA2002	MSA-2002 NTC Illumina MiSeq sequencing: DNA of Ultrapure No Template Control Water	DNA/RNA replicate	
+ATCC MSA-2002 (whole cell)	PRJNA574968	SRR10203107	Illumina MiSeq	PAIRED	754816	0.22	Ye2019_MSA2002	MSA-2002 DNA1 Illumina MiSeq sequencing: DNA of ATCC Even 20 Strain Whole Cell: Replicate 1	DNA/RNA replicate	
+ATCC MSA-2002 (whole cell)	PRJNA574968	SRR10203104	Illumina MiSeq	PAIRED	316252	0.07	Ye2019_MSA2002	MSA-2002 RNA2 Illumina MiSeq sequencing: RNA of ATCC Even 20 Strain Whole Cell: Replicate 2	DNA/RNA replicate	
+ATCC MSA-2002 (whole cell)	PRJNA574968	SRR10203105	Illumina MiSeq	PAIRED	147360	0.04	Ye2019_MSA2002	MSA-2002 RNA1 Illumina MiSeq sequencing: RNA of ATCC Even 20 Strain Whole Cell: Replicate 1	DNA/RNA replicate	
+ATCC MSA-2002 (whole cell)	PRJNA574968	SRR10203106	Illumina MiSeq	PAIRED	624341	0.18	Ye2019_MSA2002	MSA-2002 DNA2 Illumina MiSeq sequencing: DNA of ATCC Even 20 Strain Whole Cell: Replicate 2	DNA/RNA replicate	
+Zymo D6300	PRJNA648136	SRR12324253	Illumina NovaSeq 6000	PAIRED	51466358	15.39	Olm2021_D6300	ZymoBIOMICS Microbial Community Standard S3_CON_017Z4 Illumina NovaSeq 6000 sequencing: ZymoBIOMICS Microbial 	labelled biological replicate	
+Zymo D6300	PRJNA648136	SRR12324251	Illumina NovaSeq 6000	PAIRED	29386307	8.79	Olm2021_D6300	ZymoBIOMICS Microbial Community Standard S3_CON_016Z3 Illumina NovaSeq 6000 sequencing: ZymoBIOMICS Microbial 	labelled biological replicate	
+Zymo D6300	PRJNA648136	SRR12324252	Illumina NovaSeq 6000	PAIRED	35951499	10.75	Olm2021_D6300	ZymoBIOMICS Microbial Community Standard S3_CON_017Z2 Illumina NovaSeq 6000 sequencing: ZymoBIOMICS Microbial 	labelled biological replicate	
+Zymo DNA standard (D6305/6)	PRJNA669653	SRR12829160	Illumina HiSeq 4000	PAIRED	40652704	12.28	sbvIMPROVER_Zymo	ZymoBIOMICS Microbial Community DNA Standard sample09 Illumina HiSeq 4000 sequencing: ZymoBIOMICS 4	2 libraries; SRR12829162/63 identical counts	
+Zymo DNA standard (D6305/6)	PRJNA669653	SRR12829163	Illumina HiSeq 4000	PAIRED	39913564	12.05	sbvIMPROVER_Zymo	ZymoBIOMICS Microbial Community DNA Standard sample16 Illumina HiSeq 4000 sequencing: ZymoBIOMICS 1	2 libraries; SRR12829162/63 identical counts	
+Zymo DNA standard (D6305/6)	PRJNA669653	SRR12829161	Illumina HiSeq 4000	PAIRED	39760625	12.01	sbvIMPROVER_Zymo	ZymoBIOMICS Microbial Community DNA Standard sample02 Illumina HiSeq 4000 sequencing: ZymoBIOMICS 3	2 libraries; SRR12829162/63 identical counts	
+Zymo DNA standard (D6305/6)	PRJNA669653	SRR12829162	Illumina HiSeq 4000	PAIRED	39913564	12.05	sbvIMPROVER_Zymo	ZymoBIOMICS Microbial Community DNA Standard sample17 Illumina HiSeq 4000 sequencing: ZymoBIOMICS 2	2 libraries; SRR12829162/63 identical counts	
+Zymo (lot ZRC190812)	PRJNA699918	SRR13687501	Illumina NovaSeq 6000	PAIRED	57612010	17.40	JGI_Zymo	Mock ZymoBIOMICS microbial communities from Zymo Research, California, USA - ZRC190812 GBBOG Illumina NovaSeq 	single run	
+Zymo D6300	PRJNA1268178	SRR33710516	Illumina NovaSeq 6000	PAIRED	28268008	7.58	Auckland_D6300	2	labelled replicate	
+Zymo D6300	PRJNA1268178	SRR33710517	Illumina NovaSeq 6000	PAIRED	21158603	5.67	Auckland_D6300	1	labelled replicate	
+Zymo D6331	PRJNA1268178	SRR33710519	Illumina NovaSeq 6000	PAIRED	23342973	6.26	Auckland_D6331	1	labelled replicate	
+Zymo D6305	PRJNA1268178	SRR33710467	Illumina NovaSeq 6000	PAIRED	28401423	7.62	Auckland_D6305	1	labelled replicate	
+Zymo D6331	PRJNA1268178	SRR33710518	Illumina NovaSeq 6000	PAIRED	20068731	5.38	Auckland_D6331	2	labelled replicate	
+Zymo D6305	PRJNA1268178	SRR33710466	Illumina NovaSeq 6000	PAIRED	27920780	7.49	Auckland_D6305	2	labelled replicate	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2906228	PromethION	SINGLE	36527376	146.29	Nicholls2019	Zymo-EVEN PromethION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2984773	Illumina MiSeq	PAIRED	8785731	2.65	Nicholls2019	in732_0_even_community_shotgun Illumina MiSeq paired end sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2906227	GridION	SINGLE	3491078	14.01	Nicholls2019	Zymo-EVEN GridION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2906229	GridION	SINGLE	3667007	16.03	Nicholls2019	Zymo-LOG GridION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR3152364	GridION	SINGLE	3491390	14.38	Nicholls2019	Zymo-EVEN GridION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR3152365	PromethION	SINGLE	35810963	151.54	Nicholls2019	Zymo-EVEN PromethION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR3152366	GridION	SINGLE	3667480	16.51	Nicholls2019	Zymo-LOG GridION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2906230	PromethION	SINGLE	35118078	148.03	Nicholls2019	Zymo-LOG PromethION sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR2935805	Illumina HiSeq 1500	PAIRED	47832553	9.66	Nicholls2019	in745_0_log_community_shotgun Illumina HiSeq 1500 paired end sequencing	platform/library/basecall variant	
+Zymo D6300 even / D6310 log	PRJEB29504	ERR3152367	PromethION	SINGLE	0	0.00	Nicholls2019	Zymo-LOG PromethION sequencing	platform/library/basecall variant	
+Zymo even DNA standard	PRJEB43406	ERR5396170	PromethION	SINGLE	5436512	17.95	Q20EA_Zymo	SA-RHK-2038 PromethION sequencing: Raw reads: SA-RHK-2038	platform/library/basecall variant	
+Zymo D6322 HMW	PRJEB48692	ERR7255742	MinION	SINGLE	8851918	32.00	Sereika2022_D6322	Reads for ZymoBIOMICS HMW DNA Standard MinION sequencing: Raw reads: Zymo_HMW_R941	platform/library/basecall variant	
+Zymo D6322 HMW	PRJEB48692	ERR7287988	PromethION	SINGLE	18831686	53.22	Sereika2022_D6322	Reads for ZymoBIOMICS HMW DNA Standard PromethION sequencing: Raw reads: Zymo_HMW_R104	platform/library/basecall variant	
+Zymo D6322 HMW	PRJEB48692	ERR7255689	Illumina MiSeq	PAIRED	49774986	7.52	Sereika2022_D6322	Reads for ZymoBIOMICS HMW DNA Standard Illumina MiSeq sequencing: Raw reads: Zymo_HMW_IL	platform/library/basecall variant	
+Zymo D6300 / D6305	PRJEB60080	ERR12085099	Sequel	SINGLE	890071	4.34	INRAE_HiFi_Zymo	microbial control Mock ZymoBiomics Sequel sequencing	platform/library/basecall variant	
+Zymo D6300 / D6305	PRJEB60080	ERR12085100	Sequel	SINGLE	1125556	5.74	INRAE_HiFi_Zymo	DNA control Mock ZymoBiomics Sequel sequencing	platform/library/basecall variant	
+Zymo D6331	PRJEB88618	ERR15316007	PromethION	SINGLE	3092552	12.33	nanoMDBG_D6331	Zymo PromethION sequencing	platform/library/basecall variant	
+Zymo D6331	PRJNA1028177	SRR26387398	PromethION	SINGLE	713445	3.59	Melon_D6331_G3	MIMS Environmental/Metagenome sample from synthetic metagenome PromethION sequencing: mock	platform/library/basecall variant	
+Zymo D6331	PRJNA1181840	SRR31222153	PromethION	SINGLE	23429059	128.37	Argo_D6331_deep	Metagenome or environmental sample from synthetic metagenome PromethION sequencing: Zymo D6331	platform/library/basecall variant	
+Zymo D6322 HMW	PRJNA1240873	SRR33364450	GridION	SINGLE	763092	5.17	Metaxa_D6322_R1041	ZymoBIOMICS HMW DNA Standard GridION sequencing: Zymo D6322 gDNA ONT reads	platform/library/basecall variant	
+ATCC MSA-2006 (whole cell)	PRJNA508395	SRR9847864	MinION	SINGLE	9741166	30.35	Moss2020_MSA2006	Metagenome or environmental sample from synthetic metagenome MinION sequencing: atcc12	platform/library/basecall variant	
+ATCC MSA-1003	PRJNA546278	SRR9328980	Sequel II	SINGLE	2419037	20.54	PacBio_MSA1003_HiFi_2019	Metagenome from ATCC MSA-1003 product Sequel II sequencing: WGS of ATCC MSA-1003 Mock Microbial Community with	platform/library/basecall variant	
+ATCC MSA-1003	PRJNA546278	SRR9202034	Sequel II	SINGLE	2358257	19.49	PacBio_MSA1003_HiFi_2019	Metagenome from ATCC MSA-1003 product Sequel II sequencing: WGS of ATCC MSA-1003 Mock Microbial Community with	platform/library/basecall variant	
+Zymo D6331	PRJNA680590	SRR13128013	Sequel II	SINGLE	2770833	25.78	PacBio_D6331_HiFi	ZymoBIOMICS Gut Microbiome Standard D6331 Sequel II sequencing: Zymo D6331 PacBio Low Input Library	platform/library/basecall variant	
+Zymo D6331	PRJNA680590	SRR13128014	Sequel II	SINGLE	1978852	17.99	PacBio_D6331_HiFi	ZymoBIOMICS Gut Microbiome Standard D6331 Sequel II sequencing: Zymo D6331 PacBio Standard Input Library	platform/library/basecall variant	
+Zymo D6331	PRJNA680590	SRR13128012	Sequel II	SINGLE	2480208	21.33	PacBio_D6331_HiFi	ZymoBIOMICS Gut Microbiome Standard D6331 Sequel II sequencing: Zymo D6331 PacBio Ultra-Low Input Library	platform/library/basecall variant	
+ATCC MSA-1003	PRJNA627939	SRR12371719	Sequel II	SINGLE	57005189	507.04	PacBio_MSA1003_2020	Sequel II sequencing: Metagenomic Std ATCC MSA-1003:PacBio Raw Subreads BAM	HiFi FASTQ vs raw subreads BAM	
+ATCC MSA-1003	PRJNA627939	SRR12358170	Sequel II	SINGLE	57269742	511.61	PacBio_MSA1003_2020	Sequel II sequencing: Metagenomic Std ATCC MSA-1003:PacBio Raw Subreads BAM	HiFi FASTQ vs raw subreads BAM	
+ATCC MSA-1003	PRJNA627939	SRR11606871	Sequel II	SINGLE	5646628	59.15	PacBio_MSA1003_2020	Sequel II sequencing: Metagenomic Std ATCC MSA-1003: PacBio HiFi Reads FASTQ	HiFi FASTQ vs raw subreads BAM	
