@@ -13,6 +13,10 @@ and the sample's profile (the called species), and writes a Markdown summary:
 
   python3 probe_summary.py --misc OUT/misc --sample pe1 --profile OUT/pe1.profile > pe1_probe.md
 
+--pick stride (protal since 2026-10-13) summarises the rules for a stride pick of the cores (every c-th in read order)
+instead: misc/<sample>_stage1_probe_stride.tsv and the taxa table's s<c>_t<T>_m<m> columns
+(docs/claude/2026-10-13-stride-pick compares the two).
+
 docs/claude/2026-10-12-stage1-probe; the tallies: src/Core/Stage1Probe.h.
 """
 
@@ -68,9 +72,10 @@ def cheapest(rules, recall):
     return min(fitting, key=lambda r: (float(r["share_kept"]), -int(r["c"])))
 
 
-def species_losses(taxa, called, rule, limit=15):
-    """The called species of which `rule` (m 1 or 2) keeps half or fewer of the reads with records."""
-    column = f"c{rule['c']}_t{rule['min_score']}_m{rule['min_hits']}"
+def species_losses(taxa, called, rule, limit=15, prefix="c"):
+    """The called species of which `rule` (m 1 or 2) keeps half or fewer of the reads with records (prefix "s": the
+    stride pick's columns)."""
+    column = f"{prefix}{rule['c']}_t{rule['min_score']}_m{rule['min_hits']}"
     if not taxa or column not in taxa[0]:
         return None, []
     rows = [t for t in taxa if t["name"] in called]
@@ -88,9 +93,12 @@ def main():
     parser.add_argument("--misc", required=True, help="the run's misc folder")
     parser.add_argument("--sample", required=True, help="the sample's name (its misc files' prefix)")
     parser.add_argument("--profile", help="the sample's profile (for the called species)")
+    parser.add_argument("--pick", choices=("hash", "stride"), default="hash",
+                        help="the rules of the hash sample of the cores (the default) or of the stride pick (protal since 2026-10-13)")
     args = parser.parse_args()
 
-    rules = read_tsv(os.path.join(args.misc, f"{args.sample}_stage1_probe.tsv"))
+    suffix, prefix = ("_stride", "s") if args.pick == "stride" else ("", "c")
+    rules = read_tsv(os.path.join(args.misc, f"{args.sample}_stage1_probe{suffix}.tsv"))
     taxa_path = os.path.join(args.misc, f"{args.sample}_stage1_probe_taxa.tsv")
     taxa = read_tsv(taxa_path) if os.path.exists(taxa_path) else []
     first_path = os.path.join(args.misc, f"{args.sample}_first_lookups_probe.tsv")
@@ -98,10 +106,11 @@ def main():
     called = called_species(args.profile) if args.profile else set()
 
     reads, aligned = int(rules[0]["reads"]), int(rules[0]["aligned"])
-    print(f"# Stage-1 probe of {args.sample}\n")
+    print(f"# Stage-1 probe of {args.sample}" + (" (stride pick)" if args.pick == "stride" else "") + "\n")
     print(f"{reads:,} reads (pairs for paired-end reads), {aligned:,} of them with records ({pct(aligned / reads if reads else 0)}); "
           f"{len(called)} species called.\n")
-    print("## Reads kept / recall, by the sparse index (1/c of the cores) and the minimum best score T\n")
+    sample_of = "every c-th core in read order" if args.pick == "stride" else "the sparse index"
+    print(f"## Reads kept / recall, by {sample_of} (1/c of the cores) and the minimum best score T\n")
     for m in (1, 2):
         print(rules_table(rules, m) + "\n")
 
@@ -118,12 +127,12 @@ def main():
                 continue
             if int(r["min_hits"]) <= 2 and r not in chosen:
                 chosen.append(r)
-            total, losing = species_losses(taxa, called, r, limit=0) if int(r["min_hits"]) <= 2 else (None, [])
+            total, losing = species_losses(taxa, called, r, limit=0, prefix=prefix) if int(r["min_hits"]) <= 2 else (None, [])
             print(f"| {pct(target)} | {label} | {r['c']} | {r['min_score']} | {r['min_hits']} | {pct(float(r['share_kept']))} | "
                   f"{pct(float(r['recall']))} | {total if total is not None else 'n/a'} | {len(losing) if total is not None else 'n/a'} |")
     print()
     for r in chosen:
-        total, losing = species_losses(taxa, called, r)
+        total, losing = species_losses(taxa, called, r, prefix=prefix)
         if not losing:
             continue
         print(f"Called species losing half or more of their reads at c={r['c']} T={r['min_score']} m={r['min_hits']} "

@@ -4303,6 +4303,47 @@ class SparseFirstGatesTest(WorkDir):
         self.assertEqual(per_c[0][1], entries)
         self.assertTrue(all(a > b for (_, a), (_, b) in zip(per_c, per_c[1:])), per_c)
 
+    def test_the_probe_tallies_hash_and_stride_rules(self):
+        """--stage1_probe tallies its rules for the hash sample of the cores and, since 2026-10-13, for a stride pick
+        (every c-th core of a mate in read order) into misc/<sample>_stage1_probe_stride.tsv and the taxa table's s<c>
+        columns, each rule with the share of the lookups a gate with it would make. At c = 1 both pick every core: the
+        same reads kept, every lookup made. The records are those of a run without the probe."""
+        reads = ("-1", self.reads[0], "-2", self.reads[1])
+        records = {}
+        for name, extra in (("unprobed", ()), ("probed", ("--stage1_probe",))):
+            rc, log = run(self.work, "--db", self.plain_db, *reads, "--prefix", name, "-o", name, "-t", "2", "--no_strains",
+                          "--no_profile", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
+        self.assertTrue(records["unprobed"])
+        self.assertEqual(records["probed"], records["unprobed"])
+        self.assertRegex(log, r"stride c=8 T=14 m=1: [0-9.]+% kept, recall [0-9.]+%")
+
+        def table(suffix):
+            lines = read_text(self.path("probed", "misc", f"probed_{suffix}.tsv")).splitlines()
+            header = lines[0].split("\t")
+            return header, [dict(zip(header, line.split("\t"))) for line in lines[1:]]
+        hash_header, hash_rules = table("stage1_probe")
+        stride_header, stride_rules = table("stage1_probe_stride")
+        self.assertEqual(stride_header, hash_header)
+        self.assertEqual(hash_header[-1], "lookups_left")
+        self.assertEqual(len(stride_rules), len(hash_rules))
+        aligned = int(hash_rules[0]["aligned"])
+        self.assertGreater(aligned, 0)
+        for h, s in zip(hash_rules, stride_rules):
+            self.assertEqual((h["c"], h["min_score"], h["min_hits"]), (s["c"], s["min_score"], s["min_hits"]))
+            if h["c"] == "1":
+                self.assertEqual((s["kept"], s["aligned_kept"], s["lookups_left"]), (h["kept"], h["aligned_kept"], "1.000000"), h)
+            self.assertLessEqual(float(s["lookups_left"]), 1.0)
+        # A sparse pick that keeps no read makes only its sample's lookups.
+        nothing_kept = [r for r in hash_rules + stride_rules if r["c"] == "8" and r["kept"] == "0"]
+        self.assertTrue(all(float(r["lookups_left"]) < 0.5 for r in nothing_kept), nothing_kept)
+        taxa_header, taxa = table("stage1_probe_taxa")
+        self.assertIn("s8_t14_m1", taxa_header)
+        self.assertTrue(taxa)
+        for row in taxa:
+            self.assertEqual(row["s1_t14_m1"], row["c1_t14_m1"], row)
+
     def test_bad_gates_stop_the_run(self):
         log = self.align("bad", "--sparse_first", "3", rc_expected=2)
         self.assertIn("--sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs", log)

@@ -163,6 +163,7 @@ namespace protal {
         uint32_t read_pos = 0;
         bool retrieved = false;
         uint8_t probe_level = 0;  // --stage1_probe: its core's level (stage1_probe::Level), else unset
+        uint32_t probe_index = 0;  // --stage1_probe: its k-mer's index among the read's (chunk's), else unset; in padding
 
         std::string ToString() {
             std::string str;

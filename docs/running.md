@@ -534,7 +534,11 @@ the cores (c = 1 to 32), tallied per read (a pair as one) for the rules "at leas
 or more" over all reads and those with records, per taxon, and per mate the best score of its first
 lookups. It writes `misc/<sample>_stage1_probe.tsv`, `_stage1_probe_taxa.tsv` and
 `_first_lookups_probe.tsv` and a log line; the SAM and profile are the same as without it
-([report](claude/2026-10-12-stage1-probe/README.md)).
+([report](claude/2026-10-12-stage1-probe/README.md)). Since 2026-10-13 it also tallies the rules for
+a stride pick, every c-th core of each mate in read order (spread evenly over the read, where the hash
+sample leaves gaps by chance), into `_stage1_probe_stride.tsv` and the taxa table's `s<c>_t<T>_m<m>`
+columns, and gives each rule the share of the lookups a gate with it would make (`lookups_left`)
+([report](claude/2026-10-13-stride-pick/README.md)).
 
 `--sparse_first C` acts on such a rule: a read (pair; a long read over all its chunks) is looked up
 by the 1/C of its k-mer cores in the sample first, and given up, before the rest of its seeding and

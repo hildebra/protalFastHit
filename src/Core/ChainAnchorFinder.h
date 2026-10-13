@@ -190,6 +190,7 @@ namespace protal {
         static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
         bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
         stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
+        uint32_t m_probe_cores = 0;  // --stage1_probe: the k-mers of the read m_lookups are of (LookupKmers)
         // --sparse_first (SetSparseFirst): a read's sampled lookups, the cores of level m_sparse_level or more
         // (stage1_probe::Level), scored first (SparseHits), a hit if its best flex score is m_sparse_score or more.
         bool m_sparse_first = false;
@@ -230,12 +231,15 @@ namespace protal {
             m_seeding.kmers += n;
             m_seeding.found += m_lookups.size();
             if (m_probe) {
-                // Each lookup's core level: the lookups are the k-mers with values, in k-mer order.
+                // Each lookup's core level and k-mer index (for the stride picks): the lookups are the k-mers with values,
+                // in k-mer order.
                 size_t i = 0;
                 for (size_t j = 0; j < n && i < m_lookups.size(); j++) {
                     if (m_lookups[i].read_pos != static_cast<uint32_t>(kmer_list[j].second)) continue;
+                    m_lookups[i].probe_index = static_cast<uint32_t>(j);
                     m_lookups[i++].probe_level = stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first));
                 }
+                m_probe_cores = static_cast<uint32_t>(n);
             }
         }
 
@@ -250,6 +254,7 @@ namespace protal {
             });
 
             for (size_t i = 0; i < std::min(kPrefetchLookups, m_lookups.size()); i++) KmerLookup::PrefetchValues(m_lookups[i]);
+            if (m_probe) m_probe->Begin(m_probe_cores);
             uint32_t previous_size = 0;
             m_successful_lookups = 0;
             uint32_t total_lookups = 0;
@@ -259,7 +264,7 @@ namespace protal {
                 auto& lookup = m_lookups[m_lookup_index];
                 m_seeding.NoteBlock(lookup.size);
                 m_seeding.dropped += !m_kmer_lookup.GetFromLookup(seeds, lookup);
-                if (m_probe) m_probe->Add(lookup.probe_level, lookup.flex == nullptr ? SingleValueScore(lookup) : m_kmer_lookup.LastBest(), lookup.read_pos);
+                if (m_probe) m_probe->Add(lookup.probe_level, lookup.flex == nullptr ? SingleValueScore(lookup) : m_kmer_lookup.LastBest(), lookup.read_pos, lookup.probe_index);
                 total_lookups++;
                 m_successful_lookups += (seeds.size() > previous_size);
                 if (seeds.size() > m_max_seed_size && m_successful_lookups > m_min_successful_lookups) {
@@ -271,7 +276,7 @@ namespace protal {
             if (m_probe) {  // the lookups not scanned, once the read had its seeds, scored without seeds
                 for (size_t i = m_lookup_index + 1; i < m_lookups.size(); i++) {
                     auto const& rest = m_lookups[i];
-                    m_probe->Add(rest.probe_level, rest.flex == nullptr ? SingleValueScore(rest) : m_kmer_lookup.BestScore(rest), rest.read_pos);
+                    m_probe->Add(rest.probe_level, rest.flex == nullptr ? SingleValueScore(rest) : m_kmer_lookup.BestScore(rest), rest.read_pos, rest.probe_index);
                 }
             }
         }

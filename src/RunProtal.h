@@ -828,9 +828,9 @@ namespace protal {
     }
 
     // --stage1_probe: the sample's tallies (stage1_probe::Global(), joined from the alignment threads) into
-    // misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv (the taxa named by their lineage, as the profile names them,
-    // if the taxonomy is loaded) and, for short reads, _first_lookups_probe.tsv, with a log line of a few rules; then
-    // cleared for the next sample.
+    // misc/<sample>_stage1_probe.tsv (the hash sample's rules), _stage1_probe_stride.tsv (the stride pick's),
+    // _stage1_probe_taxa.tsv (both; the taxa named by their lineage, as the profile names them, if the taxonomy is loaded)
+    // and, for short reads, _first_lookups_probe.tsv, with a log line of a few rules; then cleared for the next sample.
     static void WriteStage1Probe(Options const& options, int index, ProtalDB& db, bool short_reads) {
         namespace probe = stage1_probe;
         auto& tally = probe::Global();
@@ -841,6 +841,10 @@ namespace protal {
         {
             std::ofstream os(prefix + "_stage1_probe.tsv");
             tally.WriteRules(os);
+        }
+        {
+            std::ofstream os(prefix + "_stage1_probe_stride.tsv");
+            tally.WriteRules(os, probe::Pick::stride);
         }
         {
             std::ofstream os(prefix + "_stage1_probe_taxa.tsv");
@@ -857,6 +861,7 @@ namespace protal {
              << ", " << tally.Aligned() << " with records; " << probe::RuleText(tally, 2, score(14), 0) << "; "
              << probe::RuleText(tally, 3, score(14), 0) << "; " << probe::RuleText(tally, 4, score(14), 0) << "; "
              << probe::RuleText(tally, 3, score(15), 1);
+        for (size_t level = 2; level <= 4; level++) line << "; " << probe::RuleText(tally, level, score(14), 0, probe::Pick::stride);
         if (short_reads && tally.FirstLookupMates() > 0) {
             auto const give_up = tally.GiveUp(2, 11);  // the first 4 lookups
             line << std::fixed << std::setprecision(2) << "; mates whose first 4 lookups score 11 or less: " << 100.0 * give_up[0]

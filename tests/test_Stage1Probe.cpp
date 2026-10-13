@@ -90,8 +90,12 @@ TEST(Stage1Probe, RulesCountTheLookupsOfBothMates) {
     tally.WriteRules(rules);
     auto const lines = LinesOf(rules.str());
     ASSERT_EQ(lines.size(), kRules + 1);
-    EXPECT_EQ(lines[0], "c\tmin_score\tmin_hits\treads\tkept\tshare_kept\taligned\taligned_kept\trecall");
-    EXPECT_EQ(lines[1], "1\t10\t1\t2\t2\t1.000000\t1\t1\t1.000000");
+    EXPECT_EQ(lines[0], "c\tmin_score\tmin_hits\treads\tkept\tshare_kept\taligned\taligned_kept\trecall\tlookups_left");
+    EXPECT_EQ(lines[1], "1\t10\t1\t2\t2\t1.000000\t1\t1\t1.000000\t1.000000");
+    // Lookups left: c = 8, T = 14, m = 2 keeps the aligned pair (3 lookups) and makes the unaligned pair's sampled one
+    // (level 4), of 5; c = 32, T = 16 keeps neither, and their samples hold one lookup (level 5).
+    EXPECT_DOUBLE_EQ(tally.LookupsLeft(3, ScoreIndex(14), HitsIndex(2)), 4.0 / 5.0);
+    EXPECT_DOUBLE_EQ(tally.LookupsLeft(5, ScoreIndex(16), HitsIndex(1)), 1.0 / 5.0);
 
     std::ostringstream taxa;
     tally.WriteTaxa(taxa, [](uint32_t taxid) { return "species " + std::to_string(taxid); });
@@ -99,7 +103,7 @@ TEST(Stage1Probe, RulesCountTheLookupsOfBothMates) {
     ASSERT_EQ(taxa_lines.size(), 2u);
     EXPECT_EQ(taxa_lines[0].rfind("taxid\tname\taligned\tc1_t10_m1\tc1_t10_m2\tc1_t11_m1", 0), 0u) << taxa_lines[0];
     EXPECT_EQ(taxa_lines[1].rfind("77\tspecies 77\t1\t1\t1\t", 0), 0u) << taxa_lines[1];
-    // The last column, c = 32, T = 16, m = 2: 0.
+    // The last column, the stride's c = 32, T = 16, m = 2: 0 (no lookup here has a core index).
     EXPECT_EQ(taxa_lines[1].substr(taxa_lines[1].size() - 2), "\t0");
 
     // Another thread's tally: an aligned pair without a lookup in the index (kept by no rule).
@@ -151,4 +155,104 @@ TEST(Stage1Probe, FirstLookupsAreInReadOrder) {
     std::ostringstream taxa;
     tally.WriteTaxa(taxa, [](uint32_t) { return std::string(); });
     EXPECT_EQ(LinesOf(taxa.str()).size(), 3u);
+}
+
+// The stride pick of 1/c of a read's cores: ceil(cores / c) of them, c apart, the cores left over split between the
+// read's ends (at most one more at its end); every read with a core has a pick.
+TEST(Stage1Probe, StridePicksEveryCthCoreCentred) {
+    EXPECT_EQ(StrideOffset(22, 8), 2u);  // picks 2, 10, 18: two cores before, three after
+    EXPECT_TRUE(StridePicked(2, 22, 8));
+    EXPECT_TRUE(StridePicked(10, 22, 8));
+    EXPECT_TRUE(StridePicked(18, 22, 8));
+    EXPECT_FALSE(StridePicked(0, 22, 8));
+    EXPECT_FALSE(StridePicked(22, 22, 8));  // past the read
+    EXPECT_FALSE(StridePicked(0, 0, 1));
+    for (size_t cores = 1; cores <= 300; cores++) {
+        for (size_t j = 0; j < kLevels; j++) {
+            size_t const c = size_t{1} << j;
+            std::vector<size_t> picks;
+            for (size_t i = 0; i < cores + c; i++) {
+                if (StridePicked(i, cores, c)) picks.push_back(i);
+            }
+            ASSERT_EQ(picks.size(), (cores + c - 1) / c) << cores << " cores, c " << c;
+            for (size_t p = 1; p < picks.size(); p++) ASSERT_EQ(picks[p] - picks[p - 1], c);
+            size_t const before = picks.front(), after = cores - 1 - picks.back();
+            ASSERT_TRUE(after == before || after == before + 1) << cores << " cores, c " << c;
+        }
+    }
+}
+
+// The stride's rules count the lookups of the picked cores of each mate (its own cores, Begin), side by side with the
+// hash sample's; a lookup without a core index is in no stride pick.
+TEST(Stage1Probe, StrideRulesCountEachMatesPickedCores) {
+    Tally tally;
+    // Mate 1, 8 cores: c = 2 picks 0, 2, 4, 6; c = 4 picks 1, 5; c = 8, 16, 32 pick 3.
+    tally.GetMate(0).Begin(8);
+    tally.GetMate(0).Add(0, 16, 10, 5);
+    tally.GetMate(0).Add(5, 14, 3, 3);
+    // Mate 2, 3 cores: c = 2 picks 0, 2; c = 4 to 32 pick 1.
+    tally.GetMate(1).Begin(3);
+    tally.GetMate(1).Add(0, 15, 0, 1);
+    tally.GetMate(1).Add(0, 16, 30);  // no core index: hash rules only
+    tally.EndRead(2, true, { 77 }, { true, true }, true);
+
+    auto stride = [&](size_t c_level, uint8_t min_score, uint8_t min_hits) {
+        return tally.Rule(c_level, ScoreIndex(min_score), HitsIndex(min_hits), Pick::stride).second;
+    };
+    auto hash = [&](size_t c_level, uint8_t min_score, uint8_t min_hits) {
+        return tally.Rule(c_level, ScoreIndex(min_score), HitsIndex(min_hits)).second;
+    };
+    EXPECT_EQ(stride(0, 14, 3), 1.0);  // c = 1: the three lookups with an index
+    EXPECT_EQ(stride(0, 14, 5), 0.0);
+    EXPECT_EQ(hash(0, 14, 3), 1.0);    // the hash's c = 1 has all four
+    EXPECT_EQ(stride(1, 10, 1), 0.0);  // c = 2 picks none of them
+    EXPECT_EQ(stride(2, 15, 2), 1.0);  // c = 4: 16 (mate 1's index 5) and 15 (mate 2's index 1)
+    EXPECT_EQ(stride(2, 16, 2), 0.0);
+    EXPECT_EQ(stride(3, 14, 2), 1.0);  // c = 8: 14 (index 3) and 15
+    EXPECT_EQ(stride(3, 15, 2), 0.0);
+    EXPECT_EQ(stride(5, 14, 2), 1.0);  // c = 32 alike
+    EXPECT_EQ(hash(5, 14, 2), 0.0);    // the hash's c = 32 has the level-5 lookup alone
+    EXPECT_EQ(hash(5, 14, 1), 1.0);
+
+    std::ostringstream rules;
+    tally.WriteRules(rules, Pick::stride);
+    auto const lines = LinesOf(rules.str());
+    ASSERT_EQ(lines.size(), kRules + 1);
+    EXPECT_EQ(lines[0], "c\tmin_score\tmin_hits\treads\tkept\tshare_kept\taligned\taligned_kept\trecall\tlookups_left");
+    // c = 2, T = 10, m = 1: the first rule of c = 2, kept by neither; its pick holds none of the lookups.
+    EXPECT_EQ(lines[1 + RuleIndex(1, 0, 0)], "2\t10\t1\t1\t0\t0.000000\t1\t0\t0.000000\t0.000000");
+    // Lookups left of the pair's 4: c = 4, T = 16, m = 2 gives it up after its pick's two (indexes 5 and 1); kept, all.
+    EXPECT_DOUBLE_EQ(tally.LookupsLeft(2, ScoreIndex(16), HitsIndex(2), Pick::stride), 0.5);
+    EXPECT_DOUBLE_EQ(tally.LookupsLeft(2, ScoreIndex(15), HitsIndex(2), Pick::stride), 1.0);
+    EXPECT_DOUBLE_EQ(tally.LookupsLeft(5, ScoreIndex(14), HitsIndex(2)), 0.25);
+
+    std::ostringstream taxa;
+    tally.WriteTaxa(taxa, [](uint32_t) { return std::string("-"); });
+    auto const taxa_lines = LinesOf(taxa.str());
+    ASSERT_EQ(taxa_lines.size(), 2u);
+    auto split = [](std::string const& line) {
+        std::vector<std::string> fields;
+        std::istringstream is(line);
+        for (std::string field; std::getline(is, field, '\t');) fields.push_back(field);
+        return fields;
+    };
+    auto const header = split(taxa_lines[0]);
+    auto const row = split(taxa_lines[1]);
+    ASSERT_EQ(header.size(), 3 + 2 * kTaxonRules);
+    ASSERT_EQ(row.size(), header.size());
+    auto column = [&](std::string const& name) {
+        auto const at = std::find(header.begin(), header.end(), name);
+        return at == header.end() ? std::string("missing") : row[static_cast<size_t>(at - header.begin())];
+    };
+    EXPECT_EQ(column("s8_t14_m2"), "1");
+    EXPECT_EQ(column("s8_t15_m2"), "0");
+    EXPECT_EQ(column("c32_t14_m2"), "0");
+    EXPECT_EQ(column("s32_t14_m2"), "1");
+    EXPECT_EQ(column("s2_t10_m1"), "0");
+
+    // Joined into another thread's tally.
+    Tally other;
+    other.Join(tally);
+    EXPECT_EQ(other.Rule(3, ScoreIndex(14), HitsIndex(2), Pick::stride).second, 1.0);
+    EXPECT_EQ(RuleText(other, 3, ScoreIndex(14), HitsIndex(2), Pick::stride), "stride c=8 T=14 m=2: 100.00% kept, recall 100.00%");
 }

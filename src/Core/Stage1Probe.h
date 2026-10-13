@@ -9,6 +9,11 @@
 // counted per read, and at the read's end (both mates of a pair) each rule (c, T, m) is applied and tallied, for all
 // reads and for those protal writes records of (by the taxon of the best record). Nothing the run writes changes.
 //
+// The same rules are also tallied for a stride pick of 1/c of a read's cores instead of a hash sample: every c-th core in
+// read order (StridePicked), each mate (each chunk of a long read) on its own. A gate looking its sample up in the full
+// index (--sparse_first) can pick any cores of a read; a stride spaces them evenly over it, where a hash sample leaves
+// gaps by chance (docs/claude/2026-10-13-stride-pick).
+//
 // Also counted, per mate of a short read: the best score among its first k lookups (in read order, of the cores in the
 // index), by whether the mate aligns, its fragment does without it, or neither: whether a mate whose first lookups match
 // only by chance could be given up (docs/claude/2026-10-12-seeding-profile, "Giving up on chance matches").
@@ -53,6 +58,19 @@ namespace protal::stage1_probe {
         return static_cast<uint8_t>(std::min<int>(zeros, static_cast<int>(kLevels) - 1));
     }
 
+    // How a rule samples a read's cores: by their hash (Level), or every c-th in read order (StridePicked).
+    enum class Pick { hash, stride };
+
+    // The stride pick of 1/c of a read's `cores` cores (c a power of two): every c-th, from the first at StrideOffset, the
+    // cores left over shared between the read's two ends (one more at the end where they are odd).
+    inline size_t StrideOffset(size_t cores, size_t c) {
+        return cores == 0 ? 0 : ((cores - 1) & (c - 1)) / 2;
+    }
+    inline bool StridePicked(size_t index, size_t cores, size_t c) {
+        size_t const offset = StrideOffset(cores, c);
+        return index < cores && index >= offset && ((index - offset) & (c - 1)) == 0;
+    }
+
     inline size_t RuleIndex(size_t level, size_t min_score, size_t min_hits) {
         return (level * kMinScores.size() + min_score) * kMinHits.size() + min_hits;
     }
@@ -61,20 +79,36 @@ namespace protal::stage1_probe {
         return (level * kMinScores.size() + min_score) * kTaxonMinHits + min_hits;
     }
 
-    // One read's (a mate's) lookups of cores in the index: counted by level and best score, and in read order.
+    // One read's (a mate's) lookups of cores in the index: counted by level and best score, by stride pick and best
+    // score, and in read order.
     struct Mate {
-        std::array<std::array<uint32_t, kScores>, kLevels> counts{};
-        std::vector<std::pair<uint32_t, uint8_t>> lookups;  // (read position, best score)
+        static constexpr uint32_t kNoIndex = UINT32_MAX;
 
-        void Add(uint8_t level, uint32_t score, uint32_t read_pos) {
+        std::array<std::array<uint32_t, kScores>, kLevels> counts{};
+        // stride_counts[j][s]: lookups of the cores the stride of c = 2^j picks (StridePicked) scoring s.
+        std::array<std::array<uint32_t, kScores>, kLevels> stride_counts{};
+        std::vector<std::pair<uint32_t, uint8_t>> lookups;  // (read position, best score)
+        uint32_t cores = 0;  // the cores of the read (chunk) whose lookups Add counts next (Begin)
+
+        // The read's (a long read's chunk's) cores, those looked up or not, before its lookups are added: the stride's
+        // indexes are among these.
+        void Begin(uint32_t read_cores) { cores = read_cores; }
+
+        // A lookup: its core's level, its best score, its read position, and its core's index among the read's (chunk's)
+        // cores (Begin; kNoIndex: in no stride pick).
+        void Add(uint8_t level, uint32_t score, uint32_t read_pos, uint32_t index = kNoIndex) {
             uint8_t const s = static_cast<uint8_t>(std::min(score, kMaxScore));
             counts[std::min<size_t>(level, kLevels - 1)][s]++;
             lookups.emplace_back(read_pos, s);
+            if (index == kNoIndex) return;
+            for (size_t j = 0; j < kLevels; j++) stride_counts[j][s] += StridePicked(index, cores, size_t{1} << j);
         }
 
         void Clear() {
             for (auto& row : counts) row.fill(0);
+            for (auto& row : stride_counts) row.fill(0);
             lookups.clear();
+            cores = 0;
         }
     };
 
@@ -96,15 +130,35 @@ namespace protal::stage1_probe {
                     hits[j][s] = here + hits[j + 1][s] + hits[j][s + 1] - hits[j + 1][s + 1];
                 }
             }
+            // stride_hits[j][s]: lookups of the cores the stride of c = 2^j picks scoring s or more (the strides are not
+            // nested as the levels are).
+            std::array<std::array<uint32_t, kScores + 1>, kLevels> stride_hits{};
+            for (size_t j = 0; j < kLevels; j++) {
+                for (size_t s = kScores; s-- > 0;) {
+                    uint32_t here = 0;
+                    for (size_t m = 0; m < mates; m++) here += m_mates[m].stride_counts[j][s];
+                    stride_hits[j][s] = here + stride_hits[j][s + 1];
+                }
+            }
             m_reads++;
             m_aligned += aligned;
+            // The lookups a gate with a rule makes of the read: its sample's, and all of them if it keeps the read.
+            uint32_t const all = hits[0][0];
+            m_lookups += all;
             for (size_t j = 0; j < kLevels; j++) {
                 for (size_t t = 0; t < kMinScores.size(); t++) {
                     uint32_t const n = hits[j][kMinScores[t]];
+                    uint32_t const n_stride = stride_hits[j][kMinScores[t]];
                     for (size_t h = 0; h < kMinHits.size(); h++) {
+                        size_t const i = RuleIndex(j, t, h);
                         bool const kept = n >= kMinHits[h];
-                        m_kept[RuleIndex(j, t, h)] += kept;
-                        m_kept_aligned[RuleIndex(j, t, h)] += kept && aligned;
+                        m_kept[i] += kept;
+                        m_kept_aligned[i] += kept && aligned;
+                        m_left[i] += kept ? all : hits[j][0];
+                        bool const kept_stride = n_stride >= kMinHits[h];
+                        m_kept_stride[i] += kept_stride;
+                        m_kept_aligned_stride[i] += kept_stride && aligned;
+                        m_left_stride[i] += kept_stride ? all : stride_hits[j][0];
                     }
                 }
             }
@@ -115,7 +169,11 @@ namespace protal::stage1_probe {
                     for (size_t j = 0; j < kLevels; j++) {
                         for (size_t t = 0; t < kMinScores.size(); t++) {
                             uint32_t const n = hits[j][kMinScores[t]];
-                            for (size_t h = 0; h < kTaxonMinHits; h++) row[1 + TaxonRuleIndex(j, t, h)] += n >= kMinHits[h];
+                            uint32_t const n_stride = stride_hits[j][kMinScores[t]];
+                            for (size_t h = 0; h < kTaxonMinHits; h++) {
+                                row[1 + TaxonRuleIndex(j, t, h)] += n >= kMinHits[h];
+                                row[1 + kTaxonRules + TaxonRuleIndex(j, t, h)] += n_stride >= kMinHits[h];
+                            }
                         }
                     }
                 }
@@ -140,9 +198,14 @@ namespace protal::stage1_probe {
             m_reads += other.m_reads;
             m_aligned += other.m_aligned;
             m_first_mates += other.m_first_mates;
+            m_lookups += other.m_lookups;
             for (size_t i = 0; i < kRules; i++) {
                 m_kept[i] += other.m_kept[i];
                 m_kept_aligned[i] += other.m_kept_aligned[i];
+                m_left[i] += other.m_left[i];
+                m_kept_stride[i] += other.m_kept_stride[i];
+                m_kept_aligned_stride[i] += other.m_kept_aligned_stride[i];
+                m_left_stride[i] += other.m_left_stride[i];
             }
             for (auto const& [taxid, row] : other.m_taxa) {
                 auto& mine = m_taxa[taxid];
@@ -160,40 +223,57 @@ namespace protal::stage1_probe {
         uint64_t Reads() const { return m_reads; }
         uint64_t Aligned() const { return m_aligned; }
 
-        // The share of the reads a rule keeps, and of those with records (recall).
-        std::pair<double, double> Rule(size_t level, size_t min_score, size_t min_hits) const {
+        // The share of the reads a rule keeps, and of those with records (recall); `pick`: its cores by hash or stride.
+        std::pair<double, double> Rule(size_t level, size_t min_score, size_t min_hits, Pick pick = Pick::hash) const {
             size_t const i = RuleIndex(level, min_score, min_hits);
-            return { m_reads ? static_cast<double>(m_kept[i]) / static_cast<double>(m_reads) : 0.0,
-                     m_aligned ? static_cast<double>(m_kept_aligned[i]) / static_cast<double>(m_aligned) : 0.0 };
+            uint64_t const kept = pick == Pick::hash ? m_kept[i] : m_kept_stride[i];
+            uint64_t const kept_aligned = pick == Pick::hash ? m_kept_aligned[i] : m_kept_aligned_stride[i];
+            return { m_reads ? static_cast<double>(kept) / static_cast<double>(m_reads) : 0.0,
+                     m_aligned ? static_cast<double>(kept_aligned) / static_cast<double>(m_aligned) : 0.0 };
         }
 
-        // Every rule: c, T, m, the reads, those kept, their share, the reads with records, those kept, the recall.
-        void WriteRules(std::ostream& os) const {
-            os << "c\tmin_score\tmin_hits\treads\tkept\tshare_kept\taligned\taligned_kept\trecall\n";
+        // The share of the run's lookups (of cores in the index) a gate with a rule makes: every read's sample's, and the
+        // rest of the reads it keeps.
+        double LookupsLeft(size_t level, size_t min_score, size_t min_hits, Pick pick = Pick::hash) const {
+            size_t const i = RuleIndex(level, min_score, min_hits);
+            uint64_t const left = pick == Pick::hash ? m_left[i] : m_left_stride[i];
+            return m_lookups ? static_cast<double>(left) / static_cast<double>(m_lookups) : 0.0;
+        }
+
+        // Every rule of a pick: c, T, m, the reads, those kept, their share, the reads with records, those kept, the
+        // recall, and the share of the lookups left (LookupsLeft; since 2026-10-13).
+        void WriteRules(std::ostream& os, Pick pick = Pick::hash) const {
+            auto const& kept = pick == Pick::hash ? m_kept : m_kept_stride;
+            auto const& kept_aligned = pick == Pick::hash ? m_kept_aligned : m_kept_aligned_stride;
+            os << "c\tmin_score\tmin_hits\treads\tkept\tshare_kept\taligned\taligned_kept\trecall\tlookups_left\n";
             for (size_t j = 0; j < kLevels; j++) {
                 for (size_t t = 0; t < kMinScores.size(); t++) {
                     for (size_t h = 0; h < kMinHits.size(); h++) {
                         size_t const i = RuleIndex(j, t, h);
-                        auto const [share, recall] = Rule(j, t, h);
-                        os << (1u << j) << '\t' << int(kMinScores[t]) << '\t' << int(kMinHits[h]) << '\t' << m_reads << '\t' << m_kept[i]
-                           << '\t' << Fraction(share) << '\t' << m_aligned << '\t' << m_kept_aligned[i] << '\t' << Fraction(recall) << '\n';
+                        auto const [share, recall] = Rule(j, t, h, pick);
+                        os << (1u << j) << '\t' << int(kMinScores[t]) << '\t' << int(kMinHits[h]) << '\t' << m_reads << '\t' << kept[i]
+                           << '\t' << Fraction(share) << '\t' << m_aligned << '\t' << kept_aligned[i] << '\t' << Fraction(recall)
+                           << '\t' << Fraction(LookupsLeft(j, t, h, pick)) << '\n';
                     }
                 }
             }
         }
 
-        // Per taxon of the best records: its reads with records, and those each rule (m = 1 and 2) keeps; `name`, if
-        // given, adds the taxon's name. Taxa in taxid order.
+        // Per taxon of the best records: its reads with records, and those each rule (m = 1 and 2) keeps, the hash
+        // sample's (columns c<c>_t<T>_m<m>) then the stride's (s<c>_t<T>_m<m>); `name`, if given, adds the taxon's name.
+        // Taxa in taxid order.
         template<typename Name>
         void WriteTaxa(std::ostream& os, Name const& name) const {
             os << "taxid\tname\taligned";
-            for (size_t j = 0; j < kLevels; j++) {
-                for (size_t t = 0; t < kMinScores.size(); t++) {
-                    for (size_t h = 0; h < kTaxonMinHits; h++) os << "\tc" << (1u << j) << "_t" << int(kMinScores[t]) << "_m" << int(kMinHits[h]);
+            for (char const pick : { 'c', 's' }) {
+                for (size_t j = 0; j < kLevels; j++) {
+                    for (size_t t = 0; t < kMinScores.size(); t++) {
+                        for (size_t h = 0; h < kTaxonMinHits; h++) os << '\t' << pick << (1u << j) << "_t" << int(kMinScores[t]) << "_m" << int(kMinHits[h]);
+                    }
                 }
             }
             os << '\n';
-            std::map<uint32_t, std::array<uint32_t, 1 + kTaxonRules> const*> sorted;
+            std::map<uint32_t, TaxonRow const*> sorted;
             for (auto const& [taxid, row] : m_taxa) sorted.emplace(taxid, &row);
             for (auto const& [taxid, row] : sorted) {
                 os << taxid << '\t' << name(taxid);
@@ -239,10 +319,13 @@ namespace protal::stage1_probe {
             return os.str();
         }
 
+        // A taxon's reads with records, then those the hash sample's rules keep, then the stride's.
+        using TaxonRow = std::array<uint32_t, 1 + 2 * kTaxonRules>;
+
         std::array<Mate, 2> m_mates;
-        uint64_t m_reads = 0, m_aligned = 0, m_first_mates = 0;
-        std::array<uint64_t, kRules> m_kept{}, m_kept_aligned{};
-        tsl::robin_map<uint32_t, std::array<uint32_t, 1 + kTaxonRules>> m_taxa;  // [0]: reads with records, then the rules
+        uint64_t m_reads = 0, m_aligned = 0, m_first_mates = 0, m_lookups = 0;
+        std::array<uint64_t, kRules> m_kept{}, m_kept_aligned{}, m_left{}, m_kept_stride{}, m_kept_aligned_stride{}, m_left_stride{};
+        tsl::robin_map<uint32_t, TaxonRow> m_taxa;
         std::array<std::array<std::array<uint64_t, kStates>, kScores>, kFirst.size()> m_first{};
     };
 
@@ -260,11 +343,11 @@ namespace protal::stage1_probe {
     }
     inline bool Enabled() { return EnabledFlag(); }
 
-    // "c=8 T=14 m=1: kept 3.1% of the reads, 99.6% of those with records": the log's rules.
-    inline std::string RuleText(Tally const& tally, size_t level, size_t min_score, size_t min_hits) {
-        auto const [share, recall] = tally.Rule(level, min_score, min_hits);
+    // "c=8 T=14 m=1: 3.10% kept, recall 99.60%" (a stride pick's "stride c=8 ..."): the log's rules.
+    inline std::string RuleText(Tally const& tally, size_t level, size_t min_score, size_t min_hits, Pick pick = Pick::hash) {
+        auto const [share, recall] = tally.Rule(level, min_score, min_hits, pick);
         std::ostringstream os;
-        os << std::fixed << std::setprecision(2) << "c=" << (1u << level) << " T=" << int(kMinScores[min_score]) << " m="
+        os << std::fixed << std::setprecision(2) << (pick == Pick::stride ? "stride c=" : "c=") << (1u << level) << " T=" << int(kMinScores[min_score]) << " m="
            << int(kMinHits[min_hits]) << ": " << 100.0 * share << "% kept, recall " << 100.0 * recall << '%';
         return os.str();
     }

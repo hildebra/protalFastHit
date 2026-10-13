@@ -30,6 +30,7 @@
 # the profiles in sylph/, the logs in logs/sylph.*, and medians next to protal's. Its first run is the cold load too.
 # --stage1_probe: after a sample's timed runs, one more run with protal's --stage1_probe (Stage1Probe.h: what the first
 # stage of a two-stage protal would keep), not counted in runs.tsv: its tables in stage1_probe/<sample>_stage1_probe.tsv,
+# _stage1_probe_stride.tsv (since 2026-10-13: the rules for a stride pick of the cores instead of a hash sample),
 # _stage1_probe_taxa.tsv and (short reads) _first_lookups_probe.tsv, its log in logs/<sample>.probe.log, and a line in
 # probe.tsv (times and memory, the probe's reads and reads with records, and whether its profile is byte-identical to the
 # last timed run's, as the option promises; a run whose profile differs is kept for a look). Printed last: each sample's
@@ -351,7 +352,7 @@ for spec in "$@"; do
         # shellcheck disable=SC2206
         cmd+=(${PROTAL_ARGS:-})
         if timed "$log" 0 "${cmd[@]}"; then
-            for table in stage1_probe stage1_probe_taxa first_lookups_probe; do
+            for table in stage1_probe stage1_probe_stride stage1_probe_taxa first_lookups_probe; do
                 [ -e "$run/misc/${name}_$table.tsv" ] && cp "$run/misc/${name}_$table.tsv" "$out/stage1_probe/"
             done
             [ -e "$out/stage1_probe/${name}_stage1_probe.tsv" ] || echo "Warning: the --stage1_probe run of $name wrote no misc/${name}_stage1_probe.tsv (see $log)" >&2
