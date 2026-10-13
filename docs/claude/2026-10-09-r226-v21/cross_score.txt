@@ -1,0 +1,63 @@
+pb v19 fit exit 0
+== pb
+test table     model      rows     F1  FP  FP beside held-out  FN
+  v19_test v19_model    design 0.9816  24                  17  31
+  v19_test v19_model scenarios 0.9718 399                 342 658
+  v19_test v19_model       all 0.9725 423                 359 689
+  v19_test v21_model    design 0.9813  24                  17  32
+  v19_test v21_model scenarios 0.9696 368                 318 767
+  v19_test v21_model       all 0.9704 392                 335 799
+  v21_test v19_model    design 0.9835  19                  14  32
+  v21_test v19_model scenarios 0.9743 431                 384 535
+  v21_test v19_model       all 0.9750 450                 398 567
+  v21_test v21_model    design 0.9805  21                  17  39
+  v21_test v21_model scenarios 0.9753 352                 311 576
+  v21_test v21_model       all 0.9757 373                 328 615
+ont v19 fit exit 0
+== ont
+test table     model      rows     F1  FP  FP beside held-out  FN
+  v19_test v19_model    design 0.9804  30                  22  29
+  v19_test v19_model scenarios 0.9637 574                 503 817
+  v19_test v19_model       all 0.9649 604                 525 846
+  v19_test v21_model    design 0.9794  31                  20  31
+  v19_test v21_model scenarios 0.9631 496                 428 912
+  v19_test v21_model       all 0.9643 527                 448 943
+  v21_test v19_model    design 0.9724  49                  38  39
+  v21_test v19_model scenarios 0.9670 549                 492 709
+  v21_test v19_model       all 0.9674 598                 530 748
+  v21_test v21_model    design 0.9727  44                  34  43
+  v21_test v21_model scenarios 0.9686 456                 404 738
+  v21_test v21_model       all 0.9689 500                 438 781
+pe v19 fit exit 0
+== pe
+test table     model      rows     F1   FP  FP beside held-out   FN
+  v19_test v19_model    design 0.9644  178                 118  156
+  v19_test v19_model scenarios 0.9486 1479                1209 1056
+  v19_test v19_model       all 0.9511 1657                1327 1212
+  v19_test v21_model    design 0.9635  190                 129  153
+  v19_test v21_model scenarios 0.9488 1462                1191 1061
+  v19_test v21_model       all 0.9512 1652                1320 1214
+  v21_test v19_model    design 0.9682  154                  99  150
+  v21_test v19_model scenarios 0.9510 1487                1260  925
+  v21_test v19_model       all 0.9538 1641                1359 1075
+  v21_test v21_model    design 0.9701  148                  99  138
+  v21_test v21_model scenarios 0.9545 1290                1065  937
+  v21_test v21_model       all 0.9571 1438                1164 1075
+se v19 fit exit 0
+== se
+test table     model      rows     F1  FP  FP beside held-out  FN
+  v19_test v19_model    design 0.9598 172                 115 191
+  v19_test v19_model scenarios 0.9579 649                 480 625
+  v19_test v19_model       all 0.9584 821                 595 816
+  v19_test v21_model    design 0.9610 188                 124 166
+  v19_test v21_model scenarios 0.9582 590                 426 673
+  v19_test v21_model       all 0.9588 778                 550 839
+  v21_test v19_model    design 0.9655 133                  90 186
+  v21_test v19_model scenarios 0.9593 690                 537 561
+  v21_test v19_model       all 0.9607 823                 627 747
+  v21_test v21_model    design 0.9653 142                  93 179
+  v21_test v21_model scenarios 0.9620 539                 415 620
+  v21_test v21_model       all 0.9628 681                 508 799
+CROSS DONE
+
+[exited with code 0]

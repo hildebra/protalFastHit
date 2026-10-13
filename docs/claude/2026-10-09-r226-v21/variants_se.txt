@@ -1,0 +1,22 @@
+== se: F1 at knob 0.5 (FP/FN); log loss with species held out
+        variant  logloss held out           held out             test host hold-out moderate hold-out    soil hold-out
+           full           0.05711 0.9598 (2604/1760) 0.9657 (140/177)  0.9774 (2/1)  0.9673 (245/217) 0.9600 (278/375)
+         no_new           0.05913 0.9588 (2659/1817) 0.9653 (142/179)  0.9774 (2/1)  0.9668 (250/218) 0.9578 (287/401)
+    no_ancestry           0.05898 0.9582 (2755/1786) 0.9644 (145/184)  0.9851 (2/0)  0.9659 (240/240) 0.9576 (290/401)
+no_ancestry_new           0.06117 0.9569 (2822/1861) 0.9635 (161/178)  0.9774 (2/1)  0.9650 (270/225) 0.9573 (310/387)
+-- se: paired bootstrap over samples (1000), F1 of the variant - full: mean [2.5%, 97.5%]
+   held out  no_new           -0.0010 [-0.0017, -0.0004]
+   held out  no_ancestry      -0.0016 [-0.0021, -0.0009]
+   held out  no_ancestry_new  -0.0029 [-0.0035, -0.0022]
+   test      no_new           -0.0004 [-0.0025, +0.0016]
+   test      no_ancestry      -0.0013 [-0.0034, +0.0008]
+   test      no_ancestry_new  -0.0023 [-0.0046, +0.0001]
+-- se: species held out, by class: FN rate of present taxa, FP rate of absent ones (n)
+                          class     n          full        no_new   no_ancestry no_ancestry_new
+           real strain, alleles  8985  0.0569 (511)  0.0709 (637)  0.0579 (520)    0.0690 (620)
+              real strain, none  6399  0.0520 (333)  0.0459 (294)  0.0461 (295)    0.0453 (290)
+               in-silico strain 21732  0.0272 (591)  0.0260 (565)  0.0293 (637)    0.0291 (632)
+                 representative 16745  0.0194 (325)  0.0192 (321)  0.0199 (334)    0.0191 (319)
+absent beside held-out, alleles 30105  0.0263 (793)  0.0230 (692)  0.0266 (802)    0.0255 (768)
+   absent beside held-out, none 91047 0.0122 (1114) 0.0141 (1283) 0.0138 (1253)   0.0149 (1353)
+                   absent other 44214  0.0158 (697)  0.0155 (684)  0.0158 (700)    0.0159 (701)

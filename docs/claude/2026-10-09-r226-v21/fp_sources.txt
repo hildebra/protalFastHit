@@ -1,0 +1,56 @@
+== pe v19: training FP (species held out, build knob) 3245 by the source of most of their reads:
+   held-out species         2688
+   present real              311, 8.8 per 1000 present real
+   present rep               126, 5.7 per 1000 present rep
+   present insilico           95, 5.2 per 1000 present insilico
+   present absent?            25
+   present taxa: real 35379, rep 22054, insilico 18405
+== pe v21: training FP (species held out, build knob) 4665 by the source of most of their reads:
+   held-out species         3871
+   present real              308, 14.1 per 1000 present real
+   present insilico          234, 7.6 per 1000 present insilico
+   present rep               210, 8.5 per 1000 present rep
+   present absent?            42
+   present taxa: insilico 30750, rep 24794, real 21813
+== se v19: training FP (species held out, build knob) 3079 by the source of most of their reads:
+   held-out species         2467
+   present real              339, 13.7 per 1000 present real
+   present rep               137, 9.2 per 1000 present rep
+   present insilico           99, 7.7 per 1000 present insilico
+   present absent?            37
+   present taxa: real 24777, rep 14928, insilico 12858
+== se v21: training FP (species held out, build knob) 2558 by the source of most of their reads:
+   held-out species         2040
+   present real              181, 11.8 per 1000 present real
+   present insilico          178, 8.2 per 1000 present insilico
+   present rep               138, 8.2 per 1000 present rep
+   present absent?            21
+   present taxa: insilico 21732, rep 16745, real 15384
+== pb v19: training FP (species held out, build knob) 1353 by the source of most of their reads:
+   held-out species         1246
+   present real               59, 2.5 per 1000 present real
+   present insilico           22, 1.8 per 1000 present insilico
+   present rep                21, 1.4 per 1000 present rep
+   present absent?             5
+   present taxa: real 23422, rep 15163, insilico 12079
+== pb v21: training FP (species held out, build knob) 1108 by the source of most of their reads:
+   held-out species         1009
+   present real               36, 2.5 per 1000 present real
+   present insilico           30, 1.5 per 1000 present insilico
+   present rep                27, 1.6 per 1000 present rep
+   present absent?             6
+   present taxa: insilico 20186, rep 16982, real 14450
+== ont v19: training FP (species held out, build knob) 1791 by the source of most of their reads:
+   held-out species         1631
+   present real               79, 3.3 per 1000 present real
+   present insilico           34, 2.7 per 1000 present insilico
+   present rep                33, 2.1 per 1000 present rep
+   present absent?            14
+   present taxa: real 23856, rep 15450, insilico 12439
+== ont v21: training FP (species held out, build knob) 1416 by the source of most of their reads:
+   held-out species         1269
+   present real               54, 3.7 per 1000 present real
+   present insilico           44, 2.1 per 1000 present insilico
+   present rep                42, 2.4 per 1000 present rep
+   present absent?             7
+   present taxa: insilico 20488, rep 17358, real 14728

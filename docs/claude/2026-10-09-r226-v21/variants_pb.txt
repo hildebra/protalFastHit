@@ -1,0 +1,22 @@
+== pb: F1 at knob 0.5 (FP/FN); log loss with species held out
+        variant  logloss held out           held out           test  gut hold-out host hold-out moderate hold-out    soil hold-out soil_shallow hold-out
+           full           0.08162 0.9755 (1103/1421) 0.9848 (16/31) 0.9950 (3/11)  0.9924 (0/1)   0.9845 (81/104) 0.9728 (138/237)      0.9691 (110/166)
+         no_new           0.08590 0.9738 (1149/1546) 0.9805 (21/39) 0.9943 (5/11)  0.9924 (0/1)   0.9819 (93/122) 0.9694 (149/271)      0.9691 (105/171)
+    no_ancestry           0.08332 0.9744 (1157/1473) 0.9838 (20/30) 0.9939 (5/12)  0.9924 (0/1)   0.9836 (94/102) 0.9713 (157/239)      0.9689 (102/176)
+no_ancestry_new           0.08729 0.9728 (1221/1577) 0.9825 (21/33) 0.9946 (5/10)  0.9924 (0/1)  0.9809 (102/126) 0.9677 (163/281)      0.9671 (113/181)
+-- pb: paired bootstrap over samples (1000), F1 of the variant - full: mean [2.5%, 97.5%]
+   held out  no_new           -0.0017 [-0.0023, -0.0011]
+   held out  no_ancestry      -0.0010 [-0.0015, -0.0006]
+   held out  no_ancestry_new  -0.0027 [-0.0033, -0.0020]
+   test      no_new           -0.0042 [-0.0069, -0.0018]
+   test      no_ancestry      -0.0009 [-0.0027, +0.0009]
+   test      no_ancestry_new  -0.0022 [-0.0045, +0.0000]
+-- pb: species held out, by class: FN rate of present taxa, FP rate of absent ones (n)
+                          class     n         full       no_new  no_ancestry no_ancestry_new
+           real strain, alleles  8240 0.0561 (462) 0.0771 (635) 0.0545 (449)    0.0733 (604)
+              real strain, none  6210 0.0622 (386) 0.0541 (336) 0.0589 (366)    0.0541 (336)
+               in-silico strain 20186 0.0191 (386) 0.0193 (390) 0.0229 (462)    0.0223 (451)
+                 representative 16982 0.0110 (187) 0.0109 (185) 0.0115 (196)    0.0110 (186)
+absent beside held-out, alleles 10729 0.0338 (363) 0.0316 (339) 0.0342 (367)    0.0346 (371)
+   absent beside held-out, none 32343 0.0180 (581) 0.0203 (657) 0.0194 (627)    0.0214 (692)
+                   absent other  4374 0.0364 (159) 0.0350 (153) 0.0373 (163)    0.0361 (158)

@@ -1,0 +1,164 @@
+== pe: species seen with >= 3 fragments 54649, with allele copies (max share > 0.2) 0.277
+     set              class alleles       n_v19   err_v19  rate_v19       n_v21   err_v21  rate_v21
+    test abs_beside_heldout alleles  17904.0000  456.0000    0.0255  22990.0000  482.0000    0.0210
+    test abs_beside_heldout    none  45612.0000  641.0000    0.0141  55575.0000  552.0000    0.0099
+    test abs_beside_heldout  unseen  27004.0000  273.0000    0.0101  13769.0000   34.0000    0.0025
+    test          abs_other alleles   6621.0000  100.0000    0.0151   6798.0000  108.0000    0.0159
+    test          abs_other    none  19212.0000  124.0000    0.0065  19334.0000  115.0000    0.0059
+    test          abs_other  unseen  16543.0000  103.0000    0.0062  12009.0000   54.0000    0.0045
+    test           insilico alleles    312.0000    9.0000    0.0288   3918.0000  143.0000    0.0365
+    test           insilico    none   4890.0000  161.0000    0.0329   7421.0000  250.0000    0.0337
+    test           insilico  unseen   1756.0000   49.0000    0.0279     24.0000    2.0000    0.0833
+    test               real alleles   6829.0000  414.0000    0.0606   4765.0000  258.0000    0.0541
+    test               real    none   3366.0000  122.0000    0.0362   3564.0000  190.0000    0.0533
+    test               real  unseen   3283.0000  195.0000    0.0594     18.0000    3.0000    0.1667
+    test                rep alleles   2595.0000   74.0000    0.0285   4075.0000  100.0000    0.0245
+    test                rep    none   4009.0000   92.0000    0.0229   5304.0000   99.0000    0.0187
+    test                rep  unseen   2089.0000   46.0000    0.0220     13.0000    0.0000    0.0000
+training abs_beside_heldout alleles  43977.0000 1454.0000    0.0331  56482.0000 1552.0000    0.0275
+training abs_beside_heldout    none 111425.0000 2080.0000    0.0187 136387.0000 1995.0000    0.0146
+training abs_beside_heldout  unseen  63307.0000  905.0000    0.0143  31299.0000  103.0000    0.0033
+training          abs_other alleles  16003.0000  342.0000    0.0214  17662.0000  384.0000    0.0217
+training          abs_other    none  46903.0000  429.0000    0.0091  50083.0000  433.0000    0.0086
+training          abs_other  unseen  39947.0000  405.0000    0.0101  29269.0000  198.0000    0.0068
+training           insilico alleles    964.0000   18.0000    0.0187  10681.0000  328.0000    0.0307
+training           insilico    none  12764.0000  270.0000    0.0212  20021.0000  476.0000    0.0238
+training           insilico  unseen   4677.0000  106.0000    0.0227     48.0000    1.0000    0.0208
+training               real alleles  17642.0000 1065.0000    0.0604  12811.0000  706.0000    0.0551
+training               real    none   8771.0000  329.0000    0.0375   8955.0000  454.0000    0.0507
+training               real  unseen   8966.0000  483.0000    0.0539     47.0000    6.0000    0.1277
+training                rep alleles   6470.0000  149.0000    0.0230  10975.0000  212.0000    0.0193
+training                rep    none   9908.0000  155.0000    0.0156  13794.0000  241.0000    0.0175
+training                rep  unseen   5676.0000  123.0000    0.0217     25.0000    2.0000    0.0800
+-- pe v21 training rows on allele copies: real strains 12060 (p<0.9: 1386), absent beside a held-out congener 53745 (p>0.1: 4861); AUC real strain over FP-like, all / hard:
+   allele_explained_share     0.717 / 0.586
+   allele_identity_gain       0.598 / 0.563
+   polymorphic_known_share    0.504 / 0.548
+   polymorphic_novel_share    0.417 / 0.449
+   ancestry_fixed_gain        0.594 / 0.523
+   ancestry_agreement         0.858 / 0.516
+   ancestry_congener_share    0.217 / 0.473
+   identity                   0.963 / 0.566
+== se: species seen with >= 3 fragments 42195, with allele copies (max share > 0.2) 0.303
+     set              class alleles      n_v19   err_v19  rate_v19      n_v21   err_v21  rate_v21
+    test abs_beside_heldout alleles  8854.0000  193.0000    0.0218 12370.0000  202.0000    0.0163
+    test abs_beside_heldout    none 20692.0000  240.0000    0.0116 27695.0000  254.0000    0.0092
+    test abs_beside_heldout  unseen 19309.0000  155.0000    0.0080 11100.0000   20.0000    0.0018
+    test          abs_other alleles  2707.0000   54.0000    0.0199  2876.0000   52.0000    0.0181
+    test          abs_other    none  6693.0000   72.0000    0.0108  7228.0000   70.0000    0.0097
+    test          abs_other  unseen  9213.0000   99.0000    0.0107  6779.0000   52.0000    0.0077
+    test           insilico alleles   226.0000    9.0000    0.0398  2666.0000  109.0000    0.0409
+    test           insilico    none  3247.0000  127.0000    0.0391  5114.0000  169.0000    0.0330
+    test           insilico  unseen  1307.0000   36.0000    0.0275    37.0000    4.0000    0.1081
+    test               real alleles  4515.0000  294.0000    0.0651  3285.0000  219.0000    0.0667
+    test               real    none  2241.0000   93.0000    0.0415  2490.0000  153.0000    0.0614
+    test               real  unseen  2429.0000  156.0000    0.0642    25.0000    6.0000    0.2400
+    test                rep alleles  1628.0000   38.0000    0.0233  2656.0000   49.0000    0.0184
+    test                rep    none  2572.0000   60.0000    0.0233  3658.0000   58.0000    0.0159
+    test                rep  unseen  1492.0000   31.0000    0.0208    25.0000    5.0000    0.2000
+training abs_beside_heldout alleles 21760.0000  709.0000    0.0326 30105.0000  762.0000    0.0253
+training abs_beside_heldout    none 50742.0000 1008.0000    0.0199 66915.0000 1012.0000    0.0151
+training abs_beside_heldout  unseen 46222.0000  598.0000    0.0129 24132.0000  100.0000    0.0041
+training          abs_other alleles  6652.0000  198.0000    0.0298  7683.0000  221.0000    0.0288
+training          abs_other    none 16991.0000  250.0000    0.0147 18874.0000  270.0000    0.0143
+training          abs_other  unseen 23772.0000  316.0000    0.0133 17657.0000  193.0000    0.0109
+training           insilico alleles   671.0000    5.0000    0.0075  7415.0000  229.0000    0.0309
+training           insilico    none  8716.0000  186.0000    0.0213 14175.0000  345.0000    0.0243
+training           insilico  unseen  3471.0000   79.0000    0.0228   142.0000   10.0000    0.0704
+training               real alleles 11942.0000  734.0000    0.0615  8985.0000  515.0000    0.0573
+training               real    none  6085.0000  226.0000    0.0371  6320.0000  321.0000    0.0508
+training               real  unseen  6750.0000  412.0000    0.0610    79.0000    9.0000    0.1139
+training                rep alleles  4259.0000   89.0000    0.0209  7311.0000  145.0000    0.0198
+training                rep    none  6549.0000  105.0000    0.0160  9379.0000  183.0000    0.0195
+training                rep  unseen  4120.0000   70.0000    0.0170    55.0000    5.0000    0.0909
+-- se v21 training rows on allele copies: real strains 8551 (p<0.9: 985), absent beside a held-out congener 30567 (p>0.1: 2409); AUC real strain over FP-like, all / hard:
+   allele_explained_share     0.695 / 0.575
+   allele_identity_gain       0.603 / 0.563
+   polymorphic_known_share    0.471 / 0.540
+   polymorphic_novel_share    0.399 / 0.447
+   ancestry_fixed_gain        0.576 / 0.521
+   ancestry_agreement         0.866 / 0.509
+   ancestry_congener_share    0.201 / 0.460
+   identity                   0.957 / 0.561
+== pb: species seen with >= 3 fragments 24151, with allele copies (max share > 0.2) 0.358
+     set              class alleles      n_v19  err_v19  rate_v19      n_v21  err_v21  rate_v21
+    test abs_beside_heldout alleles  2774.0000  98.0000    0.0353  4464.0000 130.0000    0.0291
+    test abs_beside_heldout    none  5634.0000 106.0000    0.0188 10192.0000 154.0000    0.0151
+    test abs_beside_heldout  unseen  9640.0000 152.0000    0.0158  3634.0000  32.0000    0.0088
+    test          abs_other alleles   333.0000  11.0000    0.0330   317.0000  14.0000    0.0442
+    test          abs_other    none   587.0000   7.0000    0.0119   775.0000  13.0000    0.0168
+    test          abs_other  unseen  1148.0000  42.0000    0.0366   819.0000  15.0000    0.0183
+    test           insilico alleles   188.0000   3.0000    0.0160  2599.0000  47.0000    0.0181
+    test           insilico    none  3178.0000  60.0000    0.0189  5156.0000  83.0000    0.0161
+    test           insilico  unseen  1418.0000  18.0000    0.0127    99.0000   3.0000    0.0303
+    test               real alleles  4382.0000 291.0000    0.0664  3217.0000 154.0000    0.0479
+    test               real    none  2297.0000  85.0000    0.0370  2515.0000 158.0000    0.0628
+    test               real  unseen  2670.0000 160.0000    0.0599    74.0000   6.0000    0.0811
+    test                rep alleles  1705.0000  20.0000    0.0117  2814.0000  48.0000    0.0171
+    test                rep    none  2765.0000  20.0000    0.0072  3855.0000  48.0000    0.0125
+    test                rep  unseen  1750.0000  34.0000    0.0194    84.0000   1.0000    0.0119
+training abs_beside_heldout alleles  6789.0000 316.0000    0.0465 10729.0000 371.0000    0.0346
+training abs_beside_heldout    none 13632.0000 404.0000    0.0296 24187.0000 471.0000    0.0195
+training abs_beside_heldout  unseen 22909.0000 469.0000    0.0205  8156.0000 106.0000    0.0130
+training          abs_other alleles   784.0000  30.0000    0.0383   818.0000  31.0000    0.0379
+training          abs_other    none  1364.0000  37.0000    0.0271  1675.0000  53.0000    0.0316
+training          abs_other  unseen  2802.0000  97.0000    0.0346  1881.0000  76.0000    0.0404
+training           insilico alleles   589.0000   9.0000    0.0153  6902.0000 147.0000    0.0213
+training           insilico    none  7918.0000 115.0000    0.0145 13063.0000 235.0000    0.0180
+training           insilico  unseen  3572.0000  47.0000    0.0132   221.0000  11.0000    0.0498
+training               real alleles 10793.0000 851.0000    0.0788  8240.0000 455.0000    0.0552
+training               real    none  5841.0000 238.0000    0.0407  6081.0000 368.0000    0.0605
+training               real  unseen  6788.0000 456.0000    0.0672   129.0000  18.0000    0.1395
+training                rep alleles  4051.0000  52.0000    0.0128  7275.0000  89.0000    0.0122
+training                rep    none  6677.0000  47.0000    0.0070  9546.0000  96.0000    0.0101
+training                rep  unseen  4435.0000  44.0000    0.0099   161.0000   3.0000    0.0186
+-- pb v21 training rows on allele copies: real strains 7745 (p<0.9: 909), absent beside a held-out congener 10804 (p>0.1: 1063); AUC real strain over FP-like, all / hard:
+   allele_explained_share     0.702 / 0.574
+   allele_identity_gain       0.552 / 0.561
+   polymorphic_known_share    0.369 / 0.540
+   polymorphic_novel_share    0.240 / 0.453
+   ancestry_fixed_gain        0.468 / 0.544
+   ancestry_agreement         0.906 / 0.500
+   ancestry_congener_share    0.106 / 0.509
+   identity                   0.964 / 0.528
+== ont: species seen with >= 3 fragments 25848, with allele copies (max share > 0.2) 0.349
+     set              class alleles      n_v19  err_v19  rate_v19      n_v21  err_v21  rate_v21
+    test abs_beside_heldout alleles  3243.0000 123.0000    0.0379  5198.0000 173.0000    0.0333
+    test abs_beside_heldout    none  6894.0000 175.0000    0.0254 11851.0000 190.0000    0.0160
+    test abs_beside_heldout  unseen 12285.0000 213.0000    0.0173  5832.0000  47.0000    0.0081
+    test          abs_other alleles   442.0000  20.0000    0.0452   490.0000  14.0000    0.0286
+    test          abs_other    none   815.0000  10.0000    0.0123  1119.0000  17.0000    0.0152
+    test          abs_other  unseen  2250.0000  58.0000    0.0258  1687.0000  33.0000    0.0196
+    test           insilico alleles   200.0000   3.0000    0.0150  2652.0000  83.0000    0.0313
+    test           insilico    none  3244.0000  85.0000    0.0262  5253.0000 140.0000    0.0267
+    test           insilico  unseen  1449.0000  24.0000    0.0166    94.0000  10.0000    0.1064
+    test               real alleles  4457.0000 337.0000    0.0756  3280.0000 208.0000    0.0634
+    test               real    none  2321.0000  94.0000    0.0405  2549.0000 177.0000    0.0694
+    test               real  unseen  2755.0000 186.0000    0.0675    69.0000   4.0000    0.0580
+    test                rep alleles  1774.0000  36.0000    0.0203  2880.0000  68.0000    0.0236
+    test                rep    none  2804.0000  35.0000    0.0125  3855.0000  50.0000    0.0130
+    test                rep  unseen  1782.0000  36.0000    0.0202    98.0000   5.0000    0.0510
+training abs_beside_heldout alleles  7980.0000 402.0000    0.0504 12262.0000 474.0000    0.0387
+training abs_beside_heldout    none 16723.0000 535.0000    0.0320 28390.0000 591.0000    0.0208
+training abs_beside_heldout  unseen 29403.0000 618.0000    0.0210 12750.0000 119.0000    0.0093
+training          abs_other alleles  1061.0000  40.0000    0.0377  1176.0000  42.0000    0.0357
+training          abs_other    none  2015.0000  44.0000    0.0218  2447.0000  71.0000    0.0290
+training          abs_other  unseen  5219.0000 152.0000    0.0291  3933.0000 119.0000    0.0303
+training           insilico alleles   623.0000  12.0000    0.0193  6918.0000 170.0000    0.0246
+training           insilico    none  8158.0000 136.0000    0.0167 13348.0000 328.0000    0.0246
+training           insilico  unseen  3658.0000  59.0000    0.0161   222.0000  12.0000    0.0541
+training               real alleles 11092.0000 871.0000    0.0785  8477.0000 551.0000    0.0650
+training               real    none  5868.0000 281.0000    0.0479  6116.0000 364.0000    0.0595
+training               real  unseen  6896.0000 480.0000    0.0696   135.0000  17.0000    0.1259
+training                rep alleles  4203.0000  90.0000    0.0214  7434.0000 128.0000    0.0172
+training                rep    none  6771.0000  92.0000    0.0136  9755.0000 156.0000    0.0160
+training                rep  unseen  4476.0000  62.0000    0.0139   169.0000   5.0000    0.0296
+-- ont v21 training rows on allele copies: real strains 7959 (p<0.9: 1044), absent beside a held-out congener 12691 (p>0.1: 1451); AUC real strain over FP-like, all / hard:
+   allele_explained_share     0.595 / 0.563
+   allele_identity_gain       0.571 / 0.564
+   polymorphic_known_share    0.381 / 0.550
+   polymorphic_novel_share    0.322 / 0.443
+   ancestry_fixed_gain        0.483 / 0.550
+   ancestry_agreement         0.908 / 0.498
+   ancestry_congener_share    0.107 / 0.504
+   identity                   0.879 / 0.523
