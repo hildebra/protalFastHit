@@ -412,7 +412,8 @@ namespace protal {
         size_t others = 0;
         std::string example, example_gates;
         auto const level = [](size_t c, SparseFirstPick pick) {
-            return c ? std::to_string(c) + (pick == SparseFirstPick::Stride && c > 1 ? " stride" : "") : std::string("off");
+            return c ? std::to_string(c) + (c > 1 && pick != SparseFirstPick::Hash ? " " + std::string(SparseFirstPickName(pick)) : "")
+                     : std::string("off");
         };
         for (auto const& info : kReadTypes) {
             if (!options.AnySample(info.type)) continue;
@@ -790,8 +791,10 @@ namespace protal {
         if (seeding.sparse_reads > 0) {  // --sparse_first: the reads given up after their sampled lookups
             auto const reads = static_cast<double>(seeding.sparse_reads);
             bool const stride = options.GetSparseFirst(index) > 1 && options.GetSparseFirstPick(index) == SparseFirstPick::Stride;
+            bool const grid = options.GetSparseFirst(index) > 1 && options.GetSparseFirstPick(index) == SparseFirstPick::Grid;
             std::cout << std::fixed << std::setprecision(2) << "Sample " << options.GetSampleId(index) << " sparse first (1/"
-                      << options.GetSparseFirst(index) << " of the cores" << (stride ? " by stride" : "") << ", score "
+                      << options.GetSparseFirst(index) << " of the cores" << (stride ? " by stride" : grid ? " by the database's grid" : "")
+                      << ", score "
                       << options.GetSparseFirstScore() << ", "
                       << options.GetSparseFirstHits() << " hit(s)): " << seeding.sparse_given_up << " of " << seeding.sparse_reads
                       << (read_type == ReadType::Paired ? " pairs" : " reads") << " given up ("
@@ -848,6 +851,55 @@ namespace protal {
             << map.KeymapBytes() / 1e9 << " GB in this layout" << std::defaultfloat << std::endl;
     }
 
+    // Whether a sample of the run is gated with the grid pick (--sparse_first_pick grid, C 2 or more): the index's values
+    // then keep their grid levels (GridLevels.h), which its lookups count by.
+    static bool AnyGridSample(Options const& options) {
+        auto const range = options.GetRange();
+        return std::any_of(range.begin(), range.end(), [&](size_t i) {
+            return options.GetSparseFirst(i) > 1 && options.GetSparseFirstPick(i) == SparseFirstPick::Grid;
+        });
+    }
+
+    // The grid level of the sparse index the run loads (--sparse_index; Seedmap::SetLoadLevel): with auto or on, the
+    // smallest level of its samples' gates (log2 C) if every sample is gated with the grid pick at C 2 or more, else 0, the
+    // whole index; with off 0. `why`: why it is 0, for on.
+    static uint8_t SparseIndexLevel(Options const& options, std::string* why = nullptr) {
+        if (options.SparseIndex() == "off") return 0;
+        auto const range = options.GetRange();
+        uint8_t level = grid_levels::kLevels;
+        for (auto i : range) {
+            if (options.GetSparseFirst(i) <= 1 || options.GetSparseFirstPick(i) != SparseFirstPick::Grid) {
+                if (why) *why = "sample " + options.GetSampleId(i) + " is not gated with the grid pick at C 2 or more";
+                return 0;
+            }
+            level = std::min<uint8_t>(level, static_cast<uint8_t>(grid_levels::LevelOf(options.GetSparseFirst(i))));
+        }
+        if (range.empty()) {
+            if (why) *why = "the run has no samples";
+            return 0;
+        }
+        return level;
+    }
+
+    // Before the index is loaded (its load runs on a thread of its own, which must not stop the run): a run with the grid
+    // pick needs an index with grid levels, and --sparse_index on a run it can load sparse. Exits 2 otherwise.
+    static void CheckGridIndex(Options const& options) {
+        std::string why;
+        bool const sparse_on = options.SparseIndex() == "on";
+        if (sparse_on && SparseIndexLevel(options, &why) == 0) {
+            std::cerr << "Error: --sparse_index on loads the entries of the grid pick's level alone, but " << why
+                      << " (--sparse_first C, --sparse_first_pick grid)" << std::endl;
+            exit(2);
+        }
+        if (!AnyGridSample(options)) return;
+        auto const features = Seedmap::IndexFeatures(options.IndexDbFile());
+        if (features && !(*features & Seedmap::kFeatureGridLevels)) {
+            std::cerr << "Error: --sparse_first_pick grid counts the database's grid levels, and its index has none (built "
+                      << "before 2026-10-13): rebuild the database, or gate with --sparse_first_pick stride" << std::endl;
+            exit(2);
+        }
+    }
+
     static std::unique_ptr<Seedmap> LoadIndex(Options const& options, std::tuple<uint64_t, uint64_t, uint64_t> maxima,
                                               std::optional<ReferenceFingerprint> const& fingerprint, std::ostream& log) {
         auto map = std::make_unique<Seedmap>();
@@ -859,7 +911,11 @@ namespace protal {
         // The values are held packed, in the widths the reference's taxids, gene ids and positions
         // need (Seedmap::PackedLayout); a position is a k-mer core's, flex_k/2 bases into its gene.
         auto const [max_taxid, max_gene, max_length] = maxima;
-        Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map->m_flex_k);
+        Seedmap::PackedLayout layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map->m_flex_k);
+        // The grid pick (--sparse_first_pick grid): each entry's grid level kept, and with --sparse_index (auto: a run
+        // whose every sample takes it) only the entries of the smallest gate's level loaded, about 1/C of the values.
+        if (AnyGridSample(options)) layout.level_bits = GRID_LEVEL_BITS;
+        map->SetLoadLevel(SparseIndexLevel(options));
         // Near the end of the load the threads' frames may hold what the alignment takes beyond the index anyway (its
         // threads' buffers: 0.95 GB at r226 on 32 threads, ~30 MB a thread), so that more threads decode to the end
         // without raising the run's peak: the r226 load took 0.67 s longer with one thread's frames allowed.
@@ -1100,11 +1156,17 @@ namespace protal {
                 // reads over all their chunks, LongReadAligner), as the sample's read type is gated (or the map's
                 // SPARSE_FIRST says).
                 if (size_t const sparse_first = options.GetSparseFirst(index); sparse_first > 0) {
+                    // The grid pick: every core looked up, the entries of the gate's grid level counting, a read kept seeded
+                    // from those alone.
                     anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
                                                  static_cast<uint32_t>(options.GetSparseFirstScore()),
-                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Stride);
+                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Stride,
+                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Grid);
                     // --sparse_seeding: the reads kept seeded from those cores alone, as an index of only them would.
                     if (options.SparseSeeding()) anchor_finder.SetSeedLevel(static_cast<uint8_t>(__builtin_ctzll(sparse_first)));
+                    // The grid pick's short reads anchor on a gene's single seed too (--no_single_seed_anchors: not).
+                    anchor_finder.SetSingleSeedAnchors(sparse_first > 1 && options.GetSparseFirstPick(index) == SparseFirstPick::Grid &&
+                                                       !IsLongReadType(read_type) && !options.NoSingleSeedAnchors());
                 }
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);
@@ -3740,6 +3802,8 @@ namespace protal {
         // conservation, suspect copies, species priors and the gene neighbours' table. --sequential_load loads them one
         // after another, as before. Their messages are printed in the order they always had; only the timers differ.
         bool const concurrent = !options.SequentialLoad() && !options.BuildMode();
+        // The grid pick's needs, before the index load starts on a thread of its own (CheckGridIndex).
+        if (run_alignment && !options.BuildMode()) CheckGridIndex(options);
         if (concurrent && run_alignment) {
             // The index's field widths from the genes, before the preload changes them.
             auto const maxima = db.GetGenomes().IndexFieldMaxima();

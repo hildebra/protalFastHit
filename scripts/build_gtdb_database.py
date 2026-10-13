@@ -197,7 +197,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, gate_model_file, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import FLEX_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -532,6 +532,15 @@ def flex_indels_supported(protal):
 # What protal's --full_help lists when it runs a sparse-first gate's stride pick per sample: the option and the map's
 # column.
 STRIDE_HELP = ("--sparse_first_pick", STRIDE_COLUMN)
+# ... and the grid pick (since 2026-10-13): its sparse index's option and the pick.
+GRID_HELP = ("--sparse_index", "grid (since 2026-10-13")
+
+
+def grid_supported(protal):
+    """Whether protal runs the grid pick per sample (its --full_help lists GRID_HELP); an older one would refuse the map's
+    SPARSE_FIRST_PICK grid."""
+    text = full_help(protal)
+    return all(mark in text for mark in GRID_HELP)
 
 
 def stride_supported(protal):
@@ -1900,7 +1909,9 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
              (f"; and with --flex_indels at {levels_text(args.test_flex_effective)}"
               if getattr(args, "test_flex_effective", None) else "") +
              (f"; and with the other pick at {levels_text(args.test_stride_effective)}"
-              if getattr(args, "test_stride_effective", None) else "")),
+              if getattr(args, "test_stride_effective", None) else "") +
+             (f"; and with the grid pick at {levels_text(args.test_grid_effective)}"
+              if getattr(args, "test_grid_effective", None) else "")),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, LOGS, "index_and_package.log"))),
@@ -2412,19 +2423,32 @@ def other_pick(pick):
     return "hash" if pick == "stride" else "stride"
 
 
+def test_grid_levels(test_grid, test_c_gates, ladder):
+    """The gates of --test-grid: auto, with --test-c-gates, each read type's gates with a model (ladder: --model-gates
+    and the database's) of 2 or more."""
+    if test_grid != "auto":
+        return test_grid
+    if test_c_gates is None:
+        return {}
+    return {t: [c for c in gates if c >= 2] for t, gates in ladder.items() if any(c >= 2 for c in gates)}
+
+
+SPARSE_FIRST_PICKS = ("stride", "hash", "grid")
+
+
 def sparse_first_pick_spec(text):
-    """--sparse-first-pick: "stride" or "hash" for every read type, or read types and theirs ("pe:stride,pb:hash"; a
-    read type not listed stride) -> {read type: pick} of every read type."""
+    """--sparse-first-pick: "stride", "hash" or "grid" for every read type, or read types and theirs ("pe:stride,pb:hash";
+    a read type not listed stride) -> {read type: pick} of every read type."""
     text = str(text).strip()
     picks = {t: DEFAULT_SPARSE_FIRST_PICK for t in TABLES}
     if ":" not in text:
-        if text not in ("stride", "hash"):
-            raise argparse.ArgumentTypeError(f"a pick is stride or hash, not {text!r}")
+        if text not in SPARSE_FIRST_PICKS:
+            raise argparse.ArgumentTypeError(f"a pick is stride, hash or grid, not {text!r}")
         return {t: text for t in TABLES}
     for item in text.split(","):
         read_type, sep, value = item.partition(":")
-        if not sep or read_type not in TABLES or value not in ("stride", "hash"):
-            raise argparse.ArgumentTypeError(f"expected READ_TYPE:stride|hash,... with read types {', '.join(TABLES)}, "
+        if not sep or read_type not in TABLES or value not in SPARSE_FIRST_PICKS:
+            raise argparse.ArgumentTypeError(f"expected READ_TYPE:stride|hash|grid,... with read types {', '.join(TABLES)}, "
                                              f"got {item!r}")
         picks[read_type] = value
     return picks
@@ -2847,11 +2871,14 @@ def main():
                         "none: ungated, as before 2026-10-12 (docs/claude/2026-10-12-sparse-first, "
                         "docs/claude/2026-10-13-r226-v27-c-gates.md)")
     p.add_argument("--sparse-first-pick", type=sparse_first_pick_spec, default=DEFAULT_SPARSE_FIRST_PICK,
-                   metavar="stride|hash|READ_TYPE:PICK,...",
+                   metavar="stride|hash|grid|READ_TYPE:PICK,...",
                    help="which 1/C of a read's cores each gate looks up first (protal --build --sparse_first_pick, "
                         "recorded with the gates and followed by every run on the databases): stride, every C-th core of "
-                        "a read in read order, or hash, those whose hash falls in 1/C of its range (the only pick before "
-                        f"2026-10-13); one for all read types, or read types and theirs. Default {DEFAULT_SPARSE_FIRST_PICK}")
+                        "a read in read order, hash, those whose hash falls in 1/C of its range (the only pick before "
+                        "2026-10-13), or grid, the database's grid of each gene's cores (since 2026-10-13; a run whose samples "
+                        "are all gated at C 2 or more then loads only the entries of its smallest gate, a sparse index: "
+                        "--test-grid measures it beside the database's pick first); one for all read types, or read types "
+                        f"and theirs. Default {DEFAULT_SPARSE_FIRST_PICK}")
     p.add_argument("--model-gates", type=model_gates_spec, default=model_gates_spec(DEFAULT_MODEL_GATES),
                    metavar="READ_TYPE:C/C/...,...|none",
                    help="the sparse-first gates each read type gets a model of besides its --sparse-first gate's: the "
@@ -2892,6 +2919,17 @@ def main():
                         "database gate if 2 or more; none: no such rows. Needs a protal whose --full_help lists "
                         f"{' and '.join(STRIDE_HELP)}; with an older one they are left out, with a warning. "
                         "--test-stride is its name from before 2026-10-13, when the databases picked by hash")
+    p.add_argument("--test-grid", nargs="?", const="auto", default=None, type=test_stride_spec,
+                   metavar="READ_TYPE:C/C/...,...|auto|none",
+                   help="with --test-c-gates: the gates (2 to 32) at which each read type's test samples are also profiled "
+                        "with the grid pick (protal --sparse_first_pick grid: every core looked up, only the database's "
+                        "grid entries of the gate's level counting, a read kept seeded from those alone, as a sparse index "
+                        "of 1/C of the values seeds it; rows <sample>__c<C>g, tables in c_gates/c<C>g/), scored by the "
+                        "model of the gate nearest it (trained with the database's pick), beside the same samples at that "
+                        "gate with the database's pick in model_logs/c_gates.tsv. The collections' runs load the whole "
+                        "index, so these rows' CPU seconds are not a sparse index's. Default with --test-c-gates: auto, "
+                        "each read type's gates with a model (--model-gates) of 2 or more; none: no such rows. Needs a "
+                        f"protal whose --full_help lists {GRID_HELP[0]}")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -3273,6 +3311,8 @@ def main():
         TRACEBACK_ARGS[:] += ["--sparse_first", gates_text(args.sparse_first)]
         # and their pick (since 2026-10-13), where protal has it; an older protal gates by hash
         if stride_supported(args.protal):
+            if "grid" in args.sparse_first_pick.values() and not grid_supported(args.protal):
+                p.error(f"--sparse-first-pick grid: {args.protal} has no grid pick (its --full_help lists no {GRID_HELP[0]})")
             TRACEBACK_ARGS[:] += ["--sparse_first_pick", picks_text(args.sparse_first_pick)]
         else:
             args.sparse_first_pick = {t: "hash" for t in TABLES}
@@ -4094,7 +4134,17 @@ def main():
         stride_wanted = {}
     stride_wanted = {t: cs for t, cs in stride_wanted.items() if t in read_types} if has_test else {}
     test_stride = {}  # {read type: gates} with the other pick
-    if args.test_c_gates is not None and not test_gates and not flex_wanted and not stride_wanted:
+    # --test-grid (by default with --test-c-gates): each read type's test samples at its gates with a model of 2 or more
+    # with the grid pick too, where protal runs it per sample.
+    grid_wanted = test_grid_levels("auto" if args.test_grid is None else args.test_grid, args.test_c_gates,
+                                   args.model_ladder)
+    if grid_wanted and args.test_c_gates is None:
+        say("WARNING: --test-grid needs --test-c-gates: no rows with the grid pick")
+        grid_wanted = {}
+    grid_wanted = {t: cs for t, cs in grid_wanted.items()
+                   if t in read_types and cs and args.sparse_first_pick[t] != "grid"} if has_test else {}
+    test_grid = {}  # {read type: gates} with the grid pick
+    if args.test_c_gates is not None and not test_gates and not flex_wanted and not stride_wanted and not grid_wanted:
         say("WARNING: --test-c-gates: no test samples, or no gate other than the database's, of these read types: "
             "nothing to compare")
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
@@ -4123,6 +4173,14 @@ def main():
                     f"{STRIDE_HELP[0]} and {STRIDE_HELP[1]} map column): the test samples are not profiled with the other "
                     "pick (--test-other-pick)")
             args.test_stride_effective = test_stride  # provenance
+        if grid_wanted:
+            if grid_supported(args.protal):
+                test_grid = grid_wanted
+                collections_[1][1].extend(["--grid_levels", levels_text(test_grid)])
+            else:
+                say(f"WARNING: {args.protal} cannot run the grid pick (its --full_help lists no {GRID_HELP[0]}): the test "
+                    "samples are not profiled with it (--test-grid)")
+            args.test_grid_effective = test_grid  # provenance
         if flex_wanted:
             test_command = collections_[1][1]
             test_units = units_of(collector_args(test_command[2:]))[1]
@@ -4139,11 +4197,13 @@ def main():
                 if ultima:  # their samples are profiled more than once: written, not streamed
                     test_command.extend(["--write_simulations", ",".join(ultima)])
     # Each read type's levels its test samples are profiled at besides the database's gate: the other gates of its
-    # models and its other gates, its gates with the other pick ("8h", or "8s" where the database picks by hash), and its
-    # gates with --flex_indels ("1f": ONT's; se's for its Ultima units), each a table in test/c_gates/c<level>/.
+    # models and its other gates, its gates with the other pick ("8h", or "8s" where the database picks by hash), with the
+    # grid pick ("8g") and its gates with --flex_indels ("1f": ONT's; se's for its Ultima units), each a table in
+    # test/c_gates/c<level>/.
     other_suffix = {t: HASH_SUFFIX if other_pick(args.sparse_first_pick[t]) == "hash" else STRIDE_SUFFIX for t in read_types}
     test_levels = {t: sorted(set(test_gates.get(t, [])) | (set(model_levels.get(t, [])) if has_test else set())) +
                    [f"{c}{other_suffix[t]}" for c in test_stride.get(t, [])] +
+                   [f"{c}{GRID_SUFFIX}" for c in test_grid.get(t, [])] +
                    [f"{c}{FLEX_SUFFIX}" for c in sorted(set(test_flex.get(t, [])) |
                                                         set(test_flex.get("ultima", []) if t == "se" else []))]
                    for t in read_types}

@@ -605,6 +605,30 @@ of the loaded one's entries, values and keys for each C. It measures what a smal
 runs would cost in records and calls; the whole index is still loaded, so it saves no memory itself.
 Short reads at C = 1 are seeded as without it ([report](claude/2026-10-13-sparse-seeding/README.md)).
 
+**The grid pick and the sparse index.** The stride and hash picks choose a read's cores on the read, so any key may be one a gate looks up and
+the whole index must be in memory. The grid pick (`--sparse_first_pick grid`, since 2026-10-13, on a
+database built with grid levels: `Index features: ... grid levels`) chooses them on the reference
+instead: `--build` keeps one core per window of C consecutive cores of each gene at each gate C, the one
+a read of the species most likely carries intact (by the species' strain alleles, else by how
+conserved its columns are within the family's genera) and the least shared with other genes
+([databases.md](databases.md#2-build-the-index), step 5). A read cannot tell which of its cores
+those are, so it looks up every core and only the grid's entries count: about every C-th core of the
+stretch it covers, as with the stride. A read kept is seeded from those entries alone, so it has about
+1/C of its seeds; a short read's gene with a single seed anchors on it (two seeds of a gene on one
+diagonal otherwise, as in every other run), since one grid hit fixes the read's place on its gene. On the
+mini database that turned the paired-end runs' 3.2% fewer records at C 4 into 0.05%, for 1-5% more
+candidate alignments than an ungated run; `--no_single_seed_anchors` anchors on two seeds only, for
+comparison. Because only
+those entries are ever used, a run whose every sample is gated with the grid pick (C 2 or more)
+loads only them (`--sparse_index auto`, the default: the entries of grid level log2 C of its smallest
+gate, about 1/C of the values; the key map keeps its size), and the index line says so ("a sparse
+index: the entries of grid level 2 or more, N of the file's M"). `--sparse_index off` loads the whole
+index and filters the entries per sample (the same reads given up and the same records, for
+comparison or a run mixing picks); `on` stops where it cannot load a sparse index. A database without
+grid levels stops a grid-picked run (exit 2). The models must be trained on runs picked so, as for
+the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
+pick; [report](claude/2026-10-13-gene-grid-index.md)).
+
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
 stage after the alignment takes the rest (the last sample, and any the worker is behind with) on

@@ -40,6 +40,7 @@ namespace protal {
     struct SeedingCounts {
         uint64_t kmers = 0, found = 0, scanned = 0, cells = 0, seeds = 0;
         uint64_t paired = 0, dropped = 0, anchors = 0;
+        uint64_t single_anchors = 0;  // of the anchors, those of one seed (SetSingleSeedAnchors: the grid pick)
         uint64_t sparse_reads = 0, sparse_given_up = 0, sparse_lookups = 0;
         std::array<uint64_t, 33> blocks_by_bits{}, cells_by_bits{};  // by the bit width of the block's size
 
@@ -60,6 +61,7 @@ namespace protal {
             paired += other.paired;
             dropped += other.dropped;
             anchors += other.anchors;
+            single_anchors += other.single_anchors;
             sparse_reads += other.sparse_reads;
             sparse_given_up += other.sparse_given_up;
             sparse_lookups += other.sparse_lookups;
@@ -94,6 +96,7 @@ namespace protal {
             }
             os << "; " << seeds << " seeds, " << paired << " of them sharing their taxon and gene with another seed; " << dropped
                << " lookups dropped as too ubiquitous; " << anchors << " anchors";
+            if (single_anchors > 0) os << " (" << single_anchors << " of them of a single grid seed)";
             return os.str();
         }
     };
@@ -198,6 +201,9 @@ namespace protal {
         bool m_sparse_first = false;
         uint8_t m_sparse_level = 0;
         bool m_sparse_stride = false;
+        // --sparse_first_pick grid: every core looked up, only the entries of grid level m_sparse_level or more counting
+        // (GridLevels.h), and a kept read seeded from those alone (the seed level is the gate's).
+        bool m_sparse_grid = false;
         uint32_t m_sparse_score = 0;
         LookupResultList m_sparse_lookups;
         size_t m_sparse_kmers = 0;  // the sampled k-mers of the read SparsePrepare looked up last
@@ -206,13 +212,24 @@ namespace protal {
         // --sparse_seeding (SetSeedLevel): a read is seeded from its cores of this level or more alone, as an index
         // holding only those would seed it; 0: from all.
         uint8_t m_seed_level = 0;
+        // The grid pick (SetSingleSeedAnchors): a gene with one seed of the read anchors on it (AnchorLoneSeeds); the genes
+        // anchored, per read.
+        bool m_single_seed_anchors = false;
+        RecoverySet m_anchored;
 
         // The lookups of a read's k-mers, in read order (those with values); with a seed level, of its cores of that
-        // level or more only.
+        // level or more only (the hash pick's), or with the grid pick of every core, only their entries of that grid
+        // level or more counting (KmerLookupSM::Get).
         void LookupKmers(KmerList& kmer_list) {
             m_lookups.clear();
             size_t n = kmer_list.size();
-            if (m_seed_level > 0) {
+            if (m_seed_level > 0 && m_sparse_grid) {
+                for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
+                for (size_t j = 0; j < n; j++) {
+                    if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+                    m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), m_seed_level);
+                }
+            } else if (m_seed_level > 0) {
                 m_sampled.clear();
                 for (size_t j = 0; j < kmer_list.size(); j++) {
                     if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) >= m_seed_level) m_sampled.push_back(j);
@@ -251,9 +268,10 @@ namespace protal {
             if (!m_prepared) LookupKmers(kmer_list);
             m_prepared = false;
 
-            // Sort these per core-mer ranges by number of values in range.
+            // Sort these per core-mer ranges by number of values in range (those that count: with the grid pick on values
+            // below its level, of the level; KmerLookupSM::Get).
             std::sort(m_lookups.begin(), m_lookups.end(), [](LookupPointer const& a, LookupPointer const& b) {
-                return a.size < b.size;
+                return a.level_entries < b.level_entries;
             });
 
             for (size_t i = 0; i < std::min(kPrefetchLookups, m_lookups.size()); i++) KmerLookup::PrefetchValues(m_lookups[i]);
@@ -611,6 +629,23 @@ namespace protal {
             }
         }
 
+        // SetSingleSeedAnchors: each gene of `seeds` without an anchor since `anchors_before` anchors on its first seed in
+        // `seeds`' order, extended (ExtractAndExtendAnchorFromSeed, as RecoverAnchors anchors a mate on one seed).
+        void AnchorLoneSeeds(SeedList const& seeds, ChainAnchorList& anchors, size_t anchors_before) {
+            auto key = [](uint32_t taxid, uint32_t geneid) {
+                return (static_cast<uint64_t>(taxid) << 40llu) | (static_cast<uint64_t>(geneid) << 20llu);
+            };
+            m_anchored.clear();
+            for (size_t a = anchors_before; a < anchors.size(); a++) m_anchored.insert(key(anchors[a].taxid, anchors[a].geneid));
+            for (auto const& found : seeds) {
+                if (!m_anchored.insert(key(found.taxid, found.geneid)).second) continue;
+                Seed seed = found;  // ExtractAndExtendAnchorFromSeed turns it to the reverse strand
+                anchors.emplace_back(ExtractAndExtendAnchorFromSeed(seed, *m_fwd, m_rev));
+                m_seeding.anchors++;
+                m_seeding.single_anchors++;
+            }
+        }
+
         SharedSeeds m_shared_seeds;
         SeedList m_shared;  // the read's seeds FindPairs can pair, sorted (SharedSeeds)
 
@@ -680,8 +715,9 @@ namespace protal {
                 m_kmer_lookup(other.m_kmer_lookup), m_max_seed_size(other.m_max_seed_size),
                 m_min_successful_lookups(other.m_min_successful_lookups), m_k(other.m_k),
                 m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
-                m_sparse_level(other.m_sparse_level), m_sparse_stride(other.m_sparse_stride), m_sparse_score(other.m_sparse_score),
-                m_seed_level(other.m_seed_level) {};
+                m_sparse_level(other.m_sparse_level), m_sparse_stride(other.m_sparse_stride), m_sparse_grid(other.m_sparse_grid),
+                m_sparse_score(other.m_sparse_score), m_seed_level(other.m_seed_level),
+                m_single_seed_anchors(other.m_single_seed_anchors) {};
 
         bool Success() {
             return !m_error_in_read;
@@ -979,21 +1015,30 @@ namespace protal {
         // a long read's chunk) in read order (stage1_probe::StridePicked), a hit where the best flex cell shares
         // `min_score` or more of the 16 flank bases with the read (SparseHits). The caller gives up a read (pair) with too
         // few hits before the rest of its seeding; a read it keeps is seeded as without --sparse_first, so its seeds,
-        // anchors and alignments are the same. At level 0 both pick every core. Copies keep it.
-        void SetSparseFirst(uint8_t level, uint32_t min_score, bool stride = false) {
+        // anchors and alignments are the same. At level 0 both pick every core. With `grid` (--sparse_first_pick grid,
+        // GridLevels.h) every core is looked up and only its entries of grid level `level` or more count, the database's
+        // choice of 1/2^level of each gene's cores; a read kept is seeded from those lookups alone (the seed level is the
+        // gate's), as a sparse index of that level (Seedmap::SetLoadLevel) seeds it. Copies keep it.
+        void SetSparseFirst(uint8_t level, uint32_t min_score, bool stride = false, bool grid = false) {
             m_sparse_first = true;
             m_sparse_level = level;
-            m_sparse_stride = stride;
+            m_sparse_stride = stride && !grid;
+            m_sparse_grid = grid;
             m_sparse_score = min_score;
+            if (grid) m_seed_level = level;
         }
         bool SparseFirst() const { return m_sparse_first; }
 
-        // Whether the gate samples k-mer j of a read's (chunk's) `kmers`: by its core's level, or by its place in the
-        // stride. The probe's stride rules pick the same (Stage1Probe.h).
+        // Whether the gate samples k-mer j of a read's (chunk's) `kmers`: by its core's level, by its place in the stride,
+        // or with the grid every core. The probe's stride rules pick the same (Stage1Probe.h).
         bool SparsePicked(size_t j, size_t kmers, uint64_t kmer) const {
+            if (m_sparse_grid) return true;
             return m_sparse_stride ? stage1_probe::StridePicked(j, kmers, size_t{1} << m_sparse_level)
                                    : stage1_probe::Level(m_kmer_lookup.MainKey(kmer)) >= m_sparse_level;
         }
+
+        // The grid level a gate lookup counts entries of: the gate's with the grid pick, else every entry (0).
+        uint8_t GateLevel() const { return m_sparse_grid ? m_sparse_level : 0; }
 
         // The key map blocks of a read's sampled k-mers, fetched ahead as PrefetchKeys fetches all (--sparse_first).
         void PrefetchSparseKeys(KmerList const& kmer_list) {
@@ -1013,7 +1058,7 @@ namespace protal {
             for (size_t j = 0; j < kmer_list.size(); j++) {
                 if (!SparsePicked(j, kmer_list.size(), kmer_list[j].first)) continue;
                 m_sparse_kmers++;
-                m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+                m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), GateLevel());
             }
             for (auto const& lookup : m_sparse_lookups) KmerLookup::PrefetchValues(lookup);
             m_seeding.sparse_lookups += m_sparse_lookups.size();
@@ -1029,8 +1074,9 @@ namespace protal {
             m_bm_sparse.Stop();
             return hits;
         }
-        // A short read SparseScore kept, seeded next: where the gate's level is the seed level (C 1, whatever the pick, or
-        // --sparse_seeding, which takes the hash pick) its sampled lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
+        // A short read SparseScore kept, seeded next: where the gate's level is the seed level (C 1, whatever the pick,
+        // --sparse_seeding, which takes the hash pick, or the grid pick, which seeds at its gate's level) its sampled
+        // lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
         // the same order, their values fetched), so FindSeeds takes them instead of looking the read up again; else
         // FindSeeds looks it up in full.
         void KeepSparseLookups() {
@@ -1044,6 +1090,14 @@ namespace protal {
         // --sparse_seeding: the reads kept are seeded from their cores of level `level` or more alone (LookupKmers), as
         // an index of only those would seed them; the gate's level (SetSparseFirst). Copies keep it.
         void SetSeedLevel(uint8_t level) { m_seed_level = level; }
+
+        // The grid pick for short reads (--sparse_first_pick grid; --no_single_seed_anchors: not): a read seeded from its grid
+        // cores alone has about 1/C of its seeds, so that a gene often has one of them, of which FindPairs makes no anchor
+        // (it needs two on a diagonal: a guard against chance hits, set for reads that have 20-odd seeds). A grid seed is an
+        // exact core with its flanks matched, on its gene's own grid, and fixes the read's place on the gene by itself: each
+        // gene of the read's seeds without an anchor anchors on its first seed (AnchorLoneSeeds), ranked by its extended
+        // length with the others, so that only a mate without better anchors aligns on it. Copies keep it.
+        void SetSingleSeedAnchors(bool on) { m_single_seed_anchors = on; }
 
         // Long reads (LongReadAligner, chunk by chunk, no read ahead): how many of a read's sampled lookups are hits,
         // counted up to `enough`: the sampled k-mers in read order, each core's key map block fetched kPrefetchKmers
@@ -1064,7 +1118,7 @@ namespace protal {
                 if (i + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i + kPrefetchKmers]].first);
                 size_t const before = m_sparse_lookups.size();
                 auto& [kmer, pos] = kmer_list[m_sampled[i]];
-                m_kmer_lookup.Get(m_sparse_lookups, kmer, static_cast<uint32_t>(pos));
+                m_kmer_lookup.Get(m_sparse_lookups, kmer, static_cast<uint32_t>(pos), GateLevel());
                 if (m_sparse_lookups.size() > before) KmerLookup::PrefetchValues(m_sparse_lookups.back());
                 while (m_sparse_lookups.size() - scored > kSparseScoreBehind && hits < enough) score_next();
             }
@@ -1152,6 +1206,7 @@ namespace protal {
 
                 ExtendAnchor(anchor, anchor.forward ? *m_fwd : m_rev, geneseq);
             }
+            if (m_single_seed_anchors) AnchorLoneSeeds(seeds, anchors, anchors_before);
             m_bm_extend_anchors.Stop();
 
 //            if (m_error_in_read) {

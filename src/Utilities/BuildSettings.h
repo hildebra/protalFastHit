@@ -90,22 +90,25 @@ namespace protal {
     }
 
     // Which 1/C of a read's cores a sparse-first gate looks up first (--sparse_first_pick, since 2026-10-13): those whose
-    // hash falls in 1/C of its range (stage1_probe::Level; the only pick before), or every C-th in read order
-    // (stage1_probe::StridePicked), spread evenly over the read.
-    enum class SparseFirstPick { Hash, Stride };
+    // hash falls in 1/C of its range (stage1_probe::Level; the only pick before), every C-th in read order
+    // (stage1_probe::StridePicked), spread evenly over the read, or (grid) the 1/C of each gene's cores the database keeps
+    // at C (GridLevels.h): every core looked up, only those entries counting, and a kept read seeded from them alone, as a
+    // sparse index of 1/C of the values (--sparse_index) holds them.
+    enum class SparseFirstPick { Hash, Stride, Grid };
     using SparseFirstPicks = std::array<std::optional<SparseFirstPick>, kReadTypeCount>;
 
     inline std::optional<SparseFirstPick> ParseSparseFirstPick(std::string_view name) {
         if (name == "hash") return SparseFirstPick::Hash;
         if (name == "stride") return SparseFirstPick::Stride;
+        if (name == "grid") return SparseFirstPick::Grid;
         return std::nullopt;
     }
 
     inline std::string_view SparseFirstPickName(SparseFirstPick pick) {
-        return pick == SparseFirstPick::Stride ? "stride" : "hash";
+        return pick == SparseFirstPick::Grid ? "grid" : pick == SparseFirstPick::Stride ? "stride" : "hash";
     }
 
-    // --sparse_first_pick's value: "auto", hash or stride for every read type, or read types and theirs
+    // --sparse_first_pick's value: "auto", hash, stride or grid for every read type, or read types and theirs
     // ("pe:stride,pb:hash"), as --sparse_first's.
     inline std::optional<SparseFirstPicks> ParseSparseFirstPicks(std::string_view text) {
         return ParsePerReadType<SparseFirstPick>(text, ParseSparseFirstPick);
@@ -225,7 +228,7 @@ namespace protal::build_settings {
                 if (!type) continue;  // a later version's read type
                 auto const pick = ParseSparseFirstPick(value);
                 if (!pick) {
-                    return "line " + std::to_string(number) + ": " + std::string(name) + " is hash or stride, not '" +
+                    return "line " + std::to_string(number) + ": " + std::string(name) + " is hash, stride or grid, not '" +
                            std::string(value) + "'";
                 }
                 settings.sparse_first_pick[static_cast<size_t>(*type)] = pick;

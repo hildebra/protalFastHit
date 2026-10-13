@@ -14,6 +14,9 @@
 #include <fstream>
 #include <memory>
 #include <unordered_set>
+#include <deque>
+#include <mutex>
+#include <span>
 #include <omp.h>
 #include "Constants.h"
 #include "Hash/KmerPutter.h"
@@ -28,6 +31,7 @@
 #include "SequenceUtils/StrainAllelesBuild.h"
 #include "SequenceUtils/ColumnWeightsBuild.h"
 #include "SequenceUtils/ColumnWeightsMsa.h"
+#include "SequenceUtils/GridLevels.h"
 #include "Taxonomy.h"
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -2550,6 +2554,98 @@ namespace protal::build {
                   << " (" << target << ")" << std::endl;
     }
 
+    // The index's grid levels (GridLevels.h; --sparse_first_pick grid): pass 2 gives each gene's cores theirs as it places
+    // them, scored by the copy's strain alleles (in memory since WriteStrainAlleles), its column weights (column_weights.tsv,
+    // read back) and each core's key's entries in the index (its slots, laid out by the value pointers), and counts them
+    // for the log. Only where every position fits below 2^GRID_LEVEL_SHIFT (Seedmap::kFeatureGridLevels; marker genes are
+    // a few kb). One per build; its counts per thread, joined by Report.
+    class GridBuilder {
+    public:
+        GridBuilder(strain_alleles::Table const& alleles, Seedmap const& map, std::string const& weights_file, bool enabled,
+                    grid_levels::Choice choice = grid_levels::Choice::Scored) :
+                m_alleles(alleles), m_map(map), m_enabled(enabled), m_choice(choice) {
+            if (!enabled || weights_file.empty() || !std::filesystem::exists(weights_file)) return;
+            std::ifstream is(weights_file);
+            std::string const error = m_weights.Read(is);
+            if (!error.empty()) {
+                std::cerr << "Warning: " << weights_file << " cannot be read for the grid levels (" << error << "); the cores "
+                          << "without alleles are scored without the columns' conservation" << std::endl;
+                m_weights = column_weights::Table();
+            }
+        }
+
+        bool Enabled() const { return m_enabled; }
+
+        // The levels of a gene's cores: `kmers` its k-mer list as pass 2 places it (after DropAmbiguousKmers), each
+        // window's start, whose core is flex/2 bases in.
+        void Levels(uint32_t taxid, uint32_t gene, std::string_view sequence, KmerList const& kmers, std::vector<uint8_t>& levels) {
+            thread_local grid_levels::Scratch scratch;
+            thread_local std::vector<grid_levels::Core> cores;
+            thread_local std::vector<strain_alleles::Table::View> views;
+            cores.resize(kmers.size());
+            size_t const half = m_map.m_flex_k_half;
+            for (size_t i = 0; i < kmers.size(); i++) {
+                uint64_t start = 0, slots = 0;
+                uint32_t entries = 0;
+                if (m_map.Locate(m_map.MainKey(kmers[i].first), start, slots)) {
+                    entries = static_cast<uint32_t>(slots >= m_map.m_flex_threshold ? slots - m_map.FlexBlockSize(slots) : slots);
+                }
+                cores[i] = { static_cast<uint32_t>(kmers[i].second + half), entries };
+            }
+            views.clear();
+            for (auto const& stored : m_alleles.Of(taxid, gene)) views.push_back(m_alleles.Get(stored));
+            std::shared_ptr<column_weights::Columns const> columns;
+            if (!m_weights.Empty()) columns = m_weights.Expand(taxid, gene, sequence.size());
+            std::span<uint8_t const> within;
+            if (columns) within = columns->within;
+            grid_levels::GeneLevels(cores, views, within, levels, scratch, Mine(), m_choice);
+        }
+
+        // What the grid made of the genes: the cores kept at each C and how conserved they are against all.
+        std::string Report() const {
+            grid_levels::Stats all;
+            {
+                std::lock_guard lock(m_mutex);
+                for (auto const& part : m_parts) all.Join(part);
+            }
+            if (all.cores == 0) return "Grid levels: no cores";
+            std::ostringstream os;
+            os << std::fixed << std::setprecision(3) << "Grid levels"
+               << (m_choice == grid_levels::Choice::Scored ? "" : std::string(" (--grid_choice ") + grid_levels::ChoiceName(m_choice) + ")")
+               << ": " << all.cores << " cores, "
+               << 100.0 * static_cast<double>(all.covered) / static_cast<double>(all.cores) << "% of them covered by strain alleles"
+               << (m_weights.Empty() ? "" : ", the others scored by the column weights") << "; mean conservation " << all.MeanConservation(0)
+               << "; kept at";
+            for (unsigned l = 1; l < grid_levels::kLevels; l++) {
+                os << (l > 1 ? "," : "") << " C " << grid_levels::GateOf(l) << ": " << all.Kept(l) << " (1/"
+                   << std::setprecision(1) << static_cast<double>(all.cores) / static_cast<double>(std::max<uint64_t>(all.Kept(l), 1))
+                   << std::setprecision(3) << ", conservation " << all.MeanConservation(l) << ")";
+            }
+            return os.str();
+        }
+
+    private:
+        // This thread's counts (registered once, joined by Report).
+        grid_levels::Stats& Mine() {
+            thread_local grid_levels::Stats* mine = nullptr;
+            thread_local GridBuilder const* owner = nullptr;
+            if (mine == nullptr || owner != this) {
+                std::lock_guard lock(m_mutex);
+                mine = &m_parts.emplace_back();
+                owner = this;
+            }
+            return *mine;
+        }
+
+        strain_alleles::Table const& m_alleles;
+        Seedmap const& m_map;
+        column_weights::Table m_weights;
+        bool m_enabled = false;
+        grid_levels::Choice m_choice = grid_levels::Choice::Scored;  // --grid_choice
+        mutable std::mutex m_mutex;
+        std::deque<grid_levels::Stats> m_parts;
+    };
+
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once
     // (CheckReferenceAgainstMap), so that the passes may take its records from the preloaded genes.
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
@@ -2754,8 +2850,21 @@ namespace protal::build {
         Benchmark bm_pointers("Value pointers");
         bm_pointers.Start();
         auto const [max_taxid, max_gene, max_length] = genomes.IndexFieldMaxima();
-        Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map.m_flex_k);
+        Seedmap::PackedLayout layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map.m_flex_k);
+        // Each entry's grid level beside it (GridBuilder), where every position fits below 2^GRID_LEVEL_SHIFT.
+        bool const grid = max_length + map.m_flex_k < (uint64_t{1} << GRID_LEVEL_SHIFT);
+        if (grid) {
+            layout.level_bits = GRID_LEVEL_BITS;
+            map.SetGridLevels();
+        }
         putter.InitializeForPut(serial ? 1 : threads, &layout);
+        grid_levels::Choice const grid_choice = options.GridChoice() == "even" ? grid_levels::Choice::Even :
+                                                options.GridChoice() == "phase" ? grid_levels::Choice::Phase : grid_levels::Choice::Scored;
+        GridBuilder grid_builder(alleles, map, options.GetColumnWeightsFile(), grid, grid_choice);
+        if (!grid) {
+            std::cout << "Grid levels: none (a gene of " << max_length << " bases: positions of " << GRID_LEVEL_SHIFT
+                      << " bits or more leave no room for them); --sparse_first_pick grid cannot use this index" << std::endl;
+        }
         bm_pointers.Stop();
         bm_pointers.PrintResults();
 
@@ -2781,10 +2890,15 @@ namespace protal::build {
                         kmers.clear();
                         handler(sequence, kmers);
                         DropAmbiguousKmers(sequence, kmer_length, kmers);
-                        for (auto const& pair : kmers) {
+                        thread_local std::vector<uint8_t> levels;  // the cores' grid levels (GridBuilder)
+                        if (grid_builder.Enabled()) {
+                            grid_builder.Levels(static_cast<uint32_t>(taxonomic_id), static_cast<uint32_t>(gene_id), sequence, kmers, levels);
+                        }
+                        for (size_t i = 0; i < kmers.size(); i++) {
                             ValueEntry entry;
-                            entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
-                            items.push_back({ pair.first, entry.value, false });
+                            entry.Put(taxonomic_id, gene_id, kmers[i].second + map.m_flex_k_half);  // as Seedmap::PutOMP
+                            if (grid_builder.Enabled()) entry.value |= uint64_t{levels[i]} << GRID_LEVEL_SHIFT;
+                            items.push_back({ kmers[i].first, entry.value, false });
                         }
                         if constexpr(KmerStatisticsConcept<KmerHandler>) {
                             stats.kmers_total += handler.TotalKmers();
@@ -2815,7 +2929,7 @@ namespace protal::build {
                     statistics);
             });
         } else {
-#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length, seed_alleles, index_alleles, alleles, allele_copies, alleles_seeded, note_allele_seed)
+#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length, seed_alleles, index_alleles, alleles, allele_copies, alleles_seeded, note_allele_seed, grid_builder)
     {
         // Private variables
         FastxRecord record;
@@ -2850,9 +2964,22 @@ namespace protal::build {
             kmers.clear();
             kmer_handler(std::string_view(record.sequence), kmers);
             DropAmbiguousKmers(record.sequence, kmer_length, kmers);
-            for (auto pair : kmers) {
-                size_t pos = pair.second;
-                putter.Put(pair.first, taxonomic_id, gene_id, pos);
+            if (grid_builder.Enabled()) {
+                // Each core's value with its grid level (GridBuilder), as the partitioned pass places them.
+                std::vector<uint8_t> levels;
+                grid_builder.Levels(static_cast<uint32_t>(taxonomic_id), static_cast<uint32_t>(gene_id), std::string_view(record.sequence),
+                                    kmers, levels);
+                for (size_t i = 0; i < kmers.size(); i++) {
+                    ValueEntry entry;
+                    entry.Put(taxonomic_id, gene_id, kmers[i].second + putter.GetMap().m_flex_k_half);
+                    entry.value |= uint64_t{levels[i]} << GRID_LEVEL_SHIFT;
+                    putter.PutValue(kmers[i].first, entry.value);
+                }
+            } else {
+                for (auto pair : kmers) {
+                    size_t pos = pair.second;
+                    putter.Put(pair.first, taxonomic_id, gene_id, pos);
+                }
             }
             if (seed_alleles) {
                 seeds.clear();
@@ -2896,6 +3023,7 @@ namespace protal::build {
         bm_pass2.Stop();
         bm_pass2.PrintResults();
         PrintMemory("pass 2");
+        if (grid_builder.Enabled()) std::cout << grid_builder.Report() << std::endl;
         if (seed_alleles) {
             std::cout << "Index alleles: " << allele_kmers.load() << " seeds of " << alleles_seeded.load() << " strain alleles at least "
                       << index_alleles << " from the representative's copy, of " << allele_copies.load() << " gene copies, as non-unique "

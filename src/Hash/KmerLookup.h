@@ -163,6 +163,8 @@ namespace protal {
         uint32_t read_pos = 0;
         bool retrieved = false;
         uint8_t probe_level = 0;  // --stage1_probe: its core's level (stage1_probe::Level), else unset
+        uint8_t min_level = 0;    // --sparse_first_pick grid: only its entries of this grid level or more count (GridLevels.h)
+        uint32_t level_entries = 0;  // its entries that count: `size`, or with min_level those of the level (KmerLookupSM::Get)
         uint32_t probe_index = 0;  // --stage1_probe: its k-mer's index among the read's (chunk's), else unset; in padding
 
         std::string ToString() {
@@ -249,6 +251,7 @@ namespace protal {
         // seeds; --sparse_first's sampled lookups). 0 for a key of one value.
         uint32_t BestScore(LookupPointer const& pointers) {
             if (pointers.flex == nullptr) return 0;
+            if (Filtered(pointers)) return ScoreAtLevel(pointers).first;
             uint32_t const size = pointers.size;
             simd::Level const level = flex_scan::Kernel().load(std::memory_order_relaxed);
             if (level == simd::Level::avx512) {
@@ -267,6 +270,44 @@ namespace protal {
             if (flex_vector.size() < size) flex_vector.resize(size);
             return (m_flex_indels ? flex_scan::ScoreScalar<true>(pointers, pointers.flex_key, flex_vector.data())
                                   : flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data())).first;
+        }
+
+        // --sparse_first_pick grid (GridLevels.h): whether a lookup's block may hold entries below its level, which then do
+        // not count: the values loaded start below it (a whole index, or a sparse one of a lower level). A sparse index of
+        // its level holds none, and is scanned as any index is.
+        bool Filtered(LookupPointer const& pointers) const {
+            return pointers.min_level > m_sm.LoadedLevel();
+        }
+
+        // Whether entry i of a lookup's block counts at the lookup's level.
+        bool AtLevel(LookupPointer const& pointers, uint32_t i) const {
+            return !Filtered(pointers) || m_sm.EntryLevel(pointers, i) >= pointers.min_level;
+        }
+
+        // A filtered lookup's best flex score and how many cells have it, over the cells of its entries of the level
+        // alone (a cell at a time, as ScoreScalar), and their scores in flex_vector (others 0); (0, 0) if it has none.
+        std::pair<uint32_t, uint32_t> ScoreAtLevel(LookupPointer const& pointers) {
+            uint32_t const size = pointers.size;
+            if (flex_vector.size() < size) flex_vector.resize(size);
+            auto const keys = flex_scan::MakeIndelKeys(pointers.flex_key);
+            uint32_t max = 0, count = 0;
+            bool any = false;
+            for (uint32_t i = 0; i < size; i++) {
+                if (m_sm.EntryLevel(pointers, i) < pointers.min_level) {
+                    flex_vector[i] = 0;
+                    continue;
+                }
+                uint32_t const cell = Seedmap::FlexCell(pointers, i);
+                uint32_t const s = m_flex_indels ? flex_scan::IndelSimilarity(cell, keys) : Seedmap::Similarity(pointers.flex_key, cell);
+                flex_vector[i] = static_cast<uint8_t>(s);
+                if (!any || s > max) {
+                    max = s;
+                    count = 0;
+                }
+                any = true;
+                count += s == max;
+            }
+            return { max, any ? count : 0 };
         }
 
         void Clear() {
@@ -299,8 +340,21 @@ namespace protal {
             return entry;
         }
 
-        inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos) {
+        // A k-mer's lookup, if its core has values; `min_level`: only its entries of that grid level or more count
+        // (--sparse_first_pick grid). Where the values loaded start below that level (Filtered), the lookup is made as a
+        // sparse index of the level would give it: none if the core has no entry of the level, else its count of them in
+        // level_entries, by which FindSeeds orders the lookups (as it orders a sparse index's by size), so that a run on
+        // the whole index seeds as one on the sparse index does.
+        inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos, uint8_t min_level = 0) {
             if (!m_sm.GetPacked(kmer, m_lookup_tmp)) return;
+            m_lookup_tmp.min_level = min_level;
+            m_lookup_tmp.level_entries = m_lookup_tmp.size;
+            if (Filtered(m_lookup_tmp)) {
+                uint32_t n = 0;
+                for (uint32_t i = 0; i < m_lookup_tmp.size; i++) n += m_sm.EntryLevel(m_lookup_tmp, i) >= min_level;
+                if (n == 0) return;
+                m_lookup_tmp.level_entries = n;
+            }
             m_lookup_tmp.flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));
             m_lookup_tmp.read_pos = readpos;
             result.emplace_back(m_lookup_tmp);
@@ -318,6 +372,7 @@ namespace protal {
             if (pointers.flex == nullptr) {
                 m_last_best = 0;
                 for (uint32_t i = 0; i < pointers.size; i++) {
+                    if (!AtLevel(pointers, i)) continue;
                     Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
                     result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
                 }
@@ -329,7 +384,28 @@ namespace protal {
             if (m_tie_masks.size() < words) m_tie_masks.resize(words);
             uint32_t max = 0, max_count = 0;
             simd::Level const level = flex_scan::Kernel().load(std::memory_order_relaxed);
-            if (level == simd::Level::avx512) {
+            if (Filtered(pointers)) {
+                // --sparse_first_pick grid on values below the lookup's level: its entries of the level alone, as a
+                // sparse index of that level would hold them (ScoreAtLevel), the masks of those at the best score. One
+                // such entry is a key of one value there, which has no flex cells: taken as such, unscored.
+                if (pointers.level_entries == 1) {
+                    m_last_best = 0;
+                    for (uint32_t i = 0; i < size; i++) {
+                        if (m_sm.EntryLevel(pointers, i) < pointers.min_level) continue;
+                        Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
+                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
+                    }
+                    return true;
+                }
+                std::tie(max, max_count) = ScoreAtLevel(pointers);
+                m_last_best = max;
+                if (max_count == 0) return true;
+                if (max_count > m_max_ubiquity) return false;
+                std::fill_n(m_tie_masks.begin(), words, 0u);
+                for (uint32_t i = 0; i < size; i++) {
+                    m_tie_masks[i / 32] |= static_cast<uint32_t>(flex_vector[i] == max && m_sm.EntryLevel(pointers, i) >= pointers.min_level) << (i % 32);
+                }
+            } else if (level == simd::Level::avx512) {
                 // The scores, the best, the masks and their count in one call (FlexScan.h); scores of the block's
                 // cells only, nothing read or written past them.
                 if (flex_vector.size() < size) flex_vector.resize(size);
@@ -381,6 +457,9 @@ namespace protal {
 
         inline void RecoverFromLookup(LookupList& result, LookupPointer& pointers, RecoverySet& recovery) {
             for (uint32_t i = 0; i < pointers.size; i++) {
+                // A grid-picked lookup on the whole index: only the entries a sparse index of its level holds (AtLevel),
+                // so that a mate is recovered as on that index.
+                if (!AtLevel(pointers, i)) continue;
                 ValueEntry entry = Entry(pointers, i);
                 if (recovery.contains(entry.MaskPosition())) {
                     auto [taxid, geneid, genepos] = entry.Get();

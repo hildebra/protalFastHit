@@ -91,12 +91,22 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertEqual(build.test_stride_levels("auto", None, gates), {})
         self.assertEqual(build.test_stride_levels(build.test_stride_spec("pb:8"), default, gates), {"pb": [8]})
         self.assertEqual((build.other_pick("stride"), build.other_pick("hash")), ("hash", "stride"))
+        # --test-grid: auto (its default with --test-c-gates), each read type's gates with a model of 2 or more (the
+        # ladder: --model-gates and the database's); given gates; none: no rows.
+        ladder = {"pe": [1, 4, 8], "se": [1], "pb": [8, 16, 32], "ont": [0]}
+        self.assertEqual(build.test_grid_levels(build.test_stride_spec("auto"), default, ladder),
+                         {"pe": [4, 8], "pb": [8, 16, 32]})
+        self.assertEqual(build.test_grid_levels("auto", None, ladder), {})
+        self.assertEqual(build.test_grid_levels(build.test_stride_spec("pe:2"), default, ladder), {"pe": [2]})
+        self.assertEqual(build.test_grid_levels(build.test_stride_spec("none"), default, ladder), {})
         # --sparse-first-pick: stride (the default) or hash for all, or read types and theirs (the others stride).
         self.assertEqual(build.sparse_first_pick_spec(build.DEFAULT_SPARSE_FIRST_PICK),
                          {"pe": "stride", "se": "stride", "pb": "stride", "ont": "stride"})
         picks = build.sparse_first_pick_spec("pb:hash")
         self.assertEqual(picks, {"pe": "stride", "se": "stride", "pb": "hash", "ont": "stride"})
         self.assertEqual(build.picks_text(picks), "pe:stride,se:stride,pb:hash,ont:stride")
+        self.assertEqual(build.sparse_first_pick_spec("grid")["ont"], "grid")
+        self.assertEqual(build.sparse_first_pick_spec("pb:grid")["pb"], "grid")
         for bad in ("strided", "pb:8", "xx:hash", "pe:"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_pick_spec(bad)

@@ -176,13 +176,15 @@ namespace protal {
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
+                ("no_single_seed_anchors", "With --sparse_first_pick grid: a short read's gene with one seed makes no anchor, as in other runs (two seeds of a gene on one diagonal), instead of anchoring on it (since 2026-10-13: a grid seed fixes the read's place on its gene by itself, and a read seeded from its grid cores alone has about 1/C of its seeds). For comparison.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level, or every C-th in read order: --sparse_first_pick) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A database may also hold models trained at other gates (model_pe_c1.xml, ...: build_gtdb_database.py --model-gates, protal --add_model --model_gate): a sample is profiled with the model trained at the gate nearest its own (on the scale of log2 C, off next to 1; between two, the lower). A run gated otherwise than any model of its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
                 ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count (default: the database's, else 14; --build records it with the gates).", cxxopts::value<size_t>())
                 ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept (default: the database's, else 1; --build records it with the gates).", cxxopts::value<size_t>())
-                ("sparse_first_pick", "With --sparse_first: which 1/C of a read's cores the gate looks up first. hash: those whose hash falls in 1/C of its range (stage1_probe::Level; the only pick before 2026-10-13), the same cores in every read, so gaps fall by chance; stride: every C-th core of each mate (of each chunk of a long read) in read order (stage1_probe::StridePicked), spread evenly over the read, which keeps far more of the reads with records at the same C (locally at C 8, 99.4% against 92.0% of the pairs; docs/claude/2026-10-13-stride-pick) for a few more lookups. At C 1 both look up every core. One pick for every read type, read types and theirs (pe:stride,pb:hash; a read type not listed as the database has it), or auto (default): the database's picks (stride where it records none; hash for a database that records its gates but no pick, built on 2026-10-12/13). --build records its value with the gates (build_settings.tsv; auto: stride, the default since 2026-10-13), and the models must be trained on runs picked so; a run picked otherwise than its database is warned. A map's SPARSE_FIRST_PICK column sets it per sample. --sparse_seeding stands for an index of the hash pick's cores and takes the hash pick only.", cxxopts::value<std::string>()->default_value("auto"))
+                ("sparse_first_pick", "With --sparse_first: which 1/C of a read's cores the gate looks up first. hash: those whose hash falls in 1/C of its range (stage1_probe::Level; the only pick before 2026-10-13), the same cores in every read, so gaps fall by chance; stride: every C-th core of each mate (of each chunk of a long read) in read order (stage1_probe::StridePicked), spread evenly over the read, which keeps far more of the reads with records at the same C (locally at C 8, 99.4% against 92.0% of the pairs; docs/claude/2026-10-13-stride-pick) for a few more lookups. At C 1 both look up every core. One pick for every read type, read types and theirs (pe:stride,pb:hash; a read type not listed as the database has it), or auto (default): the database's picks (stride where it records none; hash for a database that records its gates but no pick, built on 2026-10-12/13). --build records its value with the gates (build_settings.tsv; auto: stride, the default since 2026-10-13), and the models must be trained on runs picked so; a run picked otherwise than its database is warned. A map's SPARSE_FIRST_PICK column sets it per sample. --sparse_seeding stands for an index of the hash pick's cores and takes the hash pick only. grid (since 2026-10-13; a database built with grid levels): every core of a read is looked up, and only the database's 1/C of each gene's cores count, those it keeps at C for the most conserved within the species (its strain alleles, else the columns' conservation in the family) and the least shared with other genes, about every C-th along the gene; a read kept is seeded from those alone, as a sparse index of 1/C of the values holds them (--sparse_index, which loads only those).", cxxopts::value<std::string>()->default_value("auto"))
                 ("sparse_seeding", "With --sparse_first: seed the reads kept from the cores of the gate's level alone (1/C of them), as an index holding only those cores would, and log after the index load which share of its values and keys such an index would hold, per C. For measuring what a sparse index (less memory) would cost in records and calls; the whole index is loaded all the same. Short reads at C 1 are seeded as without it.")
+                ("sparse_index", "The index of a run whose every sample is gated with the grid pick (--sparse_first C, --sparse_first_pick grid; C 2 or more): auto (default) loads only the entries the smallest of its gates keeps (grid level log2 C, about 1/C of the values; the key map keeps its size); on: the same, and an error where it cannot; off: the whole index (each sample then counts only the entries of its gate's level: the same seeds and records, for comparison). Needs a database built with grid levels (since 2026-10-13).", cxxopts::value<std::string>()->default_value("auto"))
                 ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), or in a stride pick of every c-th core of a mate in read order, tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, with the share of the lookups a gate would make, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv (hash sample), _stage1_probe_stride.tsv (stride pick), _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
@@ -209,6 +211,7 @@ namespace protal {
                 ("strain_alleles", "With --build: up to this many alleles per species and gene from the other genomes' copies in --full_reference, stored as edits of the representative's copy (strain_alleles.tsv), for the alignment scores (--no_allele_scores) and the profiler's 'alleles' features. Chosen among up to 16 distinct ones sampled by hash for the sample's coverage (greedily: together they explain as much of each sampled allele as a read of it would be scored with; farthest first until 2026-10-09), each nearer the representative than the gene's nearest congener's copy (congener_gaps.tsv) and within 0.1 of it. 0: none. Default 16 since 2026-10-11 (4 before): more of a species' strains are called, at no index cost (docs/claude/2026-10-11-strain-false-negatives).", cxxopts::value<size_t>()->default_value("16"))
                 ("allele_genome_share", "With --build: the share of each species' genomes that may give alleles (--strain_alleles), by a hash of the genome's accession (the full reference's second header word, which the converter writes since 2026-10-08). build_gtdb_database.py passes 0.5 and simulates strains only from the other genomes, so that no simulated strain is its species' own allele. Below 1 it needs a full reference that names its genomes.", cxxopts::value<double>()->default_value("1"))
                 ("index_alleles", "With --build: the k-mers of the strain alleles at least this far from the representative's copy (edits per base of the allele's range) go into the index under the species as non-unique entries, so that a read of a deep strain, which seeds on few of the representative's k-mers, finds its species and is aligned and scored against the representative as before. The seeds are left out of unique_kmers.tsv's totals. Off by default (1 or more: none) since the r226 v22 build, whose F1 gains with 0.01 (and the other changes of that build) were too small for the entries it adds (about three per edit, +5% on the test worlds).", cxxopts::value<double>()->default_value("1"))
+                ("grid_choice", "With --build (a developer option, since 2026-10-13): how the grid levels (--sparse_first_pick grid) choose the core each window of C cores of a gene keeps. scored (default): the one the species' strain alleles (else the columns' conservation) most often leave a hit, less its key's ubiquity, anywhere in the window; even: every C-th core of the gene whatever the scores (a stride on the gene, its cores C apart); phase: every C-th core too, the phase chosen per gene and gate by the scores of the cores it keeps.", cxxopts::value<std::string>()->default_value("scored"))
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("column_weights_alignment", "With --build and --column_weights: where the family columns come from. auto (default): msa if the database folder has GTDB's alignments and tree (column_msa/, species_tree.nwk: gtdb_to_protal_db.py writes them from the release's *_msa_marker_genes_reps archive and tree), else aa. msa (since 2026-10-10): no alignment, each copy's residues placed on its row of GTDB-Tk's alignment of the marker, every genus of a family voting through its ancestral sequence (Fitch parsimony on GTDB's tree), the family's ancestral base polarising small genera. aa: the copies translated in frame and their proteins aligned (WFA2, up to 0.3 of the amino acids different within a genus, 0.5 among genera), each aligned amino-acid pair mapping its codon's bases. nt: the bases aligned (up to 0.2 and 0.4), which fails for most copies of GTDB's wide genera (docs/claude/2026-10-10-real-ancestry).", cxxopts::value<std::string>()->default_value("auto"))
                 ("no_ancestry_sites", "With --build: do not store every gene copy's ancestry sites (ancestry_sites.bin, AncestrySites.h: where its copy differs from the consensus of its congeners' copies, the ancestry features' sites), computed by default from the species neighbours, congener gaps and column weights the build writes, as a run would compute them on a copy's first record. Without the table a run computes them there, as before 2026-10-11, at ~0.3 M instructions plus ~0.6 M per congener compared for every copy its records touch (half of the profiling of a sample built at r226 v23, docs/claude/2026-10-11-r226-v23); the features are the same.")
@@ -263,6 +266,7 @@ namespace protal {
         double allele_genome_share = 1.0;
         size_t column_weights = 10;
         std::string column_weights_alignment = "auto";
+        std::string grid_choice = "scored";
         bool no_ancestry_sites = false;
         bool no_site_weights = false;
         bool weighted_site_shift = false;
@@ -278,6 +282,7 @@ namespace protal {
         bool whole_read_alignment = false;
         bool no_alignment_screen = false;
         bool no_indel_bound = false;
+        bool no_single_seed_anchors = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
         SparseFirstGates sparse_first;                // --sparse_first per read type; nothing: auto (the database's)
@@ -286,6 +291,7 @@ namespace protal {
         SparseFirstPicks sparse_first_pick;           // --sparse_first_pick per read type; nothing: auto (the database's)
         bool stage1_probe = false;
         bool sparse_seeding = false;                  // --sparse_seeding
+        std::string sparse_index = "auto";            // --sparse_index: auto, on or off
         bool taxon_statistics = false;
         bool full_sam_header = false;
         bool write_unmapped_reads = false;
@@ -414,6 +420,7 @@ namespace protal {
         double m_index_alleles = 1;  // --index_alleles (--build): the least divergence of an allele whose k-mers are indexed
         size_t m_column_weights = 10;  // --column_weights (--build): genera per family that vote; 0: no table
         std::string m_column_weights_alignment = "auto";  // --column_weights_alignment (--build): auto, msa, aa or nt
+        std::string m_grid_choice = "scored";  // --grid_choice (--build): scored, even or phase (GridLevels.h Choice)
         bool m_no_ancestry_sites = false;  // --no_ancestry_sites (--build): no ancestry_sites.bin
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_weighted_site_shift = false;  // --weighted_site_shift (off by default since 2026-10-12): the shift discounts
@@ -432,10 +439,12 @@ namespace protal {
         bool m_whole_read_alignment = false;
         bool m_no_alignment_screen = false;
         bool m_no_indel_bound = false;
+        bool m_no_single_seed_anchors = false;
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_stage1_probe = false;  // --stage1_probe
         bool m_sparse_seeding = false;  // --sparse_seeding
+        std::string m_sparse_index = "auto";  // --sparse_index
         // --sparse_first as given (per read type; nothing: auto), and as the run gates each read type (C, 0 off): given,
         // else the database's (SetSparseFirst; --build: as given, 0 where not). Its score and hits likewise.
         SparseFirstGates m_sparse_first_given;
@@ -645,6 +654,7 @@ namespace protal {
                 m_index_alleles(d.index_alleles),
                 m_column_weights(d.column_weights),
                 m_column_weights_alignment(std::move(d.column_weights_alignment)),
+                m_grid_choice(std::move(d.grid_choice)),
                 m_no_ancestry_sites(d.no_ancestry_sites),
                 m_no_site_weights(d.no_site_weights),
                 m_weighted_site_shift(d.weighted_site_shift),
@@ -660,10 +670,12 @@ namespace protal {
                 m_whole_read_alignment(d.whole_read_alignment),
                 m_no_alignment_screen(d.no_alignment_screen),
                 m_no_indel_bound(d.no_indel_bound),
+                m_no_single_seed_anchors(d.no_single_seed_anchors),
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_stage1_probe(d.stage1_probe),
                 m_sparse_seeding(d.sparse_seeding),
+                m_sparse_index(d.sparse_index),
                 m_sparse_first_given(d.sparse_first),
                 m_sparse_first(GatesOrOff(d.sparse_first)),
                 m_sparse_first_score_given(d.sparse_first_score),
@@ -1101,6 +1113,12 @@ namespace protal {
         // indexed (StrainAllelesBuild.h AlleleSeeds); 1 or more (the default): none.
         double IndexAlleles() const {
             return m_index_alleles;
+        }
+
+        // --grid_choice (--build, a developer option): how the grid levels choose each window's core: scored, even or phase
+        // (grid_levels::Choice).
+        std::string const& GridChoice() const {
+            return m_grid_choice;
         }
 
         // --column_weights (--build): genera per family that vote on the column weights; 0: no table.
@@ -1812,6 +1830,12 @@ namespace protal {
             return m_no_indel_bound;
         }
 
+        // --no_single_seed_anchors: with the grid pick, short reads anchor on two seeds of a gene, as other runs, not on one
+        // (ChainAnchorFinder::SetSingleSeedAnchors).
+        bool NoSingleSeedAnchors() const {
+            return m_no_single_seed_anchors;
+        }
+
         // --flex_indels: whether sample `index`'s lookups score their flex cells with an indel per flank allowed
         // (ChainAnchorFinder::SetFlexIndels): the map's FLEX_INDELS where it gives 1 or 0, else its read type's.
         bool FlexIndels(size_t index) const {
@@ -1876,6 +1900,10 @@ namespace protal {
         // --sparse_seeding: the reads a gate keeps are seeded from its cores alone (ChainAnchorFinder::SetSeedLevel).
         bool SparseSeeding() const {
             return m_sparse_seeding;
+        }
+        // --sparse_index: auto, on or off (RunProtal::SparseIndexLevel).
+        std::string const& SparseIndex() const {
+            return m_sparse_index;
         }
 
         // --sparse_first: the gate of sample `index` (C: 1/C of a read's cores looked up first, 0 off): the map's
@@ -2568,7 +2596,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                         auto const& value = tokens[sparse_first_pick_column];
                         if (value != MAP_NO_SECOND_READ && !ParseSparseFirstPick(value)) {
                             std::cerr << "Line " << line_num << ": " << MAP_SPARSE_FIRST_PICK << " is '" << value
-                                      << "'; expected hash, stride or -" << std::endl;
+                                      << "'; expected hash, stride, grid or -" << std::endl;
                             return false;
                         }
                         if (sparse_first_pick_list) sparse_first_pick_list->emplace_back(value);
@@ -3673,10 +3701,16 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool whole_read_alignment = result.count("whole_read_alignment");
             bool no_alignment_screen = result.count("no_alignment_screen");
             bool no_indel_bound = result.count("no_indel_bound");
+            bool no_single_seed_anchors = result.count("no_single_seed_anchors");
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
             bool stage1_probe = result.count("stage1_probe");
             bool sparse_seeding = result.count("sparse_seeding");
+            std::string const sparse_index = result["sparse_index"].as<std::string>();
+            if (sparse_index != "auto" && sparse_index != "on" && sparse_index != "off") {
+                std::cerr << "Error: --sparse_index is auto, on or off, not '" << sparse_index << "'" << std::endl;
+                exit(2);
+            }
             auto const sparse_first = ParseSparseFirstGates(result["sparse_first"].as<std::string>());
             if (!sparse_first) {
                 std::cerr << "Error: --sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs "
@@ -3694,7 +3728,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             }
             auto const sparse_first_pick = ParseSparseFirstPicks(result["sparse_first_pick"].as<std::string>());
             if (!sparse_first_pick) {
-                std::cerr << "Error: --sparse_first_pick is auto, hash, stride, or read types and theirs (e.g. pe:stride,pb:hash; "
+                std::cerr << "Error: --sparse_first_pick is auto, hash, stride, grid, or read types and theirs (e.g. pe:stride,pb:hash; "
                           << "read types " << ReadTypeTokens() << "), not '" << result["sparse_first_pick"].as<std::string>() << "'"
                           << std::endl;
                 exit(2);
@@ -3913,10 +3947,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.whole_read_alignment     = whole_read_alignment;
             d.no_alignment_screen      = no_alignment_screen;
             d.no_indel_bound           = no_indel_bound;
+            d.no_single_seed_anchors   = no_single_seed_anchors;
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
             d.stage1_probe             = stage1_probe;
             d.sparse_seeding           = sparse_seeding;
+            d.sparse_index             = sparse_index;
             d.sparse_first             = *sparse_first;
             d.sparse_first_score       = sparse_first_score;
             d.sparse_first_hits        = sparse_first_hits;
@@ -4008,6 +4044,11 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             // --no_site_weights and --weighted_site_shift kept their defaults whatever the command line said).
             d.column_weights           = result["column_weights"].as<size_t>();
             d.column_weights_alignment = result["column_weights_alignment"].as<std::string>();
+            d.grid_choice              = result["grid_choice"].as<std::string>();
+            if (d.grid_choice != "scored" && d.grid_choice != "even" && d.grid_choice != "phase") {
+                std::cerr << "Error: --grid_choice is scored, even or phase, not '" << d.grid_choice << "'" << std::endl;
+                exit(2);
+            }
             d.no_ancestry_sites        = result.count("no_ancestry_sites") > 0;
             d.no_site_weights          = result.count("no_site_weights") > 0;
             // Off by default (it was on 2026-10-11 to 2026-10-12); --no_weighted_site_shift wins.

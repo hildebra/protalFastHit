@@ -205,6 +205,11 @@ def parse_args(argv=None):
                    help="as --stride_levels, with the hash pick (the cores whose hash falls in 1/C of its range; the "
                         "pick of databases built before 2026-10-13): rows <sample>__c<C>h in <point>/protal_c<C>h, tables "
                         "in OUT/c_gates/c<C>h/")
+    p.add_argument("--grid_levels", type=stride_levels, default={}, metavar="READ_TYPE:C/C/...,...",
+                   help="as --stride_levels, with the grid pick (every core looked up, only the database's grid entries of "
+                        "the gate's level counting, a read kept seeded from those alone; protal --sparse_first_pick grid, "
+                        "on the whole index as the collection's runs load it): rows <sample>__c<C>g in <point>/protal_c<C>g, "
+                        "tables in OUT/c_gates/c<C>g/")
     p.add_argument("--model_levels", type=sparse_first_levels, default={}, metavar="READ_TYPE:C/C/...,...",
                    help="sparse-first gates at which every sample of these read types is profiled too, the samples "
                         "streamed into protal through pipes included (each such simulation streamed again for each "
@@ -379,7 +384,7 @@ MAP_DEFAULTS = {"UNMAPPED_READS": "count", "SPARSE_FIRST": "-"}
 # database does not: the map column and its values (protal's --sparse_first_pick per sample; build_gtdb_database.py
 # checks that protal has it). A row without the column picks as the database does (stride for one built since
 # 2026-10-13).
-STRIDE_COLUMN, STRIDE_VALUE, HASH_VALUE = "SPARSE_FIRST_PICK", "stride", "hash"
+STRIDE_COLUMN, STRIDE_VALUE, HASH_VALUE, GRID_VALUE = "SPARSE_FIRST_PICK", "stride", "hash", "grid"
 # Map columns written only when a row has a value: protal ignores a column it does not know, so FLEX_INDELS and
 # SPARSE_FIRST_PICK must reach only a protal that reads them (build_gtdb_database.py checks), and the other maps stay as
 # they were.
@@ -387,6 +392,7 @@ OPTIONAL_MAP_COLUMNS = ["FLEX_INDELS", STRIDE_COLUMN]
 FLEX_SUFFIX = "f"  # a level's id with protal's --flex_indels too: gate 1 with it is "1f" (rows <sample>__c1f)
 STRIDE_SUFFIX = "s"  # a level's id with the stride pick: gate 8 with it is "8s" (rows <sample>__c8s)
 HASH_SUFFIX = "h"  # a level's id with the hash pick: gate 8 with it is "8h" (rows <sample>__c8h)
+GRID_SUFFIX = "g"  # a level's id with the grid pick (protal --sparse_first_pick grid): gate 8 with it is "8g" (rows <sample>__c8g)
 # --sparse_first_levels: a sample profiled at another sparse-first gate C is <sample>__c<C>, in <profile dir>_c<C>; its
 # tables are in OUT/c_gates/c<C>/.
 LEVEL_SUFFIX = "__c"
@@ -1154,12 +1160,18 @@ def unit_hash_levels(unit, opts):
     return (getattr(opts, "hash_levels", None) or {}).get(unit["type"], [])
 
 
+def unit_grid_levels(unit, opts):
+    """The gates a unit's samples are profiled at with the grid pick too (--grid_levels)."""
+    return (getattr(opts, "grid_levels", None) or {}).get(unit["type"], [])
+
+
 def unit_level_ids(unit, opts):
     """Every level a unit's samples are profiled at besides the database's gate: its other gates (C, as an int), its
-    gates with the stride pick (C + STRIDE_SUFFIX, as a string: "8s"), with the hash pick (C + HASH_SUFFIX: "8h") and
-    its gates with --flex_indels (C + FLEX_SUFFIX: "1f")."""
+    gates with the stride pick (C + STRIDE_SUFFIX, as a string: "8s"), with the hash pick (C + HASH_SUFFIX: "8h"), with
+    the grid pick (C + GRID_SUFFIX: "8g") and its gates with --flex_indels (C + FLEX_SUFFIX: "1f")."""
     return unit_levels(unit, opts) + [f"{c}{STRIDE_SUFFIX}" for c in unit_stride_levels(unit, opts)] + \
         [f"{c}{HASH_SUFFIX}" for c in unit_hash_levels(unit, opts)] + \
+        [f"{c}{GRID_SUFFIX}" for c in unit_grid_levels(unit, opts)] + \
         [f"{c}{FLEX_SUFFIX}" for c in unit_flex_levels(unit, opts)]
 
 
@@ -1169,20 +1181,25 @@ def unit_streamed_level_ids(unit, opts):
     return unit_model_levels(unit, opts)
 
 
+PICKS_OF_SUFFIX = {STRIDE_SUFFIX: STRIDE_VALUE, HASH_SUFFIX: HASH_VALUE, GRID_SUFFIX: GRID_VALUE}
+
+
 def level_parts(level):
-    """A level's gate, whether it has --flex_indels, and its pick if it names one ("stride", "hash"; "" the database's):
-    4 -> (4, False, ""), "1f" -> (1, True, ""), "8s" -> (8, False, "stride"), "8h" -> (8, False, "hash")."""
+    """A level's gate, whether it has --flex_indels, and its pick if it names one ("stride", "hash", "grid"; "" the
+    database's): 4 -> (4, False, ""), "1f" -> (1, True, ""), "8s" -> (8, False, "stride"), "8h" -> (8, False, "hash"),
+    "8g" -> (8, False, "grid")."""
     text = str(level)
-    pick = "stride" if text.endswith(STRIDE_SUFFIX) else "hash" if text.endswith(HASH_SUFFIX) else ""
-    text = text.removesuffix(STRIDE_SUFFIX).removesuffix(HASH_SUFFIX)
+    pick = PICKS_OF_SUFFIX.get(text[-1:], "") if text else ""
+    if pick:
+        text = text[:-1]
     return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX), pick
 
 
 def level_order(level):
     """Levels sorted: the gates with neither a pick of their own nor --flex_indels first, then those with the stride
-    pick, those with the hash pick, then those with --flex_indels, each by its gate."""
+    pick, the hash pick and the grid pick, then those with --flex_indels, each by its gate."""
     gate, flex, pick = level_parts(level)
-    return flex, ("", "stride", "hash").index(pick), gate
+    return flex, ("", "stride", "hash", "grid").index(pick), gate
 
 
 def level_text(level):
@@ -1881,7 +1898,7 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
     gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}"
                                 + (FLEX_SUFFIX if row.get("FLEX_INDELS", "-") == "1" else "")
-                                + {STRIDE_VALUE: STRIDE_SUFFIX, HASH_VALUE: HASH_SUFFIX}.get(row.get(STRIDE_COLUMN, "-"), "")
+                                + {v: s for s, v in PICKS_OF_SUFFIX.items()}.get(row.get(STRIDE_COLUMN, "-"), "")
                                 for row in rows
                                 if row.get("SPARSE_FIRST", "-") not in ("", "-"))  # this and the other collection's
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
@@ -2310,7 +2327,8 @@ def profile_keys(units, opts, keys):
                         **({"model_levels": unit_model_levels(u, opts)} if unit_model_levels(u, opts) else {}),
                         **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {}),
                         **({"stride_levels": unit_stride_levels(u, opts)} if unit_stride_levels(u, opts) else {}),
-                        **({"hash_levels": unit_hash_levels(u, opts)} if unit_hash_levels(u, opts) else {})}
+                        **({"hash_levels": unit_hash_levels(u, opts)} if unit_hash_levels(u, opts) else {}),
+                        **({"grid_levels": unit_grid_levels(u, opts)} if unit_grid_levels(u, opts) else {})}
             for u in units}
 
 

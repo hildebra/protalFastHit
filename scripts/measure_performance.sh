@@ -56,6 +56,9 @@
 # A level with an s (e.g. 8s, since 2026-10-13) also gives protal's --sparse_seeding: the reads kept are seeded from the
 # gate's cores alone, as an index of only those would seed them, and the log tells what such an index would hold
 # (docs/claude/2026-10-13-sparse-seeding); with --sparse_first_pick hash, as such an index holds the hash pick's cores.
+# A level with a g (e.g. 8g, since 2026-10-13; a database built with grid levels) gates with the grid pick
+# (--sparse_first_pick grid) and loads the sparse index of that gate (--sparse_index auto: only the entries of grid level
+# log2 C), so its memory and load time are such an index's (docs/claude/2026-10-13-gene-grid-index).
 # The other levels gate with the database's pick (stride for a database built since 2026-10-13).
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
@@ -116,7 +119,13 @@ if [ $test_sparse = 1 ]; then
         *) echo "$protal has no --sparse_first (a protal from before 2026-10-12)" >&2; exit 1 ;;
     esac
     for c in $sparse_short $sparse_long; do
-        case $c in 0|1|2|4|8|16|32|1s|2s|4s|8s|16s|32s) ;; *) echo "--test_sparse levels are 0, 1, 2, 4, 8, 16 or 32, each with an optional s (--sparse_seeding), not '$c'" >&2; exit 1 ;; esac
+        case $c in 0|1|2|4|8|16|32|1s|2s|4s|8s|16s|32s|2g|4g|8g|16g|32g) ;; *) echo "--test_sparse levels are 0, 1, 2, 4, 8, 16 or 32, each with an optional s (--sparse_seeding; 2 to 32: or g, the grid pick on its sparse index), not '$c'" >&2; exit 1 ;; esac
+        if [ "${c%g}" != "$c" ]; then
+            case $("$protal" --full_help 2>&1) in
+                *--sparse_index*) ;;
+                *) echo "$protal has no --sparse_index (level $c; a protal from before 2026-10-13)" >&2; exit 1 ;;
+            esac
+        fi
         if [ "${c%s}" != "$c" ]; then
             case $("$protal" --full_help 2>&1) in
                 *--sparse_seeding*) ;;
@@ -432,7 +441,7 @@ for spec in "$@"; do
         written_plain=$(awk -F'\t' -v s="$name" '$1 == s { w = $25 } END { print w == "" ? "NA" : w }' "$out/runs.tsv")
         for c in $levels; do
             run=$runs/protal/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
-            cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "${c%s}")
+            cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "${c%[sg]}")
             # A level C with an s: the reads kept seeded from the gate's cores alone (--sparse_seeding), as an index of
             # only those would seed them. Such an index holds the hash pick's cores: a protal that picks by stride by
             # default (since 2026-10-13) is told the hash pick.
@@ -440,6 +449,8 @@ for spec in "$@"; do
                 cmd+=(--sparse_seeding)
                 case $("$protal" --full_help 2>&1) in *--sparse_first_pick*) cmd+=(--sparse_first_pick hash) ;; esac
             fi
+            # A level C with a g: the grid pick, on the sparse index of its gate (--sparse_index auto, protal's default).
+            [ "${c%g}" != "$c" ] && cmd+=(--sparse_first_pick grid)
             # shellcheck disable=SC2206
             cmd+=(${SPARSE_ARGS:-} ${PROTAL_ARGS:-})
             if ! timed "$log" $use_perf "${cmd[@]}"; then

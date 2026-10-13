@@ -226,8 +226,12 @@ namespace protal {
         static constexpr uint32_t kFeatureCorrectUniqueTwoFlags = 1u << 1; // "unique at distance >= 2" per entry
         static constexpr uint32_t kFeatureReferenceFingerprint = 1u << 2;  // header carries a ReferenceFingerprint
         static constexpr uint32_t kFeatureCheckedSingleEntries = 1u << 3;  // single-entry k-mers checked for uniqueness
+        // Each entry's grid level (GridLevels.h) in bits GRID_LEVEL_SHIFT.. of its position field (since 2026-10-13); its
+        // positions are then below 2^GRID_LEVEL_SHIFT. A protal from before rejects such an index (unknown feature).
+        static constexpr uint32_t kFeatureGridLevels = 1u << 4;
         static constexpr uint32_t kKnownFeatures = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags |
-                                                   kFeatureReferenceFingerprint | kFeatureCheckedSingleEntries;
+                                                   kFeatureReferenceFingerprint | kFeatureCheckedSingleEntries | kFeatureGridLevels;
+        static constexpr uint64_t kGridPositionMask = (uint64_t{1} << GRID_LEVEL_SHIFT) - 1;
         static constexpr uint32_t kIndexVersionMajor = protal_VERSION_MAJOR;
         static constexpr uint32_t kIndexVersionMinor = protal_VERSION_MINOR;
         static constexpr uint32_t kIndexVersionPatch = protal_VERSION_PATCH;
@@ -299,6 +303,9 @@ namespace protal {
         size_t m_chunks_on_fewer_threads = 0;  // ChunksOnFewerThreads
         uint64_t m_load_allowance = 0;         // SetLoadAllowance
         unsigned m_taxon_gene_bits = 0, m_pos_bits = 0, m_entry_bits = 0;
+        unsigned m_level_bits = 0, m_level_shift = 0;  // an entry's grid level above its flags (PackedLayout::level_bits)
+        uint8_t m_load_level = 0;       // the grid level a sparse load keeps (SetLoadLevel; LoadedLevel)
+        uint64_t m_file_entries = 0;    // a sparse load: the entries of the index file, kept or not
         uint64_t m_genes = 2;           // an entry's taxid and gene are taxid * m_genes + gene
         uint64_t m_slot_bits_32 = 0;    // PackedLayout::SlotBits32
         uint64_t m_gene_reciprocal = 0;  // taxid = (taxid * m_genes + gene) * m_gene_reciprocal >> 64 (DivideByGenes)
@@ -388,11 +395,14 @@ namespace protal {
         // least W, for S = 1), and a region of S slots spans at least floor(S * SlotBits32() / 32) whole
         // bits however its start is rounded. 48.69 bits per slot at r226: 26.6 GB for the 35 GB of slots
         // (docs/claude/2026-10-03-memory-audit, 2026-10-05-index-load-memory).
+        // With level_bits (GRID_LEVEL_BITS: a build with grid levels, or a run that gates by the grid) each entry also
+        // keeps its grid level, above its flags; without them a level the file holds is not kept.
         struct PackedLayout {
             uint64_t genes = uint64_t{1} << SEEDMAP_GENEID_BITS;  // gene ids 0 to genes - 1
             unsigned taxon_gene_bits = SEEDMAP_TAXID_BITS + SEEDMAP_GENEID_BITS, pos_bits = SEEDMAP_GENE_POS_BITS;
+            unsigned level_bits = 0;
 
-            unsigned EntryBits() const { return taxon_gene_bits + pos_bits + 2; }
+            unsigned EntryBits() const { return taxon_gene_bits + pos_bits + 2 + level_bits; }
 
             // Bits of region per slot of the file, in 32nds of a bit: ceil(32 * 2 (32 + W) / 3), at least 32 W.
             uint64_t SlotBits32() const {
@@ -449,8 +459,22 @@ namespace protal {
         }
 
         PackedLayout Layout() const {
-            return { m_genes, m_taxon_gene_bits, m_pos_bits };
+            return { m_genes, m_taxon_gene_bits, m_pos_bits, m_level_bits };
         }
+
+        // Whether the index keeps each entry's grid level (kFeatureGridLevels), and a build's giving it them: their
+        // positions are then below 2^GRID_LEVEL_SHIFT.
+        bool HasGridLevels() const { return m_features & kFeatureGridLevels; }
+        void SetGridLevels() { m_features |= kFeatureGridLevels; }
+
+        // A sparse load (since 2026-10-13): the next Load with a layout keeps only the entries of grid level `level` or
+        // more (a run whose every gated sample takes the grid pick at C = 2^level or above; GridLevels.h), and the keys
+        // left without entries, so that the run holds about 1/C of the values. 0: every entry (the default).
+        void SetLoadLevel(uint8_t level) { m_load_level = level; }
+        // The grid level the loaded values start at: their entries are all of it or more (0: every entry).
+        uint8_t LoadedLevel() const { return m_load_level; }
+        // A sparse load: the entries of the index file, kept or not (0 otherwise).
+        uint64_t FileEntries() const { return m_file_entries; }
 
         uint64_t PackedEntries() const {
             return m_packed_entries;
@@ -469,7 +493,12 @@ namespace protal {
                 snprintf(slot, sizeof(slot), "%.2f", static_cast<double>(m_slot_bits_32) / 32);
                 s = std::to_string(m_packed_entries) + " entries of " + std::to_string(m_entry_bits) + " bits (taxid * " +
                     std::to_string(m_genes) + " + gene " + std::to_string(m_taxon_gene_bits) + ", position " + std::to_string(m_pos_bits) +
-                    ", 2 flags) and their 32-bit flex cells, " + slot + " bits per slot of the file: " + gb(m_packed_bytes);
+                    ", 2 flags" + (m_level_bits ? ", grid level " + std::to_string(m_level_bits) : std::string()) +
+                    ") and their 32-bit flex cells, " + slot + " bits per slot of the file: " + gb(m_packed_bytes);
+                if (m_load_level > 0) {
+                    s += " (a sparse index: the entries of grid level " + std::to_string(m_load_level) + " or more, " +
+                         std::to_string(m_packed_entries) + " of the file's " + std::to_string(m_file_entries) + ")";
+                }
             } else {
                 s = std::to_string(values_size) + " slots of 8 bytes: " + gb(values_size * sizeof(ValueEntry));
             }
@@ -529,9 +558,21 @@ namespace protal {
             uint64_t const taxon_gene = (v >> m_pos_bits) & m_taxon_gene_mask;
             uint64_t const taxid = DivideByGenes(taxon_gene);
             uint64_t const gene = taxon_gene - taxid * m_genes;
-            uint64_t const flags = v >> (m_pos_bits + m_taxon_gene_bits);
+            uint64_t const flags = (v >> (m_pos_bits + m_taxon_gene_bits)) & 3;
             return taxid << 40 | gene << 20 | (v & m_pos_mask) | flags << 60;
         }
+
+        // Entry i's grid level (GridLevels.h); 0 where the values keep none (PackedLayout::level_bits 0).
+        inline uint32_t EntryLevel(PackedBlock const& block, uint32_t i) const {
+            if (m_level_bits == 0) return 0;
+            uint64_t const bit = block.entry_shift + static_cast<uint64_t>(i) * m_entry_bits + m_level_shift;
+            uint32_t x;
+            std::memcpy(&x, block.entries + (bit >> 3), 4);
+            return (x >> (bit & 7)) & ((1u << m_level_bits) - 1);
+        }
+
+        // Whether the values keep the entries' grid levels (EntryLevel).
+        bool KeepsGridLevels() const { return m_level_bits > 0; }
 
         // taxon_gene / m_genes, exactly, without a division: the high half of taxon_gene * m_gene_reciprocal, with
         // m_gene_reciprocal = ceil(2^64 / m_genes) = (2^64 + r) / m_genes, r < m_genes (it fits 64 bits: m_genes >= 2).
@@ -647,9 +688,13 @@ namespace protal {
             for (uint64_t j = 0; j < S; j++) out[j] = SlotCell(values, f, j);
         }
 
-        // Slot j of a key's values (f of its slots are flex slots) in the file's 8-byte layout.
+        // Slot j of a key's values (f of its slots are flex slots) in the file's 8-byte layout; an entry's grid level, if
+        // the values keep it, in its position field (kFeatureGridLevels).
         uint64_t SlotCell(PackedBlock const& values, uint64_t f, uint64_t j) const {
-            if (j >= f) return EntryValue(values, static_cast<uint32_t>(j - f));
+            if (j >= f) {
+                uint32_t const i = static_cast<uint32_t>(j - f);
+                return EntryValue(values, i) | uint64_t{EntryLevel(values, i)} << GRID_LEVEL_SHIFT;
+            }
             uint64_t const a = 2 * j, b = a + 1;
             return FlexCell(values, static_cast<uint32_t>(a)) |
                    (b < values.size ? uint64_t{FlexCell(values, static_cast<uint32_t>(b))} << 32 : 0);
@@ -693,14 +738,24 @@ namespace protal {
             return static_cast<uint64_t>(x >> shift) & mask;
         }
 
-        // A value (the bits of a ValueEntry: taxid << 40 | gene << 20 | position, flags at 60) in the packed
-        // layout's fields; false if a field does not fit them.
+        // A value (the bits of a ValueEntry: taxid << 40 | gene << 20 | position, flags at 60; with grid levels the level
+        // in the position field's top bits) in the packed layout's fields, the level kept if the layout has room for it;
+        // false if a field does not fit them.
         bool PackValue(uint64_t v, uint64_t& packed) const {
-            uint64_t const taxid = (v >> 40) & 0xfffff, gene = (v >> 20) & 0xfffff, pos = v & 0xfffff, flags = (v >> 60) & 3;
+            uint64_t const taxid = (v >> 40) & 0xfffff, gene = (v >> 20) & 0xfffff, flags = (v >> 60) & 3;
+            uint64_t const field = v & 0xfffff;
+            uint64_t const pos = HasGridLevels() ? field & kGridPositionMask : field;
+            uint64_t const level = HasGridLevels() ? field >> GRID_LEVEL_SHIFT : 0;
             uint64_t const taxon_gene = taxid * m_genes + gene;
             if (gene >= m_genes || taxon_gene > m_taxon_gene_mask || pos > m_pos_mask) return false;
             packed = taxon_gene << m_pos_bits | pos | flags << (m_taxon_gene_bits + m_pos_bits);
+            if (m_level_bits) packed |= level << m_level_shift;
             return true;
+        }
+
+        // A value's grid level in the file's layout (0 without grid levels).
+        uint64_t FileLevel(uint64_t v) const {
+            return HasGridLevels() ? (v & 0xfffff) >> GRID_LEVEL_SHIFT : 0;
         }
 
         // Converts the loaded 8-byte layout into the packed one with `threads` threads and frees it.
@@ -731,6 +786,8 @@ namespace protal {
             m_genes = std::max<uint64_t>(layout.genes, 2);
             m_taxon_gene_bits = layout.taxon_gene_bits;
             m_pos_bits = layout.pos_bits;
+            m_level_bits = layout.level_bits;
+            m_level_shift = layout.taxon_gene_bits + layout.pos_bits + 2;
             m_entry_bits = layout.EntryBits();
             m_slot_bits_32 = layout.SlotBits32();
             m_taxon_gene_mask = (uint64_t{1} << m_taxon_gene_bits) - 1;
@@ -859,6 +916,7 @@ namespace protal {
             description += HasReferenceFingerprint() ? ", reference fingerprint" : ", no reference fingerprint";
             description += ChecksSingleEntryUniques() ? ", checked single-entry uniques"
                                                       : ", unchecked single-entry uniques (rebuild for correct unique_kmers.tsv)";
+            description += HasGridLevels() ? ", grid levels" : ", no grid levels (built before 2026-10-13)";
             return description;
         }
 
@@ -1125,6 +1183,7 @@ namespace protal {
                         InvalidIndex(file, "the seek table at its end is missing (truncated or corrupt file?)");
                     }
                     Load(in.Stream(), file);
+                    m_load_level = 0;  // a sparse load needs the column format: this one loads whole
                     if (pack) Pack(*pack, threads);
                     return;
                 }
@@ -1158,7 +1217,46 @@ namespace protal {
                 InvalidIndex(file, std::to_string(found) + " bytes of data, expected " + std::to_string(data_bytes) +
                                    " (truncated or corrupt file?)");
             }
+            m_load_level = 0;  // a sparse load needs the column format: this one loads whole
             if (pack) Pack(*pack, threads);
+        }
+
+        // The features of an index's header (the bytes at the start of index.prx, or a column-format container's copy of
+        // them), nullopt if they cannot be read; 0 for a format 1 index.
+        static std::optional<uint32_t> HeaderFeatures(std::string_view header) {
+            uint64_t magic = 0;
+            uint32_t features = 0;
+            size_t const at = sizeof(magic) + 3 * sizeof(uint32_t);
+            if (header.size() < sizeof(magic)) return std::nullopt;
+            std::memcpy(&magic, header.data(), sizeof(magic));
+            if (magic == kFileMagic) return 0u;
+            if (magic != kFileMagicV2 || header.size() < at + sizeof(features)) return std::nullopt;
+            std::memcpy(&features, header.data() + at, sizeof(features));
+            return features;
+        }
+
+        // The features of the index in `file` without loading it, so that a run can see what it holds (grid levels) before
+        // its load starts; nullopt if they cannot be read.
+        static std::optional<uint32_t> IndexFeatures(db::DbFile const& file) {
+            std::string error;
+            if (file.InBundle()) {
+                if (!file.Exists()) return std::nullopt;
+                auto const container = index_codec::ReadContainer(file.Path(), file.Frames(), error);
+                return container ? HeaderFeatures(container->index_header) : std::nullopt;
+            }
+            zstd::InputFile in(file.Path());
+            if (!in.IsOpen()) return std::nullopt;
+            if (in.Compressed()) {
+                auto const table = zstd::ReadSeekTable(file.Path(), error);
+                if (table) {
+                    auto const container = index_codec::ReadContainer(file.Path(), *table, error);
+                    if (container) return HeaderFeatures(container->index_header);
+                }
+            }
+            std::string header(64, '\0');
+            in.Stream().read(header.data(), static_cast<std::streamsize>(header.size()));
+            header.resize(static_cast<size_t>(std::max<std::streamsize>(in.Stream().gcount(), 0)));
+            return HeaderFeatures(header);
         }
 
         // The index as a database file: a file on disk (Load(file, threads) above), or the member of a
@@ -1190,6 +1288,10 @@ namespace protal {
             if (l.blocks != expected.blocks || l.keys_per_block != expected.keys_per_block ||
                 l.ctrl_cells != expected.ctrl_cells || l.values != expected.values) {
                 InvalidIndex(name, "the layout of the compressed index does not match its header (corrupt file?)");
+            }
+            if (pack && m_load_level > 0) {
+                LoadColumnsAtLevel(path, name, table, container, threads, *pack);
+                return;
             }
             AllocateKeymap(keymap_size_total);
             if (!pack) {
@@ -1250,6 +1352,196 @@ namespace protal {
             std::memcpy(m_keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
             m_packed_entries = entries;
             m_chunks_on_fewer_threads = budget.frames_on_fewer;
+        }
+
+        // A sparse load (SetLoadLevel): the index's entries of grid level m_load_level or more, packed into an index of
+        // their own, as --build makes one. The chunks are decoded in parallel, each straight into its blocks of the key
+        // map; of each key's entries those of the level are kept, with their flex cells, in the chunk's order (the keys',
+        // then each key's entries'). Each chunk's thread then writes its blocks' pointers for the kept counts, as
+        // BuildValuePointers would (the same slot rules: a key of e >= 2 entries takes e + ceil(e/2) slots), and places
+        // its entries as the build's pass 2 does (PutOwned: a key's in order, its flex cells beside them). A key left
+        // without entries has none; its lookups find nothing, as a key the index lacks. The values then take about
+        // 1/2^level of the full index's (the key map is the same size); the entries held meanwhile take 16 bytes each.
+        // The key map is of full size whatever the reference (2^30 keys), so every pass over it counts: a temporary key
+        // map per chunk, a walk of the keys one by one and BuildValuePointers took 2.5 s of the mini database's load on 4
+        // threads, against 0.1 s for its whole index.
+        void LoadColumnsAtLevel(std::string const& path, std::string const& name, zstd::SeekTable const& table,
+                                index_codec::Container const& container, int threads, PackedLayout const& pack) {
+            if (!HasGridLevels()) {
+                InvalidIndex(name, "a sparse load (--sparse_index) keeps the entries of a grid level, and the index has no grid "
+                                   "levels (built before 2026-10-13): rebuild the database, or load it whole (--sparse_index off)");
+            }
+            auto const& l = container.layout;
+            uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
+            // A chunk's entries of the level: its keys with any (in key order), their counts, and the entries' values and
+            // flex cells (0 for a key of one value in the file, which has none).
+            struct Kept {
+                std::vector<uint32_t> keys, counts, flex;
+                std::vector<uint64_t> values;
+                uint64_t file_entries = 0, slots = 0;  // the file's entries of its keys; the slots of the kept ones
+            };
+            std::vector<Kept> kept(container.chunks.size());
+            uint8_t const level = m_load_level;
+            auto keep_key = [this, level](Kept& k, uint64_t main_key, uint64_t const* cells, uint64_t n) {
+                uint64_t const f = n >= m_flex_threshold ? FlexBlockSize(n) : 0;
+                uint64_t const e = n - f;
+                auto const* flex = reinterpret_cast<uint32_t const*>(cells);
+                uint32_t count = 0;
+                for (uint64_t i = 0; i < e; i++) {
+                    uint64_t const v = cells[f + i];
+                    if (FileLevel(v) < level) continue;
+                    k.values.push_back(v);
+                    k.flex.push_back(f ? flex[i] : 0);
+                    count++;
+                }
+                k.file_entries += e;
+                if (count) {
+                    k.keys.push_back(static_cast<uint32_t>(main_key));
+                    k.counts.push_back(count);
+                }
+            };
+            // Where the decoder is in a chunk's key map: the key whose cells the next sink call holds.
+            struct Cursor {
+                index_codec::Chunk const* chunk;
+                KeyMap_t const* km;  // the chunk's blocks of the key map, decoded
+                Kept* kept;
+                decltype(keep_key)* keep;
+                uint64_t cpb, kpb, ctrl, key = 0;
+                // Block b's first slot (its control cell); after the chunk's last block, the chunk's end.
+                uint64_t Base(uint64_t b) const {
+                    if (b >= chunk->blocks) return chunk->first_value + chunk->values;
+                    uint64_t base;
+                    std::memcpy(&base, km + b * cpb, 8);
+                    return base;
+                }
+                // The first slot and the cells of local key `key_index`.
+                void Range(uint64_t key_index, uint64_t& start, uint64_t& n) const {
+                    uint64_t const b = key_index / kpb, j = key_index % kpb;
+                    KeyMap_t const* cells = km + b * cpb;
+                    uint64_t const base = Base(b);
+                    uint64_t const next = j + 1 < kpb ? base + cells[ctrl + j + 1] : Base(b + 1);
+                    start = base + cells[ctrl + j];
+                    n = next > start ? next - start : 0;
+                }
+                // The block holding slot `slot`, at or after the cursor's: the last whose first slot is at most `slot`
+                // (a block without values shares the next one's), by bisection, so that the mostly empty key map is not
+                // walked key by key (2^30 keys: 1 s of the mini database's load on 4 threads).
+                uint64_t BlockOf(uint64_t slot) const {
+                    uint64_t lo = key / kpb, hi = chunk->blocks;
+                    while (hi - lo > 1) {
+                        uint64_t const mid = lo + (hi - lo) / 2;
+                        (Base(mid) <= slot ? lo : hi) = mid;
+                    }
+                    return lo;
+                }
+            };
+            index_codec::detail::ValueSink sink;
+            sink.key = [](void* context, uint64_t slot, uint64_t const* cells, uint64_t n) {
+                auto& c = *static_cast<Cursor*>(context);
+                uint64_t const keys = c.chunk->blocks * c.kpb;
+                if (c.key < keys) c.key = std::max(c.key, c.BlockOf(slot) * c.kpb);
+                uint64_t start = 0, size = 0;
+                while (c.key < keys) {
+                    c.Range(c.key, start, size);
+                    if (size > 0 && start == slot) break;
+                    c.key++;
+                }
+                if (c.key == keys || size != n) return false;
+                (*c.keep)(*c.kept, (c.chunk->first_block * c.kpb) + c.key, cells, n);
+                c.key++;
+                return true;
+            };
+            sink.range = [](void* context, uint64_t first_slot, uint64_t const* cells, uint64_t) {
+                auto& c = *static_cast<Cursor*>(context);
+                for (uint64_t b = 0; b < c.chunk->blocks; b++) {
+                    if (c.Base(b + 1) <= c.Base(b)) continue;  // a block without values
+                    for (uint64_t k = b * c.kpb; k < (b + 1) * c.kpb; k++) {
+                        uint64_t start = 0, size = 0;
+                        c.Range(k, start, size);
+                        if (size > 0) (*c.keep)(*c.kept, (c.chunk->first_block * c.kpb) + k, cells + (start - first_slot), size);
+                    }
+                }
+                return true;
+            };
+            // A key's slots for its kept entries (BuildValuePointersSecondIteration's demand: its flex cells beside them).
+            auto slots_of = [this](uint64_t n) { return n >= m_flex_threshold ? n + DivisionByTwoCeiling(n) : n; };
+            AllocateKeymap(keymap_size_total);
+            std::string error = zstd::ForEachFrame(path, table, 1, threads,
+                    [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
+                index_codec::Chunk const& ch = container.chunks[frame - 1];
+                Kept& k = kept[frame - 1];
+                Cursor cursor{ &ch, m_keymap + ch.first_block * cpb, &k, &keep_key, cpb, kpb, l.ctrl_cells };
+                auto own = sink;
+                own.context = &cursor;
+                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, m_keymap + ch.first_block * cpb,
+                                                                       nullptr, nullptr, &own);
+                if (e == index_codec::detail::kSinkRefused) return "chunk " + std::to_string(frame) + ": its key map and values disagree";
+                if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
+                for (auto const n : k.counts) k.slots += slots_of(n);
+                return "";
+            });
+            if (!error.empty()) InvalidIndex(name, error + " (truncated or corrupt file?)");
+            // The pointers, as BuildValuePointers would set them from the kept counts: every key with entries in the file
+            // passed the build's limits on a key's and a block's values with more, so none is left out, and a block's keys
+            // take their slots in key order. Each chunk's first slot, then its blocks' control cells and keys' offsets
+            // written by its thread (every cell of its blocks: the decoded key map overwritten).
+            std::vector<uint64_t> chunk_slot(kept.size() + 1, 0);
+            uint64_t entries = 0;
+            m_file_entries = 0;
+            for (size_t c = 0; c < kept.size(); c++) {
+                chunk_slot[c + 1] = chunk_slot[c] + kept[c].slots;
+                entries += kept[c].values.size();
+                m_file_entries += kept[c].file_entries;
+            }
+            error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+                index_codec::Chunk const& ch = container.chunks[c];
+                Kept const& k = kept[c];
+                uint64_t position = chunk_slot[c];
+                size_t i = 0;
+                for (uint64_t b = 0; b < ch.blocks; b++) {
+                    KeyMap_t* const cells = m_keymap + (ch.first_block + b) * cpb;
+                    std::memcpy(cells, &position, 8);
+                    uint64_t const first_key = (ch.first_block + b) * kpb;
+                    if (i == k.keys.size() || k.keys[i] >= first_key + kpb) {
+                        std::memset(cells + l.ctrl_cells, 0, kpb * sizeof(KeyMap_t));
+                        continue;
+                    }
+                    uint64_t local = 0;
+                    for (uint64_t j = 0; j < kpb; j++) {
+                        cells[l.ctrl_cells + j] = static_cast<KeyMap_t>(local);
+                        if (i < k.keys.size() && k.keys[i] == first_key + j) local += slots_of(k.counts[i++]);
+                    }
+                    position += local;
+                }
+                return i == k.keys.size() ? "" : "a kept key outside its chunk's blocks";
+            });
+            if (!error.empty()) InvalidIndex(name, error);
+            values_size = chunk_slot.back();
+            std::memcpy(m_keymap + keymap_size_total - ctrl_block_cell_size, &values_size, 8);
+            SetLayout(pack);
+            AllocatePacked();  // zeroed: an all-zero entry is empty
+            m_packed_entries = entries;
+            // A k-mer of a kept entry's core and flex cell, as PutOwned takes it (the inverse of MainKey and FlexKey: the
+            // flex cell's high half the k-mer's left flank, above the core, its low half the right flank, below it).
+            uint64_t const half_mask = (uint64_t{1} << m_flex_k) - 1;
+            auto kmer_of = [&](uint64_t main_key, uint64_t flex) {
+                return (flex >> m_flex_k) << (m_flex_k + m_main_bits) | main_key << m_flex_k | (flex & half_mask);
+            };
+            error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+                Kept& k = kept[c];
+                size_t v = 0;
+                for (size_t i = 0; i < k.keys.size(); i++) {
+                    for (uint32_t j = 0; j < k.counts[i]; j++, v++) {
+                        if (!PutOwned(kmer_of(k.keys[i], k.flex[v]), k.values[v])) return "a key of the sparse load has no slots";
+                    }
+                }
+                std::vector<uint32_t>().swap(k.keys);
+                std::vector<uint32_t>().swap(k.counts);
+                std::vector<uint32_t>().swap(k.flex);
+                std::vector<uint64_t>().swap(k.values);
+                return "";
+            });
+            if (!error.empty()) InvalidIndex(name, error);
         }
 
         // Of the index's chunks last loaded, those decoded after a loading thread had stopped for memory
@@ -1987,8 +2279,8 @@ namespace protal {
         // summed in order and each part's start is added to its blocks' positions. The same key
         // map as on one thread. With a layout the values are allocated packed (PackedLayout), as a query
         // run holds them, and filled so (PutOwned): --build never holds the 8-byte layout (36 GB at r226
-        // instead of 29 with the key map), which only the files keep.
-        void BuildValuePointers(int threads = 1, PackedLayout const* pack = nullptr) {
+        // instead of 29 with the key map), which only the files keep. `log`: say what the index holds (a sparse load does not).
+        void BuildValuePointers(int threads = 1, PackedLayout const* pack = nullptr, bool log = true) {
             uint64_t const num_ctrl_blocks = keymap_size >> ctrl_block_frequency_bitshift;
             uint64_t const max_keyblock_size = max_key_ubiquity*2;
             uint64_t const block_cells = m_keys_per_ctrl_block + ctrl_block_cell_size;
@@ -2077,6 +2369,7 @@ namespace protal {
             } else {
                 AllocateValues(values_size, true);  // zeroed: an all-zero entry is empty
             }
+            if (!log) return;
             std::cout << "Index in memory: " << MemoryDescription() << std::endl;
             std::cout << CoreReportText(kmer_frequencies, cores, values_size) << std::endl;
         }

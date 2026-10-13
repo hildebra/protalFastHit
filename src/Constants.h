@@ -51,6 +51,11 @@ namespace protal {
     inline constexpr uint64_t SEEDMAP_TAXID_BITS = 20;
     inline constexpr uint64_t SEEDMAP_GENEID_BITS = 20;
     inline constexpr uint64_t SEEDMAP_GENE_POS_BITS = 20;
+    // An index with grid levels (Seedmap::kFeatureGridLevels, GridLevels.h) keeps each entry's level, 0 to 5, in the top
+    // 3 bits of its position field (bits 17-19 of the file's value); its positions are then below 2^17.
+    inline constexpr uint64_t GRID_LEVEL_SHIFT = 17;
+    inline constexpr uint64_t GRID_LEVEL_BITS = 3;
+    inline constexpr uint64_t GRID_LEVELS = 6;  // C = 1, 2, 4, 8, 16, 32
 
     // Pair k-mer, readpos
     using KmerElement = std::pair<size_t, size_t>;

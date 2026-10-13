@@ -49,7 +49,8 @@ add_executable(protal_tests
         test_ColumnWeights.cpp
         test_Composition.cpp
         test_NcbiTaxids.cpp
-        test_Stage1Probe.cpp)
+        test_Stage1Probe.cpp
+        test_GridLevels.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 # tests/data (golden_model_rules.tsv), wherever the tests run from; on that file alone, so the others' compile commands
 # (and their compiler cache entries) stay as they were.

@@ -1015,8 +1015,9 @@ class GtdbBuildTest(unittest.TestCase):
         # as model_pe_c1.xml; the finished database built again for its placeholder, the training database kept) and
         # --test-c-gates, profiled as the simulations go on (--profile-blocks, as GTDB builds run: a protal run per
         # design point here): the test samples profiled at pe's gates 0 and 2, at the database's 4 with the hash pick
-        # too (--test-other-pick auto), and se's 0 and 4 by hash (their rows <sample>__c<C> and __c<C>h in the same
-        # protal runs, each run once), each scored by the model of the gate nearest it (pe 0, 1 and 2 by c1's);
+        # too (--test-other-pick auto) and with the grid pick (--test-grid auto: the gates with a model of 2 or more), and
+        # se's 0 and 4 by hash and by grid (their rows <sample>__c<C>, __c<C>h and __c<C>g in the same protal runs, each
+        # run once), each scored by the model of the gate nearest it (pe 0, 1 and 2 by c1's);
         # c_gates.tsv has a row per gate with F1 and the alignment's CPU seconds; both main tables as the full build's;
         # the console says each protal run, what it holds, and the trainers' evaluations.
         first = self.full_build()
@@ -1051,7 +1052,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertLessEqual(sum(int(n) for _, n in runs), len(units), log[-3000:])
         self.assertRegex(result.stdout, r"independent test set: protal run 1: \d+ design points")
         self.assertRegex(result.stdout, r"independent test set: profiling \d+ samples .*; of them at other sparse-first gates: "
-                                        r"\d+ pe c0, \d+ pe c1, \d+ pe c2, \d+ pe c4h, \d+ se c0, \d+ se c4h")
+                                        r"\d+ pe c0, \d+ pe c1, \d+ pe c2, \d+ pe c4g, \d+ pe c4h, \d+ se c0, \d+ se c4g, "
+                                        r"\d+ se c4h")
         self.assertRegex(result.stdout, r"training data: profiling \d+ samples .*; of them at other sparse-first gates: "
                                         r"\d+ pe c1\b")
         self.assertRegex(result.stdout, r"independent test set: protal run \d+ done")
@@ -1067,8 +1069,9 @@ class GtdbBuildTest(unittest.TestCase):
         test_samples = {t: self.samples(gates, "test", table)[0][""] for t, table in
                         (("pe", "training_data.tsv"), ("se", "training_data_se.tsv"))}
         for t, c, table in (("pe", 0, "training_data.tsv"), ("pe", 1, "training_data.tsv"), ("pe", 2, "training_data.tsv"),
-                            ("pe", "4h", "training_data.tsv"), ("se", 0, "training_data_se.tsv"),
-                            ("se", "4h", "training_data_se.tsv")):
+                            ("pe", "4h", "training_data.tsv"), ("pe", "4g", "training_data.tsv"),
+                            ("se", 0, "training_data_se.tsv"), ("se", "4h", "training_data_se.tsv"),
+                            ("se", "4g", "training_data_se.tsv")):
             self.assertEqual(set(self.text(gates, "work", "test", "c_gates", f"c{c}", f"samples_{t}.txt").split()),
                              test_samples[t], f"{t} c{c}")
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, gates, "work", "test", "c_gates", f"c{c}", table)))
@@ -1077,7 +1080,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, gates, "work", "test", "c_gates", "c4")),
                          "not the database's gate again")
         with open(os.path.join(self.tmp.name, gates, "model_logs", "trained_model.metrics.json")) as fh:
-            self.assertEqual(set(json.load(fh)["extra_tests"]), {"c0", "c1", "c2", "c4h"})
+            self.assertEqual(set(json.load(fh)["extra_tests"]), {"c0", "c1", "c2", "c4h", "c4g"})
         with open(os.path.join(self.tmp.name, gates, "model_logs", "trained_model_c1.metrics.json")) as fh:
             self.assertEqual(set(json.load(fh)["extra_tests"]), {"c0", "c1", "c2"})
         with open(os.path.join(self.tmp.name, gates, "model_logs", "c_gates.tsv")) as fh:
@@ -1085,7 +1088,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual([(r["read_type"], r["gate"], r["pick"], r["database_gate"], r["model_gate"]) for r in rows],
                          [("pe", "0", "-", "0", "1"), ("pe", "1", "-", "0", "1"), ("pe", "2", "stride", "0", "1"),
                           ("pe", "4", "stride", "1", "4"), ("pe", "4", "hash", "0", "4"),
-                          ("se", "0", "-", "0", "4"), ("se", "4", "stride", "1", "4"), ("se", "4", "hash", "0", "4")])
+                          ("pe", "4", "grid", "0", "4"), ("se", "0", "-", "0", "4"), ("se", "4", "stride", "1", "4"),
+                          ("se", "4", "hash", "0", "4"), ("se", "4", "grid", "0", "4")])
         for row in rows:
             self.assertEqual(int(row["samples"]), len(test_samples[row["read_type"]]), row)
             self.assertTrue(row["F1"], row)
@@ -1093,13 +1097,15 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(result.stdout, r"sparse-first gates \(c_gates\.tsv\), test samples: pe: off \(model 1\) F1 [\d.]+, "
                                         r"\d+ CPU s; 1 \(its model\) F1 [\d.]+, \d+ CPU s; 2 stride \(model 1\) F1 [\d.]+, "
                                         r"\d+ CPU s; 4 stride \(database\) F1 [\d.]+, \d+ CPU s; "
-                                        r"4 hash F1 [\d.]+ \([\d.]+ by stride\), \d+ CPU s")
+                                        r"4 hash F1 [\d.]+ \([\d.]+ by stride\), \d+ CPU s; "
+                                        r"4 grid F1 [\d.]+ \([\d.]+ by stride\), \d+ CPU s")
         self.assertRegex(result.stdout, r"models at other gates .*: pe 1 [\d.]+/[\d.]+ \(the database's 4 above\)")
         self.assertRegex(self.text(gates, "model_logs", "summary.txt"), r"\npe c1 +independent test set ")
         metadata = self.metadata(gates)["sparse_first"]
         self.assertIn("pe:4,se:4,pb:16,ont:8 (build_settings.tsv; runs follow it), picking by "
                       "pe:stride,se:stride,pb:stride,ont:stride; models also at pe:1", metadata)
-        self.assertIn("test samples also at pe:0/1/2,se:0 (model_logs/c_gates.tsv)", metadata)
+        self.assertIn("test samples also at pe:0/1/2,se:0 (model_logs/c_gates.tsv); and with the other pick at pe:4,se:4; "
+                      "and with the grid pick at pe:4,se:4", metadata)
         # The finished database holds the model of gate 1, trained (not its placeholder), which a run gated near 1 takes.
         self.assertRegex(self.text(gates, "logs", "final_package.log"), r"Models for read types: pe \(also gates 1\), se")
         unpacked = os.path.join(self.tmp.name, "gates_final")

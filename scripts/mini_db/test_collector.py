@@ -1063,9 +1063,13 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(sorted(["8f", "8s", 4, 0, "4s", "4h"], key=collect.level_order), [0, 4, "4s", "8s", "4h", "8f"])
         self.assertEqual(collect.level_text("8s"), "sparse-first gate 8, stride pick")
         self.assertEqual(collect.level_text("8h"), "sparse-first gate 8, hash pick")
-        # --hash_levels: the same with the hash pick (for a database whose gates pick by stride).
-        hashed = argparse.Namespace(out=root, hash_levels={"pb": [16]})
-        self.assertEqual(collect.unit_level_ids(pb, hashed), ["16h"])
+        # --hash_levels: the same with the hash pick (for a database whose gates pick by stride); --grid_levels with the
+        # grid pick (rows <sample>__c<C>g, SPARSE_FIRST_PICK grid).
+        hashed = argparse.Namespace(out=root, hash_levels={"pb": [16]}, grid_levels={"pb": [8, 32]})
+        self.assertEqual(collect.unit_level_ids(pb, hashed), ["16h", "8g", "32g"])
+        self.assertEqual(collect.level_parts("8g"), (8, False, "grid"))
+        self.assertEqual(collect.level_text("32g"), "sparse-first gate 32, grid pick")
+        self.assertEqual(sorted(["8g", "8h", 8, "8s"], key=collect.level_order), [8, "8s", "8h", "8g"])
         self.assertEqual(collect.stride_levels("pe:4/2,pb:16"), {"pe": [2, 4], "pb": [16]})
         for bad in ("pe:1/4", "pe:0", "pe:3"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):

@@ -1,8 +1,8 @@
-# A sparse index by the genes' grid: a proposal
+# A sparse index by the genes' grid: proposal and implementation
 
 Date: 2026-10-13. Branch `audit-fixes`, on `0ab85f4` plus the uncommitted stride default
-([r226 v27 gates](2026-10-13-r226-v27-c-gates.md), follow-up section). No code and no run: a design, with estimates
-from earlier reports.
+([r226 v27 gates](2026-10-13-r226-v27-c-gates.md), follow-up section). The proposal (no code, no run: a design, with
+estimates from earlier reports), then its implementation and first measurements on the mini database (follow-up).
 
 ## The question
 
@@ -78,3 +78,177 @@ A HiFi run at C 8 would then need ~13 GB instead of ~36 GB, as with the hash's s
    otherwise.
 
 The stride with the full index stays the default until the grid has been measured.
+
+## Follow-up: implemented, first measurements (2026-10-13, evening)
+
+The user asked to build it into the database directly, choosing the core each window keeps by the species' strain
+alleles and the genes' conservation rather than by its ordinal. Code on `4dfc549` plus the uncommitted grid changes
+(`src/SequenceUtils/GridLevels.h`, `Hash/Seedmap.h`, `Hash/KmerLookup.h`, `Core/ChainAnchorFinder.h`, `Build.h`,
+`RunProtal.h`, `Options.h`, `Utilities/BuildSettings.h`; tests `tests/test_GridLevels.cpp` and an e2e test; scripts
+`collect_training_data.py --grid_levels`, `build_gtdb_database.py --test-grid` and `--sparse-first-pick grid`,
+`measure_performance.sh --test_sparse` levels such as `8g`). Measured on the mini database only.
+
+### What was built
+
+- **Levels by a tournament, not by ordinal.** Each gene copy's cores (its syncmers, in gene order) are split into
+  windows of 2^l ordinals; each window keeps the better of its halves' winners, so a core's level is the last round it
+  won (0-5) and the cores kept at C are a subset of those kept at C/2. A gene shorter than a window keeps its winner up
+  to level 5, so every gene keeps a core at every gate (at C 32 the mini database keeps 1/29.8 of the cores, not 1/32).
+- **The score of a core** (`GridLevels.h`): the share of the species' strain alleles (`strain_alleles.tsv`) covering
+  its 31-mer that keep it a gate hit (no edit in the 15-base core, no indel in the 31-mer, at most two substitutions in
+  the 16 flank bases, the gate's score 14), pooled with a prior from the conservation of its columns within the
+  family's genera (`column_weights.tsv`, the `within` code, counted as two alleles; 0.5 without weights); minus
+  0.5 × log2(entries of its key) / 11, so that a core many genes share loses; minus 0.05 per window length of distance
+  from the window's middle, so that ties stay spread. A core whose key the index leaves out never wins. This answers
+  the catch above: the grid is chosen by conservation, not phase, so strains' copies agree where their alleles do.
+- **Storage.** The level takes three bits of the entry's position (bits 17-19; index feature `grid levels`); a
+  database whose positions need more is built without levels. In memory the packed layout keeps the three bits only
+  for a run that needs them (`Index in memory: ... grid level 3`), so other runs' index is as large as before.
+- **The pick and the sparse index.** `--sparse_first_pick grid` looks up every core and counts the entries of level
+  log2 C or more; the gate's hits and a kept read's seeds come from those alone. `--sparse_index auto` (default) loads
+  only those entries when every sample of the run is grid-picked; `off` loads the whole index and filters per lookup.
+  Both seed identically (the unit test and the e2e test compare records and reads given up; on the simulated sample
+  below the SAMs agree to the byte apart from the `@PG` line).
+- **The sparse load** decodes every chunk of the file, keeps the entries of the level, and writes the key map's
+  pointers itself (a prefix sum per chunk: every key with entries in the file passed the build's limits on a key and a
+  block, so a subset of its entries does too). A first version with a temporary key map per chunk, a walk of the keys
+  one by one and `BuildValuePointers` took 2.55 s on the mini database against 0.11 s for its whole index, because the
+  key map has 2^30 keys whatever the reference; now 0.25-0.44 s on 4 threads.
+
+The mini database's build log:
+
+```
+Grid levels: 71054 cores, 99.858% of them covered by strain alleles, the others scored by the column weights; mean
+conservation 0.589; kept at C 2: 35618 (1/2.0, conservation 0.610), C 4: 17902 (1/4.0, conservation 0.642), C 8: 9032
+(1/7.9, conservation 0.656), C 16: 4600 (1/15.4, conservation 0.658), C 32: 2383 (1/29.8, conservation 0.658)
+```
+
+The kept cores' estimated survival in the species' strains rises from 0.589 for all cores to 0.642 at C 4 and 0.658
+at C 8 and above: the choice does what it was meant to.
+
+### Records on the mini database
+
+Data: `scripts/mini_db/build_mini_db.sh` (its simulated release), two paired-end samples
+(`simulate_metagenomes --genome_table genomes.tsv -n 2 --total_read_pairs 200000 --species_per_sample 20 --seed 7`)
+and two HiFi samples of the same communities (`--long_samples`, 60 Mb each, `hifi:15000:3000:3`), each run once on 4
+threads by `measure_performance.sh -t 4 --test_sparse` with `SPARSE_SHORT="1 2 2g 4 4g 4s 8 8g 8s 16 16g"` and
+`SPARSE_LONG="1 4 4g 8 8g 8s 16 16g 16s 32 32g"` (HiFi with `PROTAL_ARGS=--no_profile`: the mini database has no
+PacBio model). Plain levels are the stride on the whole index; `g` the grid on its sparse index; `s` the hash pick
+with `--sparse_seeding`, an emulated index of the hash pick's 1/C of the cores. Records written against the ungated
+run, the two samples:
+
+| C | pe: stride, whole | pe: grid, sparse | pe: hash, sparse | HiFi: stride, whole | HiFi: grid, sparse | HiFi: hash, sparse |
+|---|---|---|---|---|---|---|
+| 2 | −0.02/−0.03% | −1.0/−1.1% | | | | |
+| 4 | −0.15/−0.27% | −3.0/−3.5% | −5.8/−7.1% | 0/0 | −0.01/−0.03% | |
+| 8 | −1.2/−1.8% | −8.1/−10.1% | −20.1/−22.4% | 0/0 | −0.04/−0.12% | −0.15/−0.26% |
+| 16 | −3.0/−4.3% | −47/−48% | | 0/0 | −0.09/−1.0% | −0.22/−0.36% |
+| 32 | | | | 0/0 | −0.34/−2.0% | |
+
+- **The gate itself** gives up as many pairs with the grid as with the stride (pe C 4: 42.6% against 42.5%; C 8:
+  43.2% both), and fewer than the hash (43.7%, 46.4%): the grid's hits are as evenly spaced as the stride's.
+- **The records lost are the sparse index's.** A kept pair seeded from its grid cores alone has a quarter of its
+  seeds at C 4. Paired-end reads lose 3% of their records at C 4, half of what the hash pick's 1/C index loses, and
+  are unusable at C 16 (about one grid core per mate). The unknown share of the profiles grows with them (pe1:
+  0.0067 ungated, 0.0136 at 4g, 0.0288 at 4s); the mini world's three called species did not change.
+- **HiFi reads** have hundreds of cores each and lose at most 0.1% up to C 8; at C 16 and 32 one sample lost 1-2%,
+  more than the hash's index there.
+- **Times and memory** say nothing here: the runs take 1-3 s and the values of the mini index are kilobytes beside
+  the 3.2 GB key map (every run peaked at 3.1-3.2 GB).
+
+### What is open
+
+1. **r226.** A build with `--test-c-gates` now also profiles the test set with the grid pick at each gate with a model
+   of 2 or more (`--test-grid auto`; rows `<sample>__c<C>g` in `c_gates.tsv`), scored by the stride-trained models of
+   the nearest gate: the first F1 of the grid. Then `measure_performance.sh --test_sparse` with `4g 8g 16g` for the
+   memory and load time of the sparse index at r226 (estimated ~6.7 GB of values at C 4, ~3.3 GB at C 8).
+2. **Models trained grid-picked.** If the F1 holds, `build_gtdb_database.py --sparse-first-pick grid` builds databases
+   whose models are trained on grid-picked runs (fewer seeds change the seed-count features).
+3. **Paired-end seeding from a denser level than the gate.** Gating at C 4 by level 2 while seeding kept reads from
+   level 1 (an index of 1/2) would trade memory for paired-end records (the 2g row: −1% instead of −3%). Not built.
+4. **The sparse load still decodes the whole file.** Its time is about the whole load's decode plus a filter; at r226
+   it saves memory, not load time.
+
+## Follow-up 2: the best core per window, or a stride on the gene? (C 4)
+
+The user asked how the grid differs from the stride, and whether the stride's rule could run on the genes. It can: a
+stride on the gene (every C-th core, C apart) is what the grid's tournament does when every score is equal (ties go
+to the window's middle: of 8 cores, C 2 keeps 0, 2, 4, 6 and C 4 keeps 2 and 6). The scored grid lets each window keep
+its best core instead, anywhere in the window, so its kept cores are 1 to 2C − 1 apart. Which costs fewer records was
+measured at C 4 only, as the user asked.
+
+**Variants** (`protal --build --grid_choice`, a developer option): `scored` (the default above); `even` (equal scores:
+a stride on the gene); `phase` (every C-th core too, C apart, with the phase per gene and level chosen by the summed
+scores of the cores it keeps, nested in the level below's: conservation chooses where the stride falls, not where
+each core falls). The window's central half, first proposed as the middle variant, does not nest (a window's core must
+be one of its halves'), so `phase` took its place.
+
+**Data and commands.** The working tree of follow-up 1 plus `--grid_choice` (unit tests: 10 `Grid*` tests pass). Three
+mini databases from one simulated release (`PROTAL_BUILD_ARGS="--grid_choice <c>" scripts/mini_db/build_mini_db.sh`;
+genome table and full reference identical, 71054 cores each); 4 paired-end samples (`simulate_metagenomes -n 4
+--total_read_pairs 200000 --species_per_sample 20 --seed 7`) and 2 HiFi samples of samples 1 and 2's communities (60 Mb
+each, `hifi:15000:3000:3`); `measure_performance.sh -t 4 --test_sparse` with `SPARSE_SHORT=4g SPARSE_LONG=4g`
+(`PROTAL_ARGS=--no_profile`, `REPEATS=1`), on the scored database also `4` and `4s`.
+
+| | kept cores' conservation (C 4) | grid hits, pe1-pe4 (M) | pe records lost, pe1/pe2/pe3/pe4 | mean | HiFi records lost |
+|---|---|---|---|---|---|
+| stride, whole index (`4`) | | | 0.15/0.27/0.24/0.26% | 0.23% | |
+| scored (`4g`) | 0.642 | 1.025/1.061/0.963/1.014 | 2.95/3.47/3.03/3.39% | 3.21% | 0.01/0.03% |
+| even (`4g`) | 0.590 | 1.009/1.025/0.883/0.955 | 3.40/4.34/3.64/4.11% | 3.87% | 0.01/0.03% |
+| phase (`4g`) | 0.598 | 1.021/1.047/0.896/0.976 | 3.68/4.51/3.98/4.30% | 4.12% | 0.10/0.17% |
+| hash, emulated sparse index (`4s`) | | | 5.76/7.07/6.46/6.89% | 6.55% | |
+
+- **The scored choice wins on every sample.** It keeps cores that the reads carry more often (0.642 against 0.590
+  estimated survival in the species' strains), so a run finds 1.6-9% more grid hits, and loses 0.66 points fewer of its
+  records than the gene stride (3.21% against 3.87%). The uneven spacing costs less than the better cores gain.
+- **Choosing only the phase does not help.** One phase per gene and level cannot follow the conservation along the gene
+  (0.598 kept), and it lost slightly more than the plain gene stride, also on HiFi (0.10-0.17% against 0.01-0.03%). Why
+  it is below `even` was not looked into; one difference is that a phase keeps a core the index leaves out where the
+  tournament gives the window to its other half's core.
+- **The gate is unaffected**: all three give up 42.3-43.6% of the pairs, as the stride does (42.2-43.3%).
+- **None of them closes the gap to the stride on the whole index** (0.23%): that gap is the sparse index's seeding
+  from 1/C of a kept read's cores, not the choice of cores.
+
+`scored` stays the default; `even` and `phase` stay as a developer option (`--grid_choice`) for a check at r226.
+
+## Follow-up 3: single-seed anchors (C 4)
+
+**Why the grid lost records.** A short read's mate makes an anchor only from two or more seeds of one gene on one
+diagonal (`ChainAnchorFinder::FindPairs`, `FindAnchorsSingleRef`); a mate whose partner anchored on a gene may anchor
+there on one seed (`RecoverAnchors`). Once anchored, the whole mate is aligned against the gene, so the seeds no longer
+matter. A grid-seeded mate has about 1/C of its seeds (a 150-base mate ~23 cores, ~5-6 grid cores at C 4 if wholly in
+the gene, fewer at a gene's end or where errors and strain SNPs hit grid cores), and the two-seed rule, a guard set
+for reads with 20-odd seeds, drops the genes with one. The earlier runs show it growing with C: of the seeds, 99.6%
+shared their gene with another at stride C 8 (whole index), 93.5% at grid C 8, 56% at grid C 16 (47% fewer records).
+
+**The change.** With the grid pick, a short read's gene among its seeds that has no anchor anchors on its first seed
+(`AnchorLoneSeeds`: `ExtractAndExtendAnchorFromSeed`, as the mate rescue does): a grid seed is an exact 15-base core
+with its flanks matched on its gene's own grid, and fixes the read's place on the gene by itself. These anchors rank by
+their extended length with the others, so only a mate without better anchors aligns on them (`--align_top`). Long
+reads (chunks of hundreds of cores) are left as they were. `--no_single_seed_anchors` turns it off for comparison; the
+seeding line counts them ("A anchors (S of them of a single grid seed)"). Also fixed: the mate rescue
+(`KmerLookupSM::RecoverFromLookup`) read every entry of a grid-picked lookup's block on the whole index, where a sparse
+index holds only the level's; it now skips the others, so `--sparse_index off` rescues as `auto` does.
+
+**Data and commands.** The working tree of follow-up 2 plus this change; unit tests (33 of the seed, anchor, lookup
+and grid suites) and the 11 sparse-first e2e tests pass (the e2e test checks the count and that
+`--no_single_seed_anchors` writes fewer records). The scored mini database (`scripts/mini_db/build_mini_db.sh`), the 4
+paired-end samples of follow-up 2 (`simulate_metagenomes -n 4 --total_read_pairs 200000 --species_per_sample 20 --seed
+7`, the same reads), `measure_performance.sh -t 4 --test_sparse` with `SPARSE_SHORT="4 4g"`, and again with
+`SPARSE_SHORT=4g SPARSE_ARGS=--no_single_seed_anchors` (`REPEATS=1`, profiles on). The candidate alignments and
+anchors are the runs' log lines.
+
+| pe1/pe2/pe3/pe4 against the ungated run | records written | mean | candidate alignments tried | profiles: Bray-Curtis, unknown share |
+|---|---|---|---|---|
+| stride, whole index (`4`) | −0.15/−0.27/−0.24/−0.26% | −0.23% | −0.1 to −0.2% | ≤ 0.0005; unchanged ±0.001 |
+| grid, two-seed anchors (`4g --no_single_seed_anchors`) | −2.95/−3.47/−3.03/−3.39% | −3.21% | −9.9/−17.8/−6.5/−13.6% | 0.0028-0.0043; 0.0067 → 0.0136 (pe1) |
+| grid, single-seed anchors (`4g`) | −0.04/−0.12/+0.03/−0.08% | −0.05% | +4.7/+4.7/+1.3/+3.1% | ≤ 0.0009; 0.0067 → 0.0072 (pe1) |
+
+- **The records are back**, to within 0.12% of the ungated run on every sample, closer than the stride on the whole
+  index. One sample writes 0.03% more than ungated: a gene with one seed in a full-index read makes no anchor there
+  either, and now does.
+- **The single-seed anchors** are 9.5-23% of the grid runs' anchors (20,376-65,812 per sample).
+- **The cost** is 1-5% more candidate alignments than the ungated run (8-27% more than the two-seed grid run); the
+  aligning times of these 1-3 s runs are noise. The lookups stay those of the grid.
+- **Calls**: the mini world's three called species are the same in every run, so false positives from single-seed
+  candidates to congeners cannot show here; that, the F1 and the cost at scale are for r226 (`--test-grid`).

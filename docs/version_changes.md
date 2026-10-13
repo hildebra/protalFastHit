@@ -53,6 +53,22 @@ for this page.
   - `measure_performance.sh --test_sparse` gives `--sparse_first_pick hash` with `--sparse_seeding`, which stands
     for an index of the hash pick's cores.
 
+- **The gene grid and a sparse index** (2026-10-13; opt-in, not measured at GTDB scale). `--build` gives every index
+  entry a grid level (0-5, three bits of its position): of each gene's cores, one per window of C consecutive cores
+  is kept at C, the one a read of the species most likely carries intact (by its strain alleles, else by its columns'
+  conservation within the family's genera) and the least shared with other genes. The pick `grid`
+  (`--sparse_first_pick grid`) looks up every core of a read and counts only the grid's entries of its gate, about
+  every C-th core of the stretch the read covers, and seeds a read kept from those alone; a short read's gene with one
+  grid seed anchors on it (`--no_single_seed_anchors`: on two, as other runs). A run whose every sample is
+  grid-picked loads only those entries (`--sparse_index auto`): about 1/C of the values, so at r226 an estimated
+  ~6.7 GB of values instead of 26.6 GB at C 4 (the key map stays 3.2 GB). On the mini database a paired-end run at
+  C 4 wrote 0.05% fewer records than ungated (the stride on the whole index 0.23%, the hash pick's emulated sparse
+  index 6.5%; without single-seed anchors 3.2%) for 1-5% more candidate alignments; HiFi lost at most 0.1% up to C 8
+  and 2% at C 32 ([report](claude/2026-10-13-gene-grid-index.md)).
+  `build_gtdb_database.py --test-grid` (on by default with `--test-c-gates`) scores the test samples with the grid
+  pick beside the database's, and `--sparse-first-pick grid` builds a grid-picked database. A database built before
+  2026-10-13 has no grid levels: the grid pick stops on it (exit 2); the other picks are unchanged.
+
 - **How the input was read, in every run's log** (2026-10-13). After each sample's alignment a line says how each read
   file was read (format, members, threads; where it went on by members or fell back to one thread). It also says the
   share of the alignment its threads spent getting reads, a quarter or more being "the input held the alignment

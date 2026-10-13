@@ -22,7 +22,7 @@ databases are in [development.md](development.md).
 | `index.prx` | the k-mer index of the reference marker genes |
 | `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
-| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash` or `stride`; `--build` records `stride` where not given) |
+| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash`, `stride` or `grid`; `--build` records `stride` where not given) |
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
@@ -137,7 +137,10 @@ database while `--add_model` replaces its models.
 - **The index** is held packed: each value takes the bits the database needs, its taxon and gene as
   one number (41 instead of 64 at r226: 26.6 GB instead of 35 GB), by a run and, since 2026-10-05, by
   `--build` too. The files are unchanged.
-  A run and a build print `Index in memory: ...`.
+  A run and a build print `Index in memory: ...`. A run whose every sample is gated with the grid pick loads
+  only the entries of its smallest gate's grid level (`--sparse_index auto`, since 2026-10-13; about 1/C of the
+  values, the key map unchanged), and says so on that line ("a sparse index: the entries of grid level L or
+  more, N of the file's M").
 - A full r226 run peaked at 36.5 GB, about 34 GB expected now ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
   it needs the database as separate files (protal prints the `--unpack_db` command).
@@ -680,6 +683,17 @@ pick, whose F1 the console line gives beside them. It needs a protal whose `--fu
 `--sparse_first_pick` and `SPARSE_FIRST_PICK`; an older one would ignore the column, so the build
 leaves these rows out, with a warning.
 
+With `--test-c-gates` every read type's test samples are also profiled with the grid pick
+(`--test-grid`, since 2026-10-13; default `auto`: each gate of `--model-gates` and the database's of 2
+or more; given gates, or `none`): map rows `<sample>__c<C>g` with `SPARSE_FIRST_PICK` `grid`, tables in
+`c_gates/c<C>g/`, scored by the model of the gate nearest it (trained with the database's pick), and in
+`c_gates.tsv` after the same gate's row with the database's pick. These rows are profiled in the
+collection's protal runs, on the whole index, counting only the entries of their gate's grid level, so
+their records and calls are a sparse index's but their CPU seconds are not;
+`scripts/measure_performance.sh --test_sparse` with levels such as `8g` times the sparse index itself.
+It needs a protal whose `--full_help` lists `--sparse_index`; with an older one the build leaves the rows
+out, with a warning.
+
 The `--test-c-gates` default (`pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32`, since 2026-10-13) adds to
 the gates of `--model-gates` the ungated runs, gates between the ladder's and beyond its fast end.
 Each sample written to the disk is aligned once per way; streamed samples only at the database's
@@ -999,10 +1013,11 @@ keeps the finished database.
 | `--fragment-count` | `mapq` | how the models' `fragments` feature counts (`protal --build --fragment_count`): recorded in both databases' `build_settings.tsv`, and followed by every run on them, the collections' included; `soft` adds each fragment the MAPQ and length filters drop by its read-EM share, so that thin divergent strains are not counted as nothing ([report](claude/2026-10-12-r226-v24b-errors/README.md), section 3; untested at r226) |
 | `--wfa-traceback` | protal's (`singletrack`; `classic` before 0.8.2) | the WFA2 traceback of both databases (`protal --build --wfa_traceback`): recorded in their `build_settings.tsv`, and followed by the collection's protal runs, which align as the training database was built. `singletrack` gives the same scores but may choose otherwise among equally good alignments ([below](#2-build-the-index)) |
 | `--sparse-first` | `pe:4,se:4,pb:16,ont:8` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12, `pe:1,se:1,pb:8,ont:1` until 2026-10-13): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 v27 these gates cost no measurable F1 against C 1 (pb C 8) for 36-44% less alignment CPU (pb 11%) ([report](claude/2026-10-13-r226-v27-c-gates.md); [earlier](claude/2026-10-12-sparse-first/README.md)) |
-| `--sparse-first-pick` | `stride` | which 1/C of a read's cores each gate looks up first (`protal --build --sparse_first_pick`, recorded with the gates): `stride`, every C-th core in read order, or `hash`, those whose hash falls in 1/C of its range (the only pick before 2026-10-13); one for all, or read types and theirs (`pb:hash`) |
+| `--sparse-first-pick` | `stride` | which 1/C of a read's cores each gate looks up first (`protal --build --sparse_first_pick`, recorded with the gates): `stride`, every C-th core in read order, `hash`, those whose hash falls in 1/C of its range (the only pick before 2026-10-13), or `grid`, the database's grid of each gene's cores (since 2026-10-13: runs gated at C 2 or more load a sparse index, [running.md](running.md#developer-options); measure it with `--test-grid` first); one for all, or read types and theirs (`pb:hash`) |
 | `--model-gates` | `pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` | the gates each read type also gets a model of: both collections profiled at them too (streamed simulations streamed again), a model trained at each and stored as `model_<type>_c<C>.xml`, which runs gated nearer that gate are profiled with; `none`: the database gate's alone ([above](#choosing-the-sparse-first-gates)) |
 | `--test-c-gates [GATES]` | off; without a value `pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32` | the test samples written to the disk also profiled at these gates (the database's left out: its row in `c_gates.tsv` is the test set itself, profiled at it; those of `--model-gates` profiled anyway), in the same protal runs as `<sample>__c<C>`; each table scored by the model of the gate nearest it beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN (present species without a row counted as missed) and the samples' alignment CPU and wall seconds ([above](#choosing-the-sparse-first-gates)); `c_gates.tsv` has the gates of `--model-gates` without it |
 | `--test-other-pick [GATES]` (`--test-stride`) | with `--test-c-gates`: `auto`, each read type's database gate of 2 or more | the gates at which the test samples are also profiled with the pick the database does not use (`hash` rows `<sample>__c<C>h` beside a stride database); `none`: none ([above](#choosing-the-sparse-first-gates)) |
+| `--test-grid [GATES]` | with `--test-c-gates`: `auto`, each read type's gates with a model of 2 or more | the gates at which the test samples are also profiled with the grid pick (rows `<sample>__c<C>g`, on the whole index: their calls are a sparse index's, their times not); `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--test-flex-indels [GATES]` | with `--test-c-gates`: `ont:0/1/4/8,ultima:0/1/2/4` | the gates at which the ONT test samples (key `ont`) and the Ultima ones (key `ultima`) are also profiled with protal's `--flex_indels`; `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
@@ -1322,6 +1337,26 @@ then the index:
    only through a congener, so the allele's k-mers go in under the species as non-unique entries (about three per
    edit; the read is then aligned and scored against the representative as before). They are left out of
    `unique_kmers.tsv`'s totals, so a species' unique shares are the representative's alone.
+   Since 2026-10-13 every entry also carries its grid level (0 to 5, in three bits of its position; index feature
+   `grid levels`), for the sparse-first gate's grid pick and the sparse index (`--sparse_first_pick grid`,
+   `--sparse_index`, [running.md](running.md#developer-options)): each gene copy's cores (the
+   syncmers it is indexed by), in gene order, go through a nested tournament, each window of 2^l consecutive cores
+   keeping one at level l or more, so that a run gated at C = 2^l counts about every C-th core of each gene and a
+   sparse index of that gate holds about 1/C of the values. A window keeps the core a read of the species most likely
+   carries intact: the share of the species' strain alleles (`strain_alleles.tsv`) that leave its 15-base core
+   unedited, its 31-mer without indels and its flanks with two substitutions at most, pooled with a prior from how
+   conserved its columns are within the genera of its family (`column_weights.tsv`; the prior weighs as two alleles,
+   0.5 without weights); less a penalty for the entries sharing its key (log2, so that a core hitting many genes
+   loses) and a small one for its distance from the window's middle (ties go to the middle). A core whose key the
+   index leaves out never wins; a gene shorter than a window keeps its winner up to level 5. The build log gives the
+   cores, the share the alleles cover and how many each level keeps with their mean conservation ("Grid levels"). A
+   database whose genes are too long for the bits (a position of 2^17 or more) is built without grid levels, as are
+   databases built before 2026-10-13; the stride and hash picks need none
+   ([proposal and implementation](claude/2026-10-13-gene-grid-index.md)). `--grid_choice` (a developer option) builds
+   the levels otherwise for comparison: `even`, every C-th core of each gene whatever the scores (a stride on the gene),
+   or `phase`, every C-th core with the phase chosen by the scores; at C 4 on the mini database they lost 3.9% and 4.1%
+   of the paired-end records against 3.2% for the default `scored` (all three before single-seed anchors, which brought
+   `scored` to 0.05%).
 6. Packs everything into `database.protal`, with `gene_table.bin`, `column_weights.bin` and
    `strain_alleles.bin` for a fast load: the index straight
    from memory, the other files compressed or copied; it reads each member back, compares, and

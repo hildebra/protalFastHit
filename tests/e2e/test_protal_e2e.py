@@ -4346,6 +4346,44 @@ class SparseFirstGatesTest(WorkDir):
             self.assertEqual(records, plain_records, mode)
             self.assertEqual(header, plain_header, mode)
 
+    def test_the_grid_pick_on_the_sparse_index_as_on_the_whole(self):
+        """--sparse_first_pick grid (2026-10-13): the build gives every core of a gene its grid level (GridLevels.h), and a
+        run gated at C counts only the entries of level log2(C) or more, every core looked up, a read kept seeded from
+        those alone. --sparse_index auto loads only those entries (a sparse index, about 1/C of the values); off loads the
+        whole index and filters them: the same pairs given up and the same records. --sparse_index on with a sample that
+        is not gated by the grid stops (exit 2)."""
+        rc, build_log = run(self.work, "--db", self.plain_db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "grid_probe",
+                            "-o", "grid_probe", "-t", "2", "--no_strains", "--no_profile")
+        self.assertEqual(rc, 0, build_log[-3000:])
+        self.assertIn("grid levels", re.search(r"Index features: [^\n]*", build_log).group(0))
+        logs, records = {}, {}
+        for name, sparse in (("grid_sparse", "auto"), ("grid_whole", "off")):
+            logs[name] = self.align(name, "--sparse_first", "4", "--sparse_first_pick", "grid", "--sparse_index", sparse,
+                                    db=self.plain_db)
+            records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
+            self.assertIn(f"Sample {name} sparse first (1/4 of the cores by the database's grid, score 14", logs[name])
+        self.assertIn("a sparse index: the entries of grid level 2 or more", logs["grid_sparse"])
+        self.assertNotIn("a sparse index", logs["grid_whole"])
+        self.assertIn("grid level 3", re.search(r"Index in memory: [^\n]*", logs["grid_whole"]).group(0))
+        given_up = {name: re.search(r"sparse first \(.*?hit\(s\)\): (\d+) of (\d+) pairs given up", log).groups()
+                    for name, log in logs.items()}
+        self.assertEqual(given_up["grid_sparse"], given_up["grid_whole"])
+        self.assertGreater(int(given_up["grid_sparse"][0]), 0, "no pair given up: nothing tested")
+        self.assertTrue(records["grid_sparse"])
+        self.assertEqual(records["grid_sparse"], records["grid_whole"])
+        entries = {name: int(re.search(r"Index in memory: (\d+) entries", log).group(1)) for name, log in logs.items()}
+        self.assertLess(entries["grid_sparse"], entries["grid_whole"] / 2)
+        # A short read's gene with one grid seed anchors on it (--no_single_seed_anchors: only on two, as other runs),
+        # which keeps records the grid's 1/C of the seeds would lose.
+        self.assertRegex(logs["grid_sparse"], r"anchors \(\d+ of them of a single grid seed\)")
+        log = self.align("grid_pairs_only", "--sparse_first", "4", "--sparse_first_pick", "grid", "--no_single_seed_anchors",
+                         db=self.plain_db)
+        self.assertNotIn("single grid seed", log)
+        self.assertGreater(len(records["grid_sparse"]), len(sam_records(self.path("grid_pairs_only", "grid_pairs_only.sam"))))
+        log = self.align("grid_on", "--sparse_first", "4", "--sparse_first_pick", "stride", "--sparse_index", "on",
+                         db=self.plain_db, rc_expected=2)
+        self.assertIn("--sparse_index on loads the entries of the grid pick's level alone", log)
+
     def test_sparse_seeding(self):
         """--sparse_seeding (2026-10-13) seeds the reads a gate keeps from its cores alone, as an index of only those would.
         Where the gate looks up every core (1) that is all of them: the records are those without the option. After the
@@ -4436,7 +4474,7 @@ class SparseFirstGatesTest(WorkDir):
             fh.write(f"p_bad\t{self.reads[0]}\t{self.reads[1]}\tp_bad\tstrided\n")
         rc, log = run(self.work, "--db", self.db, "--map", self.path("bad_pick.map"), "-t", "2", "--no_strains", "--no_profile")
         self.assertNotEqual(rc, 0)
-        self.assertIn("SPARSE_FIRST_PICK is 'strided'; expected hash, stride or -", log)
+        self.assertIn("SPARSE_FIRST_PICK is 'strided'; expected hash, stride, grid or -", log)
 
     def test_the_probe_tallies_hash_and_stride_rules(self):
         """--stage1_probe tallies its rules for the hash sample of the cores and, since 2026-10-13, for a stride pick

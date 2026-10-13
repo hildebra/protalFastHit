@@ -409,7 +409,7 @@ TEST(BuildSettings, SparseFirstPicksParsedWrittenAndReadBack) {
     EXPECT_EQ(none.sparse_first_pick, SparseFirstPicks());
     std::istringstream bad("sparse_first_pick_pe\t8\n");
     build_settings::Settings settings;
-    EXPECT_NE(build_settings::Read(bad, settings).find("hash or stride"), std::string::npos);
+    EXPECT_NE(build_settings::Read(bad, settings).find("hash, stride or grid"), std::string::npos);
 }
 
 // The pick a database's runs gate with by default (DatabasePick): as recorded; hash for a gate recorded without a pick
