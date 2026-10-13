@@ -849,12 +849,15 @@ Before its builds the run estimates what it needs there besides the reads: the g
 (0.25 bytes a base of the genomes simulated from, less what the store holds), each database still to
 be built on that disk (1.5 times its `reference.fna`: r226's training database is 21.8 GB from 15.4
 GB), the host genome as plain sequence, the samples' SAMs and profiles (a tenth of the reads'
-estimate; r226 v15 kept ~62 GB for 591 GB of reads) and `--keep-free`; and what the reads of each
+estimate; r226 v15 kept ~62 GB for 591 GB of reads; with `--test-c-gates` a tenth again for each other
+gate a written point's test samples are profiled at, ~74 GB at r226 with the defaults,
+[estimate](claude/2026-10-13-c-gates-cost.md)) and `--keep-free`; and what the reads of each
 design point take (the collector's estimate, ~1.25 times what r226 v15 wrote: ~825 GB for both
 collections at the defaults since 2026-10-07). It says both, and stops at once if even streaming every
 point would not fit. Once the training database is built it measures the free space again and, with
 `--stream-above auto` (the default), streams into protal only the largest points, until the reads of
-the others fit at once. At the defaults (116 points) with 1 TB free that streams none, with 700 GB the
+the others, with their test samples' SAMs and profiles at other gates, fit at once. At the defaults
+(116 points) with 1 TB free that streams none, with 700 GB the
 9 with a sample above ~10 GB, with 500 GB the 21 above ~6 GB
 ([report](claude/2026-10-07-build-ordering/README.md)). Streaming saves the space but not time: a
 streamed point's samples are aligned as they are made, and the profiling stage at the end of a protal

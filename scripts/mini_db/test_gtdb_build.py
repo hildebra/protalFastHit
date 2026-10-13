@@ -179,6 +179,33 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(build.argparse.ArgumentTypeError):
                 build.stream_spec(bad)
 
+    def test_rows_at_other_gates_on_the_disk(self):
+        # --test-c-gates: the samples of a simulation profiled again at other levels write a SAM, a profile and dumps each
+        # time: KEPT_SHARE of its reads per level of its unit with the most (a paired-end point's pe and se units
+        # together), in simulation_sizes' order and selection; none for a collection without levels.
+        def command(*extra):
+            return [sys.executable, "collect_training_data.py", "--db", "db", "--genome_table", "genomes.tsv", "-o", "out",
+                    "--samples", "2", "--long_read_samples", "2", "--read_pairs", "1000", "--read_types", "pe,se,ont",
+                    "--read_setups", "100:HS20:300:40", "--long_read_bases", "1000000", *extra]
+
+        units = build.units_of(build.collector_args(command()[2:]))[1]
+        ont = next(build.simulation_of(u) for u in units if u["type"] == "ont")
+        plain = [("training data", command(), "training.log")]
+        gated = [("test set", command("--sparse_first_levels", "pe:0/2,se:0,ont:4", "--stride_levels", "pe:2",
+                                      "--flex_indels_levels", "ont:1/4", "--write_simulations", ont), "test.log")]
+        sizes = build.simulation_sizes(gated)
+        self.assertEqual(len(sizes), 2)
+        # pe: 0, 2 and 2s (se only 0); ont: 4, 1f and 4f.
+        self.assertEqual([c / (build.KEPT_SHARE * r) for _, r, c in build.simulation_costs(gated)], [3, 3])
+        self.assertEqual([(largest, r) for largest, r, _ in build.simulation_costs(gated)], sizes)
+        self.assertEqual([c for _, _, c in build.simulation_costs(plain)], [0, 0])
+        # Written whatever --stream-above says (--write_simulations) or streamable: the ONT simulation and the pe point's.
+        written, streamable = build.simulation_costs(gated, "written"), build.simulation_costs(gated, "streamable")
+        self.assertEqual(len(written), 1)
+        self.assertEqual(len(streamable), 1)
+        self.assertEqual(sorted(written + streamable), sorted(build.simulation_costs(gated)))
+        self.assertEqual(build.simulation_bytes(units)[ont][1], written[0][1])
+
     def test_room_the_run_needs(self):
         # What the run puts on the samples' disk besides the reads: the genome store's growth (0.25 bytes a base of the
         # genomes simulated, each FASTA once, less what the store holds), a database to be built (1.5 times its

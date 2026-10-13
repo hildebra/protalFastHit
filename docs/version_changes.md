@@ -44,6 +44,9 @@ for this page.
   sample (protal's `--sparse_first_pick stride`, per sample by the map's `SPARSE_FIRST_PICK`; `--test-stride`;
   `c_gates.tsv`'s `stride` column). With an older protal the build leaves these rows out, with a warning
   ([databases.md](databases.md#choosing-the-sparse-first-gates)).
+- **The build's disk estimate counts the test samples at other gates** (2026-10-13). Each row a `--test-c-gates`
+  point is profiled at writes its own SAMs and profiles: ~74 GB at r226 with the defaults, which the estimate left
+  out. `--stream-above auto` now counts them for every point it writes.
 
 ## What 0.8.3 adds
 

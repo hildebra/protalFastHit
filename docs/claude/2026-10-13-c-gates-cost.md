@@ -90,5 +90,7 @@ Each extra row writes its own SAM, profile and dumps. The build puts these at 10
 - The written test reads were 48.4 GB at v25, at ~5.9 extra rows a sample: ~29 GB.
 - The Ultima simulations (~50 GB) at 9 rows: ~45 GB.
 
-That is ~74 GB on the scratch disk that the build's estimate (`disk_needs`) leaves out: it counts each sample's SAM
-once. v25 ended with 279 GB free, so it would have fit there; a smaller scratch disk might not.
+That is ~74 GB on the scratch disk. v25 ended with 279 GB free, so it would have fit there; a smaller scratch disk
+might not. The build's estimate first counted each sample's SAM once; since a later commit the same day it also counts
+these rows (`simulation_costs`): KEPT_SHARE of a written point's reads per level, the most of its units'.
+`--stream-above auto` then streams more points where they do not fit.

@@ -193,7 +193,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import FLEX_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import FLEX_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -473,13 +473,27 @@ def simulation_sizes(collections_, which="all"):
     them (collect_training_data.simulation_bytes): what --stream-above compares, and what each writes unless streamed.
     which: "all", "written" (those a collector writes whatever --stream_above says: its --write_simulations) or
     "streamable" (the others)."""
-    sizes = []
+    return [(largest, reads) for largest, reads, _ in simulation_costs(collections_, which)]
+
+
+def simulation_costs(collections_, which="all"):
+    """[(largest sample, reads, at other levels)] in bytes of the simulations simulation_sizes gives, in its order; at
+    other levels: the SAMs, profiles and dumps of its samples profiled again at other levels (--test-c-gates: the
+    collector's --sparse_first_levels, --stride_levels and --flex_indels_levels, unit_level_ids), KEPT_SHARE of its
+    reads per level of its unit with the most (a paired-end point's pe and se units are counted together at the
+    database's gate too). Only a simulation written to the disk has them: a streamed one is profiled once."""
+    costs = []
     for _, command, _ in collections_:
         opts = collector_args(command[2:])
-        for name, size in simulation_bytes(units_of(opts)[1]).items():
+        units = units_of(opts)[1]
+        levels = collections.Counter()
+        for unit in units:
+            name = simulation_of(unit)
+            levels[name] = max(levels[name], len(unit_level_ids(unit, opts)))
+        for name, (largest, reads) in simulation_bytes(units).items():
             if which == "all" or (name in opts.write_simulations) == (which == "written"):
-                sizes.append(size)
-    return sizes
+                costs.append((largest, reads, KEPT_SHARE * reads * levels[name]))
+    return costs
 
 
 def drop_option(command, option):
@@ -3936,9 +3950,13 @@ def main():
                     ("; built by an earlier run, kept" if final_done else ""))
     # What the run needs on the samples' disk besides the reads (disk_needs), and what the reads take, said before the
     # builds; with --stream-above auto the run stops here if even streaming every simulation would not fit. What to
-    # stream is chosen once the training database is built, from the space free then.
-    sizes = simulation_sizes(collections_)
+    # stream is chosen once the training database is built, from the space free then. The test samples' rows at other
+    # gates (--test-c-gates) add their own SAMs and profiles where their simulation is written; with every simulation
+    # streamed they have none (those written whatever --stream-above says are streamed after all if they do not fit).
+    costs = simulation_costs(collections_)
+    sizes = [(largest, r) for largest, r, _ in costs]
     reads = sum(r for _, r in sizes)
+    at_levels = sum(c for _, _, c in costs)
     hosts = [(o.host_genome, os.path.join(o.out, "host")) for o in (collector_args(c[2:]) for _, c, _ in collections_)]
     keep_free = args.keep_free * 1e9 if args.profile_blocks > 0 else 0
     to_build = ([] if final_done else [("database" if training_db == db else "finished database", db)]) + \
@@ -3950,15 +3968,17 @@ def main():
     say(f"    room on {samples_root}: {gigabytes(free)} free; besides the reads the run needs ~"
         f"{gigabytes(sum(needs.values()))} there ({needs_text(needs)}), and the reads of its {len(sizes)} simulations take "
         f"~{gigabytes(reads)} (the collector's estimate, ~1.25 times what r226 v15 wrote)" +
+        (f"; written, the test samples' rows at other gates add up to ~{gigabytes(at_levels)} of SAMs and profiles "
+         "(--test-c-gates)" if at_levels else "") +
         ("; what to stream into protal is chosen once the training database is built (--stream-above auto)"
          if args.profile_blocks > 0 and args.stream_above == "auto" else ""))
     if args.profile_blocks > 0 and args.stream_above == "auto" and free < sum(needs.values()):
         stop(f"Not enough room on {samples_root}: {gigabytes(free)} free, and the run needs ~{gigabytes(sum(needs.values()))} "
              f"there even with every simulation streamed into protal ({needs_text(needs)}): give it a larger disk "
              "(--scratch), fewer samples or scenarios or a lower --keep-free, or --stream-above GB to run anyway")
-    if args.profile_blocks <= 0 and free < sum(needs.values()) + reads:
-        say(f"    WARNING: with --profile-blocks 0 every read is on the disk at once: ~{gigabytes(sum(needs.values()) + reads)} "
-            f"needed, {gigabytes(free)} free")
+    if args.profile_blocks <= 0 and free < sum(needs.values()) + reads + at_levels:
+        say(f"    WARNING: with --profile-blocks 0 every read is on the disk at once: "
+            f"~{gigabytes(sum(needs.values()) + reads + at_levels)} needed, {gigabytes(free)} free")
 
     # The training database gates the profiling, which is the build's longest stage now that the simulations take minutes
     # (docs/claude/2026-10-07-build-ordering): it is built alone, with every core and no simulation writing to its disk.
@@ -4062,21 +4082,25 @@ def main():
     room = free - sum(needs.values())
     auto = args.stream_above == "auto"
     # The simulations a collector writes whatever --stream-above says (--write_simulations: the test set's Ultima ones
-    # for --test-flex-indels) take their room first; if even that does not fit, they are streamed after all.
-    pinned = sum(r for _, r in simulation_sizes(collections_, "written"))
-    if pinned and args.profile_blocks > 0 and room - pinned < 0:
-        say(f"    WARNING: the test set's Ultima reads (~{gigabytes(pinned)}, written for --test-flex-indels) do not fit "
-            f"beside the rest (~{gigabytes(max(0, room))} of room): streamed into protal, so they are not profiled with "
-            "--flex_indels")
+    # for --test-flex-indels) take their room first, their samples' SAMs and profiles at other gates with them; if even
+    # that does not fit, they are streamed after all. A simulation written takes the same (simulation_costs).
+    pinned_costs = simulation_costs(collections_, "written")
+    pinned = sum(r for _, r, _ in pinned_costs)
+    pinned_levels = sum(c for _, _, c in pinned_costs)
+    if pinned and args.profile_blocks > 0 and room - pinned - pinned_levels < 0:
+        say(f"    WARNING: the test set's Ultima reads (~{gigabytes(pinned)}, written for --test-flex-indels, and "
+            f"~{gigabytes(pinned_levels)} of SAMs and profiles at other gates) do not fit beside the rest "
+            f"(~{gigabytes(max(0, room))} of room): streamed into protal, so they are not profiled with --flex_indels")
         for _, command, _ in collections_:
             drop_option(command, "--write_simulations")
-        pinned = 0
-    room -= pinned
-    streamable = simulation_sizes(collections_, "streamable")
+        pinned = pinned_levels = 0
+    streamable_costs = simulation_costs(collections_, "streamable")
+    streamable = [(largest, r) for largest, r, _ in streamable_costs]
     if args.profile_blocks <= 0:
         stream_above = 0.0
     elif auto:
-        threshold = stream_threshold(streamable, room)
+        threshold = stream_threshold([(largest, r + c) for largest, r, c in streamable_costs],
+                                     room - pinned - pinned_levels)
         if threshold is None:
             stop(f"Not enough room on {samples_root}: {gigabytes(free)} free, and the run needs ~"
                  f"{gigabytes(sum(needs.values()))} there even with every simulation streamed into protal "
@@ -4087,6 +4111,11 @@ def main():
         stream_above = args.stream_above
     streamed = [r for largest, r in streamable if stream_above > 0 and largest > stream_above * 1e9]
     written = reads - sum(streamed)
+    # The test samples' SAMs and profiles at other gates (--test-c-gates), of the simulations written.
+    at_levels = pinned_levels + sum(c for largest, _, c in streamable_costs
+                                    if not (stream_above > 0 and largest > stream_above * 1e9))
+    if at_levels:
+        needs["SAMs and profiles at other gates"] = at_levels
     chosen = (f"{len(streamed)} of the {len(sizes)} simulations streamed into protal (a sample above "
               f"{stream_above:.3g} GB; ~{gigabytes(sum(streamed))} of reads), ~{gigabytes(written)} written"
               if streamed else f"none of the {len(sizes)} simulations streamed: their reads written (~{gigabytes(written)})") + \
@@ -4095,9 +4124,11 @@ def main():
                                                                  f"--stream-above {stream_above:g}")
     say(f"    {how}: {chosen}; {gigabytes(free)} free on {samples_root}, ~{gigabytes(sum(needs.values()))} of it for the "
         f"run besides the reads ({needs_text(needs)})")
-    if not auto and args.profile_blocks > 0 and written > room:
-        say(f"    WARNING: the reads written (~{gigabytes(written)}) do not fit at once in the room left "
-            f"(~{gigabytes(max(0, room))}): the simulations will wait for reads to be profiled and removed")
+    if not auto and args.profile_blocks > 0 and written + at_levels > room:
+        say(f"    WARNING: the reads written (~{gigabytes(written)}" +
+            (f", and ~{gigabytes(at_levels)} of SAMs and profiles at other gates" if at_levels else "") +
+            f") do not fit at once in the room left (~{gigabytes(max(0, room))}): the simulations will wait for reads to "
+            "be profiled and removed")
     args.streaming = f"{how}: {chosen}; {gigabytes(free)} free on the samples' disk once the training database was built"
     disk_estimate = sum(needs.values()) + written  # at most, all at once; said again beside the peak at the end
 
