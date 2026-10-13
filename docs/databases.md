@@ -620,7 +620,7 @@ only at the database's gate). Each trainer scores those tables with its model as
 
 | Column | Holds |
 |---|---|
-| `read_type`, `gate`, `flex_indels`, `database_gate` | the read type, the gate (0: off), 1 with `--flex_indels`, and 1 for the database's gate (the test file itself) |
+| `read_type`, `gate`, `flex_indels`, `stride`, `database_gate` | the read type, the gate (0: off), 1 with `--flex_indels`, 1 with the stride pick, and 1 for the database's gate (the test file itself) |
 | `samples`, `taxa`, `present`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate |
 | `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the protal runs' `aligning <sample>` rows (`protal_cpu_<collection>.tsv`; empty when a sample has none) |
 | `baseline_F1`, `baseline_aligning_cpu_s` | the same samples at the database's gate without `--flex_indels`, beside every other row (for se's rows with `--flex_indels`, the Ultima samples alone) |
@@ -639,6 +639,24 @@ rather than streamed (at r226 ~50 GB, all three above the stream threshold; if t
 streamed, with a warning, and have no such rows). It needs a protal whose `--full_help` lists
 `--flex_indels` and `FLEX_INDELS`; an older one would ignore the column, so the build leaves these
 rows out, with a warning. The models are trained without `--flex_indels`, as with other gates.
+
+With `--test-c-gates` every read type's test samples are also profiled with the stride pick at each
+of its tested gates of 2 or more, the database's included (`--test-stride`, default `auto`: with
+`--test-c-gates`' default `pe:2/4,se:2/4,pb:4/8/16,ont:4/8`; `none` for none). The gate then looks
+up every C-th core of a read in read order first, instead of the cores its hash puts in the sample,
+which spaces them evenly over the read.
+Map rows `<sample>__c<C>s` with the map's `SPARSE_FIRST_PICK` column (`stride`), tables in
+`c_gates/c<C>s/`, rows of `c_gates.tsv` with `stride` 1, each after the same gate's row with the
+hash sample, whose F1 the console line gives beside it. The databases' own gates pick by hash
+(protal's default). It needs a protal whose `--full_help` lists `--sparse_first_pick` and
+`SPARSE_FIRST_PICK`; an older one would ignore the column, so the build leaves these rows out,
+with a warning.
+
+With all three defaults the test set is profiled in 33 ways (29 besides the databases' own gates):
+pe and se 6 each (Ultima samples 10, with `--flex_indels`), pb 7, ONT 10. Each sample written to
+the disk is aligned once per way; streamed samples only at the database's gate. At r226 that is
+~1,600 more sample alignments, estimated at ~20 CPU hours, ~35 minutes on an 84-thread node, of
+which the stride rows are ~a quarter ([the estimate](claude/2026-10-13-c-gates-cost.md)).
 
 #### Scenarios: kinds of studies
 

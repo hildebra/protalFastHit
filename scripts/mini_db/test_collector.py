@@ -975,6 +975,56 @@ class CollectorTest(unittest.TestCase):
         with unittest.mock.patch.object(collect, "sample_bytes", lambda unit: 1e9):
             self.assertEqual(collect.streamed_simulations([ont, ultima], stream), {collect.simulation_of(ont)})
 
+    def test_rows_with_the_stride_pick(self):
+        # --stride_levels: a read type's samples also at these gates with the stride pick (rows <sample>__c<C>s,
+        # SPARSE_FIRST C and SPARSE_FIRST_PICK stride), after its other gates and before its gates with --flex_indels;
+        # the map gets the column only with such rows. A gate below 2 has no stride pick.
+        root = os.path.join(self.tmp.name, "stride")
+        opts = argparse.Namespace(out=root, sparse_first_levels={"pb": [0, 4]}, stride_levels={"pb": [4, 8]},
+                                  flex_indels_levels={"pb": [8]})
+        pb = {"type": "pb", "name": "pb_b1e6", "point": {"name": "pb_b1e6"}, "samples": 1, "communities": [],
+              "setup": {"method": "hifi"}}
+        illumina = {"type": "pe", "name": "rl100_p10", "point": {"name": "rl100_p10"}, "samples": 1}
+        self.assertEqual(collect.unit_level_ids(pb, opts), [0, 4, "4s", "8s", "8f"])
+        self.assertEqual(collect.unit_level_ids(illumina, opts), [])
+        self.assertEqual([collect.level_parts(c) for c in (4, "8s", "8f")], [(4, False, False), (8, False, True),
+                                                                               (8, True, False)])
+        self.assertEqual(sorted(["8f", "8s", 4, 0, "4s"], key=collect.level_order), [0, 4, "4s", "8s", "8f"])
+        self.assertEqual(collect.level_text("8s"), "sparse-first gate 8, stride pick")
+        self.assertEqual(collect.stride_levels("pe:4/2,pb:16"), {"pe": [2, 4], "pb": [16]})
+        for bad in ("pe:1/4", "pe:0", "pe:3"):
+            with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
+                collect.stride_levels(bad)
+        # The stride gates are in the unit's profile key: adding one profiles its samples again.
+        with unittest.mock.patch.object(collect, "db_identity", lambda db: "db"), \
+                unittest.mock.patch.object(collect, "identity", lambda protal: "protal"):
+            key = collect.profile_keys([pb], argparse.Namespace(**vars(opts), db="d", protal="p"),
+                                       {collect.simulation_of(pb): "k"})["pb_b1e6"]
+        self.assertEqual((key["sparse_first_levels"], key["stride_levels"], key["flex_indels_levels"]), ([0, 4], [4, 8], [8]))
+
+        def rows_of(unit, _opts):
+            out = os.path.join(root, unit["name"])
+            sample = unit["name"] + "_s_1"
+            return [{"SAMPLEID": sample, "FIRST": os.path.join(out, sample + ".fq"), "SECOND": "-",
+                     "SAM": os.path.join(out, sample + ".sam.zst"), "PREFIX": os.path.join(out, sample),
+                     "PROFILE": os.path.join(out, sample + ".profile"), "PROFILE_TRUTH": "/t",
+                     "READ_TYPE": unit["type"]}], [out]
+
+        with unittest.mock.patch.object(collect, "unit_map_rows_of", rows_of):
+            path = os.path.join(root, "stride.map")
+            collect.profile_map([pb, illumina], opts, path)
+            plain = os.path.join(root, "plain.map")
+            collect.profile_map([illumina], opts, plain)
+        rows = {r["SAMPLEID"]: (r["SPARSE_FIRST"], r["SPARSE_FIRST_PICK"], r["FLEX_INDELS"])
+                for r in collect.read_map(path)}
+        self.assertEqual(rows, {"pb_b1e6_s_1": ("-", "-", "-"), "pb_b1e6_s_1__c0": ("0", "-", "-"),
+                                "pb_b1e6_s_1__c4": ("4", "-", "-"), "pb_b1e6_s_1__c4s": ("4", "stride", "-"),
+                                "pb_b1e6_s_1__c8s": ("8", "stride", "-"), "pb_b1e6_s_1__c8f": ("8", "-", "1"),
+                                "rl100_p10_s_1": ("-", "-", "-")})
+        with open(plain) as fh:
+            self.assertNotIn("SPARSE_FIRST_PICK", fh.read())
+        self.assertTrue(os.path.isdir(os.path.join(root, "points", "pb_b1e6", "protal_c8s", "profiles")))
+
     def test_collector_scenario_units(self):
         # The scenarios' points and units after the design's: a community point per scenario (its paired-end reads
         # at the community's part of the depth, the host's added later), and the units that draw their reads from

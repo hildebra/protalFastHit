@@ -39,6 +39,11 @@ for this page.
   (`c_gates.tsv`'s `flex_indels` and `baseline_*` columns; `--test-flex-indels`). The test set's Ultima simulations
   are then written to disk rather than streamed. This needs a protal with `--flex_indels`
   ([databases.md](databases.md#choosing-the-sparse-first-gates)).
+- **`--test-c-gates` also tests the stride pick** (2026-10-13). Each read type's test samples are also profiled at
+  each of their tested gates of 2 or more with the gate looking up every C-th core of a read rather than its hash
+  sample (protal's `--sparse_first_pick stride`, per sample by the map's `SPARSE_FIRST_PICK`; `--test-stride`;
+  `c_gates.tsv`'s `stride` column). With an older protal the build leaves these rows out, with a warning
+  ([databases.md](databases.md#choosing-the-sparse-first-gates)).
 
 ## What 0.8.3 adds
 

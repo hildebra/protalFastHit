@@ -194,6 +194,13 @@ def parse_args(argv=None):
                         "protal runs, e.g. ont:0/1/4/8,ultima:0/1/2/4: rows <sample>__c<C>f in <point>/protal_c<C>f, "
                         "tables in OUT/c_gates/c<C>f/ (build_gtdb_database.py --test-c-gates). Needs a protal that reads "
                         "FLEX_INDELS (an older one ignores the column)")
+    p.add_argument("--stride_levels", type=stride_levels, default={}, metavar="READ_TYPE:C/C/...,...",
+                   help="sparse-first gates (2 to 32) at which to profile every sample of these read types also with the "
+                        "stride pick (the gate looks up every C-th core of a read in read order instead of the cores of "
+                        f"its hash sample; the map's {STRIDE_COLUMN} column), in the same protal runs, e.g. "
+                        "pe:2/4,pb:4/8/16: rows <sample>__c<C>s in <point>/protal_c<C>s, tables in OUT/c_gates/c<C>s/ "
+                        f"(build_gtdb_database.py --test-c-gates). Needs a protal that reads {STRIDE_COLUMN} (an older "
+                        "one ignores the column)")
     p.add_argument("--write_simulations", type=names_list, default=set(), metavar="NAME,...",
                    help="simulations written to the disk whatever --stream_above says, so that their samples are "
                         "profiled at other gates too (build_gtdb_database.py: the test set's Ultima simulations, for "
@@ -358,10 +365,15 @@ MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFI
                "SPARSE_FIRST"]
 # A map row without a column (one of an older collector's map, --also_profile) takes its default.
 MAP_DEFAULTS = {"UNMAPPED_READS": "count", "SPARSE_FIRST": "-"}
-# Map columns written only when a row has a value: protal ignores a column it does not know, so FLEX_INDELS must
-# reach only a protal that reads it (build_gtdb_database.py checks), and the other maps stay as they were.
-OPTIONAL_MAP_COLUMNS = ["FLEX_INDELS"]
+# A sample's sparse-first gate picking its cores by stride (every C-th in read order) rather than by their hash: the
+# map column and its value (protal's --sparse_first_pick per sample; build_gtdb_database.py checks that protal has it).
+STRIDE_COLUMN, STRIDE_VALUE = "SPARSE_FIRST_PICK", "stride"
+# Map columns written only when a row has a value: protal ignores a column it does not know, so FLEX_INDELS and
+# SPARSE_FIRST_PICK must reach only a protal that reads them (build_gtdb_database.py checks), and the other maps stay as
+# they were.
+OPTIONAL_MAP_COLUMNS = ["FLEX_INDELS", STRIDE_COLUMN]
 FLEX_SUFFIX = "f"  # a level's id with protal's --flex_indels too: gate 1 with it is "1f" (rows <sample>__c1f)
+STRIDE_SUFFIX = "s"  # a level's id with the stride pick: gate 8 with it is "8s" (rows <sample>__c8s)
 # --sparse_first_levels: a sample profiled at another sparse-first gate C is <sample>__c<C>, in <profile dir>_c<C>; its
 # tables are in OUT/c_gates/c<C>/.
 LEVEL_SUFFIX = "__c"
@@ -397,6 +409,17 @@ def flex_indels_levels(text):
     """--flex_indels_levels "ont:0/1/4/8,ultima:0/1/2/4" -> {"ont": [0, 1, 4, 8], "ultima": [0, 1, 2, 4]}: a read type's
     units, or "ultima" the Ultima single-end ones, at these gates with protal's --flex_indels too."""
     return sparse_first_levels(text, FLEX_KEYS)
+
+
+def stride_levels(text):
+    """--stride_levels "pe:2/4,pb:4/8/16" -> {"pe": [2, 4], "pb": [4, 8, 16]}: a read type's units at these gates with
+    the stride pick. A gate below 2 looks every core up first whichever way it picks, so it has no stride."""
+    levels = sparse_first_levels(text)
+    for read_type, gates in levels.items():
+        if gates and gates[0] < 2:
+            raise argparse.ArgumentTypeError(f"a stride gate is 2, 4, 8, 16 or 32, not {gates[0]} (in {read_type!r}): "
+                                             "below 2 every core is looked up first, by stride or not")
+    return levels
 
 
 def names_list(text):
@@ -1099,28 +1122,40 @@ def unit_flex_levels(unit, opts):
     return sorted(gates)
 
 
+def unit_stride_levels(unit, opts):
+    """The gates a unit's samples are profiled at with the stride pick too (--stride_levels)."""
+    return (getattr(opts, "stride_levels", None) or {}).get(unit["type"], [])
+
+
 def unit_level_ids(unit, opts):
-    """Every level a unit's samples are profiled at besides the database's gate: its other gates (C, as an int) and
-    its gates with --flex_indels (C + FLEX_SUFFIX, as a string: "1f")."""
-    return unit_levels(unit, opts) + [f"{c}{FLEX_SUFFIX}" for c in unit_flex_levels(unit, opts)]
+    """Every level a unit's samples are profiled at besides the database's gate: its other gates (C, as an int), its
+    gates with the stride pick (C + STRIDE_SUFFIX, as a string: "8s") and its gates with --flex_indels (C +
+    FLEX_SUFFIX: "1f")."""
+    return unit_levels(unit, opts) + [f"{c}{STRIDE_SUFFIX}" for c in unit_stride_levels(unit, opts)] + \
+        [f"{c}{FLEX_SUFFIX}" for c in unit_flex_levels(unit, opts)]
 
 
 def level_parts(level):
-    """A level's gate and whether it has --flex_indels: 4 -> (4, False), "1f" -> (1, True)."""
+    """A level's gate, whether it has --flex_indels and whether its gate picks by stride: 4 -> (4, False, False),
+    "1f" -> (1, True, False), "8s" -> (8, False, True)."""
     text = str(level)
-    return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX)
+    stride = text.endswith(STRIDE_SUFFIX)
+    text = text.removesuffix(STRIDE_SUFFIX)
+    return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX), stride
 
 
 def level_order(level):
-    """Levels sorted: the gates without --flex_indels first, each by its gate."""
-    gate, flex = level_parts(level)
-    return flex, gate
+    """Levels sorted: the gates with neither the stride pick nor --flex_indels first, then those with the stride pick,
+    then those with --flex_indels, each by its gate."""
+    gate, flex, stride = level_parts(level)
+    return flex, stride, gate
 
 
 def level_text(level):
-    """How a level is said: "sparse-first gate 4", "sparse-first gate 1, --flex_indels"."""
-    gate, flex = level_parts(level)
-    return f"sparse-first gate {gate}" + (", --flex_indels" if flex else "")
+    """How a level is said: "sparse-first gate 4", "sparse-first gate 8, stride pick", "sparse-first gate 1,
+    --flex_indels"."""
+    gate, flex, stride = level_parts(level)
+    return f"sparse-first gate {gate}" + (", stride pick" if stride else "") + (", --flex_indels" if flex else "")
 
 
 def level_dir(unit, opts, level):
@@ -1700,15 +1735,16 @@ def map_rows(meta):
 
 def unit_map_rows(unit, opts):
     """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to; with
-    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST), with --flex_indels_levels at those
-    with --flex_indels too (FLEX_INDELS 1): unit_level_ids. `_level_of` names the sample, which profile_map leaves out
-    with the sample's reads coming through a pipe."""
+    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST), with --stride_levels at those with the
+    stride pick (SPARSE_FIRST_PICK stride), with --flex_indels_levels at those with --flex_indels too (FLEX_INDELS 1):
+    unit_level_ids. `_level_of` names the sample, which profile_map leaves out with the sample's reads coming through a
+    pipe."""
     rows, dirs = unit_map_rows_of(unit, opts)
     unmapped = "write" if writes_unmapped(unit, opts) else "count"
     rows = [{**row, "UNMAPPED_READS": unmapped} for row in rows]
     levels = []
     for level in unit_level_ids(unit, opts):
-        gate, flex = level_parts(level)
+        gate, flex, stride = level_parts(level)
         out = level_dir(unit, opts, level)
         sams, profiles = os.path.join(out, "alignments"), os.path.join(out, "profiles")
         dirs = dirs + [sams, profiles]
@@ -1721,7 +1757,7 @@ def unit_map_rows(unit, opts):
             levels.append({**row, "SAMPLEID": name, "SAM": "-" if sam in ("", "-") else os.path.join(sams, name + ext),
                            "PREFIX": os.path.join(out, name), "PROFILE": os.path.join(profiles, name + ".profile"),
                            "UNMAPPED_READS": "count", "SPARSE_FIRST": str(gate), **({"FLEX_INDELS": "1"} if flex else {}),
-                           "_level_of": row["SAMPLEID"]})
+                           **({STRIDE_COLUMN: STRIDE_VALUE} if stride else {}), "_level_of": row["SAMPLEID"]})
     return rows + levels, dirs
 
 
@@ -1805,7 +1841,8 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
         write_map(combined, rows)
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
     gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}"
-                                + (FLEX_SUFFIX if row.get("FLEX_INDELS", "-") == "1" else "") for row in rows
+                                + (FLEX_SUFFIX if row.get("FLEX_INDELS", "-") == "1" else "")
+                                + (STRIDE_SUFFIX if row.get(STRIDE_COLUMN, "-") == STRIDE_VALUE else "") for row in rows
                                 if row.get("SPARSE_FIRST", "-") not in ("", "-"))  # this and the other collection's
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run" +
@@ -2229,13 +2266,14 @@ def profile_keys(units, opts, keys):
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
                         **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {}),
                         **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {}),
-                        **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {})}
+                        **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {}),
+                        **({"stride_levels": unit_stride_levels(u, opts)} if unit_stride_levels(u, opts) else {})}
             for u in units}
 
 
 def profiled(unit, opts, key):
     """Whether a unit is profiled with this key, all its samples' dumps there, and at its other levels (unit_level_ids:
-    --sparse_first_levels, --flex_indels_levels) too unless its reads came through pipes."""
+    --sparse_first_levels, --stride_levels, --flex_indels_levels) too unless its reads came through pipes."""
     if not (same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and
             len(dumps_of(unit, opts)) >= unit["samples"]):
         return False
