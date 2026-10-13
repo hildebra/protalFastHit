@@ -186,9 +186,63 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
     EXPECT_GT(compared, 100u);
 }
 
+// With --flex_indels (KmerLookupSM::SetFlexIndels) a lookup's seeds are the entries whose cells have the best
+// IndelSimilarity with the read's flex part, unique only where the whole k-mer is the entry's; for read k-mers equal to a
+// stored one, with a flank shifted by a base (an indel) or with a base changed. A copy of the lookup keeps the setting.
+TEST(PackedIndex, WithFlexIndelsLookupsTakeTheCellsOfTheBestIndelScore) {
+    auto const values = SmallValues(6, 3000);
+    Seedmap map(kCoreBases);
+    Fill(map, values);
+    auto const stored = Record(map, values);
+    map.Pack(Seedmap::PackedLayout::For(143614, 168, 12883 + 16), 4);
+    protal::KmerLookupSM configured(map, 256);
+    configured.SetFlexIndels(true);
+    protal::KmerLookupSM lookup(configured);
+    ASSERT_TRUE(lookup.FlexIndels());
+    std::mt19937_64 rng(8);
+    size_t compared = 0, unique = 0;
+    for (size_t k = 0; k < values.size(); k += 5) {
+        auto const& s = stored[k];
+        if (s.flex.empty()) continue;
+        uint32_t flex = static_cast<uint32_t>(map.FlexKey(values[k].key));
+        int const variant = static_cast<int>(k % 3);
+        if (variant == 1) {
+            protal::flex_scan::IndelKeys const shifted = protal::flex_scan::MakeIndelKeys(flex);
+            uint32_t const flank = rng() % 2 ? 0xFFFF0000u : 0x0000FFFFu;
+            flex = ((rng() % 2 ? shifted.deletion : shifted.insertion) & flank) | (flex & ~flank);
+        }
+        if (variant == 2) flex ^= static_cast<uint32_t>(1 + rng() % 3) << (2 * (rng() % 16));
+        size_t kmer = (values[k].key & (kCoreMask << 16)) | Key(0, flex);
+        protal::LookupList results;
+        lookup.Get(results, kmer, 7);
+        protal::flex_scan::IndelKeys const keys = protal::flex_scan::MakeIndelKeys(flex);
+        uint32_t best = 0;
+        for (auto cell : s.flex) best = std::max(best, protal::flex_scan::IndelSimilarity(cell, keys));
+        std::vector<size_t> expected;
+        for (size_t i = 0; i < s.flex.size(); i++) {
+            if (protal::flex_scan::IndelSimilarity(s.flex[i], keys) == best) expected.push_back(i);
+        }
+        ASSERT_EQ(results.size(), expected.size()) << "key " << k << ", variant " << variant;
+        for (size_t i = 0; i < results.size(); i++) {
+            ValueEntry e;
+            e.value = s.entries[expected[i]];
+            auto const [taxid, gene, pos] = e.Get();
+            EXPECT_EQ(results[i].taxid, taxid);
+            EXPECT_EQ(results[i].geneid, gene);
+            EXPECT_EQ(results[i].genepos, pos);
+            EXPECT_EQ(results[i].unique, e.IsFlagUnique() && s.flex[expected[i]] == flex) << "unique only for the whole k-mer";
+            unique += results[i].unique;
+            compared++;
+        }
+    }
+    EXPECT_GT(compared, 300u);
+    EXPECT_GT(unique, 10u);
+}
+
 // A lookup's seeds come out the same with the AVX2 scan (BestAvx2, TiesAvx2), the AVX-512 one (ScanAvx512) and the
 // scalar one: the same entries in the same order with the same flags, and the same lookups dropped as too ubiquitous,
-// for keys whose flex part matches a stored one exactly, in a few bases or not at all. Each level the CPU has.
+// for keys whose flex part matches a stored one exactly, in a few bases, with a flank shifted by a base or not at all,
+// without and with --flex_indels. Each level the CPU has.
 TEST(PackedIndex, LookupsGiveTheSameSeedsAtEveryVectorLevel) {
     using protal::simd::Level;
     std::vector<Level> levels;
@@ -209,15 +263,27 @@ TEST(PackedIndex, LookupsGiveTheSameSeedsAtEveryVectorLevel) {
         unsigned const bit = j < 8 ? 2 * j : kFlexHigh + 2 * (j - 8);
         return key ^ ((1 + rng() % 3) << bit);
     };
+    // A flank of a key's flex part shifted one base in or out (an indel next to the core), the base moved in random.
+    auto shift_flank = [&](uint64_t key) {
+        uint32_t const flex = static_cast<uint32_t>(map.FlexKey(key));
+        protal::flex_scan::IndelKeys const shifted = protal::flex_scan::MakeIndelKeys(flex);
+        uint32_t const flank = rng() % 2 ? 0xFFFF0000u : 0x0000FFFFu;
+        uint32_t const moved = ((rng() % 2 ? shifted.deletion : shifted.insertion) & flank) | (flex & ~flank);
+        return (key & (kCoreMask << 16)) | Key(0, moved ^ static_cast<uint32_t>(rng() % 4));
+    };
     size_t compared = 0, seeds = 0, dropped = 0;
-    for (size_t ubiquity : { size_t{256}, size_t{3} }) {
+    // Each ubiquity without and with --flex_indels' scores.
+    for (auto const [ubiquity, indels] : { std::pair{ size_t{256}, false }, std::pair{ size_t{3}, false },
+                                           std::pair{ size_t{256}, true }, std::pair{ size_t{3}, true } }) {
         protal::KmerLookupSM lookup(map, ubiquity);
+        lookup.SetFlexIndels(indels);
         for (size_t k = 0; k < values.size(); k += 3) {
-            for (int variant = 0; variant < 4; variant++) {
+            for (int variant = 0; variant < 5; variant++) {
                 uint64_t key = values[k].key;
-                if (variant >= 1) key = change_base(key);
-                if (variant >= 2) key = change_base(change_base(key));
+                if (variant >= 1 && variant <= 3) key = change_base(key);
+                if (variant == 2 || variant == 3) key = change_base(change_base(key));
                 if (variant == 3) key = (key & (kCoreMask << 16)) | Key(0, rng() & 0xffffffffu);
+                if (variant == 4) key = shift_flank(key);
                 size_t kmer = key;
                 std::vector<protal::LookupPointer> pointers;
                 lookup.Get(pointers, kmer, static_cast<uint32_t>(rng() % 120));

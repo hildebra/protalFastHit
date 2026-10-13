@@ -172,6 +172,7 @@ namespace protal {
         // Advanced / benchmarking / build
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
+                ("flex_indels", "Score the flex cells of every seed lookup (the 8 bases either side of the k-mer's 15-base core, compared with the read's) allowing one insertion or deletion in each flank, for reads of these types: read types comma-separated (pe, se, pb, ont), all, or none (default). Without it an indel in a flank shifts the bases beyond it, which then match by chance: one next to the core costs ~6 of the flank's 8 bases, and a relative's cell can take the seed. With it a single indel costs one base, as a mismatch does, and only an exact match still scores 16 (the unique seeds are the same). Meant for ONT reads, whose errors are mostly indels, and for --sparse_first (with --sparse_seeding), where each lookup counts more; --sparse_first_score counts the bases so too. The scan takes ~3-4 times the instructions. It can change seeds, records and the model's features, and the database's models are trained without it. A map's FLEX_INDELS column sets it per sample.", cxxopts::value<std::string>()->default_value("none"))
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
@@ -290,6 +291,7 @@ namespace protal {
         bool no_unknown_share = false;
         bool ncbi_taxids = false;
         size_t index_batch_kb = 1024;
+        std::array<bool, kReadTypeCount> flex_indels{};  // --flex_indels per read type
 
         // build
         std::vector<uint8_t> build_gene_mask;
@@ -327,6 +329,7 @@ namespace protal {
         std::vector<std::string> read_type_list;  // per sample: a ReadType token, or empty: pe or se by the second file
         std::vector<std::string> unmapped_reads_list;  // per sample, a map's UNMAPPED_READS: write, count or '-'
         std::vector<std::string> sparse_first_list;    // per sample, a map's SPARSE_FIRST: C or '-'
+        std::vector<std::string> flex_indels_list;     // per sample, a map's FLEX_INDELS: 1, 0 or '-'
         std::vector<size_t> range;
         // What reading the arguments found (patterns without a SAM, how samples were named), reported with the
         // other checks' errors and notes (PrepareAndCheckValidity).
@@ -444,6 +447,7 @@ namespace protal {
         bool m_no_unknown_share = false;
         bool m_ncbi_taxids = false;
         size_t m_index_batch_kb = 1024;
+        std::array<bool, kReadTypeCount> m_flex_indels{};  // --flex_indels per read type
 
         size_t m_current_index = 0;
 
@@ -487,6 +491,8 @@ namespace protal {
         // Per sample, from a map's SPARSE_FIRST column: its gate (C, 0 off), or nothing: as its read type's (empty
         // without the column).
         std::vector<std::optional<size_t>> m_sparse_first_list;
+        // Per sample, from a map's FLEX_INDELS column: 1 or 0, or nothing: as its read type's (empty without the column).
+        std::vector<std::optional<bool>> m_flex_indels_list;
         std::vector<std::string> m_input_errors;  // OptionsData::input_errors
         std::vector<std::string> m_input_notes;
 
@@ -581,6 +587,7 @@ namespace protal {
         static inline const std::string MAP_UNMAPPED_WRITE = "write";
         static inline const std::string MAP_UNMAPPED_COUNT = "count";
         static inline const std::string MAP_SPARSE_FIRST = "SPARSE_FIRST";
+        static inline const std::string MAP_FLEX_INDELS = "FLEX_INDELS";
         static inline const std::string MAP_SAM = "SAM";
         static inline const std::string MAP_PROFILE = "PROFILE";
         static inline const std::string MAP_PROFILE_TRUTH = "PROFILE_TRUTH";
@@ -654,6 +661,7 @@ namespace protal {
                 m_no_unknown_share(d.no_unknown_share),
                 m_ncbi_taxids(d.ncbi_taxids),
                 m_index_batch_kb(d.index_batch_kb),
+                m_flex_indels(d.flex_indels),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
                 m_verbose(d.verbose),
@@ -685,6 +693,7 @@ namespace protal {
                 m_read_type_list(std::move(d.read_type_list)),
                 m_unmapped_reads_list(UnmappedReadsFlags(d.unmapped_reads_list, d.write_unmapped_reads)),
                 m_sparse_first_list(SparseFirstList(d.sparse_first_list)),
+                m_flex_indels_list(FlexIndelsList(d.flex_indels_list)),
                 m_model(std::move(d.model)),
                 m_model_se(std::move(d.model_se)),
                 m_model_pb(std::move(d.model_pb)),
@@ -826,6 +835,10 @@ namespace protal {
                 result_str << "indel bound:         " << (m_no_alignment_screen ? "off (--no_alignment_screen)" :
                                                           m_no_indel_bound ? "off (--no_indel_bound: ONT reads screened by their k-mers)" :
                                                           "ONT reads screened by their indel distance to the window instead") << '\n';
+            }
+            if (std::any_of(m_flex_indels.begin(), m_flex_indels.end(), [](bool on) { return on; }) || !m_flex_indels_list.empty()) {
+                result_str << "flex indels:         " << FlexIndelsText(m_flex_indels) << " (an indel per flank allowed in the lookups)"
+                           << (m_flex_indels_list.empty() ? "" : "; per sample: the map's FLEX_INDELS") << '\n';
             }
             if (long_reads) result_str << "long read budget:    " << (m_long_read_budget ? std::to_string(m_long_read_budget) + " edits past the best candidate (--long_read_budget)" : "the ANI floor's for every candidate") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
@@ -1746,6 +1759,52 @@ namespace protal {
             return m_no_indel_bound;
         }
 
+        // --flex_indels: whether sample `index`'s lookups score their flex cells with an indel per flank allowed
+        // (ChainAnchorFinder::SetFlexIndels): the map's FLEX_INDELS where it gives 1 or 0, else its read type's.
+        bool FlexIndels(size_t index) const {
+            if (index < m_flex_indels_list.size() && m_flex_indels_list[index]) return *m_flex_indels_list[index];
+            return FlexIndels(GetReadType(index));
+        }
+        bool FlexIndels(ReadType type) const {
+            return m_flex_indels[static_cast<size_t>(type)];
+        }
+
+        // --flex_indels' value: none, all, or read type tokens comma-separated (pe,se,pb,ont); nothing if it is none of them.
+        static std::optional<std::array<bool, kReadTypeCount>> ParseFlexIndels(std::string const& text) {
+            std::array<bool, kReadTypeCount> on{};
+            if (text == "none") return on;
+            if (text == "all") {
+                on.fill(true);
+                return on;
+            }
+            std::vector<std::string> tokens;
+            LineSplitter::Split(text, ",", tokens);
+            if (tokens.empty()) return std::nullopt;
+            for (auto const& token : tokens) {
+                auto const type = ReadTypeFromToken(token);
+                if (!type) return std::nullopt;
+                on[static_cast<size_t>(*type)] = true;
+            }
+            return on;
+        }
+        // "none", "all" or the read types on ("pb,ont"), for the options summary.
+        static std::string FlexIndelsText(std::array<bool, kReadTypeCount> const& on) {
+            if (std::none_of(on.begin(), on.end(), [](bool b) { return b; })) return "none";
+            if (std::all_of(on.begin(), on.end(), [](bool b) { return b; })) return "all";
+            std::string text;
+            for (auto const& info : kReadTypes) {
+                if (on[static_cast<size_t>(info.type)]) text += (text.empty() ? "" : ",") + info.token;
+            }
+            return text;
+        }
+        // A map's FLEX_INDELS values: 1 or 0, or nothing for '-' (LoadFromMap admits no other value).
+        static std::vector<std::optional<bool>> FlexIndelsList(std::vector<std::string> const& values) {
+            std::vector<std::optional<bool>> list;
+            list.reserve(values.size());
+            for (auto const& value : values) list.push_back(value == "-" ? std::nullopt : std::optional<bool>(value == "1"));
+            return list;
+        }
+
         // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the ANI floor's budget).
         size_t GetLongReadBudget() const {
             return m_long_read_budget;
@@ -2024,6 +2083,8 @@ but aligned nowhere: write (an unmapped record each, with the taxa in its ZF tag
 header, the default); '-' leaves it to --write_unmapped_reads.
 An optional SPARSE_FIRST column gives a sample its own sparse-first gate (0 off, 1, 2, 4, 8, 16 or
 32; see --sparse_first); '-' leaves it to its read type's.
+An optional FLEX_INDELS column turns --flex_indels on (1) or off (0) for a sample; '-' leaves it to
+its read type's.
 SAM and PROFILE are optional and default to <PREFIX>.sam.zst (--sam_format) and <PREFIX>.profile,
 in OUTPUT_DIR. Every sample needs its own SAM and PROFILE file; protal stops if two samples share
 one. A sample whose SAM exists is not aligned again (unless --force), and a SAM given as an
@@ -2073,7 +2134,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
                                 std::vector<std::string>& read_type_list, std::vector<std::string>& unmapped_reads_list,
                                 std::string const& sam_ending = kDefaultSamEnding, bool* sams_named = nullptr,
-                                std::vector<std::string>* sparse_first_list = nullptr) {
+                                std::vector<std::string>* sparse_first_list = nullptr,
+                                std::vector<std::string>* flex_indels_list = nullptr) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -2102,6 +2164,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             int read_type_column = -1;
             int unmapped_reads_column = -1;
             int sparse_first_column = -1;
+            int flex_indels_column = -1;
 
             bool header = true;
             size_t line_num = 0;
@@ -2191,6 +2254,13 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                                     return false;
                                 }
                                 sparse_first_column = i;
+                            }
+                            if (token == MAP_FLEX_INDELS) {
+                                if (flex_indels_column != -1) {
+                                    std::cerr << "Column '" << MAP_FLEX_INDELS << "' is defined twice" << std::endl;
+                                    return false;
+                                }
+                                flex_indels_column = i;
                             }
                             if (token == MAP_HEADER_TO_SPECIES) {
                                 if (header_to_species_column != -1) {
@@ -2301,7 +2371,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                             { 0, &MAP_SAMPLEID }, { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
                             { sam_column, &MAP_SAM }, { profile_column, &MAP_PROFILE }, { profile_truth_column, &MAP_PROFILE_TRUTH },
                             { read_type_column, &MAP_READ_TYPE }, { unmapped_reads_column, &MAP_UNMAPPED_READS },
-                            { sparse_first_column, &MAP_SPARSE_FIRST } };
+                            { sparse_first_column, &MAP_SPARSE_FIRST }, { flex_indels_column, &MAP_FLEX_INDELS } };
                     for (auto const& [column, name] : columns) {
                         if (column == -1) continue;
                         if (static_cast<size_t>(column) >= tokens.size() || tokens[column].empty()) {
@@ -2392,6 +2462,15 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                             return false;
                         }
                         if (sparse_first_list) sparse_first_list->emplace_back(value);
+                    }
+                    if (flex_indels_column != -1) {
+                        // A sample's --flex_indels (1 on, 0 off), or '-': its read type's.
+                        auto const& value = tokens[flex_indels_column];
+                        if (value != "1" && value != "0" && value != MAP_NO_SECOND_READ) {
+                            std::cerr << "Line " << line_num << ": " << MAP_FLEX_INDELS << " is '" << value << "'; expected 1, 0 or -" << std::endl;
+                            return false;
+                        }
+                        if (flex_indels_list) flex_indels_list->emplace_back(value);
                     }
                 }
             }
@@ -3357,6 +3436,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             std::vector<std::string> read_type_list;
             std::vector<std::string> unmapped_reads_list;
             std::vector<std::string> sparse_first_list;  // a map's SPARSE_FIRST
+            std::vector<std::string> flex_indels_list;   // a map's FLEX_INDELS
             std::vector<std::string> input_errors;  // reported by PrepareAndCheckValidity
             std::vector<std::string> input_notes;
 
@@ -3409,7 +3489,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending, &sams_named, &sparse_first_list)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending, &sams_named, &sparse_first_list, &flex_indels_list)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -3506,6 +3586,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool no_unknown_share = result.count("no_unknown_share");
             bool ncbi_taxids = result.count("ncbi_taxids");
             size_t index_batch_kb = std::max<size_t>(result["index_batch_kb"].as<size_t>(), 1);
+            auto const flex_indels = ParseFlexIndels(result["flex_indels"].as<std::string>());
+            if (!flex_indels) {
+                std::cerr << "Error: --flex_indels is none, all, or read types comma-separated (" << ReadTypeTokens() << "), not '"
+                          << result["flex_indels"].as<std::string>() << "'" << std::endl;
+                exit(2);
+            }
             bool force = result.count("force");
 
 
@@ -3715,6 +3801,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.no_unknown_share         = no_unknown_share;
             d.ncbi_taxids              = ncbi_taxids;
             d.index_batch_kb           = index_batch_kb;
+            d.flex_indels              = *flex_indels;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);
             d.samplename_list          = std::move(samplenames_list);
@@ -3759,6 +3846,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.read_type_list           = std::move(read_type_list);
             d.unmapped_reads_list      = std::move(unmapped_reads_list);
             d.sparse_first_list        = std::move(sparse_first_list);
+            d.flex_indels_list         = std::move(flex_indels_list);
             d.input_errors             = std::move(input_errors);
             d.input_notes              = std::move(input_notes);
             d.profile_truth            = profile_truth;

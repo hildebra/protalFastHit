@@ -35,7 +35,7 @@ fail=0
 echo "== 1. CPU ($(hostname), $(date -Is))"
 grep -m1 'model name' /proc/cpuinfo
 echo "AVX-512 flags: $(grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^avx512' | sort | tr '\n' ' ')"
-for f in avx512f avx512bw avx512vl avx512dq avx512vbmi avx512_vbmi2 avx512_vpopcntdq; do
+for f in avx512f avx512cd avx512bw avx512vl avx512dq avx512vbmi avx512_vbmi2 avx512_vpopcntdq avx512_bitalg; do
     grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -qx "$f" || echo "missing: $f (protal's kernels use AVX2 here)"
 done
 

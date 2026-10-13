@@ -1,0 +1,3 @@
+arm    instructions  seeding_instructions  cells   seeding_instructions_per_cell
+plain  10937016848   250568098             399157  627.74
+flex   10922305766   257176264             399157  644.30

@@ -193,6 +193,7 @@ namespace protal {
         bool m_unique{};
         bool m_unique_dist_two{};
         uint32_t m_last_best = 0;  // the best flex score of the last GetFromLookup (LastBest)
+        bool m_flex_indels = false;  // --flex_indels: cells scored with an indel per flank allowed (SetFlexIndels)
 
         LookupPointer m_lookup_tmp;
     public:
@@ -214,8 +215,14 @@ namespace protal {
 
         KmerLookupSM(KmerLookupSM const& other) :
                 m_sm(other.m_sm), m_flex_k(other.m_sm.m_flex_k), m_flex_k_bits(other.m_sm.m_flex_k_bits),
-                m_max_ubiquity(other.m_max_ubiquity), m_flex_k_half(other.m_sm.m_flex_k/2) {
+                m_max_ubiquity(other.m_max_ubiquity), m_flex_k_half(other.m_sm.m_flex_k/2), m_flex_indels(other.m_flex_indels) {
         };
+
+        // --flex_indels: every flex cell scored allowing one insertion or deletion in each flank of the read's k-mer
+        // (flex_scan::IndelSimilarity), in the lookups' scans (GetFromLookup, BestScore) and in FlexSimilarity; only an
+        // exact match still scores 16, so the unique flags are kept as without it. Copies keep it.
+        void SetFlexIndels(bool on) { m_flex_indels = on; }
+        bool FlexIndels() const { return m_flex_indels; }
 
         // The flex bases on either side of a k-mer's core: a seed's read and gene positions are its core's, this far
         // into its k-mer.
@@ -227,7 +234,8 @@ namespace protal {
         // The flank bases a k-mer's flex part (a read's lookup's flex_key) shares with another k-mer's (Seedmap::FlexKey,
         // Similarity): how a flex cell of that k-mer would score (--stage1_probe, --sparse_first for keys of one value).
         uint32_t FlexSimilarity(uint32_t flex_key, uint64_t kmer) const {
-            return Seedmap::Similarity(flex_key, static_cast<uint32_t>(m_sm.FlexKey(kmer)));
+            uint32_t const cell = static_cast<uint32_t>(m_sm.FlexKey(kmer));
+            return m_flex_indels ? flex_scan::IndelSimilarity(cell, flex_scan::MakeIndelKeys(flex_key)) : Seedmap::Similarity(flex_key, cell);
         }
 
         // The most flank bases a flex cell of the last GetFromLookup shared with the read's (16: all), also for a lookup
@@ -246,15 +254,18 @@ namespace protal {
                 uint32_t const words = static_cast<uint32_t>(flex_scan::TieWords(size));
                 if (m_tie_masks.size() < words) m_tie_masks.resize(words);
                 if (flex_vector.size() < size) flex_vector.resize(size);
-                return flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data()).first;
+                return (m_flex_indels ? flex_scan::ScanAvx512<true>(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data())
+                                      : flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data())).first;
             }
             if (level == simd::Level::avx2) {
                 size_t const bytes = std::max<size_t>(size + flex_scan::kScorePadding, flex_scan::TieScoreBytes(size));
                 if (flex_vector.size() < bytes) flex_vector.resize(bytes);
-                return flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
+                return m_flex_indels ? flex_scan::BestAvx2<true>(pointers, pointers.flex_key, flex_vector.data())
+                                     : flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
             }
             if (flex_vector.size() < size) flex_vector.resize(size);
-            return flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data()).first;
+            return (m_flex_indels ? flex_scan::ScoreScalar<true>(pointers, pointers.flex_key, flex_vector.data())
+                                  : flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data())).first;
         }
 
         void Clear() {
@@ -294,8 +305,9 @@ namespace protal {
             result.emplace_back(m_lookup_tmp);
         }
 
-        // The seeds of a lookup: the entries whose flex cells share the most bases with the read's (all entries of a key
-        // with one value, which has no flex cells), in entry order, flagged unique only where the whole k-mer matches.
+        // The seeds of a lookup: the entries whose flex cells share the most bases with the read's (with --flex_indels, an
+        // indel per flank allowed; all entries of a key with one value, which has no flex cells), in entry order, flagged
+        // unique only where the whole k-mer matches.
         // None if more than m_max_ubiquity cells share the best score; returns false for such a lookup (too ubiquitous).
         // A key with one value keeps its entry's unique flag, marked `single`: only the core was compared, so the anchor
         // compares the rest of the k-mer with the gene before it counts the seed (ChainAnchorFinder::CountUniques). No
@@ -320,21 +332,24 @@ namespace protal {
                 // The scores, the best, the masks and their count in one call (FlexScan.h); scores of the block's
                 // cells only, nothing read or written past them.
                 if (flex_vector.size() < size) flex_vector.resize(size);
-                std::tie(max, max_count) = flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data());
+                std::tie(max, max_count) = m_flex_indels ? flex_scan::ScanAvx512<true>(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data())
+                                                         : flex_scan::ScanAvx512(pointers, pointers.flex_key, flex_vector.data(), m_tie_masks.data());
                 m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
             } else if (level == simd::Level::avx2) {
                 // Every cell's score and the best in one pass, the masks and their count in another (FlexScan.h).
                 size_t const bytes = std::max<size_t>(size + flex_scan::kScorePadding, flex_scan::TieScoreBytes(size));
                 if (flex_vector.size() < bytes) flex_vector.resize(bytes);
-                max = flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
+                max = m_flex_indels ? flex_scan::BestAvx2<true>(pointers, pointers.flex_key, flex_vector.data())
+                                    : flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
                 max_count = flex_scan::TiesAvx2(flex_vector.data(), size, max, m_tie_masks.data());
                 m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
             } else {
                 // Every cell's score, the best and how many have it, then the masks one cell at a time.
                 if (flex_vector.size() < size) flex_vector.resize(size);
-                std::tie(max, max_count) = flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data());
+                std::tie(max, max_count) = m_flex_indels ? flex_scan::ScoreScalar<true>(pointers, pointers.flex_key, flex_vector.data())
+                                                         : flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data());
                 m_last_best = max;
                 if (max_count > m_max_ubiquity) return false;
                 std::fill_n(m_tie_masks.begin(), words, 0u);

@@ -283,6 +283,56 @@ TEST(Options, OntReadsHaveTheirOwnDefaults) {
     EXPECT_DOUBLE_EQ(given.GetSNPMinAF(ReadType::ONT), 0.1);
 }
 
+// --flex_indels (2026-10-13): none, all, or read types comma-separated; a map's FLEX_INDELS column (1, 0 or '-')
+// overrides it per sample, '-' leaving the sample to its read type's; any other value stops the map.
+TEST(Options, FlexIndelsByReadTypeAndSample) {
+    using On = std::array<bool, kReadTypeCount>;
+    EXPECT_EQ(Options::ParseFlexIndels("none"), On{});
+    EXPECT_EQ(Options::ParseFlexIndels("all"), (On{ true, true, true, true }));
+    EXPECT_EQ(Options::ParseFlexIndels("ont"), (On{ false, false, false, true }));
+    EXPECT_EQ(Options::ParseFlexIndels("pb,ont"), (On{ false, false, true, true }));
+    for (char const* bad : { "", "yes", "ont,", "pe,xx", "1", "ONT" }) EXPECT_FALSE(Options::ParseFlexIndels(bad)) << bad;
+    EXPECT_EQ(Options::FlexIndelsText(*Options::ParseFlexIndels("ont,se")), "se,ont");
+    EXPECT_EQ(Options::FlexIndelsText(*Options::ParseFlexIndels("all")), "all");
+    EXPECT_EQ(Options::FlexIndelsText(On{}), "none");
+
+    ScratchDir dir;
+    auto const header = "#OUTPUT_DIR\t" + (dir.path / "out").string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tFLEX_INDELS\n";
+    std::string output_dir, strain_dir, misc_dir;
+    std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths, read_types, unmapped, flex_indels;
+    auto load = [&](std::string const& name, std::string const& rows) {
+        for (auto* list : { &prefixes, &firsts, &seconds, &sams, &profiles, &names, &truths, &read_types, &unmapped, &flex_indels }) list->clear();
+        return Options::LoadFromMap(dir.Write(name, header + rows), output_dir, strain_dir, misc_dir, prefixes, firsts, seconds, sams,
+                                    profiles, names, truths, read_types, unmapped, Options::kDefaultSamEnding, nullptr, nullptr, &flex_indels);
+    };
+    ASSERT_TRUE(load("flex.map", "a\ta\ta.fq\t-\tont\t1\nb\tb\tb.fq\t-\tont\t0\nc\tc\tc.fq\t-\tont\t-\nd\td\td.fq\t-\tse\t-\n"));
+    EXPECT_EQ(flex_indels, (Tokens{ "1", "0", "-", "-" }));
+
+    OptionsData d;
+    d.first_list = firsts;
+    d.second_list = { "", "", "", "" };
+    d.prefix_list = prefixes;
+    d.read_type_list = read_types;
+    d.flex_indels_list = flex_indels;
+    d.range = { 0, 1, 2, 3 };
+    d.flex_indels = *Options::ParseFlexIndels("ont");
+    Options by_map(d);
+    std::vector<std::string> warnings;
+    by_map.ResolveReadTypes(warnings);
+    EXPECT_EQ((std::vector<bool>{ by_map.FlexIndels(0), by_map.FlexIndels(1), by_map.FlexIndels(2), by_map.FlexIndels(3) }),
+              (std::vector<bool>{ true, false, true, false }));
+    d.flex_indels = On{};
+    Options off(d);
+    off.ResolveReadTypes(warnings);
+    EXPECT_EQ((std::vector<bool>{ off.FlexIndels(0), off.FlexIndels(1), off.FlexIndels(2), off.FlexIndels(3) }),
+              (std::vector<bool>{ true, false, false, false }));
+
+    testing::internal::CaptureStderr();
+    EXPECT_FALSE(load("bad.map", "a\ta\ta.fq\t-\tont\tyes\n"));
+    auto const log = testing::internal::GetCapturedStderr();
+    EXPECT_NE(log.find("FLEX_INDELS is 'yes'; expected 1, 0 or -"), std::string::npos) << log;
+}
+
 namespace {
     std::string Record(std::string const& qname, int flag, std::string const& rname, std::string const& cigar,
                        std::string const& seq, std::string const& tags = "\tZU:i:1\tZT:i:0", int pos = 1, int mapq = 60) {

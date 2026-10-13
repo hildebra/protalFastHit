@@ -3705,19 +3705,59 @@ class OntTest(ReadTypeTest):
         self.assertEqual(with_bound[0], without[0])
         self.assertGreater(with_bound[2], 0, "the 150 kb reads' random stretches between genes give unrelated candidates")
 
+    def genes_found(self, prefix, sam):
+        """(genes found, missed, counted twice) of a long-read sample's reads in a SAM: a gene placed on a read is found
+        by a record of it covering 90% of its stretch."""
+        by_read = representative_records(sam_records(sam))
+        found = missed = twice = 0
+        for (name, _), placed in zip(fastq_records(self.runs.long[prefix]), self.runs.truth[prefix]):
+            reps = by_read.get(name, [])
+            for gene, start, end in placed:
+                hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.9 * (end - start)]
+                found += len(hits) >= 1
+                missed += not hits
+                twice += len(hits) > sum(1 for g, _, _ in placed if g == gene)
+        return found, missed, twice
+
     def test_every_gene_is_found_once(self):
         for prefix in ("oa", "ob"):
-            by_read = representative_records(sam_records(self.runs.sam(prefix)))
-            found = missed = twice = 0
-            for (name, _), placed in zip(fastq_records(self.runs.long[prefix]), self.runs.truth[prefix]):
-                reps = by_read.get(name, [])
-                for gene, start, end in placed:
-                    hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.9 * (end - start)]
-                    found += len(hits) >= 1
-                    missed += not hits
-                    twice += len(hits) > sum(1 for g, _, _ in placed if g == gene)
+            found, missed, twice = self.genes_found(prefix, self.runs.sam(prefix))
             self.assertEqual(twice, 0, f"{prefix}: no gene counted twice")
             self.assertGreaterEqual(found / (found + missed), 0.9, f"{prefix}: {found} genes found, {missed} missed")
+
+    def test_flex_indels(self):
+        """--flex_indels (2026-10-13) scores the lookups' flex cells with an insertion or deletion per flank allowed. On
+        these ONT reads (2% errors, 70% of them 1 bp indels) every gene is found once and at least as many genes as
+        without it, and the options summary says so. A map's FLEX_INDELS column turns it on for one sample: that sample's
+        records are the option's, the other's (with '-') those of a run without it. Another value is an error."""
+        def oa_run(name, *extra):
+            rc, log = run(self.work, "--db", self.runs.db, "-1", self.runs.long["oa"], "--prefix", "oa", "--read_type", "ont",
+                          "-o", name, "-t", "4", "--no_qcmsa", "--no_profile", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            return log, self.path(name, "oa.sam")
+        log, sam = oa_run("out_flex", "--flex_indels", "ont")
+        self.assertIn("flex indels:         ont (an indel per flank allowed in the lookups)\n", log)
+        self.assertNotIn("flex indels:", self.runs.log)
+        found, missed, twice = self.genes_found("oa", sam)
+        default_found, _, _ = self.genes_found("oa", self.runs.sam("oa"))
+        self.assertEqual(twice, 0, "no gene counted twice")
+        self.assertGreaterEqual(found, default_found, f"{found} genes found with flex indels, {default_found} without")
+        flex_records = sorted(sam_records(sam))
+
+        sample_map = self.path("flex_indels.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_flex_map')}\n#SAM_OUTPUT_DIR\t.\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tFLEX_INDELS\n"
+                     f"oa\toa\t{self.runs.long['oa']}\t-\tont\t1\nob\tob\t{self.runs.long['ob']}\t-\tont\t-\n")
+        rc, map_log = run(self.work, "--db", self.runs.db, "--map", sample_map, "-t", "4", "--no_qcmsa", "--no_profile", "--no_strains")
+        self.assertEqual(rc, 0, map_log[-3000:])
+        self.assertIn("flex indels:         none (an indel per flank allowed in the lookups); per sample: the map's FLEX_INDELS\n", map_log)
+        self.assertEqual(sorted(sam_records(find_one(self.path("out_flex_map"), "oa.sam.zst"))), flex_records)
+        self.assertEqual(sorted(sam_records(find_one(self.path("out_flex_map"), "ob.sam.zst"))), sorted(sam_records(self.runs.sam("ob"))))
+
+        rc, bad = run(self.work, "--db", self.runs.db, "-1", self.runs.long["oa"], "--read_type", "ont", "-o", "out_flex_bad",
+                      "--flex_indels", "yes")
+        self.assertEqual(rc, 2, bad[-3000:])
+        self.assertIn("Error: --flex_indels is none, all, or read types comma-separated (pe, se, pb, ont), not 'yes'", bad)
 
     def test_profiles(self):
         # The stand-in model (the paired-end one) is not fit for 2% errors: which species it reports is not the point

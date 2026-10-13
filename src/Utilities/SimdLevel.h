@@ -15,8 +15,9 @@
 // flex scan's vector versions alone.
 //
 // The AVX-512 level is the set Intel Ice Lake and AMD Zen 4 brought, and later CPUs of both have: AVX-512 F,
-// BW, VL, DQ, VBMI, VBMI2 and VPOPCNTDQ. Earlier AVX-512 CPUs (Skylake-X, Cascade Lake) lack the last three
-// and use AVX2. libgcc's CPU detection only reports AVX-512 where the operating system saves its registers.
+// CD, BW, VL, DQ, VBMI, VBMI2, VPOPCNTDQ and BITALG (CD and BITALG since 2026-10-13, for --flex_indels' scan).
+// Earlier AVX-512 CPUs (Skylake-X, Cascade Lake) lack VBMI, VBMI2, VPOPCNTDQ and BITALG and use AVX2. libgcc's
+// CPU detection only reports AVX-512 where the operating system saves its registers.
 #pragma once
 
 #include <cstdlib>
@@ -28,7 +29,7 @@ namespace protal::simd {
     // The target attribute of the AVX-512 kernels (the instruction sets of the AVX-512 level, and those of
     // x86-64-v3 below them).
 #define PROTAL_TARGET_AVX512 \
-    __attribute__((target("avx2,bmi,bmi2,lzcnt,popcnt,fma,avx512f,avx512bw,avx512vl,avx512dq,avx512vbmi,avx512vbmi2,avx512vpopcntdq")))
+    __attribute__((target("avx2,bmi,bmi2,lzcnt,popcnt,fma,avx512f,avx512cd,avx512bw,avx512vl,avx512dq,avx512vbmi,avx512vbmi2,avx512vpopcntdq,avx512bitalg")))
 
 #if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
 #define PROTAL_SIMD_X86 1
@@ -47,10 +48,12 @@ namespace protal::simd {
 #ifdef PROTAL_SIMD_X86
         __builtin_cpu_init();
         if (!__builtin_cpu_supports("avx2")) return Level::scalar;
-        bool const avx512 = __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw") &&
+        bool const avx512 = __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512cd") &&
+                            __builtin_cpu_supports("avx512bw") &&
                             __builtin_cpu_supports("avx512vl") && __builtin_cpu_supports("avx512dq") &&
                             __builtin_cpu_supports("avx512vbmi") && __builtin_cpu_supports("avx512vbmi2") &&
-                            __builtin_cpu_supports("avx512vpopcntdq") && __builtin_cpu_supports("bmi2");
+                            __builtin_cpu_supports("avx512vpopcntdq") && __builtin_cpu_supports("avx512bitalg") &&
+                            __builtin_cpu_supports("bmi2");
         return avx512 ? Level::avx512 : Level::avx2;
 #else
         return Level::scalar;

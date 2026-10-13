@@ -961,6 +961,10 @@ namespace protal {
         // which the caller ends per read; nullptr: none (the default; a copy has none either).
         void SetProbe(stage1_probe::Mate* probe) { m_probe = probe; }
 
+        // --flex_indels: the lookups' flex cells scored with an insertion or deletion per flank allowed, in the seeding,
+        // the --sparse_first gate and the probe (KmerLookupSM::SetFlexIndels). Copies keep it.
+        void SetFlexIndels(bool on) { m_kmer_lookup.SetFlexIndels(on); }
+
         // --sparse_first: a read's sampled lookups first, those of the cores of level `level` or more (stage1_probe::Level:
         // 1/2^level of the cores), a hit where the best flex cell shares `min_score` or more of the 16 flank bases with the
         // read (SparseHits). The caller gives up a read (pair) with too few hits before the rest of its seeding; a read it

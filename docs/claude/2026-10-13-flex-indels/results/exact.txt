@@ -1,0 +1,10 @@
+pe	ref	exit 0	records 9124952b06295b13	profile ee6f6648a1fa5489
+pe	new	exit 0	records 9124952b06295b13	profile ee6f6648a1fa5489
+pe	none	exit 0	records 9124952b06295b13	profile ee6f6648a1fa5489
+pe new: profile identical to HEAD's
+pe none: profile identical to HEAD's
+ont	ref	exit 0	records 7be4956c4f186971	profile 5b119c1811cf0a8e
+ont	new	exit 0	records 7be4956c4f186971	profile 5b119c1811cf0a8e
+ont	none	exit 0	records 7be4956c4f186971	profile 5b119c1811cf0a8e
+ont new: profile identical to HEAD's
+ont none: profile identical to HEAD's

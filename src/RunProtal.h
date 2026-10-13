@@ -1052,6 +1052,8 @@ namespace protal {
                 if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAlleleScores(!options.NoAlleleScores());
                 if (!IsLongReadType(read_type)) alignment_handler.SetWeightedShift(options.WeightedSiteShift());
+                // --flex_indels: the sample's lookups (the gate's too) score their flex cells with an indel per flank allowed.
+                anchor_finder.SetFlexIndels(options.FlexIndels(index));
 
 
 
