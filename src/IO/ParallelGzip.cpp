@@ -42,6 +42,7 @@ namespace protal {
         constexpr size_t kStreamSegment = size_t{4} << 20;            // a range decoded to its end gives this at a time
         constexpr size_t kReleaseStep = size_t{32} << 20;             // mapped bytes behind the reader released at a time
         constexpr size_t kReleaseMargin = size_t{1} << 20;            // and kept behind where it decodes next
+        constexpr size_t kReadAhead = size_t{64} << 20;               // asked to be read ahead of the workers' furthest piece
 
         // Bytes that grow without being zeroed (a piece's output, decoded into place).
         struct Bytes {
@@ -546,16 +547,25 @@ namespace protal {
         uint64_t member_out = 0;
         std::string error;
         size_t released = 0;           // the mapped file's bytes before this are released (Release)
+        size_t read_ahead = 0;         // and those before this asked to be read ahead (Release)
 
         // The mapped file's pages before what the lead decodes next (less kReleaseMargin), released kReleaseStep at a time
         // (MADV_DONTNEED): every page read would otherwise stay in the resident set until the file is closed (a
         // paired-end run at r226 held 7.3 GB more, docs/claude/2026-10-13-gzip-members-regression). Nothing needs them
         // again; a worker that still looks at one (a block start it scans late) reads it from the page cache again, as
-        // the mapping is private and never written. The lead's thread only.
+        // the mapping is private and never written. And the pages up to kReadAhead past the workers' furthest piece asked
+        // for (MADV_WILLNEED), kReleaseStep at a time: a file not in the page cache (a sample's first read, from a network
+        // file system) is then read ahead of the faults rather than at them. The lead's thread only.
         void Release() {
-            uint64_t const next = streaming ? lead.input_byte() : pos >> 3;
-            if (next < released + kReleaseStep + kReleaseMargin) return;
             size_t const page = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
+            uint64_t const next = streaming ? lead.input_byte() : pos >> 3;
+            size_t const wanted = static_cast<size_t>(std::min<uint64_t>(size, next + (ahead + 2) * piece_bytes + kReadAhead));
+            if (ReadAheadWanted() && (wanted >= read_ahead + kReleaseStep || (wanted == size && read_ahead < size))) {
+                size_t const from = read_ahead / page * page;
+                ::madvise(const_cast<uint8_t*>(data) + from, wanted - from, MADV_WILLNEED);
+                read_ahead = wanted;
+            }
+            if (next < released + kReleaseStep + kReleaseMargin) return;
             size_t const upto = static_cast<size_t>(next - kReleaseMargin) / page * page;
             if (upto <= released) return;
             ::madvise(const_cast<uint8_t*>(data) + released, upto - released, MADV_DONTNEED);
@@ -1011,6 +1021,7 @@ namespace protal {
     ParallelGzip::Counts ParallelGzip::counts() const { return m_impl ? m_impl->counts : Counts{}; }
     uint64_t ParallelGzip::StoppedAt() const { return m_impl ? m_impl->stopped_at : kNotStopped; }
     size_t ParallelGzip::MembersRead() const { return m_impl ? m_impl->members_read : 0; }
+    size_t ParallelGzip::MembersBegun() const { return m_impl ? m_impl->member : 0; }
 
     ParallelGzip::ParallelGzip() = default;
     ParallelGzip::~ParallelGzip() = default;
@@ -1052,8 +1063,13 @@ namespace protal {
             impl.max_member = max_member;
             impl.threads = std::max(threads, 2u);
             impl.gap = GapSetting().load(std::memory_order_relaxed);
-            if (impl.gap == 0) impl.gap = 2 * size_t{impl.threads} + 4;
-            impl.ahead = impl.gap + 2 * size_t{impl.threads};
+            // The workers from threads + 2 pieces ahead of the reader's thread, up to threads further: each piece in
+            // that look-ahead holds up to two output buffers of ~4-16 MB (on FASTQ), so it sets the memory. Against
+            // 2 * threads + 4 and 2 * threads (until 2026-10-13): -20 to -36% of the memory on 2-4 threads, as fast
+            // within the noise on 2 and 3 threads of 4 cores; not yet timed where the threads have cores to spare
+            // (docs/claude/2026-10-13-reading-input).
+            if (impl.gap == 0) impl.gap = size_t{impl.threads} + 2;
+            impl.ahead = impl.gap + size_t{impl.threads};
             impl.piece_bytes = PieceBytesSetting().load(std::memory_order_relaxed);
             if (impl.piece_bytes == 0) impl.piece_bytes = kChunkBytes;
             impl.slots = (size + impl.piece_bytes - 1) / impl.piece_bytes;
@@ -1062,6 +1078,9 @@ namespace protal {
             impl.pieces.resize(impl.slots);
             impl.pieces[0].state = Impl::State::Taken;
             impl.pos = start;
+            // Read in order, mostly: aggressive read-ahead where a page is faulted in, and the first window asked for.
+            if (ReadAheadWanted()) ::madvise(map, size, MADV_SEQUENTIAL);
+            impl.Release();
             TheLabels();
             for (unsigned w = 1; w < impl.threads; w++) impl.workers.emplace_back(&Impl::Work, &impl);
         } catch (std::exception const& e) {

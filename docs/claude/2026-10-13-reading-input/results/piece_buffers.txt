@@ -1,0 +1,26 @@
+ 18:26:11 up  4:40,  1 user,  load average: 1.21, 3.43, 3.40
+r1	V0	threads 2	wall 0.688	cpu 1.415	GB/s 2.154	maxrss_mb 205
+r1	V1	threads 2	wall 0.707	cpu 1.423	GB/s 2.096	maxrss_mb 220
+r1	V2	threads 2	wall 0.700	cpu 1.432	GB/s 2.116	maxrss_mb 184
+r1	V3	threads 2	wall 0.726	cpu 1.454	GB/s 2.040	maxrss_mb 170
+r1	V0	threads 4	wall 0.654	cpu 2.264	GB/s 2.266	maxrss_mb 485
+r1	V1	threads 4	wall 0.704	cpu 2.251	GB/s 2.103	maxrss_mb 374
+r1	V2	threads 4	wall 0.912	cpu 3.305	GB/s 1.624	maxrss_mb 355
+r1	V3	threads 4	wall 0.747	cpu 2.491	GB/s 1.984	maxrss_mb 299
+r2	V0	threads 2	wall 0.813	cpu 1.656	GB/s 1.821	maxrss_mb 197
+r2	V1	threads 2	wall 0.753	cpu 1.514	GB/s 1.969	maxrss_mb 187
+r2	V2	threads 2	wall 0.754	cpu 1.555	GB/s 1.964	maxrss_mb 186
+r2	V3	threads 2	wall 0.735	cpu 1.479	GB/s 2.015	maxrss_mb 156
+r2	V0	threads 4	wall 0.692	cpu 2.435	GB/s 2.141	maxrss_mb 470
+r2	V1	threads 4	wall 0.855	cpu 2.736	GB/s 1.732	maxrss_mb 400
+r2	V2	threads 4	wall 0.784	cpu 2.909	GB/s 1.890	maxrss_mb 389
+r2	V3	threads 4	wall 0.983	cpu 3.193	GB/s 1.507	maxrss_mb 327
+r3	V0	threads 2	wall 0.839	cpu 1.718	GB/s 1.765	maxrss_mb 227
+r3	V1	threads 2	wall 0.772	cpu 1.557	GB/s 1.919	maxrss_mb 212
+r3	V2	threads 2	wall 0.723	cpu 1.488	GB/s 2.048	maxrss_mb 164
+r3	V3	threads 2	wall 0.750	cpu 1.505	GB/s 1.976	maxrss_mb 178
+r3	V0	threads 4	wall 0.703	cpu 2.389	GB/s 2.108	maxrss_mb 467
+r3	V1	threads 4	wall 0.746	cpu 2.405	GB/s 1.986	maxrss_mb 374
+r3	V2	threads 4	wall 0.726	cpu 2.703	GB/s 2.040	maxrss_mb 413
+r3	V3	threads 4	wall 0.706	cpu 2.377	GB/s 2.099	maxrss_mb 285
+ 18:26:30 up  4:40,  1 user,  load average: 1.50, 3.35, 3.37

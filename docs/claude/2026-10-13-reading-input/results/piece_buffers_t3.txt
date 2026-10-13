@@ -1,0 +1,14 @@
+# piece_buffers.sh's binaries at 3 threads (V0: gap 2T + 4, ahead gap + 2T; V1: ahead gap + T; V3: gap T + 2, ahead
+# gap + T), one.gz, cores 0-3, 4 alternated rounds, 2026-10-13 ~18:40 (other sessions' jobs on the machine at times).
+r1	V0	threads 3	wall 0.728	cpu 1.980	GB/s 2.035	maxrss_mb 386
+r1	V1	threads 3	wall 0.805	cpu 2.147	GB/s 1.841	maxrss_mb 339
+r1	V3	threads 3	wall 0.855	cpu 2.256	GB/s 1.733	maxrss_mb 267
+r2	V0	threads 3	wall 0.703	cpu 1.969	GB/s 2.106	maxrss_mb 409
+r2	V1	threads 3	wall 0.691	cpu 1.812	GB/s 2.143	maxrss_mb 339
+r2	V3	threads 3	wall 0.673	cpu 1.852	GB/s 2.200	maxrss_mb 236
+r3	V0	threads 3	wall 0.668	cpu 1.891	GB/s 2.216	maxrss_mb 346
+r3	V1	threads 3	wall 0.712	cpu 1.884	GB/s 2.081	maxrss_mb 346
+r3	V3	threads 3	wall 0.684	cpu 1.876	GB/s 2.165	maxrss_mb 263
+r4	V0	threads 3	wall 0.933	cpu 2.740	GB/s 1.588	maxrss_mb 383
+r4	V1	threads 3	wall 0.869	cpu 2.324	GB/s 1.704	maxrss_mb 327
+r4	V3	threads 3	wall 0.822	cpu 2.272	GB/s 1.802	maxrss_mb 266

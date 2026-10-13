@@ -29,6 +29,7 @@
 #include "Bgzf.h"
 #include "GzipMember.h"
 #include "ParallelGzip.h"
+#include "Utilities/AvailableCpus.h"
 
 namespace protal {
 
@@ -176,6 +177,7 @@ namespace protal {
             m_paths = std::move(paths);
             m_path = 0;
             m_files_begun = 0;
+            m_files_read.clear();
             m_last_byte = '\n';
             return OpenFile(m_paths.front().c_str());
         }
@@ -208,6 +210,11 @@ namespace protal {
                 m_fd = -1;
                 return false;
             }
+            // A regular file is read in order: the kernel's read-ahead doubled (POSIX_FADV_SEQUENTIAL), and more asked for
+            // as it is read (ReadUpTo).
+            m_regular = S_ISREG(st.st_mode) && ReadAheadWanted();
+            m_read_pos = m_read_ahead = 0;
+            if (m_regular) ::posix_fadvise(m_fd, 0, 0, POSIX_FADV_SEQUENTIAL);
             // pread leaves the offset where it is; a pipe cannot be peeked at, and is read as gzip.
             unsigned char head[bgzf::kHeaderBytes] = {};
             ssize_t const peeked = S_ISREG(st.st_mode) ? ::pread(m_fd, head, sizeof(head), 0) : 0;
@@ -254,6 +261,9 @@ namespace protal {
             m_parallel_threads = m_parallel ? threads : 0;
             m_parallel_counts = {};
             m_switched_to_members = false;
+            m_switched_at = m_restart_at = kNowhere;
+            m_format = gzip || m_bgzf ? 'g' : zstd ? 'z' : peeked > 0 ? 'p' : 0;  // a pipe's: once read (FillStream)
+            m_opened_threads = m_parallel_threads > 0 ? m_parallel_threads : m_workers;
             // Read in pieces, a file may go on by members (SwitchToMembers): blocks for as many workers.
             unsigned const block_workers = m_parallel && InflateThreads() > 1 ? InflateThreads() : m_workers;
             size_t const blocks = block_workers > 1 ? 2 * size_t{block_workers} + 2 : kBlocks;
@@ -323,6 +333,14 @@ namespace protal {
             return m_switched_to_members;
         }
 
+        // How each file of the stream was read, in the order read, once closed (close(), or the stream going on to the
+        // next file): its path and, for a run's log, e.g. "gzip of 22606 members, inflated by members on 4 threads".
+        struct FileRead {
+            std::string path, how;
+            unsigned threads = 1;  // the threads that read it: inflating ones and, with workers, the file's own
+        };
+        std::vector<FileRead> const& files_read() const { return m_files_read; }
+
         // Why a gzip file that would have been inflated on several threads is inflated on one (empty if none).
         std::string const& parallel_gzip_error() const { return m_parallel_error; }
 
@@ -347,6 +365,13 @@ namespace protal {
             if (m_thread.joinable()) m_thread.join();
             for (auto& worker : m_worker_threads) worker.join();
             m_worker_threads.clear();
+            // The file's own thread and its workers (BGZF blocks, zstd frames, gzip members), or its pieces' threads (the
+            // file's own among them; on by members, its workers instead), or the file's own thread alone.
+            bool const workers = (m_opened_bgzf && m_opened_threads > 1) || m_opened_zstd_frames || m_opened_gzip_members;
+            unsigned const threads = workers                    ? m_opened_threads + 1
+                                     : m_switched_at != kNowhere ? std::max(m_opened_threads, m_switch_workers + 1)
+                                                                 : m_opened_threads;
+            m_files_read.push_back({ current_path(), HowRead(), threads });
             m_jobs.clear();
             m_parallel.reset();  // its threads end; its copy of the descriptor is closed
             m_parallel_threads = 0;
@@ -556,6 +581,36 @@ namespace protal {
             m_cv.notify_all();
         }
 
+        // How the open file was read, its threads ended (close, for files_read): its format, its members (BGZF blocks,
+        // zstd frames), on how many threads and how, and where it went on by members or on one thread.
+        std::string HowRead() const {
+            auto const count = [](size_t n, char const* one, char const* more) { return std::to_string(n) + ' ' + (n == 1 ? one : more); };
+            std::string const threads = m_opened_threads > 1 ? " on " + std::to_string(m_opened_threads) + " threads" : " on one thread";
+            std::string how;
+            if (m_opened_bgzf) {
+                how = "BGZF, " + count(m_members, "block", "blocks") + ", inflated" + threads;
+            } else if (m_opened_zstd_frames) {
+                how = "zstd, " + count(m_members, "frame", "frames") + ", decompressed" + threads;
+            } else if (m_opened_gzip_members) {
+                how = "gzip of " + count(m_members, "member", "members") + ", inflated by members" + threads;
+            } else if (m_parallel_threads > 0) {
+                how = "gzip of " + count(m_parallel ? m_parallel->MembersBegun() : m_members, "member", "members") +
+                      ", inflated in pieces" + threads;
+                if (m_switched_at != kNowhere) how += ", by members from byte " + std::to_string(m_switched_at) + " on";
+            } else if (m_format == 'g') {
+                how = "gzip of " + count(m_members, "member", "members") + ", inflated on one thread";
+            } else if (m_format == 'z') {
+                how = "zstd, " + count(m_members, "frame", "frames") + ", decompressed on one thread";
+            } else {
+                how = "uncompressed";
+            }
+            if (m_restart_at != kNowhere) {
+                how += ", on one thread from byte " + std::to_string(m_restart_at) + " on (members that did not inflate as cut)";
+            }
+            if (!m_parallel_error.empty()) how += " (not in pieces: " + m_parallel_error + ")";
+            return how;
+        }
+
         // A gzip file read in pieces whose reader stopped before a member that small members follow (ParallelGzip::
         // StoppedAt), every member before it read and checked: the rest of the file read by members from there (as a
         // file of many members from its start), on as many workers as a BGZF file, this thread their dispatcher. The
@@ -575,16 +630,19 @@ namespace protal {
                 return false;
             }
             m_offset = at;
+            m_read_pos = m_read_ahead = at;
             m_members = members;
             m_block_in.assign(size_t{4} << 20, 0);
             m_in_pos = m_in_end = 0;
             m_in_eof = false;
             m_gzip_members = true;
             unsigned const workers = InflateThreads();
+            m_switch_workers = workers;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_members_read = members;
                 m_switched_to_members = true;
+                m_switched_at = at;
                 if (m_stop) return true;  // closing: the dispatcher ends at once
             }
             for (unsigned w = 0; w < workers; w++) m_worker_threads.emplace_back(&ThreadedGzStreambuf::Work, this);
@@ -1013,7 +1071,9 @@ namespace protal {
             m_gzip_members = false;
             m_workers = 1;
             m_offset = offset;
+            m_read_pos = m_read_ahead = offset;
             m_members = m_members_read;
+            m_restart_at = offset;
             if (!StartGzip(0, error)) return false;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
@@ -1034,7 +1094,9 @@ namespace protal {
             return true;
         }
 
-        // Reads up to size bytes at the file's current offset; the bytes read (fewer only at its end).
+        // Reads up to size bytes at the file's current offset; the bytes read (fewer only at its end). Of a regular file,
+        // the kReadAhead bytes after them are asked for (POSIX_FADV_WILLNEED) kReadAheadStep at a time: a file not in the
+        // page cache (a sample's first read, from a network file system) is then read ahead of the reads.
         size_t ReadUpTo(unsigned char* dst, size_t size, std::string& error) {
             size_t done = 0;
             while (done < size) {
@@ -1046,6 +1108,12 @@ namespace protal {
                 }
                 if (n == 0) break;
                 done += static_cast<size_t>(n);
+            }
+            m_read_pos += done;
+            if (m_regular && m_read_pos + kReadAhead >= m_read_ahead + kReadAheadStep) {
+                uint64_t const from = std::max(m_read_ahead, m_read_pos);
+                ::posix_fadvise(m_fd, static_cast<off_t>(from), static_cast<off_t>(m_read_pos + kReadAhead - from), POSIX_FADV_WILLNEED);
+                m_read_ahead = m_read_pos + kReadAhead;
             }
             return done;
         }
@@ -1213,11 +1281,14 @@ namespace protal {
                         StartMember();
                         m_members++;
                         m_mode = Mode::Gzip;
+                        if (m_format == 0) m_format = 'g';
                     } else if (m_members == 0 && left >= 4 && IsZstdFrame(in)) {
                         if (!StartZstd(error)) return true;
                         m_mode = Mode::Zstd;
+                        if (m_format == 0) m_format = 'z';
                     } else if (m_members == 0) {
                         m_mode = Mode::Copy;  // neither gzip nor zstd: read as it is
+                        if (m_format == 0) m_format = 'p';
                     } else {
                         uint64_t const at = m_offset;
                         if (!RestIsZero(error) && error.empty()) {
@@ -1376,6 +1447,18 @@ namespace protal {
         size_t m_member_restarts = 0;                    // batches of members after which the file was read on one thread
         bool m_switched_to_members = false;              // read in pieces, the file went on by members (SwitchToMembers)
         ParallelGzip::Counts m_parallel_counts;          // the pieces' counts once their reader is gone
+        static constexpr uint64_t kNowhere = UINT64_MAX;
+        uint64_t m_switched_at = kNowhere;               // the byte from which it went on by members
+        unsigned m_switch_workers = 0;                   // on how many workers
+        uint64_t m_restart_at = kNowhere;                // the byte from which it was read on one thread (ReadOnOneThreadFrom)
+        char m_format = 0;                               // what its first bytes are: 'g' gzip, 'z' zstd, 'p' plain (0: not yet known)
+        static constexpr uint64_t kReadAhead = uint64_t{64} << 20;      // a regular file's bytes asked to be read ahead (ReadUpTo)
+        static constexpr uint64_t kReadAheadStep = uint64_t{16} << 20;  // at a time
+        bool m_regular = false;                          // the open file is a regular one (no pipe), read ahead (ReadAheadWanted)
+        uint64_t m_read_pos = 0;                         // where its next read() begins
+        uint64_t m_read_ahead = 0;                       // the bytes before this asked to be read ahead
+        unsigned m_opened_threads = 1;                   // the threads it was opened to inflate on (inflate_threads())
+        std::vector<FileRead> m_files_read;              // the stream's files read so far (close)
         std::vector<std::thread> m_worker_threads;       // Work, with several
         std::vector<std::vector<char>> m_blocks;
         std::vector<Job> m_jobs;                         // per output block

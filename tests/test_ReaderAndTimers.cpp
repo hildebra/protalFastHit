@@ -458,6 +458,7 @@ namespace {
         bool members = false;   // a gzip file of several members inflated by members on several threads
         bool switched = false;  // read in pieces, it went on by members
         size_t restarts = 0;    // how often it went back to one thread for the rest of the file
+        std::string how;        // how it was read, as a run's input line says (files_read)
     };
 
     ReadResult ReadWithThreads(std::string const& path, unsigned threads) {
@@ -472,6 +473,8 @@ namespace {
         r.error = is.rdbuf()->read_error_message();
         r.restarts = is.rdbuf()->gzip_member_restarts();
         r.switched = is.rdbuf()->switched_to_gzip_members();
+        is.close();
+        if (!is.rdbuf()->files_read().empty()) r.how = is.rdbuf()->files_read().back().how;
         return r;
     }
 
@@ -879,6 +882,7 @@ TEST(ThreadedGzStream, AGzipMemberHeaderFoundByChanceIsNeverUsed) {
         EXPECT_EQ(r.text.size(), content.size());
         EXPECT_TRUE(r.text == content);
         EXPECT_GE(r.restarts, 1u);
+        EXPECT_NE(r.how.find(", on one thread from byte "), std::string::npos) << r.how;
     }
 }
 
@@ -960,6 +964,7 @@ TEST(ThreadedGzStream, AGzipFileInPiecesGoesOnByMembers) {
                 EXPECT_FALSE(r.members);
                 EXPECT_TRUE(r.switched);
                 EXPECT_EQ(r.restarts, 0u);
+                EXPECT_NE(r.how.find(" on " + std::to_string(threads) + " threads, by members from byte "), std::string::npos) << r.how;
                 EXPECT_EQ(r.text.size(), files[f].second.size());
                 EXPECT_TRUE(r.text == files[f].second);
                 EXPECT_FALSE(r.failed) << r.error;
@@ -991,6 +996,46 @@ TEST(ThreadedGzStream, AGzipFileInPiecesGoesOnByMembers) {
             EXPECT_TRUE(r.text == one.text);
         }
     }
+}
+
+// How each file of a stream was read, for a run's input line (files_read): a stream of a file of members, one of one
+// member, BGZF, zstd frames and a plain file, on 3 threads and on one; the members counted alike either way.
+TEST(ThreadedGzStream, FilesReadSayHowEachWasRead) {
+    ScratchDir dir;
+    auto const text = RandomFastq(3000, "w", 103);  // ~0.9 MB
+    auto const members = dir.Write("members.fq.gz", GzipMembers(text, 1000, 20000, 107));
+    auto const one = dir.Write("one.fq.gz", GzipBytes(text));
+    auto const bgzf = Bgzf(dir, "bgzf.fq.gz", text);
+    auto const frames = dir.Write("frames.fq.zst", ZstdBytes(text.substr(0, 400000)) + ZstdBytes(text.substr(400000)));
+    auto const plain = dir.Write("plain.fq", text);
+    auto const read = [](std::vector<std::string> const& paths, unsigned threads) {
+        InflateThreads const setting(threads);
+        ThreadedGzIstream is(paths);
+        std::string const text = ReadAllOf(is);  // to the end
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+        is.close();
+        return is.rdbuf()->files_read();
+    };
+    auto const npos = std::string::npos;
+    auto const several = read({ members, one, bgzf, frames, plain }, 3);
+    ASSERT_EQ(several.size(), 5u);
+    EXPECT_EQ(several[0].path, members);
+    EXPECT_NE(several[0].how.find(" members, inflated by members on 3 threads"), npos) << several[0].how;
+    EXPECT_EQ(several[0].threads, 4u);
+    EXPECT_EQ(several[1].how, "gzip of 1 member, inflated in pieces on 3 threads");
+    EXPECT_EQ(several[1].threads, 3u);
+    EXPECT_EQ(several[2].how.rfind("BGZF, ", 0), 0u) << several[2].how;
+    EXPECT_NE(several[2].how.find(" blocks, inflated on 3 threads"), npos) << several[2].how;
+    EXPECT_EQ(several[2].threads, 4u);
+    EXPECT_EQ(several[3].how, "zstd, 2 frames, decompressed on 3 threads");
+    EXPECT_EQ(several[4].how, "uncompressed");
+    EXPECT_EQ(several[4].threads, 1u);
+    auto const alone = read({ members, frames }, 1);
+    ASSERT_EQ(alone.size(), 2u);
+    std::string const counted = several[0].how.substr(0, several[0].how.find(", "));  // "gzip of N members"
+    EXPECT_EQ(alone[0].how, counted + ", inflated on one thread");
+    EXPECT_EQ(alone[0].threads, 1u);
+    EXPECT_EQ(alone[1].how, "zstd, 2 frames, decompressed on one thread");
 }
 
 // Read pairs taken by several threads from two gzip files inflated on several threads each, in pieces (one member

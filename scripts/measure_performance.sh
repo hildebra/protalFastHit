@@ -2,7 +2,7 @@
 # measure_performance.sh - time protal runs on a database and some read files: whole runs, protal's
 # stage timers and, where perf works, CPU counters. For comparing machines, builds and databases.
 #
-#   bash scripts/measure_performance.sh [--threads N] [--sylph SYLPH_DB] [--stage1_probe] [--test_sparse] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
+#   bash scripts/measure_performance.sh [--threads N] [--cold_reads] [--sylph SYLPH_DB] [--stage1_probe] [--test_sparse] OUT_DIR DB TYPE:R1[:R2] [TYPE:R1[:R2] ...]
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
 # on N threads, one sample at a time (--no_qcmsa: one sample makes no strain MSAs); protal's
@@ -17,13 +17,21 @@
 # what the alignment waits for; profiling_tables_s, profiling_tables_wait_s: the tables loaded beside the alignment
 # since 2026-10-11, and how long the profiling waited for them; NA before) and the alignment's CPU seconds, the cores
 # it kept busy and the seconds a thread spent getting reads (aligning_cpu_s, aligning_cores, reader_s_per_thread, from
-# misc/cpu.tsv and misc/<prefix>_runtime.tsv: few cores and much reader time mean the input's inflating is the limit)), cohort.tsv (one
+# misc/cpu.tsv and misc/<prefix>_runtime.tsv: few cores and much reader time mean the input's inflating is the limit),
+# and from protal's input line (since 2026-10-13; NA before) how each read file was read (input: e.g.
+# gzip-members:22606:4t,... for gzip of 22606 members by members on 4 threads; bgzf, zstd-frames, gzip-pieces, gzip,
+# zstd, plain; +members@B where a file read in pieces went on by members from byte B, +one-thread@B where members fell
+# back to one thread) and the share of the alignment's time its threads spent getting reads (reader_share; a run at
+# 0.25 or more is flagged on its progress line: its input held it back)), cohort.tsv (one
 # line per cohort run: profiling, strain MSAs, building the MSAs, qcMSA, species), stages.tsv (each
 # run's misc/<prefix>_runtime.tsv: the alignment stage's timers per thread and the profiling steps'
 # wall times), logs/, and prints medians.
 # The first run reads the database from disk unless the page cache holds it, so its load_index_s
 # is the cold load; later runs load from memory.
 # --threads N (or -t N): the threads protal and sylph each run on (their -t); without it, THREADS below.
+# --cold_reads: the read files are dropped from the page cache before each protal run (dd iflag=nocache, which needs no
+# root), so that every run reads its input from the disk or network file system, as a sample's first and usually only
+# run does; the database stays cached. Without it, only a first run on the node may read cold.
 # --sylph SYLPH_DB (a .syldb or .syl2db, best the same GTDB release as DB): last, sylph profiles each sample from
 # the same reads, REPEATS times on N threads (sylph profile SYLPH_DB -1 R1 -2 R2, or -r R1 for se, pb and ont),
 # for comparison: sylph.tsv (one line per sylph run: times, memory, perf counters, the genomes in sylph's profile),
@@ -70,9 +78,10 @@ set -uo pipefail
 
 # --threads N (-t N, --threads=N), --sylph SYLPH_DB (--sylph=SYLPH_DB), --stage1_probe and --test_sparse anywhere among
 # the arguments; the rest are positional. Without enough of them, the comment above.
-threads=; sylph_db=; stage1_probe=0; test_sparse=0; positional=()
+threads=; sylph_db=; stage1_probe=0; test_sparse=0; cold_reads=0; positional=()
 while [ $# -gt 0 ]; do
     case $1 in
+        --cold_reads|--cold-reads) cold_reads=1; shift ;;
         --stage1_probe|--stage1-probe) stage1_probe=1; shift ;;
         --test_sparse|--test-sparse) test_sparse=1; shift ;;
         -t|--threads) [ $# -ge 2 ] || { echo "$1 needs a number of threads" >&2; exit 1; }
@@ -143,6 +152,40 @@ input_format() {
     elif [ -n "$h" ]; then echo plain
     else echo unreadable; fi
 }
+# With --cold_reads: the read files' pages dropped from the page cache (posix_fadvise DONTNEED, by dd), so that the next
+# run reads them from the disk.
+drop_reads() {
+    [ $cold_reads = 1 ] || return 0
+    local f
+    for f in "$@"; do dd if="$f" iflag=nocache count=0 status=none 2> /dev/null || echo "cannot drop $f from the page cache" >&2; done
+}
+# A run's input line ("Sample <name> input: <file> <how>; ...; the T alignment threads spent R s each getting reads, P% of
+# the alignment's A s[: the input held the alignment back]", since 2026-10-13): each file's reading in short, files joined
+# by "," (e.g. gzip-members:22606:4t; +members@B, +one-thread@B), a tab, and the reader share ("0.67"); NA NA without it.
+input_of() {
+    local line; line=$(grep -m1 "^Sample $1 input: " "$2")
+    [ -n "$line" ] || { printf 'NA\tNA'; return 0; }
+    printf '%s\n' "$line" | awk '{
+        sub(/^Sample [^ ]* input: /, ""); n = split($0, part, "; "); out = ""; share = "NA"
+        for (i = 1; i <= n; i++) {
+            p = part[i]
+            if (p ~ /^the [0-9]+ alignment threads spent/) {
+                if (match(p, /[0-9.]+% of/)) share = sprintf("%.2f", substr(p, RSTART, RLENGTH - 4) / 100)
+                continue
+            }
+            how = p; sub(/^[^ ]+ /, "", how)
+            count = 0; if (match(how, /[0-9]+ (block|frame|member)/)) { count = substr(how, RSTART, RLENGTH); sub(/ .*/, "", count) }
+            t = 1; if (match(how, / on [0-9]+ threads/)) t = substr(how, RSTART + 4, RLENGTH - 12)
+            code = how ~ /^BGZF/ ? "bgzf" : how ~ /^zstd, .* decompressed on [0-9]+ threads/ ? "zstd-frames" : \
+                   how ~ /by members on/ ? "gzip-members" : how ~ /in pieces/ ? "gzip-pieces" : how ~ /^gzip/ ? "gzip" : \
+                   how ~ /^zstd/ ? "zstd" : "plain"
+            code = code ":" count ":" t "t"
+            if (match(how, /by members from byte [0-9]+/)) code = code "+members@" substr(how, RSTART + 21, RLENGTH - 21)
+            if (match(how, /on one thread from byte [0-9]+/)) code = code "+one-thread@" substr(how, RSTART + 24, RLENGTH - 24)
+            out = out (out == "" ? "" : ",") code
+        }
+        printf "%s\t%s", (out == "" ? "NA" : out), share }'
+}
 
 use_time=0; [ -x /usr/bin/time ] && use_time=1
 use_perf=0
@@ -155,6 +198,7 @@ qcmsa=${QCMSA:-1}
 {
     echo "date: $(date -Is)"; echo "host: $(hostname)"; echo "job: ${SLURM_JOB_ID:-none}"
     echo "threads: $threads (CPUs this process may use: $(nproc))"
+    echo "cold reads: $([ $cold_reads = 1 ] && echo "yes, the read files dropped from the page cache before each protal run" || echo no)"
     echo "protal: $("$protal" --version 2>&1 | head -3 | tr '\n' ' ')"
     echo "database: $db, $(du -shL "$db" 2> /dev/null | cut -f1)"
     df -hT "$db" 2> /dev/null | tail -1 | awk '{ print "database file system: " $2 " (" $1 ")" }'
@@ -248,7 +292,7 @@ timed() {
 # without /usr/bin/time.
 mem() { [ "$rss" = NA ] || printf ' %sGb' "$rss"; }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\taligning_cpu_s\taligning_cores\treader_s_per_thread\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\taligning_cpu_s\taligning_cores\treader_s_per_thread\tinput\treader_share\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 # The tables of the steps this run leaves out, left in OUT_DIR by an earlier run there: removed, so that neither the
 # summary below nor a reader takes them for this run's (a run without --sylph printed the sylph medians of an older one).
@@ -293,6 +337,7 @@ for spec in "$@"; do
         cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa)
         # shellcheck disable=SC2206
         cmd+=(${PROTAL_ARGS:-})
+        drop_reads "$r1" ${r2:+"$r2"}
         timed "$log" $use_perf "${cmd[@]}" || { echo "protal failed on $name (run $rep), see $log" >&2; tail -5 "$log" >&2; continue; }
         perf_counters
         # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused by the k-mer
@@ -323,15 +368,18 @@ for spec in "$@"; do
         later="^Loading the profiling's tables beside the alignment took "
         tables=$(printf '%s\t%s\t%s' "$(took 'Loading the taxonomy, models and tables' "$log")" "$(number_after "$later" 'took' "$log")" \
                  "$(number_after "$later" 'waited' "$log")")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+        input=$(input_of "$name" "$log")
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
             "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" \
             "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" \
             "$(peak_after 'the genome preload' "$log")" "$(peak_after 'loading the index' "$log")" "$(peak_after aligning "$log")" \
-            "$(peak_after profiling "$log")" "$seed_fates" "$indel" "$tables" "$(aligning_cpu "$run" "$name")" >> "$out/runs.tsv"
+            "$(peak_after profiling "$log")" "$seed_fates" "$indel" "$tables" "$(aligning_cpu "$run" "$name")" "$input" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
-        echo "$name run $rep: ${wall} s$(mem)"
+        # A run whose threads spent a quarter or more of the alignment getting reads: its input held it back.
+        held=$(printf '%s' "$input" | awk -F'\t' '$2 != "NA" && $2 >= 0.25 { printf " (the input held the alignment back: %d%% of it getting reads; %s)", 100 * $2, $1 }')
+        echo "$name run $rep: ${wall} s$(mem)$held"
         # The last run's SAM for the cohort run, which profiles it again with the other samples'.
         if [ $cohort = 1 ] && [ "$rep" = "$repeats" ]; then
             sam=$(ls "$run/$name".sam* 2> /dev/null | head -1)

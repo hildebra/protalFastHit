@@ -224,7 +224,14 @@ about 2.6 times one decoded in order. A zstd file's frames are independent, as B
 decompressed on as many threads as a BGZF file's: protal's simulator (a frame per batch of reads) and
 `pzstd` write many frames, `zstd -T` one (read on one thread all the same); a frame whose header does not
 say its size (`cat reads.fq | zstd`) and the rest of the file after it are read as a stream. A pipe is
-read on one thread. `--verbose` says how each file is read. For runs on many threads, BGZF is still the
+read on one thread. A regular file's next 64 MB are asked to be read ahead as it is read, so that a
+file read from a network file system for the first time arrives before it is needed. After each
+sample's alignment the log says how each of its files was read and how long the alignment waited for
+them, e.g. `Sample s1 input: s1_R1.fq.gz gzip of 22606 members, inflated by members on 4 threads; ...;
+the 32 alignment threads spent 1.20 s each getting reads, 5% of the alignment's 24.20 s; 32 alignment
+and 10 reading threads on 84 CPUs`. A quarter or more of the alignment spent getting reads ("the input
+held the alignment back") means the input was the limit; `--verbose` also says how each file is read
+as it is opened. For runs on many threads, BGZF is still the
 fastest and the cheapest: `bgzip -@ 8 -c reads.fq > reads.fq.gz` (or `zcat reads.fq.gz | bgzip -@ 8 >
 reads.bgz.fq.gz`) turns a gzip file into BGZF. `PROTAL_INFLATE_THREADS=N` in the environment sets the
 threads per gzip or zstd file.

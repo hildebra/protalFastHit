@@ -19,10 +19,22 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 
 namespace protal {
+
+    // Whether read files are asked to be read ahead of where they are read (ParallelGzip's mapping, ThreadedGzStreambuf's
+    // reads): PROTAL_READ_AHEAD=0 in the environment turns it off, to compare runs reading their input cold.
+    inline bool ReadAheadWanted() {
+        static bool const wanted = [] {
+            char const* env = std::getenv("PROTAL_READ_AHEAD");
+            return !(env && std::strcmp(env, "0") == 0);
+        }();
+        return wanted;
+    }
 
     class ParallelGzip {
     public:
@@ -52,6 +64,8 @@ namespace protal {
         static constexpr uint64_t kNotStopped = UINT64_MAX;
         uint64_t StoppedAt() const;
         size_t MembersRead() const;
+        // The members begun so far (the file's members, once it is read; the caller's thread's, while Read is not running).
+        size_t MembersBegun() const;
 
         // How the file's ranges were decoded so far: pieces decoded ahead by the workers and used, ranges the reader's
         // thread decoded in order, ranges decoded on to their member's end (no piece start after them, or a corrupt or
@@ -63,8 +77,8 @@ namespace protal {
         Counts counts() const;
 
         // For tests: the bytes of the compressed file per piece of the readers opened from now on (0: kChunkBytes), so
-        // that a small file has many, and how far ahead of the reader's thread the workers begin (pieces; 0: 2 per
-        // thread and 4), so that they decode pieces the reader then takes even in a small file.
+        // that a small file has many, and how far ahead of the reader's thread the workers begin (pieces; 0: 1 per
+        // thread and 2), so that they decode pieces the reader then takes even in a small file.
         static void SetPieceBytes(size_t bytes, size_t gap = 0) {
             PieceBytesSetting().store(bytes, std::memory_order_relaxed);
             GapSetting().store(gap, std::memory_order_relaxed);

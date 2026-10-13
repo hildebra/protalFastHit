@@ -339,6 +339,7 @@ namespace protal::classify {
                                     &bm_anchor_recovery_global, &bm_alignment_global, &alignment_handler_global.m_bm_screen,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
+        statistics.reader_seconds = bm_reader_global.Seconds();  // for the sample's input line (RunProtal)
         return statistics;
     }
 
@@ -487,6 +488,7 @@ namespace protal::classify {
                                     &aligner_global.GetAlignmentHandler().m_bm_indel_bound,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
+        statistics.reader_seconds = bm_reader_global.Seconds();  // for the sample's input line (RunProtal)
         return statistics;
     }
 
@@ -1050,6 +1052,7 @@ namespace protal::classify {
                                     &bm_anchor_recovery_global, &bm_alignment_global, &alignment_handler_global.m_bm_screen,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
+        statistics.reader_seconds = bm_reader_global.Seconds();  // for the sample's input line (RunProtal)
         return statistics;
     }
 

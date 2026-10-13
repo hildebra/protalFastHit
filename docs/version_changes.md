@@ -49,6 +49,18 @@ for this page.
   - `measure_performance.sh --test_sparse` gives `--sparse_first_pick hash` with `--sparse_seeding`, which stands
     for an index of the hash pick's cores.
 
+- **How the input was read, in every run's log** (2026-10-13). After each sample's alignment a line says how each read
+  file was read (format, members, threads; where it went on by members or fell back to one thread). It also says the
+  share of the alignment its threads spent getting reads, a quarter or more being "the input held the alignment
+  back", and the alignment and reading threads against the CPUs the run may use. `measure_performance.sh` writes it to
+  `runs.tsv` (`input`, `reader_share`) and flags such runs; `--cold_reads` drops the read files from the page cache
+  before each run.
+  - Read files are asked to be read ahead (the next 64 MB); `PROTAL_READ_AHEAD=0` turns it off.
+  - A gzip file read in pieces holds 20-36% less memory (a shorter look-ahead: ~0.35 GB less for a paired-end run on
+    32 threads).
+
+  Their speed is to be measured on a cluster: the local machine was loaded by other jobs
+  ([report](claude/2026-10-13-reading-input/README.md), [running.md](running.md#read-files)).
 - **gzip files of many members on several threads** (2026-10-13). 0.8.3 read a gzip file of many small members
   (members one after the other, not BGZF) in pieces at about a third of one thread's speed. Its block finder scanned
   the whole file for blocks to start a piece at and found none. At r226 the paired-end sample's alignment took 58 s

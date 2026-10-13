@@ -25,6 +25,7 @@ namespace protal {
         size_t best_anchor_seed_count = 0;
         int thread_num = -1;
         size_t num_threads = 0;
+        double reader_seconds = 0;  // the alignment threads' time getting reads (the "Sequence reader" stage), summed over them
 
         void Join(Statistics& statistics) {
             reads += statistics.reads;

@@ -1172,6 +1172,15 @@ namespace protal {
                 std::string read_problem;   // why reading failed, if it says
                 size_t reads_read = 0;
                 size_t bases_read = 0;  // for the header's ScannedReadsLine
+                std::vector<ThreadedGzStreambuf::FileRead> files_read;  // how each file was read, for the input line
+                double reader_seconds = 0;                              // the alignment threads' time getting reads
+                size_t reading_threads = 0;                             // the threads reading them beside the alignment's
+                // A stream's reading threads: its files', one file at a time.
+                auto stream_threads = [](ThreadedGzIstream& is) {
+                    unsigned threads = 0;
+                    for (auto const& file : is.rdbuf()->files_read()) threads = std::max(threads, file.threads);
+                    return size_t{ threads };
+                };
                 std::string const read_files = options.ReadFilesText(index);
                 // An input that cannot be opened reads as empty: say why instead.
                 auto cannot_read = [&](ThreadedGzIstream& is) {
@@ -1225,11 +1234,14 @@ namespace protal {
                                          long_read_aligner.GetAnchorFinder().m_seeding);
                     reads_read = protal_stats.reads;
                     bases_read = protal_stats.bases;
+                    reader_seconds = protal_stats.reader_seconds;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
                     read_success = reader.Success();
                     is.close();
+                    files_read = is.rdbuf()->files_read();
+                    reading_threads = stream_threads(is);
                 } else if (read_type == ReadType::Single) {
                     ThreadedGzIstream is { first_files, tell_input };
                     if (cannot_read(is)) continue;
@@ -1255,6 +1267,7 @@ namespace protal {
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
                     bases_read = protal_stats.bases;
+                    reader_seconds = protal_stats.reader_seconds;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
@@ -1265,6 +1278,8 @@ namespace protal {
                                        "column) for PacBio or ONT reads";
                     }
                     is.close();
+                    files_read = is.rdbuf()->files_read();
+                    reading_threads = stream_threads(is);
                 } else {
                     // Each file inflates in a thread of its own (ThreadedGzStream.h), outside the reader lock. Of a sample's
                     // lanes, the batches end with each lane's files, so a lane whose mates differ in number fails it.
@@ -1305,6 +1320,7 @@ namespace protal {
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
                     bases_read = protal_stats.bases;
+                    reader_seconds = protal_stats.reader_seconds;
                     // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     read_problem = read_error(is1);
@@ -1321,9 +1337,32 @@ namespace protal {
                     }
                     is1.close();
                     is2.close();
+                    files_read = is1.rdbuf()->files_read();
+                    files_read.insert(files_read.end(), is2.rdbuf()->files_read().begin(), is2.rdbuf()->files_read().end());
+                    reading_threads = stream_threads(is1) + stream_threads(is2);
                 }
                 bm_classify_sample.Stop();
                 bm_classify_sample.PrintResults();
+                // How the sample's files were read, and how long the alignment threads spent getting reads: a share of a
+                // quarter or more of the alignment's time means the input held it back (BGZF reads fastest; running.md).
+                {
+                    std::cout << "Sample " << options.GetSampleId(index) << " input: ";
+                    for (size_t f = 0; f < files_read.size(); f++) {
+                        std::cout << (f ? "; " : "") << std::filesystem::path(files_read[f].path).filename().string() << ' '
+                                  << files_read[f].how;
+                    }
+                    double const aligning = bm_classify_sample.Seconds();
+                    double const per_thread = reader_seconds / static_cast<double>(std::max<size_t>(options.GetThreads(), 1));
+                    double const share = aligning > 0 ? per_thread / aligning : 0;
+                    size_t const cpus = AvailableCpus();
+                    std::cout << std::fixed << std::setprecision(2) << "; the " << options.GetThreads()
+                              << " alignment threads spent " << per_thread << " s each getting reads, "
+                              << std::setprecision(0) << 100 * share << "% of the alignment's " << std::setprecision(2)
+                              << aligning << " s" << (share >= 0.25 ? ": the input held the alignment back" : "")
+                              << std::defaultfloat << "; " << options.GetThreads() << " alignment and " << reading_threads
+                              << " reading threads on " << cpus << " CPUs"
+                              << (options.GetThreads() + reading_threads > cpus ? ", more threads than CPUs" : "") << std::endl;
+                }
                 if (options.Stage1Probe()) WriteStage1Probe(options, index, db, !IsLongReadType(read_type));
 
                 if (truncated) {

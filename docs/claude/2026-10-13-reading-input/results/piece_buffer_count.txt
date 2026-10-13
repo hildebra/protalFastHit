@@ -1,0 +1,6 @@
+# scripts/piece_buffer_count.sh: one.gz (1.48 GB of FASTQ as one gzip member), the look-ahead as it was (gap 2T + 4,
+# ahead gap + 2T), WSL cores 0-3. Buffers made = TakeBuffer finding the pool empty; live = taken and not given back.
+r1	buffers made 29, live at most 15, pooled at the end 13 (178 MB of capacity), ahead 12 slots, gap 8	threads 2	wall 0.716	maxrss_mb 215
+r2	buffers made 28, live at most 14, pooled at the end 13 (177 MB of capacity), ahead 12 slots, gap 8	threads 2	wall 0.753	maxrss_mb 244
+r1	buffers made 52, live at most 38, pooled at the end 33 (454 MB of capacity), ahead 20 slots, gap 12	threads 4	wall 0.784	maxrss_mb 453
+r2	buffers made 58, live at most 38, pooled at the end 36 (494 MB of capacity), ahead 20 slots, gap 12	threads 4	wall 0.749	maxrss_mb 430
