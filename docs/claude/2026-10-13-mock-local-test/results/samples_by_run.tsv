@@ -1,0 +1,23 @@
+run	set	sample	read_type	truth	kind	group	reads	bases	cut	called	unknown	unknown_expected	tp	fp	fn	precision	recall	f1	recall_0.1pct	recall_1pct	fp_share	l1	bray_curtis	absent_called	present_missed	false_species
+0.8.3_4dfc549	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	11	0.445817	0.00629948	11	0	4	1	0.733333	0.846154	0.916667	0.909091	0	0.91833	0.459165	-	-	
+0.8.3_4dfc549	d6331_host	d6331_host_SRR38158106	pe	d6331	abundance	host_1e8	1000000	300952408	1	0	1	0.00629948	0	0	15	NA	0	0	0	0	0	1	1	-	-	
+0.8.3_4dfc549	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	63	0.76433	0	62	1	1	0.984127	0.984127	0.984127	0.984127	1	0.00023808	0.46314	0.23157	-	-	s__Bifidobacterium catenulatum
+0.8.3_4dfc549	d6331_hifi	d6331_hifi_SRR13128012	pb	d6331	abundance	d6331_hifi	118876	1000000611	1	15	0.141521	0.00629948	13	2	2	0.866667	0.866667	0.866667	0.916667	0.909091	0.00439006	0.765202	0.382601	-	-	s__Escherichia sp004211955,s__Veillonella sp900766125
+0.8.3_4dfc549	atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	atcc_msa1003	abundance	-	100789	1000006101	1	18	0.269472	0	17	1	3	0.944444	0.85	0.894737	0.866667	0.857143	0.0109357	0.462277	0.231138	-	-	s__Escherichia sp004211955
+0.8.3_4dfc549	d6331_ont	d6331_ont_ERR15459768	ont	d6331	abundance	d6331_microbench	186729	1000002419	1	14	0.152808	0.00629948	14	0	1	1	0.933333	0.965517	1	1	0	0.465885	0.232943	-	-	
+0.8.3_4dfc549	strain_mixes	strain_mixes_ERR13964287	ont	ecoli_kpneumoniae	closed	Eco04800_Eco04851_Eco04723	94184	670802203	0	1	0.105251	0	1	0	1	1	0.5	0.666667	NA	NA	0	NA	NA	-	-	
+0.8.3_4dfc549	nibsc_multilab	nibsc_SRR36344676	pe	negative	negative	-	40	12080	0	0	1	0	NA	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	
+0.8.3_4dfc549	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	52	0.11285	NA	52	0	65	1	0.444444	0.615385	NA	NA	0	NA	NA	-	-	
+0.8.3_4dfc549	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186484	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+0.8.3_4dfc549	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.133448	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.188796	0.094398	-	-	
+0.8.3_4dfc549	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.197388	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.407368	0.203684	-	-	
+0.8.3_4dfc549_ungated	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	11	0.44573	0.00629948	11	0	4	1	0.733333	0.846154	0.916667	0.909091	0	0.918227	0.459114	-	-	
+0.8.3_4dfc549_ungated	d6331_host	d6331_host_SRR38158106	pe	d6331	abundance	host_1e8	1000000	300952408	1	0	1	0.00629948	0	0	15	NA	0	0	0	0	0	1	1	-	-	
+0.8.3_4dfc549_ungated	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	63	0.764327	0	62	1	1	0.984127	0.984127	0.984127	0.984127	1	0.00023805	0.463071	0.231536	-	-	s__Bifidobacterium catenulatum
+0.8.3_4dfc549_ungated	d6331_hifi	d6331_hifi_SRR13128012	pb	d6331	abundance	d6331_hifi	118876	1000000611	1	15	0.141519	0.00629948	13	2	2	0.866667	0.866667	0.866667	0.916667	0.909091	0.00439188	0.765202	0.382601	-	-	s__Escherichia sp004211955,s__Veillonella sp900766125
+0.8.3_4dfc549_ungated	atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	atcc_msa1003	abundance	-	100789	1000006101	1	18	0.268249	0	17	1	3	0.944444	0.85	0.894737	0.866667	0.857143	0.0109224	0.463562	0.231781	-	-	s__Escherichia sp004211955
+0.8.3_4dfc549_ungated	d6331_ont	d6331_ont_ERR15459768	ont	d6331	abundance	d6331_microbench	186729	1000002419	1	14	0.152808	0.00629948	14	0	1	1	0.933333	0.965517	1	1	0	0.465885	0.232943	-	-	
+0.8.3_4dfc549_ungated	strain_mixes	strain_mixes_ERR13964287	ont	ecoli_kpneumoniae	closed	Eco04800_Eco04851_Eco04723	94184	670802203	0	1	0.105251	0	1	0	1	1	0.5	0.666667	NA	NA	0	NA	NA	-	-	
+0.8.3_4dfc549_ungated	nibsc_multilab	nibsc_SRR36344676	pe	negative	negative	-	40	12080	0	0	1	0	NA	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	
+0.8.3_4dfc549_ungated	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	50	0.113269	NA	50	0	67	1	0.42735	0.598802	NA	NA	0	NA	NA	-	-	
+0.8.3_4dfc549_ungated	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.185636	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-

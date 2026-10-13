@@ -1,0 +1,15 @@
+[19:45:36 +0:00:03] 1/11 converting GTDB r226 (convert.log), in the background while the genome table is made
+[19:45:41 +0:00:09] 2/11 genome table (genomes.tsv, genome_table.txt): 893 genomes of 759 species (Archaea 69, Bacteria 690); a simulated species is another gen
+[19:46:07 +0:00:35] 3/11 species clouds (species_clouds.tsv, species_clouds.log): every species' nearest congeners by their references' marker genes; congeners 
+[19:46:07 +0:00:35] 4/11 in-silico strains of 0.137 of the species with one genome and of 0.25 of those with real strains (insilico_strains.log, genomes_simulat
+[19:46:07 +0:00:35] 5/11 training database (training_db, training_db_index.log): 237 species left out, 3 genus clades (12 species) and 225 species alone (model_
+[19:46:40 +0:01:08]     built training_db in 0:00:30, peak memory 3.9 GB; database.protal 111 MB; full_reference.fna.zst removed (22 MB); its files written in 0
+[19:47:08 +0:01:36] 6/11 training data (training_data.log): 200 pe, 48 pb, 48 ont samples
+[19:53:05 +0:07:33]     built protal_db in the background in 0:06:25, peak memory 4.1 GB; database.protal 152 MB; full_reference.fna.zst removed (31 MB)
+[19:57:26 +0:11:54] 7/11 independent test set (test_data.log): 30 pe, 16 pb, 16 ont samples
+[19:57:26 +0:11:54] 8/11 training the pe, pb, ont models (classifier_training*.log) in parallel, 1 thread each
+[19:59:25 +0:13:53] 9/11 checking that protal scores the models as the trainer does (parity.log)
+[19:59:50 +0:14:18] 10/11 checking the samples' composition against the truth (model_logs/composition_accuracy*.tsv)
+[19:59:51 +0:14:19] 11/11 adding the pe, pb, ont models to protal_db (final_package.log)
+[19:59:54 +0:14:22]     added in 0:00:03; database.protal 151 MB
+[19:59:54 +0:14:22] Ready protal database: /home/falk/mocktest/build/protal_db; database.protal 151 MB; model evaluation: /home/falk/mocktest/build/model_logs (

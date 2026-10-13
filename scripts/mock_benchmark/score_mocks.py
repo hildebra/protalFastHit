@@ -106,9 +106,10 @@ def chosen(rows, sets):
 # ---------------------------------------------------------------------------------------------------------------
 
 def profiles_of(folder):
-    """{sample: path of its .profile} under a run folder."""
+    """{sample: path of its .profile} anywhere under a run folder (profiles/, or the set's folder itself, where protal
+    writes a map's <PREFIX>.profile without a PROFILE column)."""
     found = {}
-    for path in glob.glob(os.path.join(folder, "**", "profiles", "*.profile"), recursive=True):
+    for path in glob.glob(os.path.join(folder, "**", "*.profile"), recursive=True):
         found[os.path.basename(path)[:-len(".profile")]] = path
     return found
 
@@ -153,9 +154,12 @@ def run_command(command, folder, log_name):
 def run_protal(args, folder, todo):
     map_path = os.path.join(folder, "map.tsv")
     with open(map_path, "w") as fh:
-        fh.write(f"#OUTPUT_DIR\t{folder}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+        # SAM and PROFILE named, so that they go to alignments/ and profiles/ (without them protal writes
+        # <PREFIX>.sam.zst and <PREFIX>.profile into #OUTPUT_DIR itself)
+        fh.write(f"#OUTPUT_DIR\t{folder}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE\n")
         for s in todo:
-            fh.write(f"{s['sample']}\t{s['sample']}\t{s['first']}\t{s['second']}\t{s['read_type']}\n")
+            fh.write(f"{s['sample']}\t{s['sample']}\t{s['first']}\t{s['second']}\t{s['read_type']}\t"
+                     f"{s['sample']}.sam.zst\t{s['sample']}.profile\n")
     command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
     if not args.strains:
         command.append("--no_strains")

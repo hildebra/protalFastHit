@@ -1,0 +1,2 @@
+set	group	sample_a	sample_b	read_type_a	read_type_b	bray_curtis	jaccard
+d6331_pe_labs	d6331_pe_labs	d6331_auckland_SRR33710519	d6331_hku_SRR23926922	pe	pe	0.158166	1

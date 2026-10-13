@@ -1,0 +1,13 @@
+set	sample	read_type	first	second	reads	bases	cut
+atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	/home/falk/Mocks/reads/atcc1003_hifi/atcc1003_hifi_SRR11606871/SRR11606871.fq.gz	-	100789	1000006101	1
+d6331_dna	d6331_dna_SRR38158090	pe	/home/falk/Mocks/reads/d6331_dna/d6331_dna_SRR38158090/SRR38158090_1.fq.gz	/home/falk/Mocks/reads/d6331_dna/d6331_dna_SRR38158090/SRR38158090_2.fq.gz	1000000	301295831	1
+d6331_hifi	d6331_hifi_SRR13128012	pb	/home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz	-	118876	1000000611	1
+d6331_host	d6331_host_SRR38158106	pe	/home/falk/Mocks/reads/d6331_host/d6331_host_SRR38158106/SRR38158106_1.fq.gz	/home/falk/Mocks/reads/d6331_host/d6331_host_SRR38158106/SRR38158106_2.fq.gz	1000000	300952408	1
+d6331_ont	d6331_ont_ERR15459768	ont	/home/falk/Mocks/reads/d6331_ont/d6331_ont_ERR15459768/ERR15459768.fq.gz	-	186729	1000002419	1
+d6331_pe_labs	d6331_auckland_SRR33710519	pe	/home/falk/Mocks/reads/d6331_pe_labs/d6331_auckland_SRR33710519/SRR33710519_1.fq.gz	/home/falk/Mocks/reads/d6331_pe_labs/d6331_auckland_SRR33710519/SRR33710519_2.fq.gz	1000000	269809274	1
+d6331_pe_labs	d6331_hku_SRR23926922	pe	/home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz	/home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_2.fq.gz	1000000	300000000	1
+hcom1a_dropouts	hcom1a_SRR24799833	pe	/home/falk/Mocks/reads/hcom1a_dropouts/hcom1a_SRR24799833/SRR24799833_1.fq.gz	/home/falk/Mocks/reads/hcom1a_dropouts/hcom1a_SRR24799833/SRR24799833_2.fq.gz	1000000	302000000	1
+hcom2_invitro	hcom2_SRR21819229	pe	/home/falk/Mocks/reads/hcom2_invitro/hcom2_SRR21819229/SRR21819229_1.fq.gz	/home/falk/Mocks/reads/hcom2_invitro/hcom2_SRR21819229/SRR21819229_2.fq.gz	1000000	292000000	1
+nibsc_multilab	nibsc_SRR36344676	pe	/home/falk/Mocks/reads/nibsc_multilab/nibsc_SRR36344676/SRR36344676_1.fq.gz	/home/falk/Mocks/reads/nibsc_multilab/nibsc_SRR36344676/SRR36344676_2.fq.gz	40	12080	0
+strain_mixes	strain_mixes_ERR13964287	ont	/home/falk/Mocks/reads/strain_mixes/strain_mixes_ERR13964287/ERR13964287.fq.gz	-	94184	670802203	0
+treichel	treichel_ERR14788576	pe	/home/falk/Mocks/reads/treichel/treichel_ERR14788576/ERR14788576_1.fq.gz	/home/falk/Mocks/reads/treichel/treichel_ERR14788576/ERR14788576_2.fq.gz	1000000	302000000	1

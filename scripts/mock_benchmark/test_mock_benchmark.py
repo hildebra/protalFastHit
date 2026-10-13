@@ -226,6 +226,8 @@ class ScoreTest(unittest.TestCase):
         write_profile(os.path.join(profiles, "s6.profile"), [("F", 0.5)], 0.5)
         write_profile(os.path.join(self.out, "other_run", "set1", "chunk_0", "profiles", "s1.profile"),
                       [("A", 0.6), ("B", 0.3)], 0.1)
+        # where protal puts a map's <PREFIX>.profile without a PROFILE column: the set's folder itself
+        write_profile(os.path.join(self.out, "other_run", "set1", "s2.profile"), [("A", 0.6), ("B", 0.3)], 0.1)
         os.makedirs(os.path.join(self.out, "reads"))  # download_mocks.py's folder: not a run
         self.samples = os.path.join(root, "samples.tsv")
         with open(self.samples, "w") as fh:
@@ -312,8 +314,9 @@ for line in lines[2:]:
         run_folder = os.path.join(reads, "0.8.3_1dcc325")  # the binary's version and commit
         with open(os.path.join(run_folder, "a", "map.tsv")) as fh:
             lines = fh.read().splitlines()
-        self.assertEqual(lines[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE")
-        self.assertEqual(lines[2:], ["a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe", "a_2\ta_2\t/r/a_2.fq.gz\t-\tont"])
+        self.assertEqual(lines[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE")
+        self.assertEqual(lines[2:], ["a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.sam.zst\ta_1.profile",
+                                     "a_2\ta_2\t/r/a_2.fq.gz\t-\tont\ta_2.sam.zst\ta_2.profile"])
         with open(calls) as fh:
             called = fh.read().splitlines()
         self.assertEqual(len(called), 1)

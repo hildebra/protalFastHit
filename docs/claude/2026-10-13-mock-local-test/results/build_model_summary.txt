@@ -1,0 +1,88 @@
+Presence models of /home/falk/mocktest/build/protal_db, taxa scored at the knob given (0.5, or the model's own, as protal calls by default): TP present and called, FP absent and called, TN absent and not called, FN present and not called; FP rate FP / (FP + TN), FN rate FN / (TP + FN). species held out: each taxon scored by models that did not see its species; independent test set: samples of another design, scored by the final model; <scenario>: hold-out: the scenario's samples of the test set (never trained on), hold-in: its training samples, scored with species held out, or in sample (by the final model, fitted on them); marker truth: present only the species whose genomes gave reads on a marker gene (the others left out, called or not; those without a row counted as FN), as protal calls. Details: trained_model*.report.txt
+
+read type  evaluated on                        knob  taxa  TP    FP   TN    FN   sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample
+pe         species held out                    0.5   8215  4336  109  3644  126  0.9718       0.9710       0.9755     0.9736  0.0290   0.0282   0.55
+pe         independent test set                0.58  1304  679   14   573   38   0.9470       0.9761       0.9798     0.9631  0.0239   0.0530   0.47
+pe         marker truth: species held out      0.58  8173  4320  94   3659  100  0.9774       0.9750       0.9787     0.9780  0.0250   0.0226   0.47
+pe         marker truth: independent test set  0.58  1292  679   14   573   26   0.9631       0.9761       0.9798     0.9714  0.0239   0.0369   0.47
+pb         species held out                    0.5   903   733   13   130   27   0.9645       0.9091       0.9826     0.9734  0.0909   0.0355   0.27
+pb         independent test set                0.5   307   257   7    33    10   0.9625       0.8250       0.9735     0.9680  0.1750   0.0375   0.44
+pb         marker truth: species held out      0.5   890   732   13   130   15   0.9799       0.9091       0.9826     0.9812  0.0909   0.0201   0.27
+pb         marker truth: independent test set  0.5   298   255   7    33    3    0.9884       0.8250       0.9733     0.9808  0.1750   0.0116   0.44
+ont        species held out                    0.5   942   745   18   151   28   0.9638       0.8935       0.9764     0.9701  0.1065   0.0362   0.38
+ont        independent test set                0.5   321   253   4    48    16   0.9405       0.9231       0.9844     0.9620  0.0769   0.0595   0.25
+ont        marker truth: species held out      0.5   942   744   18   151   29   0.9625       0.8935       0.9764     0.9694  0.1065   0.0375   0.38
+ont        marker truth: independent test set  0.5   316   253   4    48    11   0.9583       0.9231       0.9844     0.9712  0.0769   0.0417   0.25
+
+Composition of the pe samples against their truth (the model's calls, trained_model.calls.tsv.gz): /home/falk/mocktest/build/model_logs/composition_accuracy.tsv
+training set: 200 samples
+  without a host (200):
+    explained share - its truth given the calls: +0.0127 (10-90%: -0.0406 to +0.0919, n=200)
+    explained share - the share of the database's species: +0.0013 (10-90%: -0.0594 to +0.0743, n=200)
+    unknown share (?) - its truth given the calls: -0.0238 (10-90%: -0.1122 to +0.0567, n=200)
+    unknown share (?) - the cells of the species the database lacks: -0.0177 (10-90%: -0.1016 to +0.0758, n=200)
+    average genome size / the called present species' - 1: +0.0271 (10-90%: -0.0235 to +0.0946, n=200)
+    average genome size / all cells' - 1: +0.0419 (10-90%: -0.0619 to +0.1861, n=200)
+    species' depth / their reads' - 1: -0.0154 (10-90%: -0.3127 to +0.6863, n=4329)
+    species' genome size / their genomes' - 1: +0.0005 (10-90%: -0.0400 to +0.1624, n=4329)
+    species missing at the median depth / those present and not called: +1.4781 (10-90%: +0.3358 to +6.2687, n=200); truth within [estimate at the median / 2, at the lowest] in 112 of 200
+test set: 30 samples
+  without a host (30):
+    explained share - its truth given the calls: +0.0168 (10-90%: -0.0414 to +0.1755, n=30)
+    explained share - the share of the database's species: +0.0054 (10-90%: -0.0444 to +0.1635, n=30)
+    unknown share (?) - its truth given the calls: -0.0187 (10-90%: -0.1325 to +0.0513, n=30)
+    unknown share (?) - the cells of the species the database lacks: -0.0108 (10-90%: -0.1261 to +0.0583, n=30)
+    average genome size / the called present species' - 1: +0.0153 (10-90%: -0.0259 to +0.1847, n=30)
+    average genome size / all cells' - 1: +0.0230 (10-90%: -0.0588 to +0.2964, n=30)
+    species' depth / their reads' - 1: -0.0155 (10-90%: -0.3069 to +0.7851, n=679)
+    species' genome size / their genomes' - 1: +0.0000 (10-90%: -0.0478 to +0.1603, n=679)
+    species missing at the median depth / those present and not called: +2.0921 (10-90%: +0.5783 to +12.6684, n=30); truth within [estimate at the median / 2, at the lowest] in 13 of 30
+
+Composition of the pb samples against their truth (the model's calls, trained_model_pb.calls.tsv.gz): /home/falk/mocktest/build/model_logs/composition_accuracy_pb.tsv
+training set: 48 samples
+  without a host (48):
+    explained share - its truth given the calls: +0.1584 (10-90%: -0.0086 to +0.5978, n=48)
+    explained share - the share of the database's species: +0.1026 (10-90%: -0.1438 to +0.4398, n=48)
+    unknown share (?) - its truth given the calls: -0.1801 (10-90%: -0.4116 to +0.0082, n=48)
+    unknown share (?) - the cells of the species the database lacks: -0.1293 (10-90%: -0.3029 to +0.1790, n=48)
+    average genome size / the called present species' - 1: +0.0108 (10-90%: -0.0864 to +0.1130, n=48)
+    average genome size / all cells' - 1: +0.0397 (10-90%: -0.0983 to +0.3034, n=48)
+    species' depth / their reads' - 1: +0.2036 (10-90%: -0.5804 to +2.0529, n=733)
+    species' genome size / their genomes' - 1: +0.0014 (10-90%: -0.0431 to +0.1598, n=733)
+    species missing at the median depth / those present and not called: +0.2810 (10-90%: +0.0000 to +1.7222, n=48); truth within [estimate at the median / 2, at the lowest] in 27 of 48
+test set: 16 samples
+  without a host (16):
+    explained share - its truth given the calls: +0.2377 (10-90%: -0.0192 to +0.5592, n=16)
+    explained share - the share of the database's species: +0.1616 (10-90%: -0.0398 to +0.3963, n=16)
+    unknown share (?) - its truth given the calls: -0.2002 (10-90%: -0.4693 to +0.0594, n=16)
+    unknown share (?) - the cells of the species the database lacks: -0.1554 (10-90%: -0.2796 to +0.0621, n=16)
+    average genome size / the called present species' - 1: +0.0159 (10-90%: -0.1084 to +0.3223, n=16)
+    average genome size / all cells' - 1: +0.0230 (10-90%: -0.1139 to +0.4489, n=16)
+    species' depth / their reads' - 1: +0.2881 (10-90%: -0.5363 to +2.9496, n=257)
+    species' genome size / their genomes' - 1: +0.0014 (10-90%: -0.0478 to +0.1598, n=257)
+    species missing at the median depth / those present and not called: +0.1249 (10-90%: +0.0000 to +1.4174, n=16); truth within [estimate at the median / 2, at the lowest] in 7 of 16
+
+Composition of the ont samples against their truth (the model's calls, trained_model_ont.calls.tsv.gz): /home/falk/mocktest/build/model_logs/composition_accuracy_ont.tsv
+training set: 48 samples
+  without a host (48):
+    explained share - its truth given the calls: -0.0236 (10-90%: -0.1962 to +0.1697, n=48)
+    explained share - the share of the database's species: -0.0724 (10-90%: -0.3106 to +0.1162, n=48)
+    unknown share (?) - its truth given the calls: -0.0135 (10-90%: -0.1587 to +0.1964, n=48)
+    unknown share (?) - the cells of the species the database lacks: +0.0253 (10-90%: -0.1273 to +0.3416, n=48)
+    average genome size / the called present species' - 1: +0.0232 (10-90%: -0.0874 to +0.1258, n=48)
+    average genome size / all cells' - 1: +0.0643 (10-90%: -0.1233 to +0.2469, n=48)
+    species' depth / their reads' - 1: -0.1096 (10-90%: -0.6554 to +1.2759, n=745)
+    species' genome size / their genomes' - 1: +0.0014 (10-90%: -0.0376 to +0.1674, n=745)
+    species missing at the median depth / those present and not called: +0.7960 (10-90%: +0.1679 to +4.4944, n=48); truth within [estimate at the median / 2, at the lowest] in 26 of 48
+test set: 16 samples
+  without a host (16):
+    explained share - its truth given the calls: +0.0434 (10-90%: -0.1969 to +0.0966, n=16)
+    explained share - the share of the database's species: -0.0168 (10-90%: -0.2124 to +0.0785, n=16)
+    unknown share (?) - its truth given the calls: -0.0123 (10-90%: -0.2608 to +0.2164, n=16)
+    unknown share (?) - the cells of the species the database lacks: +0.0170 (10-90%: -0.2370 to +0.2285, n=16)
+    average genome size / the called present species' - 1: +0.0358 (10-90%: -0.0308 to +0.3045, n=16)
+    average genome size / all cells' - 1: +0.0644 (10-90%: -0.0556 to +0.9945, n=16)
+    species' depth / their reads' - 1: +0.0163 (10-90%: -0.6507 to +1.5631, n=253)
+    species' genome size / their genomes' - 1: +0.0014 (10-90%: -0.0478 to +0.1465, n=253)
+    species missing at the median depth / those present and not called: +0.6428 (10-90%: +0.1142 to +2.7149, n=16); truth within [estimate at the median / 2, at the lowest] in 13 of 16
+
