@@ -181,6 +181,7 @@ profiles went to `profiles/`. The fix:
 
 **Reproducing it.** `bash run_all.sh 4dfc5496c976032b429b081a04406411569b961b` in WSL, then `run_ungated.sh` and
 `run_more_pe.sh` (scratch copies of `samples.tsv`).
-- **Kept until the user decides:**
-  - `~/mocktest`: the clone (0.26 GB), the inputs (1.9 GB) and the build (2.0 GB with its genome store);
-  - `~/Mocks`: the reads and both runs (4.0 GB).
+- **Kept:** `~/Mocks` (4.2 GB): the reads, both run folders and their scores, and the reduced database
+  (`~/Mocks/reduced_db_r226`, with the build's `model_summary.txt`).
+- **Removed after the test:** `~/mocktest`, holding the clone (0.26 GB), the inputs (1.9 GB) and the build's work files
+  (2.0 GB). `run_all.sh` makes them again in about 20 minutes.
