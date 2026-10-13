@@ -2,7 +2,7 @@
 
 Date: 2026-10-13. Branch `audit-fixes`: the experiments on `ac4975e` with this change (`--flex_indels`) and another
 session's `--sparse_seeding`, then uncommitted, since `78dce73` ([its report](../2026-10-13-sparse-seeding/README.md));
-the change committed on `740de1f`, on which the test suites ran again.
+committed as `c027c94` on `3cde4f4`, built from `git archive` and tested there.
 
 Data: the small real world `~/realworld_sp_s1` (six GTDB r226 families, 530 real genomes, 170 species; its
 database and its paired-end test point `rl150_p100000`, 15 communities). ONT reads of those communities made by
@@ -116,7 +116,8 @@ keeps the setting), `PackedIndex.LookupsGiveTheSameSeedsAtEveryVectorLevel` (now
 `Options.FlexIndelsByReadTypeAndSample` (values, the map column, a bad value). End to end: `OntTest.test_flex_indels`
 (on the e2e ONT reads, 2% errors, 70% indels: every gene found once and at least as many as without; the map column
 gives one sample the option's records and the other the plain ones; a bad value exits 2).
-On `740de1f` with the change: unit 541 and end to end 171 pass (WSL, 4 cores; the AVX-512 tests skip).
+The commit `c027c94` (on `3cde4f4`), built from `git archive`: unit 543 and end to end 172 pass (WSL, 4 cores; the
+AVX-512 tests skip).
 
 ## 4. Without the option nothing changes
 
