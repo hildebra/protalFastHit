@@ -1,0 +1,32 @@
+# /home/falk/ecoli_dbg/features/atcc1003_hifi_SRR11606871.profile.truth_annotated
+# taxon 711 s__Escherichia sp004211955: truth 0, protal's probability 0.548681973654942, the model's here 0.548682; reference group: 12 tn taxa
+feature	value	group_median	percentile_in_group	mean_dP	max_dP
+top_identity	0.99839	0.96276	100	-0.4667	-0.3588
+excess_scaled_median	0.0102442	0.0412565	25	-0.1977	+0.0456
+gene_divergence_dispersion	85.1292	1	100	-0.1868	+0.0000
+third_position_share	0.916987	0.764801	100	-0.0937	-0.0103
+identity	0.986804	0.962134	100	-0.0925	-0.0806
+conserved_mismatch_ratio	0.628747	0.651937	42	-0.0845	+0.0692
+nonsynonymous_share	0.0299292	0.125245	25	-0.0769	+0.0000
+ancestry_congener_share	0.5815	0.290076	75	-0.0308	+0.0000
+failed_gene_share	0.328358	0.930519	8	-0.0258	+0.0000
+conserved_fast_depth_ratio	1.916	0	92	-0.0225	+0.0000
+depth	2.4927	0.00484984	100	-0.0184	+0.0000
+gene_presence_ratio	0.157339	0.50368	25	-0.0162	+0.0000
+mean_mapq	13	9.5	62	-0.0162	+0.0000
+db_nearest_congener	0.0266483	0.0312715	38	-0.0109	+0.0000
+ancestry_fixed_gain	0	0	33	-0.0106	+0.0000
+# features whose value is outside the group's range (percentile 0 or 100)
+RAF1	0.964467	median 0.656751	percentile 100	mean_dP -0.0000
+adjacent_support	0.989467	median 0.807807	percentile 100	mean_dP +0.0465
+depth	2.4927	median 0.00484984	percentile 100	mean_dP -0.0184
+em_fragments	367.359	median 3.43889	percentile 100	mean_dP -0.0000
+excess_high_share	0.118919	median 0.88694	percentile 0	mean_dP +0.0089
+fragments	242	median 2	percentile 100	mean_dP -0.0000
+fragments_all	470	median 5	percentile 100	mean_dP -0.0000
+gene_divergence_dispersion	85.1292	median 1	percentile 100	mean_dP -0.1868
+hit_gene_fraction	0.131313	median 0.00943396	percentile 100	mean_dP -0.0000
+identity	0.986804	median 0.962134	percentile 100	mean_dP -0.0925
+relative_spill	1.69939	median 0.474213	percentile 100	mean_dP -0.0000
+third_position_share	0.916987	median 0.764801	percentile 100	mean_dP -0.0937
+top_identity	0.99839	median 0.96276	percentile 100	mean_dP -0.4667

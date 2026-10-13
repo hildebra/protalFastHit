@@ -1,0 +1,103 @@
+# /home/falk/ecoli_dbg/features/atcc1003_hifi_SRR11606871.profile.truth_annotated
+# taxon 709 s__Escherichia coli: truth 1, protal's probability 0.1222293228245464, the model's here 0.122229; reference group: 17 tp taxa
+feature	value	group_median	percentile_in_group	mean_dP	max_dP
+top_identity	0.995726	1	0	+0.5658	+0.6271
+excess_scaled_median	0.0140674	0.00447668	88	+0.3148	+0.3573
+lu_per_kb	27.9269	139.425	0	+0.2590	+0.2841
+lsu_per_kb	18.1451	130.997	0	+0.1665	+0.2523
+split_fragment_share	0.0144621	0	76	+0.1200	+0.1672
+conserved_mismatch_ratio	0.59608	0.637963	35	+0.0605	+0.1285
+adjacent_support	0.965839	0.874861	100	+0.0193	+0.0633
+ancestry_sites_per_record	4.77928	81.944	0	+0.0137	+0.0179
+polymorphic_novel_share	0.00280804	0.00100273	71	+0.0121	+0.0171
+gene_presence_ratio	0.786413	1.00511	0	+0.0067	+0.0364
+conserved_fast_kept_ratio	-1.12274	0.0364955	12	+0.0062	+0.0153
+excess_median	0.0143443	0.00400124	88	+0.0054	+0.0111
+conserved_fast_depth_ratio	-0.262484	0	6	+0.0053	+0.0078
+breadth_ratio	0.995591	1.21082	0	+0.0045	+0.0253
+ancestry_indel_sites_per_record	0.0174492	0.113793	18	+0.0045	+0.0139
+nonsynonymous_share	0.0597683	0.15847	18	+0.0041	+0.0133
+lu_rate_ref	0.326426	0.953431	0	+0.0028	+0.0158
+lsu_rate_ref	0.208594	0.897005	0	+0.0003	+0.0011
+gene_divergence_dispersion	162.161	5.52159	88	+0.0002	+0.0396
+fragments	3567	194	76	+0.0000	+0.0000
+hit_gene_fraction	0.786408	0.789474	47	+0.0000	+0.0000
+depth_cv	0.442134	0.410879	65	+0.0000	+0.0000
+low_identity_share	3.63718e-05	0	82	+0.0000	+0.0000
+multiallelic_sites_per_kb	2.90189	0.0134439	88	+0.0000	+0.0000
+RAF0	0.0114058	0.236842	41	+0.0000	+0.0000
+# features whose value is outside the group's range (percentile 0 or 100)
+adjacent_support	0.965839	median 0.874861	percentile 100	mean_dP +0.0193
+ancestry_fixed_gain	0.387547	median 0.00538387	percentile 100	mean_dP -0.0005
+ancestry_sites_per_record	4.77928	median 81.944	percentile 0	mean_dP +0.0137
+breadth_ratio	0.995591	median 1.21082	percentile 0	mean_dP +0.0045
+congener_fit_share	0.240331	median 0	percentile 100	mean_dP +0.0000
+congener_gene_overlap	0.358779	median 1	percentile 0	mean_dP +0.0000
+db_congeners_05	3	median 0	percentile 100	mean_dP +0.0000
+db_nearest_congener	0.02452	median 1	percentile 0	mean_dP +0.0000
+failed_candidate_rate	0.0593895	median 0.842605	percentile 0	mean_dP -0.0238
+failed_gene_share	0	median 0.294872	percentile 0	mean_dP -0.0369
+gap_position	0.55	median 0.05	percentile 100	mean_dP +0.0000
+gap_within_median_share	0.972735	median 1	percentile 0	mean_dP +0.0000
+gap_within_min_share	0.940074	median 1	percentile 0	mean_dP +0.0000
+gene_presence_ratio	0.786413	median 1.00511	percentile 0	mean_dP +0.0067
+low_mapq_share	0.680518	median 0.000256016	percentile 100	mean_dP +0.0000
+lsu_per_kb	18.1451	median 130.997	percentile 0	mean_dP +0.1665
+lsu_rate_ref	0.208594	median 0.897005	percentile 0	mean_dP +0.0003
+lu_per_kb	27.9269	median 139.425	percentile 0	mean_dP +0.2590
+lu_rate_ref	0.326426	median 0.953431	percentile 0	mean_dP +0.0028
+mean_mapq	15	median 125	percentile 0	mean_dP -0.0203
+other_genus_fit_share	0.0131319	median 0	percentile 100	mean_dP +0.0000
+seed_crowding	1.18203	median 0.000128189	percentile 100	mean_dP -0.0007
+su_rate_ref	0.114779	median 0.535037	percentile 0	mean_dP -0.0459
+third_position_share	0.898676	median 0.708113	percentile 100	mean_dP -0.0057
+top_identity	0.995726	median 1	percentile 0	mean_dP +0.5658
+unexpected_congener_fit_share	0.362295	median 0.000640041	percentile 100	mean_dP +0.0000
+# /home/falk/ecoli_dbg/features/d6331_hifi_SRR13128012.profile.truth_annotated
+# taxon 709 s__Escherichia coli: truth 1, protal's probability 0.1222293228245464, the model's here 0.122229; reference group: 13 tp taxa
+feature	value	group_median	percentile_in_group	mean_dP	max_dP
+top_identity	0.995726	1	0	+0.5758	+0.7846
+excess_scaled_median	0.0141027	0.00585475	100	+0.3551	+0.3573
+lu_per_kb	27.1187	120.59	8	+0.1656	+0.2085
+lsu_per_kb	17.1083	109.261	8	+0.1574	+0.2523
+split_fragment_share	0.0144259	0	62	+0.0914	+0.1672
+conserved_mismatch_ratio	0.597195	0.621561	31	+0.0615	+0.1354
+polymorphic_novel_share	0.00327242	0.000937926	85	+0.0145	+0.0171
+ancestry_congener_share	0.0318391	0.0013152	92	+0.0116	+0.0479
+conserved_fast_kept_ratio	-1.20849	0.0317054	8	+0.0113	+0.0153
+gene_divergence_dispersion	95.5624	50.5027	69	+0.0111	+0.0396
+ancestry_sites_per_record	4.67258	56.6228	8	+0.0097	+0.0179
+nonsynonymous_share	0.062102	0.141354	8	+0.0074	+0.0133
+conserved_fast_depth_ratio	-0.887879	0.0754588	0	+0.0063	+0.0078
+adjacent_support	0.96953	0.936484	92	+0.0061	+0.0633
+excess_median	0.0147743	0.0053296	100	+0.0053	+0.0111
+ancestry_indel_sites_per_record	0.0189854	0.105691	23	+0.0050	+0.0139
+gene_presence_ratio	0.80617	1.00036	0	+0.0047	+0.0364
+breadth_ratio	1.00278	1.00894	46	+0.0041	+0.0274
+lu_rate_ref	0.326426	0.823617	8	+0.0036	+0.0158
+third_position_share	0.894763	0.811147	92	+0.0006	+0.0207
+lsu_rate_ref	0.208594	0.720336	8	+0.0003	+0.0011
+fragments	2015	1034	54	-0.0000	+0.0000
+hit_gene_fraction	0.805825	0.99115	23	-0.0000	+0.0000
+depth_cv	0.546232	0.403838	92	-0.0000	+0.0000
+identity	0.979434	0.992508	0	-0.0000	+0.0000
+# features whose value is outside the group's range (percentile 0 or 100)
+RAF2	0.227435	median 0.0166667	percentile 100	mean_dP -0.0000
+RAF3	0.00338923	median 0.000516796	percentile 100	mean_dP -0.0000
+ancestry_fixed_agreement	0.982579	median 0.999737	percentile 0	mean_dP -0.0000
+ancestry_fixed_gain	0.393126	median 0.0301292	percentile 100	mean_dP -0.0005
+congener_gene_overlap	0.571622	median 1	percentile 0	mean_dP -0.0000
+conserved_fast_depth_ratio	-0.887879	median 0.0754588	percentile 0	mean_dP +0.0063
+conserved_hit_share	0.325301	median 0.460177	percentile 0	mean_dP -0.0000
+excess_conserved_fast_ratio	-1.38327	median -0.173412	percentile 0	mean_dP -0.0018
+excess_high_share	0.295051	median 0.0698603	percentile 100	mean_dP -0.0000
+excess_median	0.0147743	median 0.0053296	percentile 100	mean_dP +0.0053
+excess_scaled_median	0.0141027	median 0.00585475	percentile 100	mean_dP +0.3551
+gap_position	0.55	median 0.05	percentile 100	mean_dP -0.0000
+gene_presence_ratio	0.80617	median 1.00036	percentile 0	mean_dP +0.0047
+identity	0.979434	median 0.992508	percentile 0	mean_dP -0.0000
+mean_mapq	14	median 100	percentile 0	mean_dP -0.0188
+multiallelic_sites_per_kb	13.3533	median 0.298651	percentile 100	mean_dP -0.0000
+polymorphic_site_rate	0.00837436	median 4.68318e-05	percentile 100	mean_dP -0.0000
+top_identity	0.995726	median 1	percentile 0	mean_dP +0.5758
+uniqueness	0.204963	median 0.914081	percentile 0	mean_dP -0.0086

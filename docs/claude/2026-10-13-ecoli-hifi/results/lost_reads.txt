@@ -1,0 +1,15 @@
+# /home/falk/Mocks/0.8.3_4dfc549/atcc1003_hifi/atcc1003_hifi_SRR11606871.sam.zst: species 709 s__Escherichia coli; reads with its consensus: 2791
+class	reads	records	went_to	top_genes
+locus	237	338	{'s__Escherichia fergusonii': 141, 's__Escherichia sp004211955': 86, 's__Escherichia whittamii': 9}	111, 38, 97, 18, 10, 113, 109, 103, 95, 3
+cycle	101	432	{'s__Escherichia fergusonii': 43, 's__Kosakonia sp000814905': 36, 's__Escherichia sp004211955': 17}	14, 112, 73, 85, 13, 104, 76, 116, 77, 117
+mixed	288	698	{'s__Escherichia sp004211955': 141, 's__Escherichia fergusonii': 133, 's__Escherichia whittamii': 10}	100, 92, 99, 29, 63, 68, 28, 72, 3, 103
+# /home/falk/Mocks/0.8.3_4dfc549/d6331_hifi/d6331_hifi_SRR13128012.sam.zst: species 709 s__Escherichia coli; reads with its consensus: 1703
+class	reads	records	went_to	top_genes
+locus	199	331	{'s__Escherichia fergusonii': 115, 's__Escherichia sp004211955': 74, 's__Escherichia whittamii': 8}	38, 10, 18, 97, 113, 40, 109, 63, 111, 103
+cycle	58	219	{'s__Kosakonia sp000814905': 31, 's__Escherichia fergusonii': 16, 's__Escherichia sp004211955': 9}	14, 112, 73, 116, 76, 104, 13, 85, 77, 2
+mixed	145	353	{'s__Escherichia sp004211955': 72, 's__Escherichia fergusonii': 65, 's__Escherichia whittamii': 6}	100, 99, 3, 92, 68, 72, 29, 28, 103, 109
+# /home/falk/Mocks/0.8.3_4dfc549/d6331_ont/d6331_ont_ERR15459768.sam.zst: species 709 s__Escherichia coli; reads with its consensus: 2270
+class	reads	records	went_to	top_genes
+locus	233	327	{'s__Escherichia fergusonii': 119, 's__Escherichia sp004211955': 100, 's__Escherichia whittamii': 13}	109, 113, 97, 38, 111, 10, 103, 18, 63, 40
+cycle	85	359	{'s__Escherichia fergusonii': 34, 's__Kosakonia sp000814905': 28, 's__Escherichia sp004211955': 18}	14, 112, 73, 77, 76, 104, 13, 116, 117, 85
+mixed	167	412	{'s__Escherichia sp004211955': 84, 's__Escherichia fergusonii': 75, 's__Escherichia whittamii': 6}	92, 100, 3, 99, 29, 103, 28, 68, 72, 109
