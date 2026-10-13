@@ -1,0 +1,37 @@
+built: protal v0.8.3
+data ready
+ 20:50:01 up  7:03,  1 user,  load average: 1.35, 1.67, 1.49
+A done
+B done
+C done
+ 23:24:17 up  9:38,  1 user,  load average: 3.00, 3.04, 4.12
+
+A: look-ahead (variant, threads): median wall s (range, runs), median max RSS MB
+V0	2	0.698	(0.693-0.878, 5 runs)	235.00
+V0	3	0.629	(0.625-0.767, 5 runs)	361.00
+V0	4	0.693	(0.606-1.643, 5 runs)	463.00
+V3	2	0.709	(0.691-0.844, 5 runs)	152.00
+V3	3	0.722	(0.637-2.206, 5 runs)	255.00
+V3	4	0.653	(0.599-0.740, 5 runs)	288.00
+
+B: read-ahead (file, threads, hints, cache): median wall s
+m64k.gz	4	0	cold	0.440	(0.422-0.545, 5 runs)
+m64k.gz	4	0	warm	0.374	(0.358-0.377, 5 runs)
+m64k.gz	4	1	cold	0.478	(0.427-0.603, 5 runs)
+m64k.gz	4	1	warm	0.375	(0.343-0.409, 5 runs)
+one.gz	1	0	cold	0.763	(0.756-1.058, 5 runs)
+one.gz	1	0	warm	0.699	(0.628-0.803, 5 runs)
+one.gz	1	1	cold	0.795	(0.720-0.807, 5 runs)
+one.gz	1	1	warm	0.719	(0.644-0.784, 5 runs)
+one.gz	4	0	cold	0.628	(0.614-1.156, 5 runs)
+one.gz	4	0	warm	0.604	(0.578-0.944, 5 runs)
+one.gz	4	1	cold	0.663	(0.606-0.676, 5 runs)
+one.gz	4	1	warm	0.608	(0.590-0.756, 5 runs)
+
+C: threads (input, reading threads per file): median aligning s, median reader s a thread
+members	1	6.149	(5.921-7.984, 6 runs)	0.40
+members	2	6.011	(5.813-7.981, 6 runs)	0.36
+members	4	6.151	(5.838-6.585, 6 runs)	0.32
+one	1	6.370	(5.914-10.311, 6 runs)	0.34
+one	2	6.010	(5.930-6.329, 6 runs)	0.75
+one	4	6.345	(6.100-7.863, 6 runs)	1.23

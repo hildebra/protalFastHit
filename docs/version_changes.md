@@ -91,12 +91,14 @@ for this page.
   back", and the alignment and reading threads against the CPUs the run may use. `measure_performance.sh` writes it to
   `runs.tsv` (`input`, `reader_share`) and flags such runs; `--cold_reads` drops the read files from the page cache
   before each run.
-  - Read files are asked to be read ahead (the next 64 MB); `PROTAL_READ_AHEAD=0` turns it off.
-  - A gzip file read in pieces holds 20-36% less memory (a shorter look-ahead: ~0.35 GB less for a paired-end run on
-    32 threads).
+  - Read files are asked to be read ahead (the next 64 MB); `PROTAL_READ_AHEAD=0` turns it off. On a local disk it
+    changed nothing measurable; a network file system read cold is still to be tested.
+  - A gzip file read in pieces holds 29-38% less memory, as fast (a shorter look-ahead: ~0.35 GB less for a
+    paired-end run on 32 threads).
+  - The reading threads beside a full `-t` cost the alignment nothing measurable (4 CPUs, `-t 4`, 1-4 reading
+    threads per file).
 
-  Their speed is to be measured on a cluster: the local machine was loaded by other jobs
-  ([report](claude/2026-10-13-reading-input/README.md), [running.md](running.md#read-files)).
+  ([report](claude/2026-10-13-reading-input/README.md), [running.md](running.md#read-files))
 - **gzip files of many members on several threads** (2026-10-13). 0.8.3 read a gzip file of many small members
   (members one after the other, not BGZF) in pieces at about a third of one thread's speed. Its block finder scanned
   the whole file for blocks to start a piece at and found none. At r226 the paired-end sample's alignment took 58 s

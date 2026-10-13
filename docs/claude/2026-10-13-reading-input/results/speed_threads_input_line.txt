@@ -1,0 +1,1 @@
+Sample s input: members_R1.fq.gz gzip of 6606 members, inflated by members on 4 threads; members_R2.fq.gz gzip of 6606 members, inflated by members on 4 threads; the 4 alignment threads spent 0.25 s each getting reads, 4% of the alignment's 6.33 s; 4 alignment and 10 reading threads on 4 CPUs, more threads than CPUs

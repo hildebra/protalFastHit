@@ -1065,9 +1065,8 @@ namespace protal {
             impl.gap = GapSetting().load(std::memory_order_relaxed);
             // The workers from threads + 2 pieces ahead of the reader's thread, up to threads further: each piece in
             // that look-ahead holds up to two output buffers of ~4-16 MB (on FASTQ), so it sets the memory. Against
-            // 2 * threads + 4 and 2 * threads (until 2026-10-13): -20 to -36% of the memory on 2-4 threads, as fast
-            // within the noise on 2 and 3 threads of 4 cores; not yet timed where the threads have cores to spare
-            // (docs/claude/2026-10-13-reading-input).
+            // 2 * threads + 4 and 2 * threads (until 2026-10-13): -29 to -38% of the memory on 2-4 threads, the fastest
+            // runs within 2% (docs/claude/2026-10-13-reading-input).
             if (impl.gap == 0) impl.gap = size_t{impl.threads} + 2;
             impl.ahead = impl.gap + size_t{impl.threads};
             impl.piece_bytes = PieceBytesSetting().load(std::memory_order_relaxed);

@@ -7,8 +7,13 @@ Four follow-ups to that report, items 1, 3, 4 and 5 of its last list:
 4. **Bound the piece decoder's memory.**
 5. **Measure threads against CPUs.**
 
-The code is done for all four. Every speed measurement here is rough: from about 18:30 other sessions' builds and
-tests ran on the same four cores. The timing was stopped there, and the open questions go to the next cluster run.
+The code is done for all four. The speed measurements of sections 3-5 are rough: from about 18:30 other sessions'
+builds and tests ran on the same four cores, and the timing was stopped there. Later that evening the tests were rerun
+on a quiet machine, at the committed `a758a4a` ([Speed tests on a quiet machine](#speed-tests-on-a-quiet-machine-2026-10-13-evening-at-a758a4a)):
+- **Item 4:** the shorter look-ahead is as fast (fastest runs within 2%) for 29-38% less memory.
+- **Item 5:** the reading threads cost the alignment nothing measurable.
+- **Item 3:** the read-ahead hints neither help nor hurt measurably on a local disk; a network file system is still to
+  test.
 
 ## Setup
 
@@ -145,8 +150,60 @@ per file.
 `PROTAL_INFLATE_THREADS=1` against the default. That would decide whether pieces should get fewer threads when there
 are no CPUs to spare.
 
+## Speed tests on a quiet machine (2026-10-13, evening, at a758a4a)
+
+The three questions again, at the committed `a758a4a` ([scripts/speed_tests.sh](scripts/speed_tests.sh),
+[results/speed_tests.txt](results/speed_tests.txt) and the `speed_*.tsv` rows).
+- **When.** Every timed run started only once no other protal or Python job ran and cores 0-3 had been under 10%
+  busy for 5 s (`/proc/stat`). So they ran between other sessions' jobs (20:50 to 23:24).
+- **Noise.** This machine still varies 10-50% between rounds (Windows moves its vCPUs between fast and slow
+  cores), with an occasional 2-3× outlier. So the medians come with the fastest run of each setting, which is the
+  steadier comparison here.
+
+**Item 4, the look-ahead:** one member, 5 rounds.
+
+| threads | before: median (fastest) s, RSS MB | a758a4a: median (fastest) s, RSS MB |
+|---|---|---|
+| 2 | 0.698 (0.693), 235 | 0.709 (0.691), 152 |
+| 3 | 0.629 (0.625), 361 | 0.722 (0.637), 255 |
+| 4 | 0.693 (0.606), 463 | 0.653 (0.599), 288 |
+
+- **Speed:** the same. The fastest runs are within 2% at every thread count. The medians go both ways (3 threads
+  +15%, 4 threads -6%), and the new look-ahead's 3-thread rounds included a 2.2 s outlier.
+- **Memory:** -29 to -38%. The new look-ahead stays.
+
+**Item 3, read-ahead:** 5 rounds, median (fastest) s.
+
+| file, threads | cold, hints off | cold, hints on | warm, off | warm, on |
+|---|---|---|---|---|
+| one member, 4 (pieces, a mapping) | 0.628 (0.614) | 0.663 (0.606) | 0.604 (0.578) | 0.608 (0.590) |
+| one member, 1 (read()) | 0.763 (0.756) | 0.795 (0.720) | 0.699 (0.628) | 0.719 (0.644) |
+| 64 KiB members, 4 (read()) | 0.440 (0.422) | 0.478 (0.427) | 0.374 (0.358) | 0.375 (0.343) |
+
+- **Cold reads:** 4-27% slower than warm on this disk (medians).
+- **The hints:** no gain here. The cold medians are 4-9% higher with them; the fastest runs are the same or faster.
+- **What remains:** a local virtual disk has no network latency to hide, which is what the hints are for. Whether
+  they pay is the cluster's question (`--cold_reads`, with and without `PROTAL_READ_AHEAD=0`). They stay on, a
+  variable away from off.
+
+**Item 5, reading threads against CPUs:** protal at `-t 4` on 4 CPUs, 6 rounds, median aligning seconds and the
+reader's seconds a thread.
+
+| input | 1 per file | 2 per file | 4 per file |
+|---|---|---|---|
+| 64 KiB members | 6.15 (0.40) | 6.01 (0.36) | 6.15 (0.32) |
+| one member (pieces from 2) | 6.37 (0.34) | 6.01 (0.75) | 6.35 (1.23) |
+
+- **No cost to the alignment** from the extra reading threads, by members or in pieces, even with every CPU taken by
+  the alignment.
+- **The earlier ~9%** (section 5) came from the loaded machine.
+- **In pieces,** the reader's time rises with the threads (0.34 → 1.23 s a thread), but the alignment does not
+  wait for it here.
+- **No policy change** is needed.
+
 ## Not done
 
-- **The cluster runs above**, for items 3, 4 and 5.
+- **The cluster runs above.** Item 3 still needs one (network file system, cold). Items 4 and 5 are settled by the
+  quiet tests above as far as this machine can tell.
 - **The pool's 16 MiB cap.** Buffers that outgrow it are freed and made again; keeping them, or capping their growth,
   would cut the churn. It needs a speed check first.
