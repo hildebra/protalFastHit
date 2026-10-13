@@ -344,15 +344,18 @@ namespace protal {
         // (--sparse_first_pick grid). Where the values loaded start below that level (Filtered), the lookup is made as a
         // sparse index of the level would give it: none if the core has no entry of the level, else its count of them in
         // level_entries, by which FindSeeds orders the lookups (as it orders a sparse index's by size), so that a run on
-        // the whole index seeds as one on the sparse index does.
-        inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos, uint8_t min_level = 0) {
+        // the whole index seeds as one on the sparse index does. `keep_empty`: a core without an entry of the level is kept
+        // too (level_entries 0, which a gate scores as no hit), so that the lookups can seed the read from every entry
+        // after the gate (ChainAnchorFinder::KeepSparseLookups: the grid gate on the whole index).
+        inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos, uint8_t min_level = 0,
+                        bool keep_empty = false) {
             if (!m_sm.GetPacked(kmer, m_lookup_tmp)) return;
             m_lookup_tmp.min_level = min_level;
             m_lookup_tmp.level_entries = m_lookup_tmp.size;
             if (Filtered(m_lookup_tmp)) {
                 uint32_t n = 0;
                 for (uint32_t i = 0; i < m_lookup_tmp.size; i++) n += m_sm.EntryLevel(m_lookup_tmp, i) >= min_level;
-                if (n == 0) return;
+                if (n == 0 && !keep_empty) return;
                 m_lookup_tmp.level_entries = n;
             }
             m_lookup_tmp.flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));

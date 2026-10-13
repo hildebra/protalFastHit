@@ -1884,6 +1884,24 @@ def profile_map(units, opts, path, paths_of=None):
     return rows
 
 
+_EMULATE = {}
+
+
+def sparse_index_emulate(protal):
+    """["--sparse_index", "emulate"] where protal has it (its --full_help lists it, since 2026-10-13), else []. A
+    collection's runs load the whole index (their samples are not all grid-picked), on which a grid-picked sample (the
+    map's SPARSE_FIRST_PICK grid, or a database that picks by grid) would only be gated by the grid; emulate seeds it as
+    the sparse index a grid-picked run loads seeds it, so that its rows are those of the runs such a database serves.
+    Samples of the other picks are as without it."""
+    if protal not in _EMULATE:
+        try:
+            text = subprocess.run([protal, "--full_help"], capture_output=True, text=True, timeout=60).stdout
+        except (OSError, subprocess.SubprocessError):
+            text = ""
+        _EMULATE[protal] = ["--sparse_index", "emulate"] if "--sparse_index" in text and "emulate" in text else []
+    return _EMULATE[protal]
+
+
 def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     """Profiles the samples of all units, and the `extra` map rows (another collection's, --also_profile), in one
     protal run: the database is loaded once, and every sample is profiled as its READ_TYPE says. Its map and log go
@@ -1912,7 +1930,8 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
         os.remove(stages)
     measured = run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains",
                            "--no_qcmsa"] + (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []) +
-                          (["--weighted_site_shift"] if getattr(opts, "weighted_site_shift", False) else []),
+                          (["--weighted_site_shift"] if getattr(opts, "weighted_site_shift", False) else []) +
+                          sparse_index_emulate(opts.protal),
                           os.path.join(folder, "protal.log"), len(rows), companions)
     record_cpu(opts, run_label(folder, opts), measured, opts.threads, stages)
 

@@ -914,9 +914,9 @@ namespace protal {
 
     // The grid level of the sparse index the run loads (--sparse_index; Seedmap::SetLoadLevel): with auto or on, the
     // smallest level of its samples' gates (log2 C) if every sample is gated with the grid pick at C 2 or more, else 0, the
-    // whole index; with off 0. `why`: why it is 0, for on.
+    // whole index; with off and emulate 0. `why`: why it is 0, for on.
     static uint8_t SparseIndexLevel(Options const& options, std::string* why = nullptr) {
-        if (options.SparseIndex() == "off") return 0;
+        if (options.SparseIndex() == "off" || options.SparseIndex() == "emulate") return 0;
         auto const range = options.GetRange();
         uint8_t level = grid_levels::kLevels;
         for (auto i : range) {
@@ -931,6 +931,13 @@ namespace protal {
             return 0;
         }
         return level;
+    }
+
+    // Whether the run's grid-picked samples are seeded from every entry of the whole index (the grid only gating them, two
+    // seeds a gene making an anchor, as in other runs): the whole index is loaded (--sparse_index off, or a run whose
+    // samples are not all grid-picked) and not --sparse_index emulate, which seeds them as the sparse index would.
+    static bool GridWhole(Options const& options) {
+        return SparseIndexLevel(options) == 0 && options.SparseIndex() != "emulate";
     }
 
     // Before the index is loaded (its load runs on a thread of its own, which must not stop the run): a run with the grid
@@ -1149,6 +1156,20 @@ namespace protal {
             // misc/cpu.tsv: the index (loaded beside the start-up, waited for above) and the genome preload get a row of
             // their own, so that a sample's row is its alignment only.
             CpuLog::Get().Mark("index and genomes");
+            // The grid pick on the whole index: its samples gated by the grid, then seeded from every entry (GridWhole).
+            bool const grid_whole = GridWhole(options);
+            if (AnyGridSample(options)) {
+                std::cout << "Grid pick: ";
+                if (grid_whole) {
+                    std::cout << "the whole index is loaded (--sparse_index off, or samples not all grid-picked), so the grid only gates "
+                              << "its samples: the reads kept are seeded from every core, a gene anchored on two seeds";
+                } else {
+                    std::cout << "the reads kept are seeded from their grid entries alone"
+                              << (options.NoSingleSeedAnchors() ? "" : ", a short read's gene anchored on one seed too")
+                              << (options.SparseIndex() == "emulate" ? " (--sparse_index emulate: on the whole index, as the sparse index seeds them)" : "");
+                }
+                std::cout << std::endl;
+            }
 
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
@@ -1208,17 +1229,18 @@ namespace protal {
                 // reads over all their chunks, LongReadAligner), as the sample's read type is gated (or the map's
                 // SPARSE_FIRST says).
                 if (size_t const sparse_first = options.GetSparseFirst(index); sparse_first > 0) {
-                    // The grid pick: every core looked up, the entries of the gate's grid level counting, a read kept seeded
-                    // from those alone.
+                    // The grid pick: every core looked up, the entries of the gate's grid level counting. On a sparse index
+                    // (or --sparse_index emulate) a read kept is seeded from those alone, a short read's gene anchoring on a
+                    // single seed too (--no_single_seed_anchors: not); on the whole index the grid only gates, and a read
+                    // kept is seeded from every entry, on two seeds a gene, as other runs (GridWhole).
+                    bool const grid = options.GetSparseFirstPick(index) == SparseFirstPick::Grid;
                     anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
                                                  static_cast<uint32_t>(options.GetSparseFirstScore()),
-                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Stride,
-                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Grid);
+                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Stride, grid, grid_whole);
                     // --sparse_seeding: the reads kept seeded from those cores alone, as an index of only them would.
                     if (options.SparseSeeding()) anchor_finder.SetSeedLevel(static_cast<uint8_t>(__builtin_ctzll(sparse_first)));
-                    // The grid pick's short reads anchor on a gene's single seed too (--no_single_seed_anchors: not).
-                    anchor_finder.SetSingleSeedAnchors(sparse_first > 1 && options.GetSparseFirstPick(index) == SparseFirstPick::Grid &&
-                                                       !IsLongReadType(read_type) && !options.NoSingleSeedAnchors());
+                    anchor_finder.SetSingleSeedAnchors(sparse_first > 1 && grid && !grid_whole && !IsLongReadType(read_type) &&
+                                                       !options.NoSingleSeedAnchors());
                 }
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);

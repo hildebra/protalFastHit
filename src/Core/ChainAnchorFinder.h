@@ -204,6 +204,7 @@ namespace protal {
         // --sparse_first_pick grid: every core looked up, only the entries of grid level m_sparse_level or more counting
         // (GridLevels.h), and a kept read seeded from those alone (the seed level is the gate's).
         bool m_sparse_grid = false;
+        bool m_grid_whole = false;  // the grid gate on the whole index: kept reads seeded from every entry (SetSparseFirst)
         uint32_t m_sparse_score = 0;
         LookupResultList m_sparse_lookups;
         size_t m_sparse_kmers = 0;  // the sampled k-mers of the read SparsePrepare looked up last
@@ -328,6 +329,7 @@ namespace protal {
 
         // A sampled lookup's score (--sparse_first): its block's best flex cell's, or a single value's.
         uint32_t SparseScoreOf(LookupPointer const& lookup) {
+            if (lookup.level_entries == 0) return 0;  // the grid gate on the whole index: a core without an entry of its level
             return lookup.flex != nullptr ? m_kmer_lookup.BestScore(lookup) : SingleValueScore(lookup);
         }
 
@@ -716,6 +718,7 @@ namespace protal {
                 m_min_successful_lookups(other.m_min_successful_lookups), m_k(other.m_k),
                 m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
                 m_sparse_level(other.m_sparse_level), m_sparse_stride(other.m_sparse_stride), m_sparse_grid(other.m_sparse_grid),
+                m_grid_whole(other.m_grid_whole),
                 m_sparse_score(other.m_sparse_score), m_seed_level(other.m_seed_level),
                 m_single_seed_anchors(other.m_single_seed_anchors) {};
 
@@ -1018,14 +1021,17 @@ namespace protal {
         // anchors and alignments are the same. At level 0 both pick every core. With `grid` (--sparse_first_pick grid,
         // GridLevels.h) every core is looked up and only its entries of grid level `level` or more count, the database's
         // choice of 1/2^level of each gene's cores; a read kept is seeded from those lookups alone (the seed level is the
-        // gate's), as a sparse index of that level (Seedmap::SetLoadLevel) seeds it. Copies keep it.
-        void SetSparseFirst(uint8_t level, uint32_t min_score, bool stride = false, bool grid = false) {
+        // gate's), as a sparse index of that level (Seedmap::SetLoadLevel) seeds it. With `grid_whole` (the whole index
+        // loaded and not --sparse_index emulate) the grid only gates: a read kept is seeded from every entry of every core
+        // (the gate's lookups, KeepSparseLookups), as other runs. Copies keep it.
+        void SetSparseFirst(uint8_t level, uint32_t min_score, bool stride = false, bool grid = false, bool grid_whole = false) {
             m_sparse_first = true;
             m_sparse_level = level;
             m_sparse_stride = stride && !grid;
             m_sparse_grid = grid;
+            m_grid_whole = grid && grid_whole;
             m_sparse_score = min_score;
-            if (grid) m_seed_level = level;
+            if (grid && !m_grid_whole) m_seed_level = level;
         }
         bool SparseFirst() const { return m_sparse_first; }
 
@@ -1058,7 +1064,7 @@ namespace protal {
             for (size_t j = 0; j < kmer_list.size(); j++) {
                 if (!SparsePicked(j, kmer_list.size(), kmer_list[j].first)) continue;
                 m_sparse_kmers++;
-                m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), GateLevel());
+                m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), GateLevel(), m_grid_whole);
             }
             for (auto const& lookup : m_sparse_lookups) KmerLookup::PrefetchValues(lookup);
             m_seeding.sparse_lookups += m_sparse_lookups.size();
@@ -1078,9 +1084,17 @@ namespace protal {
         // --sparse_seeding, which takes the hash pick, or the grid pick, which seeds at its gate's level) its sampled
         // lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
         // the same order, their values fetched), so FindSeeds takes them instead of looking the read up again; else
-        // FindSeeds looks it up in full.
+        // FindSeeds looks it up in full. The grid gate on the whole index (m_grid_whole) looked up every core, those
+        // without an entry of its level too: the same lookups, every entry counting from now on.
         void KeepSparseLookups() {
-            if (m_sparse_level != m_seed_level) return;
+            if (m_grid_whole) {
+                for (auto& lookup : m_sparse_lookups) {
+                    lookup.min_level = 0;
+                    lookup.level_entries = lookup.size;
+                }
+            } else if (m_sparse_level != m_seed_level) {
+                return;
+            }
             std::swap(m_lookups, m_sparse_lookups);
             m_seeding.kmers += m_sparse_kmers;
             m_seeding.found += m_lookups.size();

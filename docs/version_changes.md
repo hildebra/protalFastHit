@@ -75,12 +75,14 @@ for this page.
   conservation within the family's genera) and the least shared with other genes. The pick `grid`
   (`--sparse_first_pick grid`) looks up every core of a read and counts only the grid's entries of its gate, about
   every C-th core of the stretch the read covers, and seeds a read kept from those alone; a short read's gene with one
-  grid seed anchors on it (`--no_single_seed_anchors`: on two, as other runs). A run whose every sample is
-  grid-picked loads only those entries (`--sparse_index auto`): about 1/C of the values, so at r226 an estimated
-  ~6.7 GB of values instead of 26.6 GB at C 4 (the key map stays 3.2 GB). On the mini database a paired-end run at
-  C 4 wrote 0.05% fewer records than ungated (the stride on the whole index 0.23%, the hash pick's emulated sparse
-  index 6.5%; without single-seed anchors 3.2%) for 1-5% more candidate alignments; HiFi lost at most 0.1% up to C 8
-  and 2% at C 32 ([report](claude/2026-10-13-gene-grid-index.md)).
+  grid seed anchors on it (`--no_single_seed_anchors`: on two, as other runs). On the whole index (`--sparse_index off`,
+  or samples not all grid-picked) the grid only gates, and a read kept is seeded from every core on two seeds a gene;
+  `--sparse_index emulate` seeds as the sparse index on the whole index (the build's collections use it). A run
+  whose every sample is grid-picked loads only those entries (`--sparse_index auto`): about 1/C of the values, so
+  at r226 an estimated ~6.7 GB of values instead of 26.6 GB at C 4 (the key map stays 3.2 GB). On the mini database
+  a paired-end run at C 4 wrote 0.05% fewer records than ungated (the stride on the whole index 0.23%, the hash
+  pick's emulated sparse index 6.5%; without single-seed anchors 3.2%) for 1-5% more candidate alignments; HiFi lost at
+  most 0.1% up to C 8 and 2% at C 32 ([report](claude/2026-10-13-gene-grid-index.md)).
   `build_gtdb_database.py --test-grid` (on by default with `--test-c-gates`) scores the test samples with the grid
   pick beside the database's, and `--sparse-first-pick grid` builds a grid-picked database. A database built before
   2026-10-13 has no grid levels: the grid pick stops on it (exit 2); the other picks are unchanged.

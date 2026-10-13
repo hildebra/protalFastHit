@@ -625,9 +625,13 @@ comparison. Because only
 those entries are ever used, a run whose every sample is gated with the grid pick (C 2 or more)
 loads only them (`--sparse_index auto`, the default: the entries of grid level log2 C of its smallest
 gate, about 1/C of the values; the key map keeps its size), and the index line says so ("a sparse
-index: the entries of grid level 2 or more, N of the file's M"). `--sparse_index off` loads the whole
-index and filters the entries per sample (the same reads given up and the same records, for
-comparison or a run mixing picks); `on` stops where it cannot load a sparse index. A database without
+index: the entries of grid level 2 or more, N of the file's M, on K of its J cores with entries"). On the whole index (`--sparse_index
+off`, or a run whose samples are not all grid-picked) the grid only gates: the same reads are given up,
+and a read kept is seeded from every core, a gene anchored on two seeds, as in other runs (the run's
+"Grid pick:" line says which). `--sparse_index emulate` loads the whole index and seeds the
+grid-picked samples as the sparse index does (the same records as `auto`; for comparison, and for the
+grid rows of `build_gtdb_database.py`, whose collections' runs load the whole index); `on` stops where
+it cannot load a sparse index. A database without
 grid levels stops a grid-picked run (exit 2). The models must be trained on runs picked so, as for
 the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
 pick; [report](claude/2026-10-13-gene-grid-index.md)).

@@ -732,10 +732,12 @@ With `--test-c-gates` every read type's test samples are also profiled with the 
 or more; given gates, or `none`): map rows `<sample>__c<C>g` with `SPARSE_FIRST_PICK` `grid`, tables in
 `c_gates/c<C>g/`, scored by the model of the gate nearest it (trained with the database's pick), and in
 `c_gates.tsv` after the same gate's row with the database's pick. These rows are profiled in the
-collection's protal runs, on the whole index, counting only the entries of their gate's grid level, so
-their records and calls are a sparse index's but their CPU seconds are not;
-`scripts/measure_performance.sh --test_sparse` with levels such as `8g` times the sparse index itself.
-It needs a protal whose `--full_help` lists `--sparse_index`; with an older one the build leaves the rows
+collection's protal runs, on the whole index, seeded as the sparse index seeds them (protal
+`--sparse_index emulate`, which every collection run gets: it changes only grid-picked samples, so a
+database picked by grid is trained on rows seeded so too), so their records and calls are a sparse
+index's but their CPU seconds are not; `scripts/measure_performance.sh --test_sparse` with levels such
+as `8g` times the sparse index itself. It needs a protal whose `--full_help` lists `--sparse_index` and
+`emulate`; with an older one the build leaves the rows
 out, with a warning.
 
 The `--test-c-gates` default (`pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32`, since 2026-10-13) adds to

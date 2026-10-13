@@ -540,8 +540,9 @@ def flex_indels_supported(protal):
 # What protal's --full_help lists when it runs a sparse-first gate's stride pick per sample: the option and the map's
 # column.
 STRIDE_HELP = ("--sparse_first_pick", STRIDE_COLUMN)
-# ... and the grid pick (since 2026-10-13): its sparse index's option and the pick.
-GRID_HELP = ("--sparse_index", "grid (since 2026-10-13")
+# ... and the grid pick (since 2026-10-13): its sparse index's option and its emulation on the whole index, which seeds a
+# collection's grid rows as a grid-picked run is seeded (collect_training_data.sparse_index_emulate).
+GRID_HELP = ("--sparse_index", "emulate")
 
 
 def grid_supported(protal):
@@ -3004,7 +3005,8 @@ def main():
                         "of 1/C of the values seeds it; rows <sample>__c<C>g, tables in c_gates/c<C>g/), scored by the "
                         "model of the gate nearest it (trained with the database's pick), beside the same samples at that "
                         "gate with the database's pick in model_logs/c_gates.tsv. The collections' runs load the whole "
-                        "index, so these rows' CPU seconds are not a sparse index's. Default with --test-c-gates: auto, "
+                        "index and seed these rows as the sparse index would (protal --sparse_index emulate), so their "
+                        "records and calls are a sparse index's but their CPU seconds are not. Default with --test-c-gates: auto, "
                         "each read type's gates with a model (--model-gates) of 2 or more; none: no such rows. Needs a "
                         f"protal whose --full_help lists {GRID_HELP[0]}")
     p.add_argument("--foreign-rates", action="store_true",
