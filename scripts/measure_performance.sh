@@ -242,6 +242,9 @@ timed() {
         rss=$(awk -v k="$rss" 'BEGIN { printf "%.1f", k / 1048576 }')
     return $status
 }
+# The last timed run's peak memory for its progress line, after its wall time: " 36.6Gb" (max_rss_gb, GiB); nothing
+# without /usr/bin/time.
+mem() { [ "$rss" = NA ] || printf ' %sGb' "$rss"; }
 
 printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\tindel_refused\ttables_s\tprofiling_tables_s\tprofiling_tables_wait_s\taligning_cpu_s\taligning_cores\treader_s_per_thread\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
@@ -326,7 +329,7 @@ for spec in "$@"; do
             "$(peak_after profiling "$log")" "$seed_fates" "$indel" "$tables" "$(aligning_cpu "$run" "$name")" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
-        echo "$name run $rep: ${wall} s"
+        echo "$name run $rep: ${wall} s$(mem)"
         # The last run's SAM for the cohort run, which profiles it again with the other samples'.
         if [ $cohort = 1 ] && [ "$rep" = "$repeats" ]; then
             sam=$(ls "$run/$name".sam* 2> /dev/null | head -1)
@@ -361,7 +364,7 @@ for spec in "$@"; do
             with_records=$(grep -m1 -E "$probeline" "$log" | grep -oE '[0-9]+ with records' | grep -oE '^[0-9]+' || echo NA)
             printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$threads" "$wall" "$user" "$sys" "$rss" \
                 "$(took 'Aligning reads' "$log")" "$(number_after "$probeline" 'probe:' "$log")" "${with_records:-NA}" "$identical" >> "$out/probe.tsv"
-            echo "$name stage-1 probe run: ${wall} s, profile identical to the timed run's: $identical"
+            echo "$name stage-1 probe run: ${wall} s$(mem), profile identical to the timed run's: $identical"
             if [ "$identical" = no ]; then
                 echo "Warning: $name's profile with --stage1_probe differs from the timed run's: kept in $run" >&2
             elif [ "${KEEP:-0}" != 1 ]; then
@@ -415,7 +418,7 @@ for spec in "$@"; do
                 "$wall" "$user" "$sys" "$rss" "$(took 'Aligning reads' "$log")" "$ins" "$cyc" "$ipc" "${total:-NA}" "${given:-NA}" "$share" \
                 "${sampled:-NA}" "$(number_after "^Sample $name seeding: " 'seeding:' "$log")" "${written:-NA}" "$written_plain" "$species" \
                 "$(aligning_cpu "$run" "$name")" "$gate" >> "$out/sparse.tsv"
-            echo "$name --sparse_first $c: ${wall} s, given up $given of $total, records $written (timed runs: $written_plain)"
+            echo "$name --sparse_first $c: ${wall} s$(mem), given up $given of $total, records $written (timed runs: $written_plain)"
             [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
         done
     fi
@@ -448,7 +451,7 @@ if [ $cohort = 1 ]; then
             s=$(basename "$f" _runtime.tsv)
             awk -v s="cohort:$s" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' "$f" >> "$out/stages.tsv"
         done
-        echo "cohort run $rep: ${wall} s"
+        echo "cohort run $rep: ${wall} s$(mem)"
         [ "${KEEP:-0}" = 1 ] || rm -rf "$run"
     done
 fi
@@ -474,7 +477,7 @@ if [ -n "$sylph" ]; then
             genomes=NA; [ -f "$profile" ] && genomes=$(awk 'NR > 1 && NF { c++ } END { print c + 0 }' "$profile")
             printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
                 "$wall" "$user" "$sys" "$rss" "$faults" "$ins" "$cyc" "$miss" "$ipc" "$genomes" >> "$out/sylph.tsv"
-            echo "sylph $name run $rep: ${wall} s"
+            echo "sylph $name run $rep: ${wall} s$(mem)"
         done
     done
     # With RUN_DIR elsewhere, the profiles (small) are kept with the tables.
@@ -580,8 +583,9 @@ if [ $test_sparse = 1 ] && [ "$(wc -l < "$out/sparse.tsv")" -gt 1 ]; then
           dw = change($5, mw); da = change($9, ma); dc = change($29, mc); share = $15 == "NA" ? "NA" : sprintf("%.1f%%", 100 * $15)
           records = ($18 != "NA" && $19 != "NA" && $19 > 0) ? sprintf("%s of %s (%+.2f%%)", $18, $19, 100 * ($18 / $19 - 1)) : $18 " of " $19
           timed_reader = mr > 0 ? sprintf("%.2f", mr) : "NA"
-          printf "%s --sparse_first %s: wall %s s (%s), aligning %s s (%s), given up %s, records %s, species %s (lost %s, gained %s), Bray-Curtis %s (species alone %s, unknown %s -> %s); aligning CPU %s s (%s) on %s cores, reader %s s a thread (timed runs: %s), gate %s s a thread\n",
-              k, $4, $5, dw, $9, da, share, records, $21, $23, $24, $25, $26, $27, $28, $29, dc, $30, $31, timed_reader, $32 }' \
+          peak = $8 == "NA" ? "" : " " $8 "Gb"
+          printf "%s --sparse_first %s: wall %s s%s (%s), aligning %s s (%s), given up %s, records %s, species %s (lost %s, gained %s), Bray-Curtis %s (species alone %s, unknown %s -> %s); aligning CPU %s s (%s) on %s cores, reader %s s a thread (timed runs: %s), gate %s s a thread\n",
+              k, $4, $5, peak, dw, $9, da, share, records, $21, $23, $24, $25, $26, $27, $28, $29, dc, $30, $31, timed_reader, $32 }' \
         "$out/runs.tsv" "$out/sparse.tsv"
 fi
 echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,")$([ $test_sparse = 1 ] && echo " sparse.tsv, sparse_stages.tsv, sparse/,") environment.txt, logs/)."
