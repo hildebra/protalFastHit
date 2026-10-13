@@ -1,7 +1,8 @@
 # A stride pick for the sparse-first gate: a read's sampled cores spread evenly
 
-Date: 2026-10-13. Branch `audit-fixes` at `740de1f`, plus the probe's stride rules described below (uncommitted when
-this was written). Data: the r226 probe tables of `ccdbf52` (SLURM 24193130, `local/Perf0.8.2d/stage1_probe`, see
+Date: 2026-10-13. Branch `audit-fixes`: the probe's stride rules in `574b5a4` (on `10a681b`), the stride gate
+(`--sparse_first_pick`, [below](#the-stride-gate---sparse_first_pick-follow-up-same-day)) in the commit on `752f0e9`
+that adds this sentence. Data: the r226 probe tables of `ccdbf52` (SLURM 24193130, `local/Perf0.8.2d/stage1_probe`, see
 [the r226 probe report](../2026-10-12-stage1-probe-r226.md)) for the model; locally (WSL, 4 cores) the strain world of
 [the strain false-negative study](../2026-10-11-strain-false-negatives/README.md) (`~/strainfn`) and the archaea world
 of [the seeding profile](../2026-10-12-seeding-profile/README.md) (`~/seed`).
@@ -131,6 +132,45 @@ Records lost (1 − recall) at T = 14, m = 1, hash → stride, and the lookups l
 
 If r226 agrees, a stride gate at c = 4 to 8 would lose what the hash gate loses at c = 2 or less, with a third to a
 half of the lookups.
+
+## The stride gate: `--sparse_first_pick` (follow-up, same day)
+
+The user then asked for the gate itself, with the names the build-script session had already wired up for
+`--test-c-gates` rows (`752f0e9`: rows `<sample>__c<C>s`, added when `protal --full_help` lists `--sparse_first_pick`
+and `SPARSE_FIRST_PICK`). The probe's rules above are in `574b5a4`.
+
+- `--sparse_first_pick hash|stride`: one pick for every read type, read types and theirs (`pe:stride,pb:hash`), or
+  `auto` (the default: the database's, hash where it records none). A map's `SPARSE_FIRST_PICK` column (`hash`,
+  `stride`, `-`) sets one sample's. `--build` records the picks given in `build_settings.tsv` as
+  `sparse_first_pick_<type>` (a protal from before skips these lines and gates by hash). Runs follow the database's
+  and are warned when a gated sample picks otherwise; at C = 1 the pick makes no difference.
+- The gate (`ChainAnchorFinder::SparsePicked`) takes `stage1_probe::StridePicked`, the probe's own pick: every C-th
+  k-mer of a mate (of a long read's chunk) in read order. `PrefetchSparseKeys`, `SparsePrepare` and `SparseHits` use
+  it; at C = 1 the gate's lookups are still reused for the seeding (`KeepSparseLookups`).
+- `--sparse_seeding` stands for an index of the hash pick's cores, so a sample it would seed with the stride pick at
+  C > 1 stops the run (exit 2).
+- Logs: `sparse first: pe 8 stride, score 14, ...` (the pick named where it is stride) and
+  `Sample <name> sparse first (1/8 of the cores by stride, score 14, 1 hit(s)): ...`.
+- Tests: unit (`BuildSettings.SparseFirstPicksParsedWrittenAndReadBack`); e2e
+  `test_each_pick_gives_up_what_the_probe_predicts` (for both picks the gate gives up exactly the pairs the probe's rule
+  at C = 8, T = 14, m = 1 does not keep; at C = 1 the records of both picks are identical) and
+  `test_runs_follow_the_databases_picks` (a database built with `--sparse_first_pick se:stride`: a run follows it,
+  `--sparse_first_pick hash` and the map's column are warned, `--sparse_seeding` refused, a bad map value refused).
+
+Local runs of the gate ([scripts/run_gate.sh](scripts/run_gate.sh), [results/local_gate.tsv](results/local_gate.tsv)),
+the archaea world's 100k pairs and their first mates through the long-read path, against the ungated run's records
+(2,887 and 2,484):
+
+| C | Pairs: records, hash / stride | Sampled lookups, hash / stride | Long-read path: records, hash / stride |
+|---|---|---|---|
+| 2 | 2,864 / 2,887 | 879,030 / 897,758 | 2,465 / 2,484 |
+| 8 | 2,657 / 2,869 | 221,317 / 253,627 | 2,146 / 2,457 |
+| 16 | 2,302 / 2,847 | 110,487 / 155,184 | 1,637 / 2,433 |
+
+The records lost are those the probe predicted (C = 8: 7.97% and 0.62%). The stride gate at C = 8 keeps more records
+than the hash gate at C = 2, with 29% of its sampled lookups. The aligning times of these runs (0.1-0.5 s) are too short
+to compare. The models of a database are trained at its gate's pick; the r226 builds still gate by hash, and
+`--test-c-gates`' stride rows give the stride's F1 with those models.
 
 ## How to run it at r226
 

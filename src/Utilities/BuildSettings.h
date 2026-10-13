@@ -3,7 +3,8 @@
 // traceback (WfaTraceback.h): the strain alleles, congener gaps and column weights are aligned with it, and the models
 // are trained on runs that align with it; how the models' `fragments` feature counts (FragmentCount, since
 // 2026-10-12; mapq when not said); and the sparse-first gate of each read type (--sparse_first, since 2026-10-12; off
-// when not said): the reads it gives up count no failed candidates, so the models are trained on runs gated alike. A
+// when not said) and its pick (--sparse_first_pick, since 2026-10-13; hash when not said): the reads it gives up count
+// no failed candidates, so the models are trained on runs gated alike. A
 // database built before 2026-10-11 has no build_settings.tsv; it was built with the classic traceback.
 #pragma once
 
@@ -49,17 +50,18 @@ namespace protal {
         return value;
     }
 
-    // --sparse_first's value (and a map's SPARSE_FIRST): "auto" (nothing given: every read type the database's), one C
-    // for every read type, or read types and their C, comma-separated ("pe:1,se:1,pb:8,ont:1"; a read type not listed
-    // stays as the database has it). Nothing if the text is none of these.
-    inline std::optional<SparseFirstGates> ParseSparseFirstGates(std::string_view text) {
-        SparseFirstGates gates;
-        if (text == "auto") return gates;
+    // A value per read type, by ReadType's index, from "auto" (nothing for every read type), one value for every read
+    // type, or read types and their values, comma-separated ("pe:1,se:1,pb:8,ont:1"; a read type not listed stays
+    // nothing). `parse` reads a value (nothing if invalid). Nothing if the text is none of these.
+    template<typename T, typename Parse>
+    std::optional<std::array<std::optional<T>, kReadTypeCount>> ParsePerReadType(std::string_view text, Parse const& parse) {
+        std::array<std::optional<T>, kReadTypeCount> values;
+        if (text == "auto") return values;
         if (text.find(':') == std::string_view::npos) {
-            auto const level = ParseSparseFirstLevel(text);
-            if (!level) return std::nullopt;
-            gates.fill(level);
-            return gates;
+            std::optional<T> const value = parse(text);
+            if (!value) return std::nullopt;
+            values.fill(value);
+            return values;
         }
         while (!text.empty()) {
             size_t const comma = text.find(',');
@@ -69,11 +71,50 @@ namespace protal {
             size_t const colon = item.find(':');
             if (colon == std::string_view::npos) return std::nullopt;
             auto const type = ReadTypeFromToken(std::string(item.substr(0, colon)));
-            auto const level = ParseSparseFirstLevel(item.substr(colon + 1));
-            if (!type || !level) return std::nullopt;
-            gates[static_cast<size_t>(*type)] = level;
+            std::optional<T> const value = parse(item.substr(colon + 1));
+            if (!type || !value) return std::nullopt;
+            values[static_cast<size_t>(*type)] = value;
         }
-        return gates;
+        return values;
+    }
+
+    // --sparse_first's value (and a map's SPARSE_FIRST): "auto" (nothing given: every read type the database's), one C
+    // for every read type, or read types and their C, comma-separated ("pe:1,se:1,pb:8,ont:1"; a read type not listed
+    // stays as the database has it). Nothing if the text is none of these.
+    inline std::optional<SparseFirstGates> ParseSparseFirstGates(std::string_view text) {
+        return ParsePerReadType<size_t>(text, ParseSparseFirstLevel);
+    }
+
+    // Which 1/C of a read's cores a sparse-first gate looks up first (--sparse_first_pick, since 2026-10-13): those whose
+    // hash falls in 1/C of its range (stage1_probe::Level; the only pick before), or every C-th in read order
+    // (stage1_probe::StridePicked), spread evenly over the read.
+    enum class SparseFirstPick { Hash, Stride };
+    using SparseFirstPicks = std::array<std::optional<SparseFirstPick>, kReadTypeCount>;
+
+    inline std::optional<SparseFirstPick> ParseSparseFirstPick(std::string_view name) {
+        if (name == "hash") return SparseFirstPick::Hash;
+        if (name == "stride") return SparseFirstPick::Stride;
+        return std::nullopt;
+    }
+
+    inline std::string_view SparseFirstPickName(SparseFirstPick pick) {
+        return pick == SparseFirstPick::Stride ? "stride" : "hash";
+    }
+
+    // --sparse_first_pick's value: "auto", hash or stride for every read type, or read types and theirs
+    // ("pe:stride,pb:hash"), as --sparse_first's.
+    inline std::optional<SparseFirstPicks> ParseSparseFirstPicks(std::string_view text) {
+        return ParsePerReadType<SparseFirstPick>(text, ParseSparseFirstPick);
+    }
+
+    // "pe stride, pb hash" (the read types given), for messages; "none" if none is given.
+    inline std::string SparseFirstPicksText(SparseFirstPicks const& picks) {
+        std::string text;
+        for (auto const& info : kReadTypes) {
+            auto const& pick = picks[static_cast<size_t>(info.type)];
+            if (pick) text += (text.empty() ? "" : ", ") + info.token + " " + std::string(SparseFirstPickName(*pick));
+        }
+        return text.empty() ? "none" : text;
     }
 
     // "pe 1, se 1, pb 8, ont 1" (the read types given; "off" for 0), for messages; "none" if none is given.
@@ -97,6 +138,9 @@ namespace protal::build_settings {
     inline constexpr std::string_view kSparseFirst = "sparse_first_";
     inline constexpr std::string_view kSparseFirstScore = "sparse_first_score";
     inline constexpr std::string_view kSparseFirstHits = "sparse_first_hits";
+    // sparse_first_pick_pe .. sparse_first_pick_ont (since 2026-10-13): the read type's gate's pick, hash or stride. A
+    // protal from before skips these lines (no read type "pick_pe") and gates by hash.
+    inline constexpr std::string_view kSparseFirstPick = "sparse_first_pick_";
 
     struct Settings {
         std::optional<WfaTraceback> wfa_traceback;    // nothing if the file does not say
@@ -104,6 +148,7 @@ namespace protal::build_settings {
         SparseFirstGates sparse_first;                // per read type; nothing if the file does not say (off)
         std::optional<size_t> sparse_first_score;     // nothing if the file does not say (14)
         std::optional<size_t> sparse_first_hits;      // nothing if the file does not say (1)
+        SparseFirstPicks sparse_first_pick;           // per read type; nothing if the file does not say (hash)
     };
 
     // A whole number for a setting's value, or nothing.
@@ -149,6 +194,15 @@ namespace protal::build_settings {
                            (name == kSparseFirstScore ? "0 to 16" : "1 or more") + ", not '" + std::string(value) + "'";
                 }
                 (name == kSparseFirstScore ? settings.sparse_first_score : settings.sparse_first_hits) = count;
+            } else if (name.substr(0, kSparseFirstPick.size()) == kSparseFirstPick) {
+                auto const type = ReadTypeFromToken(std::string(name.substr(kSparseFirstPick.size())));
+                if (!type) continue;  // a later version's read type
+                auto const pick = ParseSparseFirstPick(value);
+                if (!pick) {
+                    return "line " + std::to_string(number) + ": " + std::string(name) + " is hash or stride, not '" +
+                           std::string(value) + "'";
+                }
+                settings.sparse_first_pick[static_cast<size_t>(*type)] = pick;
             } else if (name.substr(0, kSparseFirst.size()) == kSparseFirst) {
                 // Another read type than protal knows (a later version's) is skipped, as other unknown settings are.
                 auto const type = ReadTypeFromToken(std::string(name.substr(kSparseFirst.size())));
@@ -174,5 +228,9 @@ namespace protal::build_settings {
         }
         if (settings.sparse_first_score) os << kSparseFirstScore << '\t' << *settings.sparse_first_score << '\n';
         if (settings.sparse_first_hits) os << kSparseFirstHits << '\t' << *settings.sparse_first_hits << '\n';
+        for (auto const& info : kReadTypes) {
+            auto const& pick = settings.sparse_first_pick[static_cast<size_t>(info.type)];
+            if (pick) os << kSparseFirstPick << info.token << '\t' << SparseFirstPickName(*pick) << '\n';
+        }
     }
 }

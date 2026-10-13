@@ -355,50 +355,80 @@ namespace protal {
     // does not say), and the gates' score and hits likewise; a map's SPARSE_FIRST sets a sample's own. The reads a gate
     // gives up count no failed candidates, which the models' failed_candidate_rate uses: the database's models were
     // trained on runs gated as it records, and a run gated otherwise (a read type's gate, or a sample's) is warned.
-    // --stage1_probe measures what a gate would give up: the database's gates are not used with it.
+    // --stage1_probe measures what a gate would give up: the database's gates are not used with it. Each gate's pick
+    // (--sparse_first_pick: hash or stride) likewise: given, else the database's (hash where it does not say), a map's
+    // SPARSE_FIRST_PICK a sample's own; a sample gated with another pick than its database's is gated otherwise.
+    // --sparse_seeding stands for an index of the hash pick's cores: a sample it would seed with the stride pick stops
+    // the run (exit 2).
     static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, std::ostream& out = std::cout) {
         std::array<size_t, kReadTypeCount> gates{};
+        std::array<SparseFirstPick, kReadTypeCount> picks{};
         for (size_t t = 0; t < kReadTypeCount; t++) {
             auto const& given = options.SparseFirstGiven()[t];
             gates[t] = given ? *given : options.Stage1Probe() ? 0 : settings.sparse_first[t].value_or(0);
+            auto const& pick_given = options.SparseFirstPickGiven()[t];
+            picks[t] = pick_given ? *pick_given : settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash);
         }
         size_t const recorded_score = settings.sparse_first_score.value_or(14);
         size_t const recorded_hits = settings.sparse_first_hits.value_or(1);
         options.SetSparseFirst(gates, options.SparseFirstScoreGiven().value_or(recorded_score),
                                options.SparseFirstHitsGiven().value_or(recorded_hits));
+        options.SetSparseFirstPick(picks);
+        if (options.SparseSeeding()) {
+            for (auto index : options.GetRange()) {
+                if (options.GetSparseFirst(index) <= 1 || options.GetSparseFirstPick(index) != SparseFirstPick::Stride) continue;
+                std::cerr << "Error: --sparse_seeding seeds as an index of the hash pick's cores would; sample "
+                          << options.GetSampleId(index) << " is gated with the stride pick (--sparse_first_pick, the map's "
+                          << "SPARSE_FIRST_PICK or the database's): give --sparse_first_pick hash" << std::endl;
+                exit(2);
+            }
+        }
         bool const recorded_any = std::any_of(settings.sparse_first.begin(), settings.sparse_first.end(),
                                               [](auto const& g) { return g && *g > 0; });
         if (!recorded_any && !options.AnySparseFirst()) return;  // ungated database and run: nothing to say
-        // The read types of this run's samples, as the run gates them and as the database does; the samples gated
-        // otherwise than the database gates their read type (a read type's gate, or the map's SPARSE_FIRST).
+        // The read types of this run's samples, as the run gates them and as the database does (a gate's pick named
+        // where it is stride); the samples gated otherwise than the database gates their read type (a read type's gate
+        // or pick, or the map's SPARSE_FIRST or SPARSE_FIRST_PICK).
         std::string run, database;
         size_t others = 0;
         std::string example;
+        auto const level = [](size_t c, SparseFirstPick pick) {
+            return c ? std::to_string(c) + (pick == SparseFirstPick::Stride && c > 1 ? " stride" : "") : std::string("off");
+        };
         for (auto const& info : kReadTypes) {
             if (!options.AnySample(info.type)) continue;
             size_t const t = static_cast<size_t>(info.type);
-            auto const level = [](size_t c) { return c ? std::to_string(c) : std::string("off"); };
-            run += (run.empty() ? "" : ", ") + info.token + " " + level(gates[t]);
-            database += (database.empty() ? "" : ", ") + info.token + " " + level(settings.sparse_first[t].value_or(0));
+            run += (run.empty() ? "" : ", ") + info.token + " " + level(gates[t], picks[t]);
+            database += (database.empty() ? "" : ", ") + info.token + " " +
+                        level(settings.sparse_first[t].value_or(0), settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash));
         }
         for (auto index : options.GetRange()) {
             size_t const t = static_cast<size_t>(options.GetReadType(index));
-            if (options.GetSparseFirst(index) == settings.sparse_first[t].value_or(0)) continue;
+            size_t const gate = options.GetSparseFirst(index);
+            // At C 1 both picks look up every core: the pick then makes no difference.
+            bool const same_pick = gate <= 1 ||
+                                   options.GetSparseFirstPick(index) == settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash);
+            if (gate == settings.sparse_first[t].value_or(0) && same_pick) continue;
             if (others++ == 0) example = options.GetSampleId(index);
         }
         bool const score_differs = options.AnySparseFirst() &&
                                    (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
-        out << "sparse first: " << run << (options.SparseFirstGiven() != SparseFirstGates() ? " (--sparse_first)" : "")
+        bool const gates_given = options.SparseFirstGiven() != SparseFirstGates();
+        bool const picks_given = options.SparseFirstPickGiven() != SparseFirstPicks();
+        std::string const given = gates_given && picks_given ? " (--sparse_first, --sparse_first_pick)" :
+                                  gates_given ? " (--sparse_first)" : picks_given ? " (--sparse_first_pick)" : "";
+        out << "sparse first: " << run << given
             << ", score " << options.GetSparseFirstScore() << ", " << options.GetSparseFirstHits() << " hit(s)"
             << "; the database's models were trained with " << database << ", score " << recorded_score << ", "
             << recorded_hits << " hit(s)" << std::endl;
         if ((others > 0 || score_differs) && !options.ProfileOnly()) {
             std::cerr << "Warning: " << (others > 0 ? std::to_string(others) + " sample(s) of this run (e.g. " + example +
-                                                      ") are gated otherwise (--sparse_first or the map's SPARSE_FIRST)"
+                                                      ") are gated otherwise (--sparse_first, --sparse_first_pick or the map's "
+                                                      "SPARSE_FIRST or SPARSE_FIRST_PICK)"
                                                     : std::string("this run's sparse-first gates score otherwise"))
                       << " than the database's models were trained with: the reads a gate gives up count no failed "
-                      << "candidates, so their calls are not those of training. Leave out --sparse_first (auto) to gate as "
-                      << "they were trained." << std::endl;
+                      << "candidates, so their calls are not those of training. Leave out --sparse_first and "
+                      << "--sparse_first_pick (auto) to gate as they were trained." << std::endl;
         }
     }
 
@@ -725,8 +755,10 @@ namespace protal {
         std::cout << "Sample " << options.GetSampleId(index) << " seeding: " << seeding.Text() << std::endl;
         if (seeding.sparse_reads > 0) {  // --sparse_first: the reads given up after their sampled lookups
             auto const reads = static_cast<double>(seeding.sparse_reads);
+            bool const stride = options.GetSparseFirst(index) > 1 && options.GetSparseFirstPick(index) == SparseFirstPick::Stride;
             std::cout << std::fixed << std::setprecision(2) << "Sample " << options.GetSampleId(index) << " sparse first (1/"
-                      << options.GetSparseFirst(index) << " of the cores, score " << options.GetSparseFirstScore() << ", "
+                      << options.GetSparseFirst(index) << " of the cores" << (stride ? " by stride" : "") << ", score "
+                      << options.GetSparseFirstScore() << ", "
                       << options.GetSparseFirstHits() << " hit(s)): " << seeding.sparse_given_up << " of " << seeding.sparse_reads
                       << (read_type == ReadType::Paired ? " pairs" : " reads") << " given up ("
                       << 100.0 * static_cast<double>(seeding.sparse_given_up) / reads << "%), " << seeding.sparse_lookups
@@ -1035,7 +1067,8 @@ namespace protal {
                 // SPARSE_FIRST says).
                 if (size_t const sparse_first = options.GetSparseFirst(index); sparse_first > 0) {
                     anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
-                                                 static_cast<uint32_t>(options.GetSparseFirstScore()));
+                                                 static_cast<uint32_t>(options.GetSparseFirstScore()),
+                                                 options.GetSparseFirstPick(index) == SparseFirstPick::Stride);
                     // --sparse_seeding: the reads kept seeded from those cores alone, as an index of only them would.
                     if (options.SparseSeeding()) anchor_finder.SetSeedLevel(static_cast<uint8_t>(__builtin_ctzll(sparse_first)));
                 }

@@ -363,6 +363,55 @@ TEST(BuildSettings, SparseFirstGatesParsedWrittenAndReadBack) {
     }
 }
 
+// The gates' picks (--sparse_first_pick, 2026-10-13): auto, hash or stride for every read type, or read types and
+// theirs. Written per read type after the gates, read back; the gates' lines are not taken for picks nor the picks'
+// for gates; a bad pick refused; a file without them says nothing (hash).
+TEST(BuildSettings, SparseFirstPicksParsedWrittenAndReadBack) {
+    auto const index = [](ReadType type) { return static_cast<size_t>(type); };
+    auto const automatic = ParseSparseFirstPicks("auto");
+    ASSERT_TRUE(automatic);
+    EXPECT_EQ(*automatic, SparseFirstPicks());
+    auto const all = ParseSparseFirstPicks("stride");
+    ASSERT_TRUE(all);
+    for (auto const& pick : *all) EXPECT_EQ(pick, SparseFirstPick::Stride);
+    auto const some = ParseSparseFirstPicks("pe:stride,pb:hash");
+    ASSERT_TRUE(some);
+    EXPECT_EQ((*some)[index(ReadType::Paired)], SparseFirstPick::Stride);
+    EXPECT_FALSE((*some)[index(ReadType::Single)]);
+    EXPECT_EQ((*some)[index(ReadType::PacBio)], SparseFirstPick::Hash);
+    EXPECT_EQ(SparseFirstPicksText(*some), "pe stride, pb hash");
+    EXPECT_EQ(SparseFirstPicksText(SparseFirstPicks()), "none");
+    for (char const* bad : { "strided", "8", "", "pe", "pe:", "pe:8", "xx:stride", "pe:stride,", "auto,pe:hash" }) {
+        EXPECT_FALSE(ParseSparseFirstPicks(bad)) << bad;
+    }
+
+    build_settings::Settings written;
+    written.sparse_first = *ParseSparseFirstGates("pe:4,pb:8");
+    written.sparse_first_score = 14;
+    written.sparse_first_hits = 1;
+    written.sparse_first_pick = *some;
+    std::stringstream file;
+    build_settings::Write(file, written);
+    EXPECT_NE(file.str().find("sparse_first_pick_pe\tstride\nsparse_first_pick_pb\thash\n"), std::string::npos) << file.str();
+    build_settings::Settings read;
+    EXPECT_EQ(build_settings::Read(file, read), "");
+    EXPECT_EQ(read.sparse_first_pick, *some);
+    EXPECT_EQ(read.sparse_first, written.sparse_first);
+
+    build_settings::Settings later;
+    std::istringstream unknown("sparse_first_pick_xr\tstride\nsparse_first_pick_ont\tstride\n");
+    EXPECT_EQ(build_settings::Read(unknown, later), "");
+    EXPECT_EQ(later.sparse_first_pick[index(ReadType::ONT)], SparseFirstPick::Stride);
+    EXPECT_EQ(later.sparse_first, SparseFirstGates());
+    build_settings::Settings none;
+    std::istringstream older("sparse_first_pe\t2\n");
+    EXPECT_EQ(build_settings::Read(older, none), "");
+    EXPECT_EQ(none.sparse_first_pick, SparseFirstPicks());
+    std::istringstream bad("sparse_first_pick_pe\t8\n");
+    build_settings::Settings settings;
+    EXPECT_NE(build_settings::Read(bad, settings).find("hash or stride"), std::string::npos);
+}
+
 // A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's first 18 bases are free
 // (dovetail), the rest must align. Without X-drop it aligns over the whole read. WFA2-lib v2.3.6 with X-drop 50 reports
 // it completed, with operations for 151 read bases where the read has 150: the wrapper reports it failed, and so does a

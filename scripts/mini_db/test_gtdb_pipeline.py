@@ -1010,8 +1010,9 @@ class GtdbBuildTest(unittest.TestCase):
     def test_j_sparse_first_gates(self):
         # The full build's databases record the default gates (--sparse-first pe:1,se:1,...), which its collections'
         # runs followed. Again in a copy of it with --test-c-gates, profiled as the simulations go on (--profile-blocks,
-        # as GTDB builds run: a protal run per design point here): the test samples profiled at pe's gates 0 and 2 and
-        # se's 0 too (their rows <sample>__c<C> in the same protal runs, each run once), each model scores them,
+        # as GTDB builds run: a protal run per design point here): the test samples profiled at pe's gates 0 and 2, at 2
+        # with the stride pick too (--test-stride auto; protal's --sparse_first_pick since 2026-10-13), and se's 0 (their
+        # rows <sample>__c<C> and __c<C>s in the same protal runs, each run once), each model scores them,
         # c_gates.tsv has a row per gate with F1 and the alignment's CPU seconds; the training data kept, both main
         # tables as the full build's; the console says each protal run, what it holds, and the trainers' evaluations.
         first = self.full_build()
@@ -1043,7 +1044,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertLessEqual(sum(int(n) for _, n in runs), len(units), log[-3000:])
         self.assertRegex(result.stdout, r"independent test set: protal run 1: \d+ design points")
         self.assertRegex(result.stdout, r"independent test set: profiling \d+ samples .*; of them at other sparse-first gates: "
-                                        r"\d+ pe c0, \d+ pe c2, \d+ se c0")
+                                        r"\d+ pe c0, \d+ pe c2, \d+ pe c2s, \d+ se c0")
         self.assertRegex(result.stdout, r"independent test set: protal run \d+ done")
         self.assertIn("pe model: Extra test tables", result.stdout)
         self.assertIn("se model: Independent test set", result.stdout)
@@ -1054,24 +1055,27 @@ class GtdbBuildTest(unittest.TestCase):
         # The test samples' tables at the other gates, kept off the scratch disk; their samples those of the test file.
         test_samples = {t: self.samples(gates, "test", table)[0][""] for t, table in
                         (("pe", "training_data.tsv"), ("se", "training_data_se.tsv"))}
-        for t, c, table in (("pe", 0, "training_data.tsv"), ("pe", 2, "training_data.tsv"), ("se", 0, "training_data_se.tsv")):
+        for t, c, table in (("pe", 0, "training_data.tsv"), ("pe", 2, "training_data.tsv"), ("pe", "2s", "training_data.tsv"),
+                            ("se", 0, "training_data_se.tsv")):
             self.assertEqual(set(self.text(gates, "work", "test", "c_gates", f"c{c}", f"samples_{t}.txt").split()),
                              test_samples[t], f"{t} c{c}")
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, gates, "work", "test", "c_gates", f"c{c}", table)))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, gates, "work", "test", "c_gates", "c1")),
                          "not the database's gate again")
         with open(os.path.join(self.tmp.name, gates, "model_logs", "trained_model.metrics.json")) as fh:
-            self.assertEqual(set(json.load(fh)["extra_tests"]), {"c0", "c2"})
+            self.assertEqual(set(json.load(fh)["extra_tests"]), {"c0", "c2", "c2s"})
         with open(os.path.join(self.tmp.name, gates, "model_logs", "c_gates.tsv")) as fh:
             rows = list(csv.DictReader(fh, delimiter="\t"))
-        self.assertEqual([(r["read_type"], r["gate"], r["database_gate"]) for r in rows],
-                         [("pe", "0", "0"), ("pe", "1", "1"), ("pe", "2", "0"), ("se", "0", "0"), ("se", "1", "1")])
+        self.assertEqual([(r["read_type"], r["gate"], r["stride"], r["database_gate"]) for r in rows],
+                         [("pe", "0", "0", "0"), ("pe", "1", "0", "1"), ("pe", "2", "0", "0"), ("pe", "2", "1", "0"),
+                          ("se", "0", "0", "0"), ("se", "1", "0", "1")])
         for row in rows:
             self.assertEqual(int(row["samples"]), len(test_samples[row["read_type"]]), row)
             self.assertTrue(row["F1"], row)
             self.assertGreaterEqual(float(row["aligning_cpu_s"]), 0, row)  # recorded (the mini samples take ~0 s)
         self.assertRegex(result.stdout, r"sparse-first gates \(c_gates\.tsv\), test samples: pe: off F1 [\d.]+, \d+ CPU s; "
-                                        r"1 \(database\) F1 [\d.]+, \d+ CPU s; 2 F1 [\d.]+, \d+ CPU s")
+                                        r"1 \(database\) F1 [\d.]+, \d+ CPU s; 2 F1 [\d.]+, \d+ CPU s; "
+                                        r"2 stride F1 [\d.]+ \([\d.]+ by hash\), \d+ CPU s")
         self.assertIn("test samples also at pe:0/1/2,se:0 (model_logs/c_gates.tsv)", self.metadata(gates)["sparse_first"])
         self.assertIn("pe:1,se:1,pb:8,ont:1 (build_settings.tsv; runs follow it)", self.metadata(gates)["sparse_first"])
 

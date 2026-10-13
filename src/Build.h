@@ -2509,8 +2509,8 @@ namespace protal::build {
     }
 
     // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, how the models' `fragments`
-    // feature is to count (--fragment_count) and each read type's sparse-first gate (--sparse_first), which runs on the
-    // database follow (auto) or are warned about. Exits 8 if
+    // feature is to count (--fragment_count) and each read type's sparse-first gate (--sparse_first) and its pick
+    // (--sparse_first_pick), which runs on the database follow (auto) or are warned about. Exits 8 if
     // it cannot be written.
     static void WriteBuildSettings(protal::Options const& options) {
         std::string const target = options.GetBuildSettingsFile();
@@ -2523,6 +2523,10 @@ namespace protal::build {
             settings.sparse_first_score = options.GetSparseFirstScore();
             settings.sparse_first_hits = options.GetSparseFirstHits();
         }
+        // The gates' picks given (--sparse_first_pick; auto: none, hash).
+        settings.sparse_first_pick = options.SparseFirstPickGiven();
+        bool const picks = std::any_of(settings.sparse_first_pick.begin(), settings.sparse_first_pick.end(),
+                                       [](auto const& p) { return p.has_value(); });
         std::ofstream out(target);
         build_settings::Write(out, settings);
         out.close();
@@ -2535,6 +2539,7 @@ namespace protal::build {
                   << SparseFirstGatesText(settings.sparse_first)
                   << (settings.sparse_first_score ? ", score " + std::to_string(*settings.sparse_first_score) + ", " +
                                                     std::to_string(*settings.sparse_first_hits) + " hit(s)" : std::string())
+                  << (picks ? ", pick " + SparseFirstPicksText(settings.sparse_first_pick) : std::string())
                   << " (" << target << ")" << std::endl;
     }
 

@@ -557,6 +557,20 @@ its read type's); `--sparse_first_score` and `--sparse_first_hits` likewise defa
 gated otherwise. `--stage1_probe` and an explicit gate exclude each other; with `--stage1_probe` the
 database's gates are not followed.
 
+`--sparse_first_pick` (since 2026-10-13) chooses which 1/C of a read's cores the gate looks up:
+`hash`, the cores whose hash falls in 1/C of its range (the same cores in every read, so a read's
+sample has gaps by chance; the only pick before), or `stride`, every C-th core of each mate (each
+chunk of a long read) in read order, spread evenly over the read. On local test data the stride kept
+far more of the pairs with records at the same C (C = 8: 99.4% against 92.0%) for a few more lookups,
+and at a recall of 99% needed C = 8 where the hash needed C = 2
+([report](claude/2026-10-13-stride-pick/README.md)); at C = 1 both look up every core. Like the gates,
+`--build` records the picks (`build_settings.tsv`), runs follow the database's (`auto`, the default;
+`hash` where it records none), `--sparse_first_pick` takes one pick for all read types or read types
+and theirs (`pe:stride,pb:hash`), a map's optional `SPARSE_FIRST_PICK` column one sample's (`hash`,
+`stride`, or `-`: its read type's), and a sample picked otherwise than its database is warned.
+`--sparse_seeding` stands for an index of the hash pick's cores: a sample it would seed with the
+stride pick stops the run.
+
 `--sparse_seeding` (with a gate) seeds the reads the gate keeps from its 1/C of the cores alone, as an
 index holding only those cores would, and logs after the index load what such an index would hold
 of the loaded one's entries, values and keys for each C. It measures what a smaller index for gated

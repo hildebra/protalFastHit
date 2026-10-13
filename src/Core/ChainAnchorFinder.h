@@ -192,9 +192,12 @@ namespace protal {
         stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
         uint32_t m_probe_cores = 0;  // --stage1_probe: the k-mers of the read m_lookups are of (LookupKmers)
         // --sparse_first (SetSparseFirst): a read's sampled lookups, the cores of level m_sparse_level or more
-        // (stage1_probe::Level), scored first (SparseHits), a hit if its best flex score is m_sparse_score or more.
+        // (stage1_probe::Level), or with m_sparse_stride every 2^m_sparse_level-th core in read order
+        // (stage1_probe::StridePicked; SparsePicked), scored first (SparseHits), a hit if its best flex score is
+        // m_sparse_score or more.
         bool m_sparse_first = false;
         uint8_t m_sparse_level = 0;
+        bool m_sparse_stride = false;
         uint32_t m_sparse_score = 0;
         LookupResultList m_sparse_lookups;
         size_t m_sparse_kmers = 0;  // the sampled k-mers of the read SparsePrepare looked up last
@@ -677,7 +680,8 @@ namespace protal {
                 m_kmer_lookup(other.m_kmer_lookup), m_max_seed_size(other.m_max_seed_size),
                 m_min_successful_lookups(other.m_min_successful_lookups), m_k(other.m_k),
                 m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
-                m_sparse_level(other.m_sparse_level), m_sparse_score(other.m_sparse_score), m_seed_level(other.m_seed_level) {};
+                m_sparse_level(other.m_sparse_level), m_sparse_stride(other.m_sparse_stride), m_sparse_score(other.m_sparse_score),
+                m_seed_level(other.m_seed_level) {};
 
         bool Success() {
             return !m_error_in_read;
@@ -971,20 +975,30 @@ namespace protal {
         void SetFlexIndels(bool on) { m_kmer_lookup.SetFlexIndels(on); }
 
         // --sparse_first: a read's sampled lookups first, those of the cores of level `level` or more (stage1_probe::Level:
-        // 1/2^level of the cores), a hit where the best flex cell shares `min_score` or more of the 16 flank bases with the
-        // read (SparseHits). The caller gives up a read (pair) with too few hits before the rest of its seeding; a read it
-        // keeps is seeded as without --sparse_first, so its seeds, anchors and alignments are the same. Copies keep it.
-        void SetSparseFirst(uint8_t level, uint32_t min_score) {
+        // 1/2^level of the cores), or with `stride` (--sparse_first_pick stride) every 2^level-th core of the read (a mate,
+        // a long read's chunk) in read order (stage1_probe::StridePicked), a hit where the best flex cell shares
+        // `min_score` or more of the 16 flank bases with the read (SparseHits). The caller gives up a read (pair) with too
+        // few hits before the rest of its seeding; a read it keeps is seeded as without --sparse_first, so its seeds,
+        // anchors and alignments are the same. At level 0 both pick every core. Copies keep it.
+        void SetSparseFirst(uint8_t level, uint32_t min_score, bool stride = false) {
             m_sparse_first = true;
             m_sparse_level = level;
+            m_sparse_stride = stride;
             m_sparse_score = min_score;
         }
         bool SparseFirst() const { return m_sparse_first; }
 
+        // Whether the gate samples k-mer j of a read's (chunk's) `kmers`: by its core's level, or by its place in the
+        // stride. The probe's stride rules pick the same (Stage1Probe.h).
+        bool SparsePicked(size_t j, size_t kmers, uint64_t kmer) const {
+            return m_sparse_stride ? stage1_probe::StridePicked(j, kmers, size_t{1} << m_sparse_level)
+                                   : stage1_probe::Level(m_kmer_lookup.MainKey(kmer)) >= m_sparse_level;
+        }
+
         // The key map blocks of a read's sampled k-mers, fetched ahead as PrefetchKeys fetches all (--sparse_first).
         void PrefetchSparseKeys(KmerList const& kmer_list) {
-            for (auto const& [kmer, pos] : kmer_list) {
-                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer)) >= m_sparse_level) m_kmer_lookup.PrefetchKey(kmer);
+            for (size_t j = 0; j < kmer_list.size(); j++) {
+                if (SparsePicked(j, kmer_list.size(), kmer_list[j].first)) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
             }
         }
 
@@ -997,7 +1011,7 @@ namespace protal {
             m_sparse_lookups.clear();
             m_sparse_kmers = 0;
             for (size_t j = 0; j < kmer_list.size(); j++) {
-                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) < m_sparse_level) continue;
+                if (!SparsePicked(j, kmer_list.size(), kmer_list[j].first)) continue;
                 m_sparse_kmers++;
                 m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
             }
@@ -1015,8 +1029,8 @@ namespace protal {
             m_bm_sparse.Stop();
             return hits;
         }
-        // A short read SparseScore kept, seeded next: where the gate's level is the seed level (C 1, or --sparse_seeding)
-        // its sampled lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
+        // A short read SparseScore kept, seeded next: where the gate's level is the seed level (C 1, whatever the pick, or
+        // --sparse_seeding, which takes the hash pick) its sampled lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
         // the same order, their values fetched), so FindSeeds takes them instead of looking the read up again; else
         // FindSeeds looks it up in full.
         void KeepSparseLookups() {
@@ -1038,7 +1052,7 @@ namespace protal {
         uint32_t SparseHits(KmerList& kmer_list, uint32_t enough) {
             m_sampled.clear();
             for (size_t j = 0; j < kmer_list.size(); j++) {
-                if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) >= m_sparse_level) m_sampled.push_back(j);
+                if (SparsePicked(j, kmer_list.size(), kmer_list[j].first)) m_sampled.push_back(j);
             }
             size_t const n = m_sampled.size();
             for (size_t i = 0; i < std::min(kPrefetchKmers, n); i++) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i]].first);

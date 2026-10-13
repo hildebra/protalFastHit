@@ -4202,7 +4202,7 @@ class SparseFirstGatesTest(WorkDir):
         shutil.copytree(release.inputs, cls.db)
         rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
                                 "--reference", os.path.join(cls.db, "reference.fna"), "--sparse_first", "pe:2,se:4,pb:8,ont:1",
-                                "--sparse_first_score", "13")
+                                "--sparse_first_score", "13", "--sparse_first_pick", "se:stride")
         if rc != 0:
             raise RuntimeError("protal --build --sparse_first failed:\n" + cls.build_log[-3000:])
 
@@ -4219,8 +4219,10 @@ class SparseFirstGatesTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         settings = read_text(os.path.join(unpacked, "build_settings.tsv"))
         for line in ("sparse_first_pe\t2\n", "sparse_first_se\t4\n", "sparse_first_pb\t8\n", "sparse_first_ont\t1\n",
-                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n"):
+                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n", "sparse_first_pick_se\tstride\n"):
             self.assertIn(line, settings)
+        self.assertIn(", pick se stride (", self.build_log)
+        self.assertNotIn("sparse_first_pick_pe", settings)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
         log = self.align("auto")
@@ -4302,6 +4304,76 @@ class SparseFirstGatesTest(WorkDir):
         self.assertEqual([c for c, _ in per_c], [1, 2, 4, 8, 16, 32])
         self.assertEqual(per_c[0][1], entries)
         self.assertTrue(all(a > b for (_, a), (_, b) in zip(per_c, per_c[1:])), per_c)
+
+    def test_each_pick_gives_up_what_the_probe_predicts(self):
+        """--sparse_first_pick (2026-10-13): the gate looks up the hash sample of a read's cores, or every C-th core of a
+        mate in read order (stride). Either gives up exactly the pairs the probe's rule of that pick (C 8, score 14, one
+        hit) does not keep. At C 1 both look up every core: the same records."""
+        rc, log = run(self.work, "--db", self.plain_db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "probe8", "-o",
+                      "probe8", "-t", "2", "--no_strains", "--no_profile", "--stage1_probe")
+        self.assertEqual(rc, 0, log[-3000:])
+
+        def predicted(table):
+            for line in read_text(self.path("probe8", "misc", f"probe8_{table}.tsv")).splitlines()[1:]:
+                fields = line.split("\t")
+                if fields[:3] == ["8", "14", "1"]:
+                    return int(fields[3]) - int(fields[4]), int(fields[3])  # given up, pairs
+            self.fail(f"no rule c 8, T 14, m 1 in probe8_{table}.tsv")
+        for pick, table, marker in (("hash", "stage1_probe", ""), ("stride", "stage1_probe_stride", " by stride")):
+            log = self.align(f"gate_{pick}", "--sparse_first", "8", "--sparse_first_pick", pick, "--sparse_first_score", "14",
+                             db=self.plain_db)
+            given_up = re.search(rf"Sample gate_{pick} sparse first \(1/8 of the cores{marker}, score 14, 1 hit\(s\)\): "
+                                 r"(\d+) of (\d+) pairs given up", log)
+            self.assertIsNotNone(given_up, log[-3000:])
+            self.assertEqual((int(given_up.group(1)), int(given_up.group(2))), predicted(table), pick)
+            self.assertGreater(int(given_up.group(1)), 0, f"{pick}: no pair given up, nothing tested")
+        records = {}
+        for pick in ("hash", "stride"):
+            self.align(f"c1_{pick}", "--sparse_first", "1", "--sparse_first_pick", pick, db=self.plain_db)
+            records[pick] = sorted(sam_records(self.path(f"c1_{pick}", f"c1_{pick}.sam")))
+        self.assertTrue(records["hash"])
+        self.assertEqual(records["stride"], records["hash"])
+
+    def test_runs_follow_the_databases_picks(self):
+        """A run on the database picks as it records (here se: stride at C 4; pe: hash, as it says nothing) and is warned
+        when it picks otherwise, by --sparse_first_pick or the map's SPARSE_FIRST_PICK; --sparse_seeding, which stands for
+        an index of the hash pick's cores, refuses a sample gated with the stride pick."""
+        def single(name, *extra, rc_expected=0):
+            rc, log = run(self.work, "--db", self.db, "-1", self.reads[0], "--prefix", name, "-o", name, "-t", "2",
+                          "--no_strains", "--no_profile", *extra)
+            self.assertEqual(rc, rc_expected, log[-3000:])
+            return log
+        log = single("se_auto")
+        self.assertIn("sparse first: se 4 stride, score 13, 1 hit(s); the database's models were trained with se 4 stride, "
+                      "score 13, 1 hit(s)", log)
+        self.assertIn("Sample se_auto sparse first (1/4 of the cores by stride, score 13, 1 hit(s))", log)
+        self.assertNotIn("gated otherwise", log)
+        log = single("se_hash", "--sparse_first_pick", "hash")
+        self.assertIn("sparse first: se 4 (--sparse_first_pick), score 13", log)
+        self.assertIn("Sample se_hash sparse first (1/4 of the cores, score 13", log)
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. se_hash) are gated otherwise", log)
+        log = single("se_seeding", "--sparse_seeding", rc_expected=2)
+        self.assertIn("--sparse_seeding seeds as an index of the hash pick's cores would", log)
+        log = self.align("pe_auto")
+        self.assertIn("Sample pe_auto sparse first (1/2 of the cores, score 13", log)
+
+        sams = self.path("pick_map_out")
+        os.makedirs(sams, exist_ok=True)
+        with open(self.path("picks.map"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{sams}\n#SAMPLEID\tFIRST\tSECOND\tPREFIX\tSPARSE_FIRST_PICK\n")
+            fh.write(f"p_stride\t{self.reads[0]}\t{self.reads[1]}\tp_stride\tstride\n")
+            fh.write(f"p_db\t{self.reads[0]}\t{self.reads[1]}\tp_db\t-\n")
+        rc, log = run(self.work, "--db", self.db, "--map", self.path("picks.map"), "-t", "2", "--no_strains", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Sample p_stride sparse first (1/2 of the cores by stride, score 13", log)
+        self.assertIn("Sample p_db sparse first (1/2 of the cores, score 13", log)
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. p_stride) are gated otherwise", log)
+        with open(self.path("bad_pick.map"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{sams}\n#SAMPLEID\tFIRST\tSECOND\tPREFIX\tSPARSE_FIRST_PICK\n")
+            fh.write(f"p_bad\t{self.reads[0]}\t{self.reads[1]}\tp_bad\tstrided\n")
+        rc, log = run(self.work, "--db", self.db, "--map", self.path("bad_pick.map"), "-t", "2", "--no_strains", "--no_profile")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("SPARSE_FIRST_PICK is 'strided'; expected hash, stride or -", log)
 
     def test_the_probe_tallies_hash_and_stride_rules(self):
         """--stage1_probe tallies its rules for the hash sample of the cores and, since 2026-10-13, for a stride pick

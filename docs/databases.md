@@ -22,7 +22,7 @@ databases are in [development.md](development.md).
 | `index.prx` | the k-mer index of the reference marker genes |
 | `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
-| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`) |
+| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash` or `stride`) |
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
@@ -1203,7 +1203,10 @@ below and in the runs a model is trained on ([report](claude/2026-10-11-singletr
 `--sparse_first` with `--build` records each read type's sparse-first gate there too (`pe:1,pb:8`,
 or one gate for all; `--sparse_first_score` and `--sparse_first_hits` with them), which runs on the
 database follow unless their `--sparse_first` says otherwise: the database's models must have been
-trained on runs gated so ([above](#choosing-the-sparse-first-gates)). The build itself is the same.
+trained on runs gated so ([above](#choosing-the-sparse-first-gates)). `--sparse_first_pick` with
+`--build` records each gate's pick likewise (`pe:stride`, or one pick for all; `hash` where it says
+nothing), which runs follow unless their `--sparse_first_pick` says otherwise. The build itself is
+the same.
 
 The build first makes the tables that need the genes alone (before the index takes its memory),
 then the index:
