@@ -180,7 +180,8 @@ both in place. `--unpack_db` writes them back.
   A run and a build print `Index in memory: ...`. A run whose every sample is gated with the grid pick loads
   only the entries of its smallest gate's grid level (`--sparse_index auto`, since 2026-10-13; about 1/C of the
   values, the key map unchanged), and says so on that line ("a sparse index: the entries of grid level L or
-  more, N of the file's M").
+  more, N of the file's M, on K of its J cores with entries"; the key map stays 3.2 GB: most of its slots are
+  empty, whole or sparse, [report](claude/2026-10-13-compact-key-map.md)).
 - A full r226 run peaked at 36.5 GB, about 34 GB expected now ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
   it needs the database as separate files (protal prints the `--unpack_db` command).

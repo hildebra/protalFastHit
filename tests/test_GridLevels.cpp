@@ -321,7 +321,7 @@ TEST(GridIndex, ASparseLoadHoldsTheEntriesOfItsLevel) {
         EXPECT_EQ(sparse.LoadedLevel(), level);
         EXPECT_EQ(sparse.FileEntries(), values.size());
         auto const back = EntriesByKey(sparse, values);
-        uint64_t kept = 0;
+        uint64_t kept = 0, kept_cores = 0;
         for (auto const& [core, e] : whole) {
             KeyEntries want;
             for (size_t i = 0; i < e.values.size(); i++) {
@@ -332,6 +332,7 @@ TEST(GridIndex, ASparseLoadHoldsTheEntriesOfItsLevel) {
             }
             if (want.values.size() < 2) want.flex.clear();  // a key of one value has no flex cell
             kept += want.values.size();
+            kept_cores += !want.values.empty();
             EXPECT_EQ(back.at(core).values, want.values) << "level " << int(level) << " core " << core;
             EXPECT_EQ(back.at(core).levels, want.levels) << "level " << int(level) << " core " << core;
             EXPECT_EQ(back.at(core).flex, want.flex) << "level " << int(level) << " core " << core;
@@ -339,6 +340,9 @@ TEST(GridIndex, ASparseLoadHoldsTheEntriesOfItsLevel) {
         EXPECT_EQ(sparse.PackedEntries(), kept);
         EXPECT_LT(kept, values.size());
         EXPECT_NE(sparse.MemoryDescription().find("a sparse index: the entries of grid level " + std::to_string(level)), std::string::npos);
+        // The cores that keep an entry, of those with entries in the file (the key map's used slots, whole and sparse).
+        EXPECT_NE(sparse.MemoryDescription().find("on " + std::to_string(kept_cores) + " of its " + std::to_string(whole.size()) +
+                                                  " cores with entries"), std::string::npos) << sparse.MemoryDescription();
     }
 }
 

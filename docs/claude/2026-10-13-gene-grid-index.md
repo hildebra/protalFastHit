@@ -252,3 +252,63 @@ anchors are the runs' log lines.
   aligning times of these 1-3 s runs are noise. The lookups stay those of the grid.
 - **Calls**: the mini world's three called species are the same in every run, so false positives from single-seed
   candidates to congeners cannot show here; that, the F1 and the cost at scale are for r226 (`--test-grid`).
+
+## Follow-up 4: two-seed anchors on the whole index
+
+The user asked that runs with the full index keep the two-seed anchors. Since single-seed anchors only pay where a read
+has 1/C of its seeds, the grid now seeds by what is in memory:
+
+- **Sparse index** (`--sparse_index auto` with every sample grid-picked): as in follow-up 3, a read kept is seeded from
+  its grid entries alone, a short read's gene anchoring on one seed too.
+- **Whole index** (`--sparse_index off`, or a run whose samples are not all grid-picked): the grid only gates. The
+  gate keeps its lookups of every core, those without an entry of its level too (scored as misses), and a read kept is
+  seeded from them with every entry counting (`ChainAnchorFinder::KeepSparseLookups`), so no core is looked up twice;
+  anchors need two seeds of a gene, as in every other run.
+- **`--sparse_index emulate`**: the whole index, seeded as the sparse index (the same records as `auto`). Every
+  collection run of `collect_training_data.py` gets it where protal has it, so that the build's `--test-grid` rows,
+  profiled in mixed runs on the whole index, and the training rows of a database picked by grid are seeded as a
+  grid-picked run on a sparse index is. It changes nothing for samples of the other picks.
+
+The run's log says which ("Grid pick: ..."). The e2e test now checks `auto` = `emulate` (records, pairs given up), and
+that `off` gives up the same pairs, has no single-seed anchors and more than twice the seeds. Not yet measured: how the
+grid gate on the whole index compares with the stride (its records should be close to the stride's at the same C,
+the gate giving up as many pairs).
+
+## Follow-up 5: held-out real strains (C 4)
+
+The user asked whether the gates miss divergent strains. The test bed is the strain world of
+[2026-10-11-strain-false-negatives](2026-10-11-strain-false-negatives/README.md) in WSL `~/strainfn`: GTDB r226 marker
+genes of 30 focal species, 532 real test strains held out of the database (easy ≥ 99.5% ANI to the representative,
+198; medium 98.5-99.5%, 248; hard < 98.5%, 86), 20 deep samples (60 pairs per strain) and 20 shallow ones (1-32 pairs
+per strain, 600 instances), and the same presence model for every run (the small real world's paired-end GBM, seed 1,
+trained on ungated runs with full seeding).
+
+**Commands.** The tree of `19ccc0e` plus the whole-index change (follow-up 4), built from `git archive` in WSL
+`~/grid-verify`. Database `db_grid`: that study's `make_variants.sh <protal> grid:20:` (its `a16` variant: 16 alleles,
+the allele half's 20 genomes per focal species, no indexed alleles; now with grid levels). Runs: its `run_samples.sh`
+with `g0:grid:--sparse_first,0`, `s4:grid:--sparse_first,4,--sparse_first_pick,stride`,
+`g4:grid:--sparse_first,4,--sparse_first_pick,grid` (every sample grid-picked: the sparse index) and
+`gw4:grid:--sparse_first,4,--sparse_first_pick,grid,--sparse_index,off` (the grid gate on the whole index); scored by
+its `evaluate.py` into `~/strainfn/eval_grid*`.
+
+| run | pairs given up | candidate alignments | records | calls: all / hard | 1-2 pairs | FP shallow / deep |
+|---|---|---|---|---|---|---|
+| no gate (`g0`) | 0 | 452,927 | 88,597 | 0.900 / 0.842 | 0.783 | 2 / 12 |
+| stride C 4 (`s4`) | 124 of 88,800 | 452,764 | 88,592 | 0.900 / 0.842 | 0.783 | 2 / 12 |
+| grid C 4, whole index (`gw4`) | 131 | 452,749 | 88,597 | 0.900 / 0.842 | 0.783 | 2 / 12 |
+| grid C 4, sparse index (`g4`) | 131 | 557,934 | 88,597 | 0.867 / 0.743 | 0.675 | 1 / 7 |
+
+- **No gate misses a strain.** The reads come from marker genes only, so the gates give up 0.15% of the pairs; the
+  stride and the grid gate on the whole index call exactly what the ungated run calls.
+- **The sparse index keeps the reads.** At the read level (deep samples) `g4` puts the hard strains' pairs on the
+  right species more often than ungated (0.907 against 0.897; counted 0.807 against 0.798) and fewer on another
+  species (0.032 against 0.038); easy and medium are the same within 0.003.
+- **But the shared model calls fewer strains on it**, 0.867 against 0.900 (hard 0.743 against 0.842), with fewer
+  false positives (1 against 2; deep 7 against 12). The 20 extra misses have counted pairs the model turned down ("1
+  pair counted" 30 against 20, "2+ pairs counted, model said no" 27 against 17). At a lower knob `g4` is ahead at the
+  same false positives (knob 0.2: 0.912, hard 0.851, 2 FP; `g0` at 0.5: 0.900, 0.842, 2 FP), so the evidence is there
+  and the model's probabilities are lower. The single-seed anchors add 23% candidate alignments (456,986 single-seed
+  anchors) for the same records, so the failed-candidate features rise: a model trained on ungated runs reads them as
+  evidence against. A grid-picked database needs models trained on grid-picked runs, as `build_gtdb_database.py
+  --sparse-first-pick grid` trains them (the collections seed as the sparse index, follow-up 4), and the r226 test
+  rows (`--test-grid`) are scored by models trained otherwise, which will understate the grid's F1.

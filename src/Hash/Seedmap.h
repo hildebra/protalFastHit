@@ -306,6 +306,7 @@ namespace protal {
         unsigned m_level_bits = 0, m_level_shift = 0;  // an entry's grid level above its flags (PackedLayout::level_bits)
         uint8_t m_load_level = 0;       // the grid level a sparse load keeps (SetLoadLevel; LoadedLevel)
         uint64_t m_file_entries = 0;    // a sparse load: the entries of the index file, kept or not
+        uint64_t m_file_keys = 0, m_kept_keys = 0;  // a sparse load: the cores with entries in the file, and with entries kept
         uint64_t m_genes = 2;           // an entry's taxid and gene are taxid * m_genes + gene
         uint64_t m_slot_bits_32 = 0;    // PackedLayout::SlotBits32
         uint64_t m_gene_reciprocal = 0;  // taxid = (taxid * m_genes + gene) * m_gene_reciprocal >> 64 (DivideByGenes)
@@ -497,7 +498,8 @@ namespace protal {
                     ") and their 32-bit flex cells, " + slot + " bits per slot of the file: " + gb(m_packed_bytes);
                 if (m_load_level > 0) {
                     s += " (a sparse index: the entries of grid level " + std::to_string(m_load_level) + " or more, " +
-                         std::to_string(m_packed_entries) + " of the file's " + std::to_string(m_file_entries) + ")";
+                         std::to_string(m_packed_entries) + " of the file's " + std::to_string(m_file_entries) + ", on " + std::to_string(m_kept_keys) +
+                         " of its " + std::to_string(m_file_keys) + " cores with entries)";
                 }
             } else {
                 s = std::to_string(values_size) + " slots of 8 bytes: " + gb(values_size * sizeof(ValueEntry));
@@ -1379,6 +1381,7 @@ namespace protal {
                 std::vector<uint32_t> keys, counts, flex;
                 std::vector<uint64_t> values;
                 uint64_t file_entries = 0, slots = 0;  // the file's entries of its keys; the slots of the kept ones
+                uint64_t file_keys = 0;  // its keys with entries in the file
             };
             std::vector<Kept> kept(container.chunks.size());
             uint8_t const level = m_load_level;
@@ -1395,6 +1398,7 @@ namespace protal {
                     count++;
                 }
                 k.file_entries += e;
+                k.file_keys++;
                 if (count) {
                     k.keys.push_back(static_cast<uint32_t>(main_key));
                     k.counts.push_back(count);
@@ -1488,10 +1492,13 @@ namespace protal {
             std::vector<uint64_t> chunk_slot(kept.size() + 1, 0);
             uint64_t entries = 0;
             m_file_entries = 0;
+            m_file_keys = m_kept_keys = 0;
             for (size_t c = 0; c < kept.size(); c++) {
                 chunk_slot[c + 1] = chunk_slot[c] + kept[c].slots;
                 entries += kept[c].values.size();
                 m_file_entries += kept[c].file_entries;
+                m_file_keys += kept[c].file_keys;
+                m_kept_keys += kept[c].keys.size();
             }
             error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[c];
