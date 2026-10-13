@@ -1,4 +1,4 @@
-// protal 0.8.2. In 0.7 (since 0.6.0a):
+// protal 0.8.3. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -128,7 +128,7 @@
 //   the same (docs/claude/2026-10-11-wfa2-singletrack-speed): four WFA2-lib patches (loops that vectorize, fewer end
 //   checks, x86-64-v3 clones), the slab's reset touching only what an alignment used, and the penalties halved
 //   (2/3/1) where X-drop cannot prune: WFA2 instructions -26% pe, -46..-48% PacBio, -39..-43% ONT on protal's calls.
-// After 0.8.2: the weighted site shift off by default again (--weighted_site_shift; docs/claude/2026-10-12-r226-v24b):
+// In 0.8.3: the weighted site shift off by default again (--weighted_site_shift; docs/claude/2026-10-12-r226-v24b):
 //   at r226 it lowered short-read depths by 1-2% without a measurable F1 gain. r226 v24b's models were trained with it.
 //   --fragment_count soft (opt-in, recorded in build_settings.tsv and followed by runs): the model's `fragments` feature
 //   counts the fragments the MAPQ and length filters drop by their read-EM share (docs/claude/2026-10-12-r226-v24b-errors).
@@ -138,6 +138,14 @@
 //   intermediate files in a folder of its own on a local disk, removed at the end (the strain stage's spill files,
 //   replacing --strain_spill; with --no_strains the SAMs; a gz/plain SAM's records; qcMSA's files). The profiling's
 //   tail timed ("Profiling: after the profile").
+//   Sparse-first gates (docs/claude/2026-10-12-sparse-first): --sparse_first C looks a read up by 1/C of its cores first
+//   and gives it up without a near-exact hit (at r226 pe C = 1: 0.01% of the records for -35% of the alignment's time;
+//   HiFi C = 8: 0.54% for -62%); a gate per read type, recorded by --build in build_settings.tsv and followed by runs
+//   (auto), a map's SPARSE_FIRST column for one sample; at C 1 a kept read is seeded from the gate's lookups.
+//   --stage1_probe measures what such a gate would keep. A sample's lanes as one sample (comma-separated map cells,
+//   --one_sample). gzip files that are not BGZF inflated with ISA-L in pieces on 1-8 threads per file
+//   (ParallelGzip.cpp; docs/claude/2026-10-12-isal-parallel-inflate), on the system's ISA-L again. Every line of a
+//   lookup's key-map block prefetched.
 #include <iostream>
 #include "RunProtal.h"
 

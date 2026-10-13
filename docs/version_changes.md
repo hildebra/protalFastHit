@@ -1,7 +1,7 @@
-# What changed from protal 0.6.0a to 0.8.2
+# What changed from protal 0.6.0a to 0.8.3
 
 The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026), the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09), 0.8.1 and 0.8.2 (both 2026-10-11, branch `audit-fixes`) are compared here:
+2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09), 0.8.1 and 0.8.2 (both 2026-10-11) and 0.8.3 (2026-10-13, branch `audit-fixes`) are compared here:
 what changed, and how every version scores on the same simulated data in detection, abundance,
 strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
@@ -25,7 +25,15 @@ for this page.
 | 0.8.1 | `b3ac271` | 2026-10-11 | 22 | 0.8.0's features measured at r226 (v21-v23: strain alleles and ancestry sites +0.001-0.002 of F1 each, the site groups together +0.001-0.003) and acted on: the ancestry sites prebuilt by `--build` (profiling −47% of its instructions, the same profiles) and counted where the species' known genomes share them; the columns' conservation in the family from GTDB's own alignments (`weights`, 91 default features); up to 16 strain alleles per gene, the finished database's from every genome; the deep alleles' index entries off; more real strains and fewer in-silico ones in training; NCBI species taxids in the database and the profiles (`--ncbi_taxids`) |
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 
-## Since 0.8.2
+## What 0.8.3 adds
+
+0.8.3 collects the 30 commits after 0.8.2. The changes:
+- **Read alignment:** the sparse-first gate gives up the reads that find nothing near-exact, recorded per read type
+  by the database.
+- **Read input:** gzip input inflated in pieces on several threads, and a sample's lanes read as one sample.
+- **Database builds:** an F1 over the species the marker genes can see, and the gates trained on and tested.
+
+None of it is measured in an r226 build yet; the first gated build is running.
 
 - **The weighted site shift off by default again** (2026-10-12). The first r226 build trained with it
   (v24b) showed no measurable F1 gain, and its short-read species depths were 1-2% lower; on the small
@@ -71,6 +79,13 @@ for this page.
   `--test-c-gates` profiles the test samples at other gates too and writes their F1 and alignment CPU to
   `model_logs/c_gates.tsv` ([databases.md](databases.md#choosing-the-sparse-first-gates)). Databases built
   before stay ungated. Untested at r226.
+- **Smaller changes**, all with the same outputs:
+  - `--stage1_probe` measures what a gate would keep.
+  - At C = 1 a kept read is seeded from the gate's own lookups.
+  - Every line of a lookup's key-map block is prefetched.
+  - The profiling's caches are split in 64 locked shards (a 32-thread run's SAM parse 119 → ~25 thread-seconds).
+  - `--scratch_dir` puts a run's intermediate files on a local disk; it replaces `--strain_spill`.
+  - Build console: GTDB builds say each protal run of a collection and each evaluation as it starts.
 
 ## What 0.8.2 adds
 
