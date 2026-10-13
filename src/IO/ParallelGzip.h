@@ -11,11 +11,14 @@
 // header found by chance is never used; ISA-L's stock API is all it needs
 // (docs/claude/2026-10-12-isal-parallel-inflate). Read gives the file's bytes in order, its members one
 // after the other; each member's CRC-32 and length are checked, and that the file ends with a whole
-// member (or zero bytes of padding).
+// member (or zero bytes of padding). Small members (as tools that compress a file in chunks write) hold
+// too few block starts for pieces: where they follow a member, Read stops, and the caller reads the rest by
+// members (StoppedAt; docs/claude/2026-10-13-gzip-members-regression).
 #pragma once
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -29,18 +32,26 @@ namespace protal {
 
         // A reader of the regular file open as fd, from its start, on `threads` threads (the caller's and threads - 1
         // of its own; at least 2): the file is mapped, so its offset and the descriptor stay the caller's. Null if the
-        // reader cannot be made (error then says why: not a regular file, no gzip header at its start).
-        static std::unique_ptr<ParallelGzip> Open(int fd, unsigned threads, std::string& error);
+        // reader cannot be made (error then says why: not a regular file, no gzip header at its start). With
+        // `max_member`, Read stops after a member that the next two members follow within max_member bytes each
+        // (StoppedAt).
+        static std::unique_ptr<ParallelGzip> Open(int fd, unsigned threads, std::string& error, size_t max_member = 0);
 
         ~ParallelGzip();
         ParallelGzip(ParallelGzip const&) = delete;
         ParallelGzip& operator=(ParallelGzip const&) = delete;
 
-        // Up to size inflated bytes into out, the next ones of the file; 0 at its end, or on an error
-        // (Error() then says what: a corrupt member, a CRC-32 that does not match, a truncated file).
+        // Up to size inflated bytes into out, the next ones of the file; 0 at its end, where it stopped (StoppedAt), or
+        // on an error (Error() then says what: a corrupt member, a CRC-32 that does not match, a truncated file).
         size_t Read(char* out, size_t size);
 
         std::string const& Error() const { return m_error; }
+
+        // Once Read gives 0: the byte where the member begins that Read stopped before (small members follow), every
+        // member before it read and checked, and how many they were; kNotStopped at the file's end or an error.
+        static constexpr uint64_t kNotStopped = UINT64_MAX;
+        uint64_t StoppedAt() const;
+        size_t MembersRead() const;
 
         // How the file's ranges were decoded so far: pieces decoded ahead by the workers and used, ranges the reader's
         // thread decoded in order, ranges decoded on to their member's end (no piece start after them, or a corrupt or

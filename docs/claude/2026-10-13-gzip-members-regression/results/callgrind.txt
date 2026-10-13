@@ -1,0 +1,15 @@
+# scripts/run_callgrind.sh: callgrind (valgrind 3.22) over data/small64k.gz = the first 64 MiB of R1.fq as 1,024 members
+# of 64 KiB (gzip -6), 11,819,815 bytes; bench_pgz at 9c27756, 1 and 2 gzip threads. Top functions by instructions.
+
+threads 1 (ISA-L on the file's own thread): 600,329,662 instructions
+381,207,421 (63.50%)  libisal.so.2.0.31 (inflate)
+138,511,257 (23.07%)  __memcpy_avx_unaligned_erms
+ 49,926,421 ( 8.32%)  libisal.so.2.0.31
+ 24,682,313 ( 4.11%)  libisal.so.2.0.31
+
+threads 2 (ParallelGzip): 2,348,639,810 instructions; counts: ahead 0, in_order 0, streamed 1024, dropped 0
+1,300,373,744 (55.37%)  protal::(anonymous namespace)::IsDynamicBlockHeader
+  380,617,673 (16.21%)  libisal.so.2.0.31 (inflate)
+  244,290,650 (10.40%)  protal::(anonymous namespace)::FindBlock
+  237,675,701 (10.12%)  __memcpy_avx_unaligned_erms
+   92,411,731 ( 3.93%)  __memset_avx2_unaligned_erms

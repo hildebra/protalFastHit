@@ -1126,8 +1126,8 @@ namespace protal {
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
                 // A gzip read file inflates on several threads by -t (ThreadedGzStream.h): a BGZF one on 1 to 4 of protal's
-                // per file (a zstd file's frames alike), another gzip file (a regular one) in pieces on 1 to 8 (a thread per 4 of
-                // -t and file, ParallelGzip.h).
+                // per file (a zstd file's frames, and a gzip file's members if its second begins near its start, alike),
+                // another gzip file (a regular one) in pieces on 1 to 8 (a thread per 4 of -t and file, ParallelGzip.h).
                 std::size_t const files = single_file ? 1 : 2;
                 ThreadedGzStreambuf::SetInflateThreads(ThreadedGzStreambuf::InflateThreadsFor(options.GetThreads(), files));
                 ThreadedGzStreambuf::SetGzipThreads(ThreadedGzStreambuf::GzipThreadsFor(options.GetThreads(), files));
@@ -1160,6 +1160,7 @@ namespace protal {
                         std::cout << "Input " << path << ": "
                                   << (buf.opened_as_bgzf()          ? "BGZF, inflated on " + threads
                                       : buf.opened_as_zstd_frames() ? "zstd, its frames decompressed on " + threads
+                                      : buf.opened_as_gzip_members() ? "gzip of several members (not BGZF), its members inflated on " + threads
                                       : buf.parallel_gzip()         ? "gzip (not BGZF), inflated in pieces on " + threads
                                                                     : std::string("gzip, zstd or uncompressed, read on one thread"))
                                   << (buf.parallel_gzip_error().empty() ? std::string()

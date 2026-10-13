@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "Bgzf.h"
+#include "GzipMember.h"
 #include "ParallelGzip.h"
 
 namespace protal {
@@ -61,11 +62,21 @@ namespace protal {
     // order and hands them out in batches of up to 1 MB of output, worker threads inflate the
     // batches with ISA-L, and the reader takes them in file order, as if one thread had inflated
     // them: the same bytes, and an error (a corrupt block, a cut file) where the file has it, with
-    // everything before it read. One gzip member cannot be split this way (its deflate blocks are
+    // everything before it read. A regular gzip file of several members whose second member begins
+    // within kMaxGzipMember bytes (as tools that compress a file in chunks write it) is read the same
+    // way, by members: the dispatcher cuts it where a member's header begins (GzipMember.h) and the
+    // workers inflate whole members, each from its start. A header found by chance in a member's
+    // data cuts a member wrongly; its batch then fails, and the file from that batch on is read on
+    // one thread, as one thread reads it (damage fails there as on one thread). Every batch before
+    // it ended exactly where the next began, so what was read before is the file's (docs/claude/
+    // 2026-10-13-gzip-members-regression). One gzip member cannot be split this way (its deflate blocks are
     // found only by decoding it from the start, and refer back up to 32 KB): another gzip file, if
     // it is a regular file and gets more than one thread, is inflated in pieces on that many threads
     // with ISA-L (ParallelGzip.h: this file's thread decodes in order what the others have not decoded
-    // ahead, and copies the output into the blocks); with one thread, or from a pipe (which would have
+    // ahead, and copies the output into the blocks). Where small members follow one of its members
+    // (cat of a large gzip file and a file of many members), the pieces stop there and the rest is
+    // read by members, this file's thread their dispatcher (SwitchToMembers). With one thread, or from
+    // a pipe (which would have
     // to be kept), ISA-L inflates it here on one thread. The bytes are the same either way; a cut file,
     // a corrupt member, a wrong CRC-32 or length, a damaged member header or data after the last member
     // fail either way, in other words (what was read before may differ: a corrupt member's bytes up to
@@ -103,6 +114,11 @@ namespace protal {
         // the bytes), so each thread adds less (on 4 cores 1.7, 2.0, 2.35, 2.4 GB/s of FASTQ on 1-4 threads,
         // docs/claude/2026-10-12-isal-parallel-inflate).
         static constexpr unsigned kMaxGzipThreads = 8;
+        // A regular gzip file that is not BGZF but whose second member begins within this many bytes is read by members
+        // on as many threads as a BGZF file (ReadGzipMembersJob). A later member longer than this (no header after it
+        // within this many bytes), or holding more than kMaxZstdFrame, is inflated as a stream on the file's own thread
+        // with the rest of the file.
+        static constexpr size_t kMaxGzipMember = size_t{16} << 20;
 
         // Threads that inflate a BGZF file (or decompress a zstd file's frames) opened from now on (1: the file's own
         // thread does it; at most kMaxInflateThreads). PROTAL_INFLATE_THREADS in the environment overrides it, and GzipThreads (for
@@ -138,6 +154,9 @@ namespace protal {
             size_t const per_file = threads / (4 * std::max<size_t>(files, 1));
             return static_cast<unsigned>(std::clamp<size_t>(per_file, 1, kMaxGzipThreads));
         }
+
+        // For tests: kMaxGzipMember for the files opened from now on (0: no file is read by members).
+        static void SetMaxGzipMemberBytes(size_t bytes) { MaxGzipMemberSetting().store(bytes, std::memory_order_relaxed); }
 
         ThreadedGzStreambuf() = default;
         ThreadedGzStreambuf(ThreadedGzStreambuf const&) = delete;
@@ -202,31 +221,42 @@ namespace protal {
             // not say its size (a stream's, `cat x | zstd`) is read as a stream from the start, on one thread.
             bool const zstd = !m_bgzf && peeked >= 4 && IsZstdFrame(head);
             bool const sized = zstd && ZSTD_getFrameContentSize(head, static_cast<size_t>(peeked)) <= kMaxZstdFrame;
-            unsigned const threads = m_bgzf || zstd ? InflateThreads() : GzipThreads();
+            // A gzip file that is not BGZF whose second member begins near its start: by members, as BGZF.
+            bool const gzip = !m_bgzf && !zstd && peeked >= 2 && head[0] == 0x1f && head[1] == 0x8b;
+            m_max_member = MaxGzipMemberSetting().load(std::memory_order_relaxed);
+            m_gzip_members = gzip && InflateThreads() > 1 && m_max_member > 0 && SecondMemberWithin(static_cast<size_t>(st.st_size));
+            m_members_read = 0;
+            m_member_restarts = 0;
+            unsigned const threads = m_bgzf || zstd || m_gzip_members ? InflateThreads() : GzipThreads();
             m_zstd_frames = sized && threads > 1;
             if (m_bgzf) {
                 m_block_in.resize(bgzf::kMaxBlock);
                 m_last_empty = false;
-            } else if (m_zstd_frames) {
+            } else if (m_zstd_frames || m_gzip_members) {
                 m_block_in.assign(size_t{4} << 20, 0);
                 m_in_pos = m_in_end = 0;
                 m_in_eof = false;
-                m_mode = Mode::Zstd;
-            } else if (peeked >= 2 && head[0] == 0x1f && head[1] == 0x8b && threads > 1) {
+                m_mode = m_zstd_frames ? Mode::Zstd : Mode::Look;
+            } else if (gzip && threads > 1) {
                 // A gzip file that is not BGZF, on several threads (ParallelGzip); on one if that cannot be had
-                // (m_parallel_error says why).
-                m_parallel = ParallelGzip::Open(m_fd, threads, m_parallel_error);
+                // (m_parallel_error says why). Where small members follow a member, the rest by members (Inflate).
+                m_parallel = ParallelGzip::Open(m_fd, threads, m_parallel_error, InflateThreads() > 1 ? m_max_member : 0);
             }
-            if (!m_bgzf && !m_zstd_frames && !m_parallel && !StartGzip(0, m_open_error)) {
+            if (!m_bgzf && !m_zstd_frames && !m_gzip_members && !m_parallel && !StartGzip(0, m_open_error)) {
                 ::close(m_fd);
                 m_fd = -1;
                 return false;
             }
             m_opened_bgzf = m_bgzf;
             m_opened_zstd_frames = m_zstd_frames;
-            m_workers = m_bgzf || m_zstd_frames ? threads : 1;
+            m_opened_gzip_members = m_gzip_members;
+            m_workers = m_bgzf || m_zstd_frames || m_gzip_members ? threads : 1;
             m_parallel_threads = m_parallel ? threads : 0;
-            size_t const blocks = m_workers > 1 ? 2 * size_t{m_workers} + 2 : kBlocks;
+            m_parallel_counts = {};
+            m_switched_to_members = false;
+            // Read in pieces, a file may go on by members (SwitchToMembers): blocks for as many workers.
+            unsigned const block_workers = m_parallel && InflateThreads() > 1 ? InflateThreads() : m_workers;
+            size_t const blocks = block_workers > 1 ? 2 * size_t{block_workers} + 2 : kBlocks;
             m_blocks.assign(blocks, std::vector<char>(kBlockSize));
             m_jobs.assign(blocks, Job{});
             m_free.clear();
@@ -281,11 +311,26 @@ namespace protal {
         // Whether the open file, gzip but not BGZF, is inflated in pieces on several threads (ParallelGzip).
         bool parallel_gzip() const { return m_parallel_threads > 0; }
 
+        // Whether the open file, gzip of several members but not BGZF, began with its members inflated on several threads
+        // (inflate_threads()), and how often reading it went back to one thread for the rest of the file (a batch of
+        // members that did not inflate as the file was cut: damage, or a header found by chance in a member's data).
+        bool opened_as_gzip_members() const { return m_opened_gzip_members; }
+        size_t gzip_member_restarts() const { return m_member_restarts; }
+
+        // Whether the open file, read in pieces, went on by members where small members followed a member (once read).
+        bool switched_to_gzip_members() const {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_switched_to_members;
+        }
+
         // Why a gzip file that would have been inflated on several threads is inflated on one (empty if none).
         std::string const& parallel_gzip_error() const { return m_parallel_error; }
 
         // How the open file's pieces were decoded (ParallelGzip::Counts; none if not in pieces), once it is read.
-        ParallelGzip::Counts parallel_gzip_counts() const { return m_parallel ? m_parallel->counts() : ParallelGzip::Counts{}; }
+        ParallelGzip::Counts parallel_gzip_counts() const {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_parallel ? m_parallel->counts() : m_parallel_counts;
+        }
 
         bool is_open() const { return m_fd >= 0; }
 
@@ -410,6 +455,21 @@ namespace protal {
                 size_t const index = m_ready.front();
                 m_ready.pop_front();
                 Job const& job = m_jobs[index];
+                if (!job.error.empty() && job.gzip) {
+                    // Members that did not inflate as the file was cut (damaged, or cut wrongly at a header found by
+                    // chance): the file from the batch's first member on is read on one thread, which fails where one
+                    // thread fails. Every batch before ended where this one begins, at a member's end.
+                    uint64_t const from = job.offset;
+                    lock.unlock();
+                    std::string error;
+                    bool const restarted = ReadOnOneThreadFrom(from, error);
+                    lock.lock();
+                    if (restarted) continue;
+                    if (m_error.empty()) m_error = error;
+                    m_failed = true;
+                    break;
+                }
+                if (job.gzip) m_members_read += job.members;
                 if (!job.error.empty()) {
                     // A corrupt block: what precedes it in the batch is read, then the file ends here.
                     if (m_error.empty()) m_error = job.error;
@@ -440,6 +500,9 @@ namespace protal {
             std::vector<unsigned char> in;               // whole BGZF blocks (zstd frames), one after the other
             std::vector<size_t> ends;                    // where each ends in `in`
             bool zstd = false;                           // zstd frames (Work: ZSTD_decompressDCtx), else BGZF blocks
+            bool gzip = false;                           // gzip members (Work: InflateGzipMembers), as the dispatcher cut them
+            bool last = false;                           // a gzip job to the file's end: zero bytes may follow its members
+            size_t members = 0;                          // a gzip job: the members inflated
             size_t first = 0;                            // a zstd job: the number of its first frame in the file (1 on)
             uint64_t offset = 0;                         // the file offset of the first
             size_t size = 0;                             // inflated bytes in the output block
@@ -475,12 +538,57 @@ namespace protal {
                     if (!error.empty() && m_error.empty()) m_error = error;
                 }
                 m_cv.notify_all();
+                // Read in pieces up to small members: the rest by members, this thread their dispatcher.
+                if (end && error.empty() && m_parallel && m_parallel->StoppedAt() != ParallelGzip::kNotStopped) {
+                    std::string switch_error;
+                    if (SwitchToMembers(switch_error)) {
+                        Dispatch();  // which says when it is done
+                        return;
+                    }
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (m_error.empty()) m_error = switch_error;
+                }
             }
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_done = true;
             }
             m_cv.notify_all();
+        }
+
+        // A gzip file read in pieces whose reader stopped before a member that small members follow (ParallelGzip::
+        // StoppedAt), every member before it read and checked: the rest of the file read by members from there (as a
+        // file of many members from its start), on as many workers as a BGZF file, this thread their dispatcher. The
+        // pieces' threads end and the mapping goes first. False if the file cannot be read on from there (error set).
+        bool SwitchToMembers(std::string& error) {
+            uint64_t const at = m_parallel->StoppedAt();
+            size_t const members = m_parallel->MembersRead();
+            std::unique_ptr<ParallelGzip> pieces;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_parallel_counts = m_parallel->counts();
+                pieces = std::move(m_parallel);
+            }
+            pieces.reset();
+            if (::lseek(m_fd, static_cast<off_t>(at), SEEK_SET) < 0) {
+                error = std::string("seek error: ") + std::strerror(errno);
+                return false;
+            }
+            m_offset = at;
+            m_members = members;
+            m_block_in.assign(size_t{4} << 20, 0);
+            m_in_pos = m_in_end = 0;
+            m_in_eof = false;
+            m_gzip_members = true;
+            unsigned const workers = InflateThreads();
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_members_read = members;
+                m_switched_to_members = true;
+                if (m_stop) return true;  // closing: the dispatcher ends at once
+            }
+            for (unsigned w = 0; w < workers; w++) m_worker_threads.emplace_back(&ThreadedGzStreambuf::Work, this);
+            return true;
         }
 
         // With several inflating threads (a BGZF file): reads the blocks in order into batches (ReadBgzfJob), one per
@@ -504,12 +612,15 @@ namespace protal {
                 job.size = 0;
                 job.error.clear();
                 std::string error;
-                bool const frames = m_bgzf || m_zstd_frames;  // whole blocks (frames) for the workers
+                bool const frames = m_bgzf || m_zstd_frames || m_gzip_members;  // whole blocks (frames, members) for the workers
                 job.zstd = m_zstd_frames;
+                job.gzip = m_gzip_members;
                 if (m_bgzf) {
                     end = ReadBgzfJob(job, error);
                 } else if (m_zstd_frames) {
                     end = ReadZstdJob(job, m_blocks[index], error);
+                } else if (m_gzip_members) {
+                    end = ReadGzipMembersJob(job, m_blocks[index], error);
                 } else {
                     size_t size = 0;
                     end = FillStream(m_blocks[index].data(), size, error);
@@ -553,10 +664,15 @@ namespace protal {
                 Job& job = m_jobs[index];
                 char* out = m_blocks[index].data();
                 size_t const room = m_blocks[index].size();  // a zstd job's block may have grown for a large frame
-                size_t size = 0, begin = 0;
+                size_t size = 0, begin = 0, members = 0;
                 uint64_t offset = job.offset;
                 std::string error;
-                for (size_t i = 0; i < job.ends.size(); i++) {
+                // A gzip job's members are inflated one after the other from the batch's start, whatever headers the
+                // dispatcher cut at within it: only where the batch begins and ends must be a member's start and end.
+                if (job.gzip && !InflateGzipMembers(job.in.data(), job.in.size(), out, room, size, members, job.last, error)) {
+                    error += " in the gzip members from byte " + std::to_string(offset);
+                }
+                for (size_t i = 0; i < job.ends.size() && !job.gzip; i++) {
                     size_t const end = job.ends[i];
                     size_t n = 0;
                     if (job.zstd ? !DecompressZstdFrame(job.in.data() + begin, end - begin, out + size, room - size, n, error,
@@ -573,6 +689,7 @@ namespace protal {
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     job.size = size;
+                    job.members = members;
                     job.error = std::move(error);
                     job.complete = true;
                 }
@@ -715,6 +832,205 @@ namespace protal {
                 return false;
             }
             made = n;
+            return true;
+        }
+
+        static constexpr size_t kMaxGzipBatch = size_t{4} << 20;  // a batch's most compressed bytes (of more than one member)
+
+        // Whether the regular file of `size` bytes being opened has a second gzip member within m_max_member bytes of its
+        // start (gzip_member::Next): then it is read by members.
+        bool SecondMemberWithin(size_t size) {
+            size_t const n = std::min(size, m_max_member + gzip_member::kMaxHeader + 8);
+            std::unique_ptr<unsigned char[]> head(new (std::nothrow) unsigned char[n]);
+            if (!head) return false;
+            size_t got = 0;
+            while (got < n) {
+                ssize_t const r = ::pread(m_fd, head.get() + got, n - got, static_cast<off_t>(got));
+                if (r < 0 && errno == EINTR) continue;
+                if (r <= 0) break;
+                got += static_cast<size_t>(r);
+            }
+            return gzip_member::Next(head.get(), got, 0, m_max_member) > 0;  // a header cut off at `got` counts as none
+        }
+
+        // The bytes of the gzip member at the unread input (m_in_pos), up to the next member's header
+        // (gzip_member::StartsAt) or the file's end, all in m_block_in then; kNone if no header follows within m_max_member
+        // bytes (the member is longer). False on a read error (then set).
+        bool MemberAt(size_t& member, std::string& error) {
+            size_t from = gzip_member::kMinBytes;
+            while (true) {
+                size_t const left = m_in_end - m_in_pos;
+                unsigned char const* const base = m_block_in.data() + m_in_pos;
+                size_t const end = std::min(left, m_max_member + 1);
+                bool told = true;  // every 0x1f before `from` is no header
+                while (from < end) {
+                    auto const* hit = static_cast<unsigned char const*>(std::memchr(base + from, 0x1f, end - from));
+                    if (!hit) {
+                        from = end;
+                        break;
+                    }
+                    size_t const at = static_cast<size_t>(hit - base);
+                    int const verdict = gzip_member::StartsAt(base, left, at, m_in_eof);
+                    if (verdict > 0) {
+                        member = at;
+                        return true;
+                    }
+                    from = verdict < 0 ? at : at + 1;
+                    if (verdict < 0) {
+                        told = false;
+                        break;
+                    }
+                }
+                if (m_in_eof) {
+                    member = left <= m_max_member ? left : kNone;
+                    return true;
+                }
+                if (told && left > m_max_member) {
+                    member = kNone;
+                    return true;
+                }
+                // More of the file: m_block_in grows to hold the member and the header after it.
+                size_t const want = std::min(left + std::max(left, size_t{1} << 20), m_max_member + gzip_member::kMaxHeader + 8);
+                if (m_block_in.size() < want) m_block_in.resize(want);
+                if (!Available(want, error)) return false;
+            }
+        }
+
+        // ReadZstdJob for a gzip file of several members (m_gzip_members): whole members into job (job.in, each one's end
+        // in job.ends) while their contents, as their trailers give them, fit the output block `block` (one member at least:
+        // the block grows to hold a larger one, up to kMaxZstdFrame). A member ends where the next member's header begins
+        // (MemberAt), so a header found by chance cuts a member wrongly: its batch then fails, and the reader reads the file
+        // from that batch on on one thread (UnderflowFile). True at the end of the file or on a read error (then set). A
+        // member longer than m_max_member, or holding more than kMaxZstdFrame, switches the rest of the file to FillStream
+        // on this thread (the members before it first go to the workers): false is returned.
+        bool ReadGzipMembersJob(Job& job, std::vector<char>& block, std::string& error) {
+            job.in.clear();
+            job.ends.clear();
+            job.offset = m_offset;
+            job.first = m_members + 1;
+            job.last = false;
+            job.members = 0;
+            size_t planned = 0;
+            while (true) {
+                if (!Available(1, error)) return true;
+                if (m_in_end == m_in_pos) break;  // the end of the file
+                size_t member = 0;
+                if (!MemberAt(member, error)) return true;
+                unsigned char const* const start = m_block_in.data() + m_in_pos;
+                bool const last = member == m_in_end - m_in_pos && m_in_eof;  // to the file's end
+                uint32_t const isize = member != kNone && member >= 8 ? bgzf::LE32(start + member - 4) : 0;
+                if (member == kNone || isize > kMaxZstdFrame) {
+                    if (!job.ends.empty()) break;  // the members before it go to the workers first
+                    return !StreamTheRest(error);
+                }
+                if (!job.ends.empty() && (planned + isize > kBlockSize || job.in.size() + member > kMaxGzipBatch)) break;
+                job.in.insert(job.in.end(), start, start + member);
+                job.ends.push_back(job.in.size());
+                m_in_pos += member;
+                m_offset += member;
+                m_members++;
+                planned += isize;
+                if (last) {
+                    job.last = true;
+                    break;
+                }
+            }
+            if (block.size() < planned) block.resize(planned);
+            return job.ends.empty();
+        }
+
+        // The rest of the file, from the unread input on, inflated as a stream on this thread (FillStream).
+        bool StreamTheRest(std::string& error) {
+            try {
+                m_inflate = std::make_unique<inflate_state>();  // ~85 KB
+            } catch (std::bad_alloc const&) {
+                error = "out of memory for the gzip inflate state";
+                return false;
+            }
+            isal_inflate_init(m_inflate.get());
+            m_mode = Mode::Look;
+            m_gzip_members = false;
+            return true;
+        }
+
+        // A batch of whole gzip members, one after the other, inflated into out (at most `room` bytes) on this thread's
+        // state, each member's CRC-32 and length checked; false (error set) unless they end exactly at the batch's end: a
+        // member that is damaged, that goes on past the batch (cut at a header found by chance), or that holds more than
+        // there is room for. In the file's last batch zero bytes may follow the members.
+        static bool InflateGzipMembers(unsigned char const* in, size_t size, char* out, size_t room, size_t& made,
+                                       size_t& members, bool last, std::string& error) {
+            thread_local std::unique_ptr<inflate_state> const state = std::make_unique<inflate_state>();  // ~85 KB
+            inflate_state& st = *state;
+            made = 0;
+            members = 0;
+            size_t at = 0;
+            while (at < size) {
+                if (last && std::all_of(in + at, in + size, [](unsigned char c) { return c == 0; })) break;
+                isal_inflate_init(&st);
+                st.crc_flag = ISAL_GZIP_NO_HDR_VER;
+                isal_gzip_header header;
+                isal_gzip_header_init(&header);  // no buffers: the name, comment and extra field are skipped
+                st.next_in = const_cast<uint8_t*>(in + at);
+                st.avail_in = static_cast<uint32_t>(size - at);
+                if (isal_read_gzip_header(&st, &header) != ISAL_DECOMP_OK) {
+                    error = "no gzip member header";
+                    return false;
+                }
+                st.next_out = reinterpret_cast<uint8_t*>(out + made);
+                st.avail_out = static_cast<uint32_t>(room - made);
+                int const ret = isal_inflate(&st);
+                made = static_cast<size_t>(reinterpret_cast<char*>(st.next_out) - out);
+                if (ret != ISAL_DECOMP_OK) {
+                    error = InflateError(ret);
+                    return false;
+                }
+                if (st.block_state != ISAL_BLOCK_FINISH) {
+                    error = made == room ? "a member larger than its trailer says" : "a member that goes on past its batch";
+                    return false;
+                }
+                at = size - st.avail_in;  // ISA-L gives back what it read past the trailer
+                members++;
+            }
+            return true;
+        }
+
+        // After a batch of gzip members that did not inflate as the file was cut: the dispatcher and the workers stopped,
+        // the batches queued dropped, and the file read on one thread from `offset` on (the batch's start, a member's),
+        // as Inflate reads a gzip file. False if that cannot be had (error then set).
+        bool ReadOnOneThreadFrom(uint64_t offset, std::string& error) {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stop = true;
+            }
+            m_cv.notify_all();
+            if (m_thread.joinable()) m_thread.join();
+            for (auto& worker : m_worker_threads) worker.join();
+            m_worker_threads.clear();
+            if (::lseek(m_fd, static_cast<off_t>(offset), SEEK_SET) < 0) {
+                error = std::string("seek error: ") + std::strerror(errno);
+                return false;
+            }
+            m_gzip_members = false;
+            m_workers = 1;
+            m_offset = offset;
+            m_members = m_members_read;
+            if (!StartGzip(0, error)) return false;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stop = false;
+                m_done = false;
+                m_dispatch_error.clear();
+                m_ready.clear();
+                m_todo.clear();
+                m_free.clear();
+                for (size_t i = 0; i < m_jobs.size(); i++) {
+                    m_jobs[i] = Job{};
+                    m_free.push_back(i);
+                }
+                m_current = kNone;
+            }
+            m_member_restarts++;
+            m_thread = std::thread(&ThreadedGzStreambuf::Inflate, this);
             return true;
         }
 
@@ -1032,6 +1348,10 @@ namespace protal {
             static std::atomic<unsigned> threads{ 1 };
             return threads;
         }
+        static std::atomic<size_t>& MaxGzipMemberSetting() {
+            static std::atomic<size_t> bytes{ kMaxGzipMember };
+            return bytes;
+        }
         // PROTAL_INFLATE_THREADS's value (at most kMaxInflateThreads), 0 if it is not set.
         static unsigned InflateThreadsOfTheEnvironment() {
             if (char const* env = std::getenv("PROTAL_INFLATE_THREADS")) {
@@ -1049,6 +1369,13 @@ namespace protal {
         bool m_opened_bgzf = false;                      // the file began as BGZF
         bool m_zstd_frames = false;                      // a zstd file's frames read whole for the workers (ReadZstdJob)
         bool m_opened_zstd_frames = false;               // the file began so
+        bool m_gzip_members = false;                     // a gzip file's members read whole for the workers (ReadGzipMembersJob)
+        bool m_opened_gzip_members = false;              // the file began so
+        size_t m_max_member = kMaxGzipMember;            // the open file's (MaxGzipMemberSetting when it was opened)
+        size_t m_members_read = 0;                       // gzip members of the batches the reader has taken
+        size_t m_member_restarts = 0;                    // batches of members after which the file was read on one thread
+        bool m_switched_to_members = false;              // read in pieces, the file went on by members (SwitchToMembers)
+        ParallelGzip::Counts m_parallel_counts;          // the pieces' counts once their reader is gone
         std::vector<std::thread> m_worker_threads;       // Work, with several
         std::vector<std::vector<char>> m_blocks;
         std::vector<Job> m_jobs;                         // per output block

@@ -8,6 +8,7 @@
 #include <isa-l/igzip_lib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "GzipMember.h"
 #include "TargetClones.h"
 
 namespace protal {
@@ -38,6 +40,8 @@ namespace protal {
         constexpr size_t kInputChunk = size_t{1} << 30;               // ISA-L's counts are 32-bit
         constexpr size_t kMaxPieceOutput = size_t{256} << 20;         // a piece decoded whole holds at most this
         constexpr size_t kStreamSegment = size_t{4} << 20;            // a range decoded to its end gives this at a time
+        constexpr size_t kReleaseStep = size_t{32} << 20;             // mapped bytes behind the reader released at a time
+        constexpr size_t kReleaseMargin = size_t{1} << 20;            // and kept behind where it decodes next
 
         // Bytes that grow without being zeroed (a piece's output, decoded into place).
         struct Bytes {
@@ -370,6 +374,8 @@ namespace protal {
 
             uint64_t final_bit() const { return m_final_bit; }
             std::string const& error() const { return m_error; }
+            // The byte of the file the decoder reads next.
+            uint64_t input_byte() const { return InputBit(); }
 
         private:
             bool MoreInput() const { return m_next < m_main_end || (m_tail_bits && !m_tail_given); }
@@ -502,6 +508,9 @@ namespace protal {
 
         uint8_t const* data = nullptr;
         size_t size = 0;
+        size_t max_member = 0;         // small members after a member stop the reader (0: never)
+        uint64_t stopped_at = ParallelGzip::kNotStopped;  // the member the reader stopped before (the lead's thread)
+        size_t members_read = 0;       // and the members before it
         size_t piece_bytes = ParallelGzip::kChunkBytes;
         size_t slots = 0;
         unsigned threads = 1;
@@ -536,6 +545,22 @@ namespace protal {
         uint32_t crc = 0;
         uint64_t member_out = 0;
         std::string error;
+        size_t released = 0;           // the mapped file's bytes before this are released (Release)
+
+        // The mapped file's pages before what the lead decodes next (less kReleaseMargin), released kReleaseStep at a time
+        // (MADV_DONTNEED): every page read would otherwise stay in the resident set until the file is closed (a
+        // paired-end run at r226 held 7.3 GB more, docs/claude/2026-10-13-gzip-members-regression). Nothing needs them
+        // again; a worker that still looks at one (a block start it scans late) reads it from the page cache again, as
+        // the mapping is private and never written. The lead's thread only.
+        void Release() {
+            uint64_t const next = streaming ? lead.input_byte() : pos >> 3;
+            if (next < released + kReleaseStep + kReleaseMargin) return;
+            size_t const page = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
+            size_t const upto = static_cast<size_t>(next - kReleaseMargin) / page * page;
+            if (upto <= released) return;
+            ::madvise(const_cast<uint8_t*>(data) + released, upto - released, MADV_DONTNEED);
+            released = upto;
+        }
 
         ~Impl() {
             {
@@ -719,6 +744,18 @@ namespace protal {
                              ", is no gzip member";
                 chain_done = true;
                 return;
+            }
+            // Small members from here on, this one and the next each within max_member bytes: their blocks are mostly
+            // final ones, which pieces cannot start at (FindBlock would scan whole slots in vain, the lead streaming a
+            // member at a time). Read stops before this member, and the caller reads the rest by members.
+            if (max_member > 0) {
+                size_t const first = gzip_member::Next(data, size, next, max_member);
+                if (first > 0 && gzip_member::Next(data, size, next + first, max_member) > 0) {
+                    stopped_at = next;
+                    members_read = member;
+                    chain_done = true;
+                    return;
+                }
             }
             pos = start;
             member++;
@@ -911,6 +948,7 @@ namespace protal {
                     if (front->stream && given == stream_bytes.size) {
                         StreamSegment(*front);
                         given = 0;
+                        Release();
                     }
                     bytes = stream_bytes.data;
                     n = stream_bytes.size;
@@ -953,6 +991,7 @@ namespace protal {
                     given = 0;
                     changed.notify_all();
                 }
+                Release();
                 if (eof) break;
             }
             return copied;
@@ -970,11 +1009,13 @@ namespace protal {
     }
 
     ParallelGzip::Counts ParallelGzip::counts() const { return m_impl ? m_impl->counts : Counts{}; }
+    uint64_t ParallelGzip::StoppedAt() const { return m_impl ? m_impl->stopped_at : kNotStopped; }
+    size_t ParallelGzip::MembersRead() const { return m_impl ? m_impl->members_read : 0; }
 
     ParallelGzip::ParallelGzip() = default;
     ParallelGzip::~ParallelGzip() = default;
 
-    std::unique_ptr<ParallelGzip> ParallelGzip::Open(int fd, unsigned threads, std::string& error) {
+    std::unique_ptr<ParallelGzip> ParallelGzip::Open(int fd, unsigned threads, std::string& error, size_t max_member) {
         struct stat st {};
         if (::fstat(fd, &st) != 0) {
             error = std::strerror(errno);
@@ -1008,6 +1049,7 @@ namespace protal {
                 error = "its first gzip header cannot be read";
                 return nullptr;
             }
+            impl.max_member = max_member;
             impl.threads = std::max(threads, 2u);
             impl.gap = GapSetting().load(std::memory_order_relaxed);
             if (impl.gap == 0) impl.gap = 2 * size_t{impl.threads} + 4;

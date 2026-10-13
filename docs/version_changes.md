@@ -28,6 +28,16 @@ for this page.
 
 ## Since 0.8.3
 
+- **gzip files of many members on several threads** (2026-10-13). 0.8.3 read a gzip file of many small members
+  (members one after the other, not BGZF) in pieces at about a third of one thread's speed. Its block finder scanned
+  the whole file for blocks to start a piece at and found none. At r226 the paired-end sample's alignment took 58 s
+  instead of 24 s at 32 threads ([report](claude/2026-10-13-gzip-members-regression/README.md)). Such a file, its
+  second member within 16 MiB of its start, is now read by members, as BGZF is: whole members inflated on 1 to 4
+  threads per file. A header found by chance in a member's data, or a damaged member, sends the rest of the file to
+  one thread ([running.md](running.md#read-files)). A file read in pieces goes on by members where small members
+  follow one of its members (a large gzip file and a file of many members concatenated). A file read in pieces no
+  longer keeps every page of the compressed file in memory: the pages behind the reader are released (the r226
+  paired-end run held 7.3 GB more). The outputs are the same.
 - **zstd read files on several threads** (2026-10-13). A zstd file's frames are independent, as BGZF blocks are:
   a zstd file of several frames is now decompressed on as many threads as a BGZF file is (1 to 4 per file, one per
   4 of `-t` and file). This covers the reads of GTDB builds, whose simulations write a frame per batch of reads,

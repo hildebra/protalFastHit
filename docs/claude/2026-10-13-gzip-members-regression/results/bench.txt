@@ -1,0 +1,30 @@
+# scripts/run_bench.sh, WSL (Core Ultra 7 258V), cores 0-3, nice 5, 2026-10-13 14:02; bench_pgz at 9c27756.
+# data/R1.fq: 1,481,446,737 bytes (scripts/make_fastq.pl 4000000 7). one.gz: gzip -6, one member (249,334,376 bytes);
+# m8m / m1m / m64k: split -b 8M / 1M / 64K --filter='gzip -6', members concatenated (249,432,987 / 250,082,291 / 260,638,785).
+# threads 1: ISA-L on the file's own thread (the 0.8.2 path); 2 and 4: ParallelGzip (5334f2c).
+ 14:02:08 up 55 min,  1 user,  load average: 0.87, 0.94, 0.62
+r1	one	threads 1	parallel 0	bytes 1481446737	wall 1.591	cpu 1.715	GB/s 0.931	maxrss_mb 10	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r1	one	threads 2	parallel 1	bytes 1481446737	wall 1.538	cpu 3.154	GB/s 0.963	maxrss_mb 397	ahead 65	in_order 172	streamed 1	dropped 0	unused 0	failed 0
+r1	one	threads 4	parallel 1	bytes 1481446737	wall 0.989	cpu 3.577	GB/s 1.497	maxrss_mb 576	ahead 141	in_order 96	streamed 1	dropped 0	unused 0	failed 0
+r1	m8m	threads 1	parallel 0	bytes 1481446737	wall 1.063	cpu 1.150	GB/s 1.394	maxrss_mb 10	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r1	m8m	threads 2	parallel 1	bytes 1481446737	wall 0.934	cpu 1.922	GB/s 1.585	maxrss_mb 372	ahead 94	in_order 304	streamed 1	dropped 1	unused 0	failed 0
+r1	m8m	threads 4	parallel 1	bytes 1481446737	wall 0.855	cpu 3.090	GB/s 1.733	maxrss_mb 525	ahead 192	in_order 207	streamed 0	dropped 1	unused 1	failed 0
+r1	m1m	threads 1	parallel 0	bytes 1481446737	wall 1.142	cpu 1.225	GB/s 1.298	maxrss_mb 10	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r1	m1m	threads 2	parallel 1	bytes 1481446737	wall 1.100	cpu 1.797	GB/s 1.347	maxrss_mb 275	ahead 231	in_order 1259	streamed 2	dropped 0	unused 0	failed 0
+r1	m1m	threads 4	parallel 1	bytes 1481446737	wall 1.257	cpu 1.891	GB/s 1.179	maxrss_mb 292	ahead 227	in_order 1263	streamed 2	dropped 0	unused 0	failed 0
+r1	m64k	threads 1	parallel 0	bytes 1481446737	wall 1.281	cpu 1.372	GB/s 1.157	maxrss_mb 9	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r1	m64k	threads 2	parallel 1	bytes 1481446737	wall 4.198	cpu 7.300	GB/s 0.353	maxrss_mb 258	ahead 0	in_order 1142	streamed 21464	dropped 1	unused 0	failed 0
+r1	m64k	threads 4	parallel 1	bytes 1481446737	wall 4.717	cpu 8.568	GB/s 0.314	maxrss_mb 258	ahead 0	in_order 1870	streamed 20736	dropped 1	unused 0	failed 0
+r2	one	threads 1	parallel 0	bytes 1481446737	wall 1.082	cpu 1.173	GB/s 1.369	maxrss_mb 10	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r2	one	threads 2	parallel 1	bytes 1481446737	wall 1.093	cpu 2.246	GB/s 1.355	maxrss_mb 388	ahead 66	in_order 171	streamed 1	dropped 0	unused 0	failed 0
+r2	one	threads 4	parallel 1	bytes 1481446737	wall 1.003	cpu 3.613	GB/s 1.476	maxrss_mb 603	ahead 139	in_order 98	streamed 1	dropped 0	unused 0	failed 0
+r2	m8m	threads 1	parallel 0	bytes 1481446737	wall 1.080	cpu 1.172	GB/s 1.372	maxrss_mb 9	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r2	m8m	threads 2	parallel 1	bytes 1481446737	wall 0.940	cpu 1.949	GB/s 1.576	maxrss_mb 344	ahead 97	in_order 301	streamed 1	dropped 1	unused 0	failed 0
+r2	m8m	threads 4	parallel 1	bytes 1481446737	wall 0.895	cpu 3.113	GB/s 1.656	maxrss_mb 496	ahead 197	in_order 202	streamed 0	dropped 1	unused 1	failed 0
+r2	m1m	threads 1	parallel 0	bytes 1481446737	wall 1.109	cpu 1.198	GB/s 1.336	maxrss_mb 10	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r2	m1m	threads 2	parallel 1	bytes 1481446737	wall 1.017	cpu 1.600	GB/s 1.457	maxrss_mb 274	ahead 231	in_order 1259	streamed 2	dropped 0	unused 0	failed 0
+r2	m1m	threads 4	parallel 1	bytes 1481446737	wall 1.198	cpu 1.789	GB/s 1.237	maxrss_mb 292	ahead 227	in_order 1263	streamed 2	dropped 0	unused 0	failed 0
+r2	m64k	threads 1	parallel 0	bytes 1481446737	wall 1.231	cpu 1.325	GB/s 1.203	maxrss_mb 9	ahead 0	in_order 0	streamed 0	dropped 0	unused 0	failed 0
+r2	m64k	threads 2	parallel 1	bytes 1481446737	wall 4.194	cpu 7.309	GB/s 0.353	maxrss_mb 258	ahead 0	in_order 1142	streamed 21464	dropped 1	unused 0	failed 0
+r2	m64k	threads 4	parallel 1	bytes 1481446737	wall 4.392	cpu 7.953	GB/s 0.337	maxrss_mb 258	ahead 0	in_order 1870	streamed 20736	dropped 1	unused 0	failed 0
+ 14:02:49 up 56 min,  1 user,  load average: 1.73, 1.17, 0.71

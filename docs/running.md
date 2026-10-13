@@ -208,7 +208,13 @@ seekable format's skippable frames, any `zstd --long` window). Each file is deco
 thread of its own, so the alignment threads only copy reads that are already decompressed. A BGZF
 file (as `bgzip` and, by default, bcl2fastq write) is inflated on 1 to 4 threads per file (one per 4
 alignment threads and file: 4 per file for a paired-end run on 32 threads), about 1 GB/s of FASTQ
-each. Another gzip file (one member, as `gzip` and most pipelines write it) cannot be cut at block
+each. A gzip file of many members that is not BGZF (members one after the other, as tools that
+compress a file in chunks write it, its second member within 16 MiB of its start) is read the same
+way: protal cuts it where each member's header begins and inflates whole members on those threads. A
+header found by chance in a member's data, or a damaged member, sends the rest of the file to one
+thread, so such a file reads, and fails, as on one thread. A file read in pieces (below) goes on by
+members where small members follow one of its members (a large gzip file and a file of many members
+concatenated). Another gzip file (one member, as `gzip` and most pipelines write it) cannot be cut at block
 boundaries, as its blocks refer back to the 32 KB before them: protal inflates it with ISA-L in pieces
 on 1 to 8 threads per file (one per 4 alignment threads and file: 2 per file for a paired-end run on
 16 threads, 4 on 32). Pieces of the file are decoded ahead with the 32 KB before them unknown (marked,
