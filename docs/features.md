@@ -37,11 +37,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `alleles` | 0.8.0 (2026-10-08) | its reads against its species' known strain alleles (`strain_alleles.tsv`) | yes, untested at r226 |
 | `polymorphic` | 0.8.0 (2026-10-09) | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
 | `weights` | 0.8.1 (2026-10-10) | its mismatches against how conserved each column is in the species' family (`column_weights.tsv`): errors and reads from afar hit conserved columns, a relative's mutations avoid them; the amino-acid changes | yes, untested at r226 |
+| `strain_identity` | 2026-10-13 | `identity` and `top_identity` with each read against its species' best strain allele | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights`
-(91 features in 0.8.1, since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening; 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity`
+(93 features since 2026-10-13; without `strain_identity` 91, in 0.8.1 to 0.8.3, since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening; 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -109,7 +110,7 @@ The feature-set ablations below say what a group is worth in F1.
 | feature | since | what it measures | importance pe / se / pb / ont | matters for |
 |---|---|---|---|---|
 | `identity` | 0.7.0 | aligned bases weighted by their read's identity over all aligned bases, indels counted as differences | **0.088 / 0.098 / 0.084 / 0.033** (v9 0.106 / 0.085 / 0.079 / 0.024) | missing relative (reads 3-10% off), thin strain (missed strains have median identity 0.967 against 0.987 for found ones), **abundance** (the margin rule starts from the reads' identities) |
-| `top_identity` | 0.7.0 | the 98th percentile of the reads' identities, weighted by aligned bases: what the taxon's best reads look like | 0.039 / 0.055 / **0.136** / 0.036 (v9 0.053 / 0.052 / 0.190 / 0.070) | among the top three for **PacBio HiFi**, where a present species' best reads reach 1.0 and a relative's do not; **abundance** (the depth threshold is `top_identity` minus the margin) |
+| `top_identity` | 0.7.0 | the 98th percentile of the reads' identities, weighted by aligned bases: what the taxon's best reads look like | 0.039 / 0.055 / **0.136** / 0.036 (v9 0.053 / 0.052 / 0.190 / 0.070) | among the top three for **PacBio HiFi**, where a present species' best reads reach 1.0 and a relative's do not (against the representative alone: a strain far from it never does, see [`allele_top_identity`](#the-identities-against-the-best-strain-allele-strain_identity-2026-10-13)); **abundance** (the depth threshold is `top_identity` minus the margin) |
 | `low_identity_share` | 0.7.0 | the share of aligned bases below their gene's own-identity threshold (`top_identity` minus the margin): reads of relatives | 0.001 for all | minor congener and missing relative in principle; the model prefers the direct measures |
 
 ### Unique k-mers
@@ -583,6 +584,27 @@ neutral to +0.003 of F1 on a small real world at ~1% of the alignment's instruct
 ([report](claude/2026-10-11-r226-v23/README.md), section 8), and it was on by default from 2026-10-11. The r226 v24b
 build, the first trained with it, showed no measurable F1 gain, and its short-read species depths were 1-2% lower
 ([report](claude/2026-10-12-r226-v24b/README.md), section 4), so it is off by default again since 2026-10-12.
+
+## The identities against the best strain allele (`strain_identity`, 2026-10-13)
+
+`identity` and `top_identity` measure the reads against the species' representative alone. A strain far from the
+representative cannot reach the top identity of a representative's reads, though its reads may match one of the
+species' known genomes as well. In HiFi mock communities *E. coli* K-12, 1.6% from the type strain that represents
+*E. coli* in GTDB, had `top_identity` 0.9957, where every present species of the sample had 1.0. The HiFi models lean
+on that feature, and rejected it (probability 0.12, about 0.69 with 1.0). A congener whose copies happened to match a
+K-12 locus better than *E. coli*'s own was called instead ([report](claude/2026-10-13-ecoli-hifi/README.md)).
+
+These two features measure each read against its copy's best strain allele (`strain_alleles.tsv`, the `alleles`
+group), the representative's copy where no allele beats it:
+
+| feature | what it measures | matters for |
+|---|---|---|
+| `allele_identity` | `identity` with each record's identity against its best allele: the differences that allele explains less its own edits the read lacks, per aligned column, added to the record's identity (as `allele_identity_gain` over all its records), at most 1 | **strains far from the representative** but near a known genome of the species; abundance-free |
+| `allele_top_identity` | `top_identity` (the 98th percentile by aligned bases) of the same identities | the same for long reads, whose best reads reach 1.0 on a known genome and not on a relative's |
+
+Both are `identity` and `top_identity` themselves for a species without alleles and without the table, so a model
+trained without them scores as before. The depth (the reads within the margin of `top_identity`) and the strain MSAs
+keep the identities against the representative.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

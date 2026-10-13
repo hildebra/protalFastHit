@@ -1,0 +1,96 @@
+diff --git a/src/Alignment/ReadConsensus.h b/src/Alignment/ReadConsensus.h
+index 13ac5d1..6822a65 100644
+--- a/src/Alignment/ReadConsensus.h
++++ b/src/Alignment/ReadConsensus.h
+@@ -28,9 +28,14 @@ namespace protal {
+ 
+     // The consensus taxon of a read whose parts have these candidates. Two taxa are compared on the parts where both
+     // have a candidate, by the sum of their best scores there; a taxon that scores less than another on their common
+-    // parts loses to it. A part without a candidate of a taxon is no evidence against it: the database may lack that
+-    // gene of the read's species, whose reads then align to a relative only. The consensus is a taxon that loses to
+-    // none (if every taxon loses to one, any), with candidates on the most parts, then the highest total score.
++    // parts loses to it, by the difference. A part without a candidate of a taxon is no evidence against it: the
++    // database may lack that gene of the read's species, whose reads then align to a relative only. The consensus is a
++    // taxon that loses to none, with candidates on the most parts, then the highest total score.
++    // Where every taxon loses to one (a cycle: taxa compared on different parts), the consensus is the taxon whose
++    // largest defeat is smallest, among those with candidates on `min_parts` parts or more; then the most parts and the
++    // highest total. Until 2026-10-13 it was the taxon with candidates on the most parts: a long read of E. coli K-12
++    // that fit E. coli better on five genes and lost to E. fergusonii by one edit on another went to a third
++    // Escherichia that E. coli beat on six, as the most genes had a candidate of it (docs/claude/2026-10-13-ecoli-hifi).
+     // nullopt for a read without candidates, or if the consensus has candidates on fewer than `min_parts` parts.
+     inline std::optional<ReadConsensus> ConsensusOfRead(std::vector<std::vector<PartCandidate>> const& parts, size_t min_parts = 1) {
+         constexpr long kAbsent = LONG_MIN;
+@@ -75,9 +80,27 @@ namespace protal {
+             for (long s : best[t]) total += s == kAbsent ? 0 : s;
+             return total;
+         };
++        // In a cycle, each taxon's largest defeat (a taxon that loses to none has none); the taxa considered are those
++        // that could be the consensus.
++        std::vector<bool> considered = undefeated;
++        if (!any_undefeated) {
++            std::vector<long> worst(n, 0);
++            for (size_t a = 0; a < n; a++) {
++                for (size_t b = 0; b < n; b++) {
++                    long sa, sb;
++                    if (a != b && common(a, b, sa, sb) && sa < sb) worst[a] = std::max(worst[a], sb - sa);
++                }
++            }
++            long least = LONG_MAX;
++            for (size_t t = 0; t < n; t++) {
++                if (parts_of(t) >= min_parts) least = std::min(least, worst[t]);
++            }
++            if (least == LONG_MAX) return std::nullopt;  // no taxon on enough parts
++            for (size_t t = 0; t < n; t++) considered[t] = parts_of(t) >= min_parts && worst[t] == least;
++        }
+         size_t pick = n;
+         for (size_t t = 0; t < n; t++) {
+-            if (any_undefeated && !undefeated[t]) continue;
++            if (!considered[t]) continue;
+             if (pick == n || parts_of(t) > parts_of(pick) || (parts_of(t) == parts_of(pick) && total_of(t) > total_of(pick))) pick = t;
+         }
+         ReadConsensus consensus{ taxa[pick], parts_of(pick), -1 };
+diff --git a/tests/test_LongReads.cpp b/tests/test_LongReads.cpp
+index bfc5672..892115e 100644
+--- a/tests/test_LongReads.cpp
++++ b/tests/test_LongReads.cpp
+@@ -290,6 +290,40 @@ TEST(ReadConsensus, TaxaAreComparedOnTheGenesBothHit) {
+     EXPECT_EQ(of_segments->taxid, 1u);
+ }
+ 
++TEST(ReadConsensus, ACycleGoesToTheTaxonWithTheSmallestDefeat) {
++    // The shape of a K-12 HiFi read (docs/claude/2026-10-13-ecoli-hifi, read 13443), an edit 5 points: taxon 2 has
++    // candidates on all 8 genes, taxon 1 on 6 and beats it there by 20; taxon 3 on 3 of those, where it beats taxon 1
++    // by one edit and loses to taxon 2 by two. Every taxon loses to one; the smallest defeat is taxon 1's.
++    std::vector<std::vector<PartCandidate>> const parts = {
++        { { 2, 1000 }, { 1, 1010 } },
++        { { 2, 1000 }, { 1, 1015 } },
++        { { 2, 1000 }, { 1, 1010 } },
++        { { 2, 1015 }, { 1, 1000 }, { 3, 1000 } },
++        { { 2, 1005 }, { 1, 1005 }, { 3, 1005 } },
++        { { 2, 1000 }, { 1, 1000 }, { 3, 1005 } },
++        { { 2, 1000 } },
++        { { 2, 1000 } },
++    };
++    auto const read = ConsensusOfRead(parts, 4);
++    ASSERT_TRUE(read.has_value());
++    EXPECT_EQ(read->taxid, 1u);  // until 2026-10-13 taxon 2, with candidates on the most genes
++    EXPECT_EQ(read->parts, 6u);
++    // Its MAPQ against the closest other taxon on its genes, taxon 2 (taxon 3 lacks three of them).
++    EXPECT_EQ(read->mapq, std::min(MAPQv2(6040, 6020), MAPQv2(6040, 3010)));
++
++    // Only taxa on enough parts can be the consensus: with 7 needed, taxon 2, though it loses by more.
++    auto const enough = ConsensusOfRead(parts, 7);
++    ASSERT_TRUE(enough.has_value());
++    EXPECT_EQ(enough->taxid, 2u);
++    EXPECT_FALSE(ConsensusOfRead(parts, 9).has_value());
++
++    // Equal smallest defeats: the most parts, then the highest total. Taxon 1 loses to 2 on part 0, 2 to 3 on part 1,
++    // 3 to 1 on part 2, each by one edit; taxon 3 has the most parts.
++    auto const tied = ConsensusOfRead({ { { 1, 100 }, { 2, 105 } }, { { 2, 100 }, { 3, 105 } }, { { 3, 100 }, { 1, 105 } }, { { 3, 50 } } });
++    ASSERT_TRUE(tied.has_value());
++    EXPECT_EQ(tied->taxid, 3u);
++}
++
+ TEST(ReadConsensus, EveryGeneTakesTheReadsTaxon) {
+     ReadConsensus const read{ 1, 2, 30 };
+     // The gene fits taxon 2 about as well as taxon 1 (1000 vs 998 matches): settled for taxon 1.

@@ -28,6 +28,22 @@ for this page.
 
 ## Since 0.8.3
 
+- **Identity against the best strain allele** (2026-10-13). Two new features, `allele_identity` and
+  `allele_top_identity`.
+  - **What they are:** `identity` and `top_identity` with each read measured against its copy's best strain allele
+    (the representative's copy where no allele beats it). They form the group `strain_identity`, in the default set:
+    93 features ([features.md](features.md#the-identities-against-the-best-strain-allele-strain_identity-2026-10-13)).
+  - **Why:** a strain far from its representative but near a known genome of its species looked like a relative. HiFi
+    reads of *E. coli* K-12, 1.6% from GTDB's type strain, had `top_identity` 0.9957 where the sample's other species
+    had 1.0, and the HiFi model called a congener instead.
+  - **Effect** on a reduced r226 database rebuilt with them
+    ([report](claude/2026-10-13-consensus-allele-identity/README.md)):
+    - both HiFi mocks call *E. coli* (P 0.12 → 0.87 and 0.97), and no longer the congener;
+    - F1: ATCC MSA-1003 0.894 → 0.974, Zymo D6331 0.866 → 0.933;
+    - the simulated test sets stay within noise.
+  - **Databases:** the features need new models. An older database's models do not use them.
+  - **Tried and left out:** a tie-break for long reads whose taxa beat each other in a cycle. It moved more reads to
+    relatives than back.
 - **No empty output folders** (2026-10-13). A map run made `alignments/`, `profiles/`, `strains/` and `misc/` as
   it read the map, and left the unused ones empty: `alignments/` and `profiles/` with a map without `SAM` and
   `PROFILE` columns (whose files go to the output folder itself), `strains/` with `--no_strains`. protal now makes a

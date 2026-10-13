@@ -32,6 +32,10 @@ namespace protal {
     // gene of the read's species, whose reads then align to a relative only. The consensus is a taxon that loses to
     // none (if every taxon loses to one, any), with candidates on the most parts, then the highest total score.
     // nullopt for a read without candidates, or if the consensus has candidates on fewer than `min_parts` parts.
+    // Tried on 2026-10-13 and left out: where every taxon loses, the taxon whose largest defeat is smallest, and taxa
+    // compared by the common parts each wins. On real HiFi and Nanopore mocks both moved more long reads from the
+    // sample's species to relatives than back: a relative with candidates on few parts can lose only by little
+    // (docs/claude/2026-10-13-consensus-allele-identity).
     inline std::optional<ReadConsensus> ConsensusOfRead(std::vector<std::vector<PartCandidate>> const& parts, size_t min_parts = 1) {
         constexpr long kAbsent = LONG_MIN;
         std::vector<uint32_t> taxa;

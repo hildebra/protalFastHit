@@ -275,6 +275,10 @@ namespace protal {
             // Identity and fragment bases (below) of every read, for depth from a taxon's own reads.
             std::vector<std::pair<float, uint32_t>> m_read_identities;
             ExactSum m_identity_bases;  // aligned reference bases times their read's identity
+            // Every read's identity against its copy's best strain allele (AddSam's allele_gain), in the order of
+            // m_read_identities, and the bases weighted by it: for the taxon's allele identities.
+            std::vector<float> m_read_allele_identities;
+            ExactSum m_allele_identity_bases;
             size_t m_fragments = 0;       // reads, a pair counting once
             size_t m_last_read = SIZE_MAX;
             // The reference bases of the gene its fragments cover, each base of a fragment once: where a pair's mates
@@ -431,7 +435,10 @@ namespace protal {
 
 
             // With `alleles` (and strain data, !no_strain), what the read shows of the gene is written there too.
-            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true, ReadAlleles* alleles = nullptr) {
+            // allele_gain: the identity the record's best strain allele adds to its identity against the reference
+            // (RecordEvidenceCollector::NoteAlleles; 0 where none beats the reference).
+            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true, ReadAlleles* alleles = nullptr,
+                        double allele_gain = 0) {
                 auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 if (!no_strain) {
                     // The read's identity lets the strain MSA keep the taxon's own reads only.
@@ -454,6 +461,9 @@ namespace protal {
                 size_t const fragment_bases = length - overlap;
                 m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(fragment_bases));
                 m_identity_bases += identity * static_cast<double>(length);
+                double const allele_identity = std::min(1.0, identity + allele_gain);
+                m_read_allele_identities.push_back(static_cast<float>(allele_identity));
+                m_allele_identity_bases += allele_identity * static_cast<double>(length);
                 m_fragment_bases += fragment_bases;
 
                 m_mapped_reads++;
@@ -666,6 +676,7 @@ namespace protal {
         // What a read's record tells beyond its own alignment (MicrobialProfile::AddSam).
         struct ReadEvidence {
             size_t link = SIZE_MAX;  // the read across its records (both mates, a long read's genes); SIZE_MAX: none
+            double allele_gain = 0;  // the identity its copy's best strain allele adds (RecordEvidenceCollector::NoteRecord)
         };
 
         // The genes next to one gene of a taxon on the reads (MicrobialProfile::FinishLink), judged by the taxon's clade.
@@ -1151,6 +1162,7 @@ namespace protal {
             double m_depth_identity_margin = 1;  // every read counts towards depth unless set
             mutable std::optional<double> m_model_score;  // cached by TaxonFilterForest::Score
             mutable std::optional<double> m_top_identity;  // cached by TopIdentity
+            mutable std::optional<double> m_allele_top_identity;  // cached by AlleleTopIdentity
             size_t m_fragments = 0;  // reads with an accepted alignment, a pair counting once
             size_t m_last_read = SIZE_MAX;
             GeneMap m_genes;
@@ -1202,6 +1214,7 @@ namespace protal {
             void Changed() {
                 m_model_score.reset();
                 m_top_identity.reset();
+                m_allele_top_identity.reset();
                 m_site_rates.reset();
                 m_vcov = -1;
             }
@@ -1262,7 +1275,7 @@ namespace protal {
 
                 ReadAlleles read_alleles;
                 ReadAlleles* alleles = m_keep_phase_records && !no_strain ? &read_alleles : nullptr;
-                bool success = it->second.AddSam(sam, read_id, score, no_strain, alleles);
+                bool success = it->second.AddSam(sam, read_id, score, no_strain, alleles, evidence.allele_gain);
                 if (!success) {
                     // A gene is present only with at least one read.
                     if (new_gene) m_genes.erase(it);
@@ -2079,8 +2092,23 @@ namespace protal {
                         gene.GetStrainLevel().Clear();
                     }
                     std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
+                    std::vector<float>{}.swap(gene.m_read_allele_identities);
                 }
                 if (!msa) std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
+            }
+
+            // The 98th percentile, by their bases, of reads' identities (identity, bases); 0 without reads.
+            static double TopOf(std::vector<std::pair<float, uint32_t>>& reads) {
+                if (reads.empty()) return 0;
+                size_t total = 0;
+                for (auto const& read : reads) total += read.second;
+                std::sort(reads.begin(), reads.end());
+                size_t cumulative = 0;
+                for (auto const& [identity, length] : reads) {
+                    cumulative += length;
+                    if (cumulative >= 0.98 * static_cast<double>(total)) return identity;
+                }
+                return reads.back().first;
             }
 
             // The identity of the taxon's best-matching reads: the 98th percentile, by aligned bases,
@@ -2088,28 +2116,40 @@ namespace protal {
             double TopIdentity() const {
                 if (m_top_identity) return *m_top_identity;
                 std::vector<std::pair<float, uint32_t>> reads;
-                size_t total = 0;
                 for (auto const& [id, gene] : m_genes) {
-                    for (auto const& read : gene.m_read_identities) {
-                        reads.push_back(read);
-                        total += read.second;
+                    reads.insert(reads.end(), gene.m_read_identities.begin(), gene.m_read_identities.end());
+                }
+                m_top_identity = TopOf(reads);
+                return *m_top_identity;
+            }
+
+            // TopIdentity and BaseIdentity with each read's identity against its copy's best strain allele
+            // (strain_alleles.tsv), the representative's copy where no allele beats it or the species has none: what the
+            // reads look like against the nearest of the species' known genomes. The differences that allele explains less
+            // its own edits the read lacks, per aligned column, are added to the read's identity (as allele_identity_gain
+            // over all its records). A strain far from the representative but near a known genome of its species reaches
+            // the identity of a representative's reads, which TopIdentity, against the representative alone, did not
+            // give it (E. coli K-12 against the type strain: 0.9957 where the sample's other species had 1.0, HiFi,
+            // docs/claude/2026-10-13-ecoli-hifi). The same as TopIdentity and BaseIdentity without the table.
+            double AlleleTopIdentity() const {
+                if (m_allele_top_identity) return *m_allele_top_identity;
+                std::vector<std::pair<float, uint32_t>> reads;
+                for (auto const& [id, gene] : m_genes) {
+                    for (size_t i = 0; i < gene.m_read_identities.size(); i++) {
+                        reads.emplace_back(gene.m_read_allele_identities[i], gene.m_read_identities[i].second);
                     }
                 }
-                double top = 0;
-                if (!reads.empty()) {
-                    std::sort(reads.begin(), reads.end());
-                    size_t cumulative = 0;
-                    top = reads.back().first;
-                    for (auto const& [identity, length] : reads) {
-                        cumulative += length;
-                        if (cumulative >= 0.98 * static_cast<double>(total)) {
-                            top = identity;
-                            break;
-                        }
-                    }
+                m_allele_top_identity = TopOf(reads);
+                return *m_allele_top_identity;
+            }
+            double AlleleBaseIdentity() const {
+                ExactSum weighted;
+                size_t bases = 0;
+                for (auto const& [id, gene] : m_genes) {
+                    weighted += gene.m_allele_identity_bases;
+                    bases += gene.m_mapped_length;
                 }
-                m_top_identity = top;
-                return top;
+                return bases == 0 ? 0 : weighted.Value() / static_cast<double>(bases);
             }
 
             // The lowest identity of a read on gene `geneid` that counts towards the taxon's depth: the
@@ -2736,6 +2776,10 @@ namespace protal {
             f.emplace_back("nonsynonymous_share", taxon.NonsynonymousShare());
             f.emplace_back("nonsynonymous_conserved_rate", taxon.NonsynonymousConservedRate());
             f.emplace_back("column_weight_coverage", taxon.ColumnWeightCoverage());
+            // identity and top_identity with each read against its copy's best strain allele (2026-10-13): a strain far from
+            // the representative but near a known genome of its species looks like its species (Taxon::AlleleTopIdentity).
+            f.emplace_back("allele_identity", taxon.AlleleBaseIdentity());
+            f.emplace_back("allele_top_identity", taxon.AlleleTopIdentity());
             return f;
         }
 
@@ -3169,8 +3213,8 @@ namespace protal {
                 return empty;
             }
 
-            // See MicrobialProfile::NoteRecord.
-            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
+            // See MicrobialProfile::NoteRecord. Returns the identity a kept record's best strain allele adds (NoteAlleles).
+            double NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
                 auto& e = m_counts[taxid];
                 e.records++;
                 e.kept += kept;
@@ -3269,9 +3313,9 @@ namespace protal {
                     e.crowding_log2 += static_cast<uint64_t>(std::llround(std::log2(static_cast<double>(sam.m_crowding)) * kLog2Unit));
                 }
                 if (kept) NoteCopy(e, taxid, geneid, differences, aligned);
-                if (kept) NoteAlleles(e, taxid, geneid, sam, sites.get());
+                double const allele_gain = kept ? NoteAlleles(e, taxid, geneid, sam, sites.get()) : 0;
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
-                if (!m_genera) return;
+                if (!m_genera) return allele_gain;
                 auto const genus = GenusOf(taxid);
                 auto const& neighbours = m_genome_loader->GetSpeciesNeighbours();
                 bool congener = false, other = false, unexpected = false;
@@ -3288,32 +3332,35 @@ namespace protal {
                 e.congener_fit += congener;
                 e.other_genus_fit += other;
                 e.unexpected_fit += unexpected;
+                return allele_gain;
             }
 
             // A kept record against its copy's strain alleles (strain_alleles.tsv): its differences from the reference (CIGAR and SEQ)
             // and columns, every kept record's, and on a copy with alleles those the best allele explains (StrainAlleles.h
             // BestAllele), how the read stands at the copy's polymorphic sites (CountSites), and its ancestry sites (`sites`,
             // the copy's; may be nullptr) weighted by the alleles covering each, all and those fixed within the species.
-            // Nothing without the table; a record without SEQ is not counted.
-            void NoteAlleles(RecordEvidence& e, uint32_t taxid, uint32_t geneid, SamEntry const& sam, ancestry::Sites const* sites) {
+            // Nothing without the table; a record without SEQ is not counted. Returns the identity the best allele adds to
+            // the record's (its gain over the record's aligned columns; 0 where none beats the reference).
+            double NoteAlleles(RecordEvidence& e, uint32_t taxid, uint32_t geneid, SamEntry const& sam, ancestry::Sites const* sites) {
                 auto const& table = m_genome_loader->GetStrainAlleles();
-                if (table.Empty()) return;
+                if (table.Empty()) return 0;
                 e.alleles_known = true;
-                if (!strain_alleles::FromSamRecord(sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, m_allele_diffs)) return;
+                if (!strain_alleles::FromSamRecord(sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, m_allele_diffs)) return 0;
                 e.allele_differences += m_allele_diffs.diffs.size();
                 e.allele_aligned += m_allele_diffs.columns;
                 auto const alleles = table.Of(taxid, geneid);
-                if (alleles.empty()) return;
+                if (alleles.empty()) return 0;
                 auto const best = strain_alleles::BestAllele(table, taxid, geneid, m_allele_diffs);
                 e.allele_records++;
                 e.allele_explained += best.explained;
                 e.allele_gain += static_cast<uint64_t>(-best.shift);
+                double const gain = static_cast<double>(-best.shift) / static_cast<double>(m_allele_diffs.columns);
                 m_polymorphism.Set(table, alleles, m_allele_diffs.begin, m_allele_diffs.end);
                 auto const c = strain_alleles::CountSites(m_polymorphism, m_allele_diffs);
                 e.poly_sites += c.sites;
                 e.poly_known += c.known;
                 e.poly_novel += c.novel;
-                if (sites == nullptr) return;
+                if (sites == nullptr) return gain;
                 ancestry::ForEachSite(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq, [&](size_t p, int outcome) {
                     uint64_t const w = FixedWeight(m_polymorphism.Cover(static_cast<uint32_t>(p)));
                     if (w == 0) return;
@@ -3324,6 +3371,7 @@ namespace protal {
                     e.fixed += w;
                     e.fixed_agree += agree ? w : 0;
                 });
+                return gain;
             }
 
             // An ancestry site's weight for the fixed-site agreement, in 1/60ths: n/(n + 1) of the n alleles covering it (0
@@ -4196,18 +4244,21 @@ namespace protal {
             }
 
             // AddSam's work on its taxon: false if the record does not fit its gene. The taxon is not removed then;
-            // AddCheckedSam does that.
-            static bool AddToTaxon(Taxon& taxon, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link) {
+            // AddCheckedSam does that. allele_gain: the identity the record's best strain allele adds (NoteRecord).
+            static bool AddToTaxon(Taxon& taxon, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link,
+                                   double allele_gain = 0) {
                 bool const unique = sam.m_mapq > 20;
                 ReadEvidence evidence;
                 evidence.link = link;
+                evidence.allele_gain = allele_gain;
                 return taxon.AddSam(geneid, sam, score, unique, read_id, no_strain, evidence);
             }
 
             // AddSam for a record CheckSam takes (kAdd).
-            bool AddCheckedSam(int taxid, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link) {
+            bool AddCheckedSam(int taxid, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link,
+                               double allele_gain = 0) {
                 auto& taxon = TaxonOf(taxid);
-                bool success = AddToTaxon(taxon, geneid, sam, score, read_id, no_strain, link);
+                bool success = AddToTaxon(taxon, geneid, sam, score, read_id, no_strain, link, allele_gain);
                 // A taxon exists only with at least one read (its means divide by the read count).
                 if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
                 return success;
@@ -5265,6 +5316,7 @@ namespace protal {
                 double ani = 0;
                 int read_id = 0;
                 size_t link = SIZE_MAX;
+                double allele_gain = 0;  // the identity its best strain allele adds (RecordEvidenceCollector::NoteRecord)
                 bool ok = true;
             };
 
@@ -5309,11 +5361,13 @@ namespace protal {
 
                 // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
                 // leaves out: a read that fits another taxon as well has MAPQ near 0.
-                for (auto [sam, kept] : { std::pair{ ap.HasFirst() ? &ap.First() : nullptr, take_first },
-                                          std::pair{ ap.HasSecond() ? &ap.Second() : nullptr, take_second } }) {
+                // A kept record's best strain allele: the identity it adds, for the taxon's allele identities.
+                double gain1 = 0, gain2 = 0;
+                for (auto [sam, kept, gain] : { std::tuple{ ap.HasFirst() ? &ap.First() : nullptr, take_first, &gain1 },
+                                                std::tuple{ ap.HasSecond() ? &ap.Second() : nullptr, take_second, &gain2 } }) {
                     if (!sam) continue;
                     auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
-                    evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept);
+                    *gain = evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept);
                     evidence.NoteFragment(static_cast<uint32_t>(taxid), link);
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                     if (!sam->m_failed.empty()) evidence.NoteFailedCandidates(sam->m_failed);
@@ -5342,7 +5396,7 @@ namespace protal {
                     }
                 }
 
-                auto take = [&](SamEntry& sam, CigarInfo const& info) {
+                auto take = [&](SamEntry& sam, CigarInfo const& info, double allele_gain) {
                     auto [tid, geneid] = ExtractTaxidGeneid(sam.m_rname);
                     int const taxid = static_cast<int>(tid), gene = static_cast<int>(geneid);
                     switch (profile.CheckSam(taxid, gene, sam)) {
@@ -5354,13 +5408,14 @@ namespace protal {
                             addition.geneid = gene;
                             addition.sam = &sam;
                             addition.ani = info.Ani();
+                            addition.allele_gain = allele_gain;
                             additions.push_back(addition);
                             break;
                         }
                     }
                 };
-                if (take_first) take(ap.First(), info1);
-                if (take_second) take(ap.Second(), info2);
+                if (take_first) take(ap.First(), info1, gain1);
+                if (take_second) take(ap.Second(), info2, gain2);
                 return valid_sam;
             }
 
@@ -5371,7 +5426,8 @@ namespace protal {
                 m_additions.clear();
                 bool valid_sam = PrepareMAPQ(profile, ap, link, profile.Evidence(), m_info1, m_info2, m_additions);
                 for (auto const& addition : m_additions) {
-                    valid_sam &= profile.AddCheckedSam(addition.taxid, addition.geneid, *addition.sam, addition.ani, read_id, kNoStrain, link);
+                    valid_sam &= profile.AddCheckedSam(addition.taxid, addition.geneid, *addition.sam, addition.ani, read_id, kNoStrain, link,
+                                                       addition.allele_gain);
                 }
                 return valid_sam;
             }
@@ -5551,7 +5607,7 @@ namespace protal {
             static bool RunJob(TaxonJob& job) {
                 for (SamAddition* addition : job.additions) {
                     addition->ok = MicrobialProfile::AddToTaxon(*job.taxon, addition->geneid, *addition->sam, addition->ani,
-                                                                 addition->read_id, kNoStrain, addition->link);
+                                                                 addition->read_id, kNoStrain, addition->link, addition->allele_gain);
                     if (!addition->ok && job.taxon->TotalHits() == 0) return false;
                 }
                 return true;

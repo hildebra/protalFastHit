@@ -1,0 +1,9 @@
+feature	atcc1003_hifi_SRR11606871:Escherichia coli	atcc1003_hifi_SRR11606871:Escherichia sp004211955	atcc1003_hifi_SRR11606871:Helicobacter pylori	atcc1003_hifi_SRR11606871:TP median (n=19)	d6331_hifi_SRR13128012:Escherichia coli	d6331_hifi_SRR13128012:Escherichia sp004211955	d6331_hifi_SRR13128012:TP median (n=14)	d6331_ont_ERR15459768:Escherichia coli	d6331_ont_ERR15459768:TP median (n=14)
+probability	0.8723	0.3471	0.9443	0.9995	0.9682	0.4867	0.9991	0.6281	0.9945
+top_identity	0.9957	0.9984	0.9806	1	0.9957	0.9984	1	0.9944	0.9975
+allele_top_identity	1	0.9984	1	1	1	0.9984	1	1	1
+identity	0.9796	0.9868	0.9678	0.9931	0.9794	0.9854	0.9909	0.9675	0.9682
+allele_identity	0.996	0.9868	0.9912	0.9968	0.9946	0.9854	0.997	0.9819	0.9779
+allele_explained_share	0.842	0	0.7859	0.3288	0.8014	0	0.5143	0.5443	0.216
+allele_identity_gain	0.01595	0	0.02331	0.001334	0.01461	0	0.003759	0.01399	0.003941
+lu_per_kb	27.93	0	4.053	131.5	27.12	0.03942	115.3	25.5	97.26

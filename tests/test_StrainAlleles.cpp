@@ -607,6 +607,46 @@ TEST(StrainAlleles, TheAllelesFeaturesOfATaxon) {
     }
 }
 
+// identity and top_identity against each read's best allele (allele_identity, allele_top_identity; 2026-10-13): a read with
+// the allele's two differences is identical to the allele, one with a difference no allele has keeps its identity. Without
+// the table, and for a species without alleles, the same as identity and top_identity. (CIGARs with M for the matches, as
+// protal writes them: the identities count M.)
+TEST(StrainAlleles, TheIdentityAgainstTheBestAllele) {
+    std::mt19937 rng(43);
+    test::LoadedReference ref({ { 1, { test::RandomSequence(600, rng) } }, { 2, { test::RandomSequence(600, rng) } } }, "allele identity");
+    std::string const gene = ref.Gene(1, 1);
+    auto const table = sa::Table::FromRows({ { 1, 1, { sa::Allele{ 0, 600, { sa::Edit::Substitution(10, sa::BaseCode(Other(gene[10]))),
+                                                                              sa::Edit::Substitution(20, sa::BaseCode(Other(gene[20]))) } } } } });
+    std::string sam = ref.Header();
+    std::string a = gene.substr(0, 150), b = gene.substr(0, 150), c = ref.Gene(2, 1).substr(0, 150);
+    a[10] = Other(a[10]);
+    a[20] = Other(a[20]);
+    b[30] = Other(b[30]);
+    c[40] = Other(c[40]);
+    sam += SamRecord("a", 1, 1, 0, "10M1X9M1X129M", a);
+    sam += SamRecord("b", 1, 1, 0, "30M1X119M", b);
+    sam += SamRecord("c", 2, 1, 0, "40M1X109M", c);
+    auto const without = Features(Profile(ref, sam).GetTaxa().at(1));
+    EXPECT_NEAR(without.at("identity"), 297.0 / 300, 1e-12);
+    EXPECT_NEAR(without.at("top_identity"), 149.0 / 150, 1e-6);
+    EXPECT_EQ(without.at("allele_identity"), without.at("identity"));
+    EXPECT_EQ(without.at("allele_top_identity"), without.at("top_identity"));
+    ref.loader->SetStrainAlleles(table);
+    for (size_t threads : { 1, 3 }) {
+        SCOPED_TRACE(threads);
+        auto const profile = Profile(ref, sam, threads);
+        auto const f1 = Features(profile.GetTaxa().at(1));
+        EXPECT_NEAR(f1.at("identity"), 297.0 / 300, 1e-12);
+        EXPECT_NEAR(f1.at("top_identity"), 149.0 / 150, 1e-6);
+        EXPECT_NEAR(f1.at("allele_identity"), 299.0 / 300, 1e-12);
+        EXPECT_EQ(f1.at("allele_top_identity"), 1.0);  // read a, half the bases
+        auto const f2 = Features(profile.GetTaxa().at(2));
+        EXPECT_NEAR(f2.at("allele_identity"), 149.0 / 150, 1e-12);
+        EXPECT_EQ(f2.at("allele_identity"), f2.at("identity"));
+        EXPECT_EQ(f2.at("allele_top_identity"), f2.at("top_identity"));
+    }
+}
+
 // The polymorphic features. Taxon 1's gene differs from its congener taxon 2's at six ancestry sites (20, 40, ..., 120);
 // taxon 1's one allele has the congener's base at 40 (a shared polymorphism) and a third base at 80. Read a has the
 // congener's base at 40 (a polymorphic site: a known variant), b at 20 (fixed within the species), c a fourth base at 80

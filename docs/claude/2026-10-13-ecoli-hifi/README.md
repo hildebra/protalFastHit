@@ -158,3 +158,20 @@ rebuild and a comparison on simulated test sets and on these mocks.
 
 Working folders `~/ecoli_dbg` (the unpacked database, the feature dumps) and `~/nofolders` (the build at `d865681`)
 were removed afterwards. `dump_features.sh` with a protal build makes them again in a few minutes.
+
+## Follow-up: proposals 1 and 2 tested (2026-10-13)
+
+[2026-10-13-consensus-allele-identity](../2026-10-13-consensus-allele-identity/README.md) rebuilt the reduced database
+with each change.
+- **Identity against the best allele** (proposal 2, committed as the features `allele_identity` and
+  `allele_top_identity`):
+  - ***E. coli* called:** in both HiFi samples (P 0.12 → 0.87 and 0.97).
+  - **Congener no longer called:** *sp004211955*.
+  - **F1:** ATCC 0.894 → 0.974, D6331 HiFi 0.866 → 0.933.
+- **The consensus tie-break** (proposal 1, not committed): it moved more long reads from the sample's species to
+  relatives than back (D6331 HiFi 0 against 55), so it was left out.
+- **A correction to section "The reads":** the "cycle" class above is overcounted.
+  - **Why:** `ZA` lists only candidates within 5 edits of the best, so a gene where *E. coli* is far worse is not seen.
+  - **Read 13443:** its consensus was decided by gene 51, where *E. coli* has 34 mismatches and *E. fergusonii* 12.
+  - **What these reads are:** one gene of K-12 nearer a congener outweighs the rest of the read, not the fallback's
+    choice.

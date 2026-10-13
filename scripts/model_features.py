@@ -183,12 +183,20 @@ amino acid (nonsynonymous_share) and those at codon columns whose amino acid is 
 (nonsynonymous_conserved_rate). -1 without the table (--no_site_weights). Half of r226's false positives were reads
 from other genera (docs/claude/2026-10-03-false-positive-anatomy); these see them. column_weight_coverage (the share
 of the aligned bases at columns with an estimate) is a column of the dump in no group.
+STRAIN_IDENTITY_FEATURES ("strain_identity", since 2026-10-13), identity and top_identity with each read against its
+copy's best strain allele (strain_alleles.tsv; the representative's copy where no allele beats it, so the same as those two
+without the table or alleles): allele_identity, allele_top_identity. A strain far from the representative but near a
+known genome of its species reaches the top identity of a representative's reads, which top_identity, against the
+representative alone, never gives it: HiFi reads of E. coli K-12, 1.6% from the type strain, had top_identity 0.9957 where
+every present species of the sample had 1.0, and the HiFi model rejected it (docs/claude/2026-10-13-ecoli-hifi).
 
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
-unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, alleles, polymorphic, weights, priors; "all" is every
+unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, alleles, polymorphic, weights,
+strain_identity, priors; "all" is every
 feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance+depth+
-divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights"
-(without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+
+strain_identity"
+(without strain_identity before 2026-10-13, without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
 foreign and untried in 0.7.9 before the congener-gaps merge; without ancestry before 0.7.9; without consistency, shape
 and neighbourhood before 2026-10-07, when the false-positive groups were merged; without ref and complexity before
 2026-10-06; the set without them is the one every model of the r226 v12 and v13
@@ -297,6 +305,9 @@ POLYMORPHIC_FEATURES = ["polymorphic_known_share", "polymorphic_novel_share", "a
 # --build since 2026-10-10): see above. In the default set, untested at r226. column_weight_coverage is in no group.
 WEIGHT_FEATURES = ["conserved_mismatch_ratio", "conserved_mismatch_rate", "ancestry_agreement_weighted",
                    "nonsynonymous_share", "nonsynonymous_conserved_rate"]
+# identity and top_identity against each read's best strain allele: see above. In the default set since 2026-10-13,
+# untested at r226.
+STRAIN_IDENTITY_FEATURES = ["allele_identity", "allele_top_identity"]
 
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
@@ -305,7 +316,7 @@ FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEAT
                   "consistency": CONSISTENCY_FEATURES, "shape": SHAPE_FEATURES, "neighbourhood": NEIGHBOURHOOD_FEATURES,
                   "ancestry": ANCESTRY_FEATURES, "gaps": GAP_FEATURES, "foreign": FOREIGN_FEATURES, "untried": UNTRIED_FEATURES,
                   "alleles": ALLELE_FEATURES, "polymorphic": POLYMORPHIC_FEATURES, "weights": WEIGHT_FEATURES,
-                  "priors": PRIORS_FEATURES}
+                  "strain_identity": STRAIN_IDENTITY_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
@@ -326,7 +337,9 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
                 "gaps+untried+alleles+polymorphic+weights",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
-                "gaps+untried+alleles+polymorphic+weights+foreign",
+                "gaps+untried+alleles+polymorphic+weights+strain_identity",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
+                "gaps+untried+alleles+polymorphic+weights+strain_identity+foreign",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -340,9 +353,9 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # could draw (same report, "The foreign features leak"); the scan reads every species' marker genes alike since
 # 2026-10-08, and the named set with foreign lets --features auto say whether that scan earns anything.
 # alleles (since 2026-10-08) and polymorphic (since 2026-10-09) are in it untested at r226 too: the next build says what
-# the strain alleles are worth.
+# the strain alleles are worth; strain_identity (since 2026-10-13) as well.
 DEFAULT_FEATURE_SET = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+"
-                       "neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights")
+                       "neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity")
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
 # another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.
