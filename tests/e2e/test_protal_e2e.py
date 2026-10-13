@@ -787,6 +787,17 @@ class OutputFilesTest(DbTest):
         self.assertEqual({row[0] for row in rows}, {"sample_a"})
         self.assertGreater(max(int(row[header.index("CoverageSum")]) for row in rows), 0)
 
+    def test_no_empty_output_folders(self):
+        # Without SAM and PROFILE columns the SAM and the profile are in the output folder itself, so protal makes no
+        # alignments/ or profiles/ (up to 2026-10-13 a map run made both, and left them empty); misc/ and strains/ are
+        # written into.
+        out = self.path("out")
+        self.assertTrue(os.path.isfile(os.path.join(out, "pa.profile")))
+        self.assertFalse(os.path.exists(os.path.join(out, "alignments")))
+        self.assertFalse(os.path.exists(os.path.join(out, "profiles")))
+        for folder in ("misc", "strains"):
+            self.assertTrue(os.listdir(os.path.join(out, folder)), folder)
+
     def test_truth_counts_name_the_sample(self):
         self.assertIn("Sample sample_a: TP 3, FP 0, FN 0 (and 1 true species not in the database)", self.log)
         self.assertNotIn("Truth: 0", self.log)

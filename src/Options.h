@@ -2200,29 +2200,6 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
         }
 
 
-        static bool CreateDir(std::string dir_path) {
-            // trim whitespace (including CR) from both ends to avoid false negatives on existing dirs
-            auto trim_ws = [](std::string &s) {
-                auto not_space = [](unsigned char c) { return !std::isspace(c); };
-                s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
-                s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
-            };
-            trim_ws(dir_path);
-            std::filesystem::path p(dir_path);
-
-            if (!std::filesystem::exists(p)) {
-                std::error_code ec;
-                if (!std::filesystem::create_directories(p, ec)) {
-                    std::cerr << "Failed to create SAM output directory: " << p << "\nError: " << ec.message() << std::endl;
-                    return false;
-                }
-            } else if (!std::filesystem::is_directory(p)) {
-                std::cerr << "SAM output path exists but is not a directory: " << p << std::endl;
-                return false;
-            }
-            return true;
-        }
-
         // The ending of the SAM files protal names, by --sam_format (zst, gz, sam); empty if unknown.
         static std::string SamEnding(std::string const& format) {
             if (format == "zst") return ".sam.zst";
@@ -2406,17 +2383,14 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                             path const dir = named.empty() ? path(default_name) : path(named);
                             return (dir.is_absolute() ? dir : path(global_output_dir) / dir).string();
                         };
+                        // None of them is made here: a folder is made when something is written into it (a SAM's or
+                        // profile's folder by its writer, misc/ and strains/ at the start of a run that writes them),
+                        // so a map without SAM or PROFILE columns, whose files go to the output folder itself, leaves
+                        // no empty alignments/ or profiles/ (it did up to 2026-10-13).
                         sam_output_dir = in_output(sam_output_dir, MAP_VAR_DEFAULT_SAM_OUTPUT_DIR);
-                        CreateDir(sam_output_dir);
-
                         strain_output_dir = in_output(strain_output_dir, MAP_VAR_DEFAULT_STRAIN_OUTPUT_DIR);
-                        CreateDir(strain_output_dir);
-
                         profile_output_dir = in_output(profile_output_dir, MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR);
-                        CreateDir(profile_output_dir);
-
                         misc_output_dir = in_output(misc_output_dir, MAP_VAR_DEFAULT_MISC_OUTPUT_DIR);
-                        CreateDir(misc_output_dir);
 
 
                         continue;

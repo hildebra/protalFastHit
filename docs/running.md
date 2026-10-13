@@ -9,12 +9,15 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 | Output | `-1 -2 --prefix P -o DIR` | `--map` |
 |---|---|---|
-| alignments | `DIR/P.sam.zst` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` (without a `SAM` column `<PREFIX>.sam.zst`) |
-| profile and its logs | `DIR/P.profile`, `DIR/P.profile.log`, ... | `#PROFILE_OUTPUT_DIR/<PROFILE>`, default `#OUTPUT_DIR/profiles/` |
+| alignments | `DIR/P.sam.zst` | with a `SAM` column `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/`; without one `#OUTPUT_DIR/<PREFIX>.sam.zst` |
+| profile and its logs | `DIR/P.profile`, `DIR/P.profile.log`, ... | with a `PROFILE` column `#PROFILE_OUTPUT_DIR/<PROFILE>`, default `#OUTPUT_DIR/profiles/`; without one `#OUTPUT_DIR/<PREFIX>.profile` |
 | strain MSAs and tables | `DIR/strains/` | `#STRAIN_OUTPUT_DIR`, default `#OUTPUT_DIR/strains/` |
 | coverage, SNP counts, timers | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
 
 - `-o` replaces a map's `#OUTPUT_DIR`, and `--profile_dir` moves the profiles of either mode.
+- protal makes an output folder when it writes into it. A map without `SAM` and `PROFILE` columns leaves no
+  `alignments/` or `profiles/`, and a run with `--no_strains` no `strains/`. Up to 2026-10-13 a map run made all four
+  folders, and left the unused ones empty.
   Without `-o`, a `-1 -2` run writes into the current folder (runs without `-o` aborted up to 0.7.8).
   A relative output folder (`-o` or `#OUTPUT_DIR`) is relative to the folder protal runs in, and a
   relative `#SAM_OUTPUT_DIR`, `#PROFILE_OUTPUT_DIR`, ... lies in it. Up to 2026-10-08 a map run put a

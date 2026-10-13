@@ -28,6 +28,10 @@ for this page.
 
 ## Since 0.8.3
 
+- **No empty output folders** (2026-10-13). A map run made `alignments/`, `profiles/`, `strains/` and `misc/` as
+  it read the map, and left the unused ones empty: `alignments/` and `profiles/` with a map without `SAM` and
+  `PROFILE` columns (whose files go to the output folder itself), `strains/` with `--no_strains`. protal now makes a
+  folder only when it writes into it ([running.md](running.md#where-the-outputs-go)).
 - **The stride pick by default, gates 4/4/16/8, and models at other gates** (2026-10-13). The r226 v27 build
   tested the gates and both picks ([report](claude/2026-10-13-r226-v27-c-gates.md)): up to pe/se C 4, pb C 16 and
   ONT C 8 no measurable F1 was lost, for 36-44% less alignment CPU than at C 1 (pb 11% less than C 8), and the stride
