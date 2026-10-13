@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests of the benchmark on public mock communities: download_mocks.py (choosing a run's files, cutting a FASTQ while
 it streams, MD5 checks, resuming), score_mocks.py (scores of hand-made profiles against each kind of truth, replicate
-pairs, the protal runs of a stand-in binary) and prepare_tables.py (reading .xlsx, writing truth tables). A local HTTP
+pairs, scores of several run folders, the runs of stand-ins of protal and sylph: run folders named by --version, sylph's
+genomes turned into GTDB species) and prepare_tables.py (reading .xlsx, writing truth tables). A local HTTP
 server stands in for ENA. Standard library only.
 
 Run: python3 -m unittest scripts/mock_benchmark/test_mock_benchmark.py
@@ -147,7 +148,8 @@ class DownloadTest(unittest.TestCase):
             self.assertEqual(json.load(fh)["reads"], 4)
         self.server.stop()  # a finished run is not fetched again
         self.server = Server(self.served)
-        metas["SRR1"] = dict(metas["SRR1"], fastq_ftp="http://127.0.0.1:1/gone_1.fastq.gz;http://127.0.0.1:1/gone_2.fastq.gz")
+        metas["SRR1"] = dict(metas["SRR1"],
+                             fastq_ftp="http://127.0.0.1:1/gone_1.fastq.gz;http://127.0.0.1:1/gone_2.fastq.gz")
         self.assertEqual(dl.fetch_sample(sample, metas, self.out, max_pairs=4, max_bases=None), row)
         # a long-read run within the limit is copied whole, as ENA has it
         metas["ERR2"] = self.meta("ERR2", ["ERR2.fastq.gz"], 5, 1500)  # the new server's address
@@ -181,10 +183,29 @@ def write_truth(folder, name, kind, rows):
             fh.write(f"{species}\t{share}\tm\n")
 
 
+COMMIT = "1dcc325" + "0" * 33
+
+
+def stand_in(path, script):
+    """An executable Python script standing in for a profiler's binary."""
+    with open(path, "w") as fh:
+        fh.write(f"#!{sys.executable}\n{script}")
+    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+    return path
+
+
+def write_downloaded(reads, rows):
+    os.makedirs(os.path.join(reads, "reads"), exist_ok=True)
+    with open(os.path.join(reads, "reads", "downloaded.tsv"), "w") as fh:
+        fh.write("set\tsample\tread_type\tfirst\tsecond\treads\tbases\tcut\n")
+        for r in rows:
+            fh.write("\t".join(r) + "\n")
+
+
 class ScoreTest(unittest.TestCase):
     """Truth T: A 0.6, B 0.3, ? 0.1 (placed: A 2/3, B 1/3). Sample s1 calls A 0.5 and C 0.1 (placed: A 5/6, C 1/6):
     TP A, FP C, FN B; L1 = 1/6 + 1/3 + 1/6 = 2/3. Sample s2 matches the truth; s1 and s2 differ by Bray-Curtis 1/3
-    and share 1 of their 3 species (Jaccard 1/3)."""
+    and share 1 of their 3 species (Jaccard 1/3). A second run folder holds s1 alone, matching the truth."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -195,13 +216,17 @@ class ScoreTest(unittest.TestCase):
         write_truth(self.truth, "closed", "closed", [("s__A", "NA"), ("s__B", "NA")])
         write_truth(self.truth, "drop", "dropout", [("s__X", "NA"), ("s__Y", "0")])
         write_truth(self.truth, "negative", "negative", [])
-        profiles = os.path.join(root, "out", "protal", "set1", "profiles")
+        self.out = os.path.join(root, "out")
+        profiles = os.path.join(self.out, "0.8.3_1dcc325", "set1", "profiles")
         write_profile(os.path.join(profiles, "s1.profile"), [("A", 0.5), ("C", 0.1)], 0.4)
         write_profile(os.path.join(profiles, "s2.profile"), [("A", 0.6), ("B", 0.3)], 0.1)
         write_profile(os.path.join(profiles, "s3.profile"), [("D", 0.01)], 0.99)
         write_profile(os.path.join(profiles, "s4.profile"), [("X", 0.5), ("Y", 0.2)], 0.3)
         write_profile(os.path.join(profiles, "s5.profile"), [("A", 0.5), ("E", 0.2)], 0.3)
         write_profile(os.path.join(profiles, "s6.profile"), [("F", 0.5)], 0.5)
+        write_profile(os.path.join(self.out, "other_run", "set1", "chunk_0", "profiles", "s1.profile"),
+                      [("A", 0.6), ("B", 0.3)], 0.1)
+        os.makedirs(os.path.join(self.out, "reads"))  # download_mocks.py's folder: not a run
         self.samples = os.path.join(root, "samples.tsv")
         with open(self.samples, "w") as fh:
             fh.write("set\tsample\truns\tread_type\ttruth\tgroup\tnote\n")
@@ -209,16 +234,19 @@ class ScoreTest(unittest.TestCase):
                                        ("s4", "drop", "-"), ("s5", "closed", "-"), ("s6", "-", "-"),
                                        ("s7", "t", "g1")):  # s7 has no profile
                 fh.write(f"set1\t{name}\tR\tpe\t{truth}\t{group}\t-\n")
-        self.out = os.path.join(root, "out")
 
     def tearDown(self):
         self.tmp.cleanup()
 
+    def score(self, *more):
+        return subprocess.run([sys.executable, os.path.join(HERE, "score_mocks.py"), "score", "--reads", self.out,
+                               "--samples", self.samples, "--truth", self.truth, *more], capture_output=True, text=True)
+
     def test_scores(self):
-        result = subprocess.run([sys.executable, os.path.join(HERE, "score_mocks.py"), "score", "--reads", self.out,
-                                 "--samples", self.samples, "--truth", self.truth], capture_output=True, text=True)
+        result = self.score()
         self.assertEqual(result.returncode, 0, result.stderr)
-        rows = {r["sample"]: r for r in read_tsv(os.path.join(self.out, "scores", "samples.tsv"))}
+        scores = os.path.join(self.out, "0.8.3_1dcc325", "scores")
+        rows = {r["sample"]: r for r in read_tsv(os.path.join(scores, "samples.tsv"))}
         self.assertEqual(sorted(rows), ["s1", "s2", "s3", "s4", "s5", "s6"])
         s1 = rows["s1"]
         self.assertEqual((s1["called"], s1["tp"], s1["fp"], s1["fn"]), ("2", "1", "1", "1"))
@@ -230,34 +258,44 @@ class ScoreTest(unittest.TestCase):
         self.assertAlmostEqual(float(rows["s2"]["l1"]), 0.0)
         self.assertEqual((rows["s3"]["kind"], rows["s3"]["fp"], rows["s3"]["false_species"]), ("negative", "1", "s__D"))
         self.assertEqual((rows["s4"]["absent_called"], rows["s4"]["present_missed"]), ("s__Y", "-"))
-        self.assertEqual((rows["s5"]["tp"], rows["s5"]["fp"], rows["s5"]["fn"], rows["s5"]["l1"]), ("1", "1", "1", "NA"))
+        self.assertEqual((rows["s5"]["tp"], rows["s5"]["fp"], rows["s5"]["fn"], rows["s5"]["l1"]),
+                         ("1", "1", "1", "NA"))
         self.assertEqual((rows["s6"]["kind"], rows["s6"]["called"], rows["s6"]["tp"]), ("-", "1", "NA"))
-        pairs = read_tsv(os.path.join(self.out, "scores", "replicates.tsv"))
+        pairs = read_tsv(os.path.join(scores, "replicates.tsv"))
         self.assertEqual(len(pairs), 1)
         self.assertAlmostEqual(float(pairs[0]["bray_curtis"]), 1 / 3, places=5)
         self.assertAlmostEqual(float(pairs[0]["jaccard"]), 1 / 3, places=5)
-        species = [r for r in read_tsv(os.path.join(self.out, "scores", "species.tsv")) if r["sample"] == "s1"]
+        species = [r for r in read_tsv(os.path.join(scores, "species.tsv")) if r["sample"] == "s1"]
         self.assertEqual({r["species"]: r["status"] for r in species}, {"s__A": "TP", "s__B": "FN", "s__C": "FP"})
-        summary = read_tsv(os.path.join(self.out, "scores", "summary.tsv"))
+        summary = read_tsv(os.path.join(scores, "summary.tsv"))
         abundance = next(r for r in summary if r["kind"] == "abundance")
         self.assertEqual((abundance["samples"], abundance["f1"]), ("2", "0.75"))
         dropout = next(r for r in summary if r["kind"] == "dropout")
         self.assertEqual(dropout["dropouts_called"], "1")
+        # both run folders, side by side
+        by_run = read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))
+        abundance = {r["run"]: r["f1"] for r in by_run if r["kind"] == "abundance"}
+        self.assertEqual(abundance, {"0.8.3_1dcc325": "0.75", "other_run": "1"})
+        samples = read_tsv(os.path.join(self.out, "scores", "samples_by_run.tsv"))
+        self.assertEqual(sorted((r["run"], r["sample"]) for r in samples if r["sample"] == "s1"),
+                         [("0.8.3_1dcc325", "s1"), ("other_run", "s1")])
+        result = self.score("--runs", "other_run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual({r["run"] for r in read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))},
+                         {"other_run"})
+        self.assertNotEqual(self.score("--runs", "missing").returncode, 0)
 
     def test_run_with_a_stand_in_protal(self):
         reads = os.path.join(self.tmp.name, "mocks")
-        os.makedirs(os.path.join(reads, "reads"))
-        with open(os.path.join(reads, "reads", "downloaded.tsv"), "w") as fh:
-            fh.write("set\tsample\tread_type\tfirst\tsecond\treads\tbases\tcut\n")
-            fh.write("a\ta_1\tpe\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\t10\t3000\t0\n")
-            fh.write("a\ta_2\tont\t/r/a_2.fq.gz\t-\t5\t9000\t1\n")
-            fh.write("b\tb_1\tpe\t/r/b_1_1.fq.gz\t/r/b_1_2.fq.gz\t10\t3000\t0\n")
-        fake = os.path.join(self.tmp.name, "fake_protal")
+        write_downloaded(reads, [("a", "a_1", "pe", "/r/a_1_1.fq.gz", "/r/a_1_2.fq.gz", "10", "3000", "0"),
+                                 ("a", "a_2", "ont", "/r/a_2.fq.gz", "-", "5", "9000", "1"),
+                                 ("b", "b_1", "pe", "/r/b_1_1.fq.gz", "/r/b_1_2.fq.gz", "10", "3000", "0")])
         calls = os.path.join(self.tmp.name, "calls.txt")
-        with open(fake, "w") as fh:
-            fh.write(f"""#!{sys.executable}
-import os, sys
+        fake = stand_in(os.path.join(self.tmp.name, "fake_protal"), f"""import os, sys
 args = sys.argv[1:]
+if args == ["--version"]:
+    print("protal v0.8.3 (commit {COMMIT}{{}})".format(os.environ.get("FAKE_DIRTY", "")))
+    sys.exit(0)
 with open({calls!r}, "a") as log:
     log.write(" ".join(args) + "\\n")
 lines = open(args[args.index("--map") + 1]).read().splitlines()
@@ -267,12 +305,12 @@ for line in lines[2:]:
     sample = line.split("\\t")[0]
     open(os.path.join(out, "profiles", sample + ".profile"), "w").write("?\\t?\\t1\\n")
 """)
-        os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
         command = [sys.executable, os.path.join(HERE, "score_mocks.py"), "run", "--reads", reads, "--db", "/db",
                    "--protal", fake, "-t", "3", "--sets", "a"]
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        with open(os.path.join(reads, "protal", "a", "map.tsv")) as fh:
+        run_folder = os.path.join(reads, "0.8.3_1dcc325")  # the binary's version and commit
+        with open(os.path.join(run_folder, "a", "map.tsv")) as fh:
             lines = fh.read().splitlines()
         self.assertEqual(lines[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE")
         self.assertEqual(lines[2:], ["a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe", "a_2\ta_2\t/r/a_2.fq.gz\t-\tont"])
@@ -281,7 +319,7 @@ for line in lines[2:]:
         self.assertEqual(len(called), 1)
         self.assertIn("--db /db", called[0])
         self.assertIn("-t 3 --no_strains --force", called[0])
-        self.assertTrue(os.path.exists(os.path.join(reads, "protal", "a", "profiles", "a_2.profile")))
+        self.assertTrue(os.path.exists(os.path.join(run_folder, "a", "profiles", "a_2.profile")))
         result = subprocess.run(command, capture_output=True, text=True)  # profiles there: protal is not run again
         self.assertEqual(result.returncode, 0, result.stderr)
         with open(calls) as fh:
@@ -291,7 +329,73 @@ for line in lines[2:]:
             result = subprocess.run(command[:-1] + ["b", "--chunks", "2", "--chunk", chunk], capture_output=True,
                                     text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(os.path.exists(os.path.join(reads, "protal", "b", "chunk_0", "profiles", "b_1.profile")))
+        self.assertTrue(os.path.exists(os.path.join(run_folder, "b", "chunk_0", "profiles", "b_1.profile")))
+        # a binary built with uncommitted changes, and a name given: run folders of their own
+        dirty = subprocess.run(command, capture_output=True, text=True,
+                               env=dict(os.environ, FAKE_DIRTY=", with uncommitted changes"))
+        self.assertEqual(dirty.returncode, 0, dirty.stderr)
+        self.assertTrue(os.path.exists(os.path.join(reads, "0.8.3_1dcc325-modified", "a", "profiles", "a_1.profile")))
+        named = subprocess.run(command + ["--run-name", "trial"], capture_output=True, text=True)
+        self.assertEqual(named.returncode, 0, named.stderr)
+        self.assertTrue(os.path.exists(os.path.join(reads, "trial", "a", "profiles", "a_1.profile")))
+
+    def test_run_with_a_stand_in_sylph(self):
+        """Sample p (two lanes, joined for sylph) gets E. coli 60 % and a genome the taxonomy lacks 40 %; sample l
+        (long reads) E. coli 100 %, from two genomes of the species."""
+        reads = os.path.join(self.tmp.name, "mocks")
+        lanes = os.path.join(self.tmp.name, "lanes")
+        os.makedirs(lanes)
+        for name, text in (("p_L1_1", "@a\nAC\n+\nII\n"), ("p_L2_1", "@b\nGT\n+\nII\n"),
+                           ("p_L1_2", "@a\nTT\n+\nII\n"), ("p_L2_2", "@b\nCC\n+\nII\n"), ("l", "@c\nAAAA\n+\nIIII\n")):
+            with open(os.path.join(lanes, name + ".fq.gz"), "wb") as fh:
+                fh.write(gzip.compress(text.encode()))
+        lane = functools.partial(os.path.join, lanes)
+        write_downloaded(reads, [("a", "p", "pe", lane("p_L1_1.fq.gz") + "," + lane("p_L2_1.fq.gz"),
+                                  lane("p_L1_2.fq.gz") + "," + lane("p_L2_2.fq.gz"), "2", "8", "0"),
+                                 ("a", "l", "ont", lane("l.fq.gz"), "-", "1", "4", "0")])
+        gtdb = os.path.join(self.tmp.name, "gtdb")
+        os.makedirs(gtdb)
+        with open(os.path.join(gtdb, "bac120_taxonomy_r226.tsv"), "w") as fh:
+            fh.write("RS_GCF_000005845.2\td__Bacteria;p__Pseudomonadota;c__G;o__E;f__E;g__Escherichia;"
+                     "s__Escherichia coli\n")
+            fh.write("GB_GCA_000008865.2\td__Bacteria;p__Pseudomonadota;c__G;o__E;f__E;g__Escherichia;"
+                     "s__Escherichia coli\n")
+        seen = os.path.join(self.tmp.name, "sylph_inputs.txt")
+        fake = stand_in(os.path.join(self.tmp.name, "fake_sylph"), f"""import gzip, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("sylph 0.8.1")
+    sys.exit(0)
+out = args[args.index("-o") + 1]
+head = "Sample_file\\tGenome_file\\tTaxonomic_abundance\\tSequence_abundance\\tAdjusted_ANI\\n"
+with open(out, "w") as fh, open({seen!r}, "a") as log:
+    fh.write(head)
+    if "-1" in args:
+        first = args[args.index("-1") + 1]
+        log.write(gzip.open(first, "rt").read().replace("\\n", "|") + "\\n")
+        fh.write(first + "\\tdb/GCF_000005845.2_ASM584v2_genomic.fna.gz\\t60\\t50\\t99\\n")
+        fh.write(first + "\\tdb/GCA_999999999.1_x_genomic.fna.gz\\t40\\t30\\t96\\n")
+    else:
+        single = args[2]  # profile DB FILE ...
+        fh.write(single + "\\tdb/GCF_000005845.2_ASM584v2_genomic.fna.gz\\t70\\t50\\t99\\n")
+        fh.write(single + "\\tdb/GCA_000008865.2_ASM886v2_genomic.fna.gz\\t30\\t20\\t98\\n")
+""")
+        command = [sys.executable, os.path.join(HERE, "score_mocks.py"), "run", "--tool", "sylph", "--reads", reads,
+                   "--sylph", fake, "--sylph-db", "/dbs/gtdb-r226-c200-dbv1.syldb", "--gtdb", gtdb, "-t", "2"]
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        folder = os.path.join(reads, "sylph_0.8.1_gtdb-r226-c200-dbv1", "a")
+        with open(seen) as fh:  # the two lanes' first mates, joined into one file for sylph
+            self.assertEqual(fh.read(), "@a|AC|+|II|@b|GT|+|II|\n")
+        self.assertFalse(os.path.exists(os.path.join(folder, "joined")))
+        self.assertEqual(sc.read_profile(os.path.join(folder, "profiles", "p.profile"))[0],
+                         {"s__Escherichia coli": 0.6, "s__GCA_999999999.1": 0.4})
+        species, unknown = sc.read_profile(os.path.join(folder, "profiles", "l.profile"))
+        self.assertEqual(species, {"s__Escherichia coli": 1.0})
+        self.assertTrue(math.isnan(unknown))
+        self.assertIn("1 genome(s) of sylph's database not in the --gtdb taxonomy", result.stderr)
+        missing = subprocess.run(command[:-4] + ["-t", "2"], capture_output=True, text=True)  # without --gtdb
+        self.assertNotEqual(missing.returncode, 0)
 
 
 class PrepareTest(unittest.TestCase):

@@ -298,7 +298,7 @@ is in [development.md](../../development.md#benchmark-on-public-mock-communities
 | `truth/` | 29 truth tables, by `prepare_tables.py truth --gtdb ~/GTDB/r226` |
 | `download_mocks.py` | ENA downloads, cut while streaming |
 | `score_mocks.py` | `run` writes protal maps and runs protal; `score` scores the profiles |
-| `test_mock_benchmark.py` | 10 tests, 5 s |
+| `test_mock_benchmark.py` | 10 tests, 5 s (11 after the second follow-up) |
 
 **What is in `samples.tsv`.**
 - **Replicate groups:** basecall series, platforms of one DNA, labs × methods, and technical triplets.
@@ -374,10 +374,25 @@ is in [development.md](../../development.md#benchmark-on-public-mock-communities
 
 `--max-bases 5e9` brings the D6322 basecall series to about 100 GB.
 
+**Second follow-up (same day): run folders and a second profiler.**
+- **Run folders:** each run of `score_mocks.py run` gets a folder of its own, `$MOCKS/<run>/`, so profiles of different
+  builds never mix. For protal the default name comes from the binary's `--version`, `<version>_<commit>` (e.g.
+  `0.8.3_1dcc325`), with `-modified` appended for a build with uncommitted changes. `--run-name` sets another.
+- **Second profiler:** `--tool` runs another profiler, a whole-genome sketch profiler, on the same samples, into a run
+  folder named after its version and database.
+  - Its genomes get their GTDB species by accession: the truth's release (r226) first, then the database's own release
+    for genomes r226 lacks.
+  - Its per-genome shares of cells are summed per species into profiles in protal's format, without the `?` line.
+  - They are scored the same way as protal's profiles.
+- **Scoring all runs:** `score` scores every run folder and writes `$MOCKS/scores/summary_by_run.tsv` and
+  `samples_by_run.tsv`, so the runs can be compared row by row.
+- **Tests:** 11, including stand-ins of both profilers' binaries. The second profiler is not installed locally, so its
+  real command line is checked only against its documentation.
+
 ## Next steps
 
 Step 1 is done; steps 2 and 3 have scripts (see the follow-up above) and wait for the cluster.
 
 1. **Truth tables:** built for every set but the plant SynComs (`scripts/mock_benchmark/truth/`).
 2. **Downloads:** a first set on the cluster: Dohlman D6331, Zymo D6331 HiFi and R10.4.1, Meslier mocks, Treichel, ATCC MSA-1003 HiFi (`download_mocks.py --sets d6331_dna,d6331_hifi,d6331_ont,meslier,treichel,atcc1003_hifi`, ~330 GB at the default limits).
-3. **Scoring:** `score_mocks.py run` per set on the cluster, then `score_mocks.py score`: species precision, recall and abundance error per read type against the truth; replicate sets by Bray-Curtis and Jaccard, including the D6322 basecall series.
+3. **Scoring:** `score_mocks.py run` per set on the cluster (protal, and the second profiler for comparison), then `score_mocks.py score`: species precision, recall and abundance error per read type against the truth; replicate sets by Bray-Curtis and Jaccard, including the D6322 basecall series.

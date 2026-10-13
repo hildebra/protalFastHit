@@ -96,7 +96,7 @@ quick run (`test_ancestry_world.py`); `scripts/test_*.py` the trainer and the mo
 `composition_accuracy.py`, the profile scripts, the strain test scripts, `ancestry_sites.py` and
 `foreign_rates.py`; `scripts/mock_benchmark/test_mock_benchmark.py` the
 [benchmark on public mock communities](#benchmark-on-public-mock-communities) (downloads from a local
-stand-in of ENA, scores, protal runs of a stand-in binary). A test whose prerequisite is missing is skipped; `PROTAL_TESTS_REQUIRED=1` makes it
+stand-in of ENA, scores, run folders, and runs of stand-ins of protal and sylph). A test whose prerequisite is missing is skipped; `PROTAL_TESTS_REQUIRED=1` makes it
 fail instead (`scripts/prerequisites.py`). With everything present they run in about 6 minutes on 4
 cores, the GTDB build 3 of them:
 
@@ -272,7 +272,7 @@ samples, which are simulated.
 | `samples.tsv` | 1,330 samples in 13 sets, one row per library: its runs, read type, truth table and replicate group (from `prepare_tables.py samples`, ENA's metadata) |
 | `truth/*.tsv` | what each mock holds as GTDB r226 species, by kind (see below), with each member's strain (from `prepare_tables.py truth --gtdb ~/GTDB/r226`, which prints the evidence for each assignment) |
 | `download_mocks.py` | fetches the runs from ENA |
-| `score_mocks.py run`, `score` | runs protal per set, or per chunk of a set as a SLURM array, and scores the profiles |
+| `score_mocks.py run`, `score` | runs protal (or sylph) per set, or per chunk of a set as a SLURM array, into a run folder per binary, and scores the profiles of every run |
 
 **Sets.** `d6331_dna`, `d6331_host`, `meslier`, `treichel`, `d6331_hifi`, `atcc1003_hifi`, `d6331_ont`,
 `d6322_basecalls`, `strain_mixes`, `nibsc_multilab`, `hcom2_invitro`, `hcom1a_dropouts`, `plant_syncoms`.
@@ -290,11 +290,30 @@ The shares add up to 1 together with a `?` row: the members protal cannot place,
 - A run within the limit is copied whole and checked against ENA's MD5.
 - With these limits all sets take about 1.6 TB; `--dry-run` prints what each set would take.
 
-**Running and scoring.** `score_mocks.py run` writes a map per set into `OUT/protal/<set>/` and runs protal with `--no_strains`, skipping samples that already have a profile. `score_mocks.py score` writes `OUT/scores/`:
-- `samples.tsv`: true and false positives, precision, recall and F1, the L1 distance and Bray-Curtis dissimilarity to the truth, and protal's `?` against the expected share.
+**Running.** `score_mocks.py run` puts each run in a folder of its own, `$MOCKS/<run>/<set>/`, and skips samples that
+already have a profile there.
+- **protal** (the default): a map per set, run with `--no_strains`. The run folder is named from the binary's
+  `--version`, `<version>_<commit>`, e.g. `0.8.3_1dcc325`, with `-modified` appended when it was built with uncommitted
+  changes. Another build or commit therefore gets its own folder. `--run-name` names one, e.g. for `--protal-args`
+  variants.
+- **sylph** (`--tool sylph --sylph-db DB --gtdb DIR[,DIR]`): `sylph profile` per set, of the paired samples and of the
+  single-read ones; a sample of several files is joined for it. Its run folder is `sylph_<version>_<database>`.
+  - **Genomes to species:** each genome of its output gets its GTDB species by accession: first from the truth's
+    release (`--gtdb` r226), then from later folders (e.g. r232 for a database of that release). A genome found in
+    none of them is kept under its accession.
+  - **Abundances:** each genome's `Taxonomic_abundance` (a share of cells) is summed per species into a profile in
+    protal's format, without `?`.
+
+**Scoring.** `score_mocks.py score` scores every run folder, or those given with `--runs`, into `$MOCKS/<run>/scores/`:
+- `samples.tsv`: true and false positives, precision, recall and F1, the L1 distance and Bray-Curtis dissimilarity to
+  the truth, and the profile's `?` against the expected share.
 - `species.tsv`: each species of the truth or the profile, with both shares and its status.
-- `replicates.tsv` and `groups.tsv`: Bray-Curtis of profiles and Jaccard of calls within each replicate group, e.g. one ONT flow cell basecalled several ways, or one library sequenced on several platforms.
+- `replicates.tsv` and `groups.tsv`: Bray-Curtis of profiles and Jaccard of calls within each replicate group, e.g.
+  one ONT flow cell basecalled several ways, or one library sequenced on several platforms.
 - `summary.tsv`: medians per set, read type and truth kind.
+
+All runs' rows also go into `$MOCKS/scores/summary_by_run.tsv` and `samples_by_run.tsv`, with a `run` column, so the
+runs can be compared side by side.
 
 ```bash
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --dry-run
@@ -303,6 +322,8 @@ sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run
     --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
 sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS \
     --db $DB -t 16 --sets hcom2_invitro --chunks 10"
+sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph --reads $MOCKS \
+    --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb $GTDB/r226,$GTDB/r232 -t 32 --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
 python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS
 ```
 

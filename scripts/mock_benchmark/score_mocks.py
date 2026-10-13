@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
-"""Run protal on the mock-community samples that download_mocks.py fetched, and score the profiles against the truth
-tables (truth/, prepare_tables.py) and against each other (samples.tsv's groups).
+"""Run protal (or sylph) on the mock-community samples that download_mocks.py fetched, and score the profiles against
+the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv's groups).
 
-  run    writes a protal map for each set (or each chunk of a set: --chunks N, the chunk from --chunk or SLURM's
-         $SLURM_ARRAY_TASK_ID) and runs protal on it: OUT/protal/<set>[/chunk_<i>]/ (map.tsv, protal.log, profiles/,
-         misc/). A sample whose profile exists is not run again (--rerun: all). protal runs with --no_strains unless
-         --strains; --protal-args adds options (quoted).
-  score  reads every sample's <sample>.profile under OUT/protal and writes OUT/scores/:
-           samples.tsv     per sample: the species called, protal's unknown share ("?") and the one the truth expects,
-                           and by the truth's kind
+  run    runs a profiler on each set (or each chunk of a set: --chunks N, the chunk from --chunk or SLURM's
+         $SLURM_ARRAY_TASK_ID) into a run folder of its own, OUT/<run>/<set>[/chunk_<i>]/, with the profiles in
+         profiles/<sample>.profile. A sample whose profile the run folder has is not run again (--rerun: all).
+           --tool protal  (default) a protal map per set (map.tsv) and one protal run on it (protal.log, misc/), with
+                          --no_strains unless --strains; --protal-args adds options (quoted). The run folder is
+                          <version>_<commit> of the binary's --version (e.g. 0.8.3_1dcc325, "-modified" when built
+                          with uncommitted changes), unless --run-name names it
+           --tool sylph   sylph profile of the set's paired samples and of its single-read samples (sylph/*.tsv,
+                          sylph.log; a sample of several files is joined first), against --sylph-db. Each genome is
+                          given its species by accession in the GTDB taxonomy of --gtdb (the truth's release first,
+                          so a database of another release is scored in the truth's names; then, comma-separated,
+                          the database's release for the genomes the truth's lacks; a genome neither has is kept
+                          under its accession), and its Taxonomic_abundance (a share of cells) is summed per species
+                          into a profile in protal's format, without "?".
+                          The run folder is sylph_<version>_<database name>, unless --run-name names it
+  score  scores the profiles of each run folder (--runs, default all of them) and writes OUT/<run>/scores/:
+           samples.tsv     per sample: the species called, the profile's unknown share ("?") and the one the truth
+                           expects, and by the truth's kind
                              abundance  true and false positives and negatives, precision, recall, F1, recall of the
                                         species at >= 0.1 % and >= 1 % of the placed cells, the share of the profile on
                                         false positives, and the L1 distance and Bray-Curtis dissimilarity of the
@@ -19,14 +30,18 @@ tables (truth/, prepare_tables.py) and against each other (samples.tsv's groups)
            species.tsv     per sample and species of the truth or the profile: truth share, profile share, status
            replicates.tsv  per pair of samples of a group: Bray-Curtis of their profiles, Jaccard of their calls
            groups.tsv      per group: samples, mean and largest Bray-Curtis, mean and smallest Jaccard
-           summary.tsv     per set, read type and truth kind: medians of the above (printed too)
+           summary.tsv     per set, read type and truth kind: medians of the above
+         and OUT/scores/summary_by_run.tsv and samples_by_run.tsv, all runs' rows with a run column (printed too).
          Shares compare cells: protal's abundances are shares of genomes, the truth's genome copies (prepare_tables.py).
 
-Usage on a SLURM cluster (r226 needs ~40 GB of memory):
+Usage on a SLURM cluster (protal at r226 needs ~40 GB of memory):
   sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads /scratch/mocks \\
       --db /path/protal_db -t 32 --sets d6331_dna,meslier,d6331_hifi"
   sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run \\
       --reads /scratch/mocks --db /path/protal_db -t 16 --sets hcom2_invitro --chunks 10"
+  sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph \\
+      --reads /scratch/mocks --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb /path/GTDB/r226,/path/GTDB/r232 -t 32 \\
+      --sets d6331_dna,meslier"
   python3 scripts/mock_benchmark/score_mocks.py score --reads /scratch/mocks
 Standard library only.
 """
@@ -34,9 +49,12 @@ import argparse
 import collections
 import csv
 import glob
+import gzip
 import itertools
 import os
+import re
 import shlex
+import shutil
 import statistics
 import subprocess
 import sys
@@ -48,6 +66,9 @@ THRESHOLDS = (1e-3, 1e-2)
 SAMPLE_COLUMNS = ["set", "sample", "read_type", "truth", "kind", "group", "reads", "bases", "cut", "called", "unknown",
                   "unknown_expected", "tp", "fp", "fn", "precision", "recall", "f1", "recall_0.1pct", "recall_1pct",
                   "fp_share", "l1", "bray_curtis", "absent_called", "present_missed", "false_species"]
+SUMMARY_COLUMNS = ["set", "read_type", "kind", "samples", "called", "tp", "fp", "fn", "precision", "recall", "f1",
+                   "recall_1pct", "fp_share", "l1", "unknown", "dropouts_called"]
+NOT_RUNS = ("reads", "scores")  # folders of OUT that are not run folders
 
 
 def read_tsv(path):
@@ -84,12 +105,184 @@ def chosen(rows, sets):
 # run
 # ---------------------------------------------------------------------------------------------------------------
 
-def profiles_of(out):
-    """{sample: path of its .profile} under OUT/protal."""
+def profiles_of(folder):
+    """{sample: path of its .profile} under a run folder."""
     found = {}
-    for path in glob.glob(os.path.join(out, "protal", "**", "profiles", "*.profile"), recursive=True):
+    for path in glob.glob(os.path.join(folder, "**", "profiles", "*.profile"), recursive=True):
         found[os.path.basename(path)[:-len(".profile")]] = path
     return found
+
+
+def version_lines(command):
+    try:
+        result = subprocess.run([command, "--version"], capture_output=True, text=True, timeout=300)
+    except OSError as err:
+        sys.exit(f"{command} --version failed ({err}); give --run-name")
+    return (result.stdout + result.stderr).strip().splitlines()
+
+
+def protal_run_name(protal):
+    """<version>_<commit> from protal's --version ("protal v0.8.3 (commit <40 hex>[, with uncommitted changes])")."""
+    lines = version_lines(protal)
+    found = re.fullmatch(r"\S+ v([0-9.]+)(?: \(commit ([0-9a-f]{40})(, with uncommitted changes)?\))?",
+                         lines[-1] if lines else "")
+    if not found:
+        sys.exit(f"{protal} --version says {lines[-1] if lines else 'nothing'!r}, no version; give --run-name")
+    version, commit, modified = found.groups()
+    return f"{version}_{commit[:7] if commit else 'nocommit'}{'-modified' if modified else ''}"
+
+
+def sylph_run_name(sylph, database):
+    lines = version_lines(sylph)
+    found = re.search(r"(\d+\.\d+[\w.-]*)", lines[-1] if lines else "")
+    if not found:
+        sys.exit(f"{sylph} --version says {lines[-1] if lines else 'nothing'!r}, no version; give --run-name")
+    name = re.sub(r"\.(syldb|syl2db|sylsp)$", "", os.path.basename(database.rstrip("/")))
+    return f"sylph_{found.group(1)}_{name}"
+
+
+def run_command(command, folder, log_name):
+    start = time.time()
+    with open(os.path.join(folder, log_name), "a") as log:
+        log.write(f"# {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(shlex.quote(c) for c in command)}\n")
+        log.flush()
+        code = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
+    return code, time.time() - start
+
+
+def run_protal(args, folder, todo):
+    map_path = os.path.join(folder, "map.tsv")
+    with open(map_path, "w") as fh:
+        fh.write(f"#OUTPUT_DIR\t{folder}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+        for s in todo:
+            fh.write(f"{s['sample']}\t{s['sample']}\t{s['first']}\t{s['second']}\t{s['read_type']}\n")
+    command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
+    if not args.strains:
+        command.append("--no_strains")
+    command.append("--force")  # a SAM without its profile may be a killed run's
+    command += shlex.split(args.protal_args)
+    print(f"  {' '.join(shlex.quote(c) for c in command)}", file=sys.stderr)
+    if args.dry_run:
+        return 0
+    code, seconds = run_command(command, folder, "protal.log")
+    print(f"  protal exit {code} after {seconds:.0f} s (log: {folder}/protal.log)", file=sys.stderr)
+    return code
+
+
+def joined(files, path):
+    """One file of a sample's comma-separated files (gzip members joined), or the file itself if it is one."""
+    files = files.split(",")
+    if len(files) == 1:
+        return files[0]
+    with open(path + ".part", "wb") as out:
+        for f in files:
+            with open(f, "rb") as fh:
+                shutil.copyfileobj(fh, out, 1 << 22)
+    os.replace(path + ".part", path)
+    return path
+
+
+def load_taxonomy(folders):
+    """{accession without version, GCA_ for GCF_: GTDB lineage} from releases' taxonomy (or metadata) files; the first
+    folder that has a genome names it (the truth's release first, a newer one for the genomes it added)."""
+    lineages = {}
+    for folder in folders:
+        files = sorted(glob.glob(os.path.join(folder, "*_taxonomy_r*.tsv*")))
+        metadata = not files
+        if metadata:
+            files = sorted(glob.glob(os.path.join(folder, "*_metadata_r*.tsv*")))
+        if not files:
+            sys.exit(f"--gtdb {folder}: no bac120/ar53_taxonomy_rNNN.tsv(.gz) or _metadata_rNNN.tsv(.gz)")
+        for path in files:
+            with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as fh:
+                column = 1
+                if metadata:
+                    column = fh.readline().rstrip("\n").split("\t").index("gtdb_taxonomy")
+                for line in fh:
+                    f = line.rstrip("\n").split("\t")
+                    if len(f) > column and f[column].startswith("d__"):
+                        lineages.setdefault(accession_key(f[0]), f[column])
+    return lineages
+
+
+def accession_key(text):
+    found = re.search(r"GC[AF]_(\d{9})", text)
+    return f"GCA_{found.group(1)}" if found else None
+
+
+def sylph_profiles(tsvs, sample_of_file, lineages, profiles):
+    """Write each sample's profile from sylph's tables: the genomes' Taxonomic_abundance summed per GTDB species.
+    Returns the genomes the taxonomy lacks (named by their accession in the profile)."""
+    species = {sample: {} for sample in sample_of_file.values()}
+    unknown_genomes = set()
+    for tsv in tsvs:
+        for r in read_tsv(tsv):
+            sample = sample_of_file.get(os.path.abspath(r["Sample_file"])) or sample_of_file.get(r["Sample_file"])
+            if sample is None:
+                continue
+            key = accession_key(r["Genome_file"])
+            lineage = lineages.get(key)
+            if lineage is None:
+                unknown_genomes.add(r["Genome_file"])
+                name = re.search(r"GC[AF]_\d{9}\.\d+", r["Genome_file"])
+                lineage = f"s__{name.group(0) if name else os.path.basename(r['Genome_file'])}"
+            entry = species[sample].setdefault(lineage.split(";")[-1], [0.0, key or "-", lineage])
+            entry[0] += float(r["Taxonomic_abundance"]) / 100
+    os.makedirs(profiles, exist_ok=True)
+    for sample, rows in species.items():
+        with open(os.path.join(profiles, sample + ".profile.part"), "w") as fh:
+            for share, key, lineage in sorted(rows.values(), key=lambda v: -v[0]):
+                fh.write(f"{key}\t{lineage}\t{share:.6g}\n")
+        os.replace(os.path.join(profiles, sample + ".profile.part"), os.path.join(profiles, sample + ".profile"))
+    return unknown_genomes
+
+
+def run_sylph(args, folder, todo, lineages):
+    merged = os.path.join(folder, "joined")
+    os.makedirs(merged, exist_ok=True)
+    paired, single = [], []
+    for s in todo:
+        if args.dry_run:  # the commands only: no files joined
+            first, second = s["first"].split(",")[0], s["second"].split(",")[0]
+        else:
+            first = joined(s["first"], os.path.join(merged, s["sample"] + "_1.fq.gz"))
+            second = s["second"] if s["second"] == "-" else joined(s["second"],
+                                                                     os.path.join(merged, s["sample"] + "_2.fq.gz"))
+        if second != "-":
+            paired.append((s["sample"], first, second))
+        else:
+            single.append((s["sample"], first))
+    os.makedirs(os.path.join(folder, "sylph"), exist_ok=True)
+    tsvs, code = [], 0
+    sample_of_file = {}  # of the samples sylph profiled: a failed call's samples get no profile
+    for kind, members in (("paired", paired), ("single", single)):
+        if not members:
+            continue
+        tsv = os.path.join(folder, "sylph", f"{kind}.tsv")
+        command = [args.sylph, "profile", args.sylph_db]
+        if kind == "paired":
+            command += ["-1"] + [m[1] for m in members] + ["-2"] + [m[2] for m in members]
+        else:
+            command += [m[1] for m in members]
+        command += ["-t", str(args.threads), "-o", tsv] + shlex.split(args.sylph_args)
+        print(f"  {' '.join(shlex.quote(c) for c in command[:4])} ... ({len(members)} {kind} samples)",
+              file=sys.stderr)
+        if args.dry_run:
+            continue
+        result, seconds = run_command(command, folder, "sylph.log")
+        print(f"  sylph exit {result} after {seconds:.0f} s (log: {folder}/sylph.log)", file=sys.stderr)
+        code = code or result
+        if result == 0:
+            tsvs.append(tsv)
+            for m in members:
+                sample_of_file[os.path.abspath(m[1])] = m[0]
+    if tsvs:
+        unknown = sylph_profiles(tsvs, sample_of_file, lineages, os.path.join(folder, "profiles"))
+        if unknown:
+            print(f"  {len(unknown)} genome(s) of sylph's database not in the --gtdb taxonomy, e.g. "
+                  f"{sorted(unknown)[0]}: kept under their accession", file=sys.stderr)
+    shutil.rmtree(merged, ignore_errors=True)
+    return code
 
 
 def run(args):
@@ -97,8 +290,21 @@ def run(args):
     if not os.path.exists(downloaded_path):
         sys.exit(f"{downloaded_path} not found: run download_mocks.py first")
     samples = chosen(read_tsv(downloaded_path), [s for s in args.sets.split(",") if s])
+    if args.tool == "protal" and not args.db:
+        sys.exit("--tool protal needs --db")
+    lineages = None
+    if args.tool == "sylph":
+        if not args.sylph_db or not args.gtdb:
+            sys.exit("--tool sylph needs --sylph-db and --gtdb (the folder of the truth's GTDB taxonomy)")
+        lineages = load_taxonomy([os.path.expanduser(f) for f in args.gtdb.split(",") if f])
+    name = args.run_name or (protal_run_name(args.protal) if args.tool == "protal"
+                             else sylph_run_name(args.sylph, args.sylph_db))
+    if name in NOT_RUNS or "/" in name:
+        sys.exit(f"--run-name {name!r} is not a folder name a run can have")
     out = os.path.abspath(args.out or args.reads)
-    done = profiles_of(out)
+    run_folder = os.path.join(out, name)
+    print(f"run folder {run_folder}", file=sys.stderr)
+    done = profiles_of(run_folder)
     chunk = args.chunk if args.chunk is not None else int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
     if args.chunks > 1 and not 0 <= chunk < args.chunks:
         sys.exit(f"--chunk {chunk} is not in 0..{args.chunks - 1}")
@@ -111,32 +317,17 @@ def run(args):
         if not todo:
             print(f"{set_name}: all {len(members)} samples have profiles", file=sys.stderr)
             continue
-        folder = os.path.join(out, "protal", set_name)
+        folder = os.path.join(run_folder, set_name)
         if args.chunks > 1:
             folder = os.path.join(folder, f"chunk_{chunk}")
         os.makedirs(folder, exist_ok=True)
-        map_path = os.path.join(folder, "map.tsv")
-        with open(map_path, "w") as fh:
-            fh.write(f"#OUTPUT_DIR\t{folder}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
-            for s in todo:
-                fh.write(f"{s['sample']}\t{s['sample']}\t{s['first']}\t{s['second']}\t{s['read_type']}\n")
-        command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
-        if not args.strains:
-            command.append("--no_strains")
-        command.append("--force")  # a SAM without its profile may be a killed run's
-        command += shlex.split(args.protal_args)
-        print(f"{set_name}: {len(todo)} samples: {' '.join(shlex.quote(c) for c in command)}", file=sys.stderr)
-        if args.map_only:
+        print(f"{set_name}: {len(todo)} samples", file=sys.stderr)
+        code = run_protal(args, folder, todo) if args.tool == "protal" else run_sylph(args, folder, todo, lineages)
+        if args.dry_run:
             continue
-        start = time.time()
-        with open(os.path.join(folder, "protal.log"), "a") as log:
-            log.write(f"# {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(shlex.quote(c) for c in command)}\n")
-            log.flush()
-            code = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
-        missing = [s["sample"] for s in todo if not os.path.exists(os.path.join(folder, "profiles",
-                                                                                  s["sample"] + ".profile"))]
-        print(f"{set_name}: protal exit {code} after {time.time() - start:.0f} s; "
-              f"{len(todo) - len(missing)} of {len(todo)} profiles written (log: {folder}/protal.log)", file=sys.stderr)
+        missing = [s["sample"] for s in todo
+                   if not os.path.exists(os.path.join(folder, "profiles", s["sample"] + ".profile"))]
+        print(f"{set_name}: {len(todo) - len(missing)} of {len(todo)} profiles written", file=sys.stderr)
         if code or missing:
             failed.append(set_name)
     if failed:
@@ -255,15 +446,22 @@ def median(values):
     return statistics.median(values) if values else NAN
 
 
-def score(args):
-    out = os.path.abspath(args.out or args.reads)
-    samples = chosen(read_tsv(args.samples), [s for s in args.sets.split(",") if s])
-    downloaded = {}
-    path = os.path.join(args.reads, "reads", "downloaded.tsv")
-    if os.path.exists(path):
-        downloaded = {r["sample"]: r for r in read_tsv(path)}
-    profiles = profiles_of(out)
-    truths = {}
+
+def run_folders(out, names):
+    """The run folders to score: those named, or every folder of OUT with profiles."""
+    if names:
+        folders = [os.path.join(out, n) for n in names]
+        missing = [f for f in folders if not os.path.isdir(f)]
+        if missing:
+            sys.exit(f"no run folder {', '.join(missing)}")
+        return folders
+    return [os.path.join(out, n) for n in sorted(os.listdir(out))
+            if n not in NOT_RUNS and os.path.isdir(os.path.join(out, n)) and profiles_of(os.path.join(out, n))]
+
+
+def score_run(folder, samples, downloaded, truth_folder, truths):
+    """Score one run folder's profiles; writes its scores/ and returns (sample rows, summary rows)."""
+    profiles = profiles_of(folder)
     sample_rows, species_rows, compositions = [], [], {}
     for s in samples:
         if s["sample"] not in profiles:
@@ -272,7 +470,7 @@ def score(args):
         kind, truth, truth_unknown = None, {}, NAN
         if s["truth"] != "-":
             if s["truth"] not in truths:
-                truths[s["truth"]] = read_truth(os.path.join(args.truth, s["truth"] + ".tsv"))
+                truths[s["truth"]] = read_truth(os.path.join(truth_folder, s["truth"] + ".tsv"))
             kind, truth, truth_unknown = truths[s["truth"]]
         scores, rows = score_sample(profile, unknown, kind, truth, truth_unknown)
         d = downloaded.get(s["sample"], {})
@@ -287,7 +485,7 @@ def score(args):
             species_rows.append({"set": s["set"], "sample": s["sample"], **r})
         compositions[s["sample"]] = (s, normalised(profile))
     if not sample_rows:
-        sys.exit(f"no profiles of the chosen samples under {out}/protal")
+        return [], []
 
     pairs = []
     by_group = collections.defaultdict(list)
@@ -307,8 +505,8 @@ def score(args):
             bcs.append(bc)
             jaccards.append(jaccard)
             pairs.append({"set": set_name, "group": group, "sample_a": a, "sample_b": b,
-                          "read_type_a": compositions[a][0]["read_type"], "read_type_b": compositions[b][0]["read_type"],
-                          "bray_curtis": bc, "jaccard": jaccard})
+                          "read_type_a": compositions[a][0]["read_type"],
+                          "read_type_b": compositions[b][0]["read_type"], "bray_curtis": bc, "jaccard": jaccard})
         group_rows.append({"set": set_name, "group": group, "samples": len(names), "pairs": len(bcs),
                            "mean_bray_curtis": statistics.fmean(bcs), "max_bray_curtis": max(bcs),
                            "mean_jaccard": statistics.fmean(jaccards), "min_jaccard": min(jaccards)})
@@ -328,24 +526,47 @@ def score(args):
                         "unknown": median([r["unknown"] for r in rows]),
                         "dropouts_called": sum(r["absent_called"] not in ("-", "NA") for r in rows)})
 
-    folder = os.path.join(out, "scores")
-    os.makedirs(folder, exist_ok=True)
-    write_tsv(os.path.join(folder, "samples.tsv"), SAMPLE_COLUMNS, sample_rows)
-    write_tsv(os.path.join(folder, "species.tsv"), ["set", "sample", "species", "truth_share", "profile_share",
+    scores = os.path.join(folder, "scores")
+    os.makedirs(scores, exist_ok=True)
+    write_tsv(os.path.join(scores, "samples.tsv"), SAMPLE_COLUMNS, sample_rows)
+    write_tsv(os.path.join(scores, "species.tsv"), ["set", "sample", "species", "truth_share", "profile_share",
                                                     "status"], species_rows)
-    write_tsv(os.path.join(folder, "replicates.tsv"), ["set", "group", "sample_a", "sample_b", "read_type_a",
+    write_tsv(os.path.join(scores, "replicates.tsv"), ["set", "group", "sample_a", "sample_b", "read_type_a",
                                                        "read_type_b", "bray_curtis", "jaccard"], pairs)
-    write_tsv(os.path.join(folder, "groups.tsv"), ["set", "group", "samples", "pairs", "mean_bray_curtis",
+    write_tsv(os.path.join(scores, "groups.tsv"), ["set", "group", "samples", "pairs", "mean_bray_curtis",
                                                    "max_bray_curtis", "mean_jaccard", "min_jaccard"], group_rows)
-    summary_columns = ["set", "read_type", "kind", "samples", "called", "tp", "fp", "fn", "precision", "recall", "f1",
-                       "recall_1pct", "fp_share", "l1", "unknown", "dropouts_called"]
-    write_tsv(os.path.join(folder, "summary.tsv"), summary_columns, summary)
-    print("\t".join(summary_columns))
-    for r in summary:
-        print("\t".join(str(fmt(r[c])) for c in summary_columns))
+    write_tsv(os.path.join(scores, "summary.tsv"), SUMMARY_COLUMNS, summary)
     missing = len(samples) - len(sample_rows)
-    print(f"{len(sample_rows)} samples scored{f' ({missing} without a profile)' if missing else ''}, "
-          f"{len(pairs)} replicate pairs; tables in {folder}", file=sys.stderr)
+    print(f"{os.path.basename(folder)}: {len(sample_rows)} samples scored"
+          f"{f' ({missing} without a profile)' if missing else ''}, {len(pairs)} replicate pairs; tables in {scores}",
+          file=sys.stderr)
+    return sample_rows, summary
+
+
+def score(args):
+    out = os.path.abspath(args.out or args.reads)
+    samples = chosen(read_tsv(args.samples), [s for s in args.sets.split(",") if s])
+    downloaded = {}
+    path = os.path.join(args.reads, "reads", "downloaded.tsv")
+    if os.path.exists(path):
+        downloaded = {r["sample"]: r for r in read_tsv(path)}
+    folders = run_folders(out, [n for n in args.runs.split(",") if n])
+    truths = {}
+    all_samples, all_summary = [], []
+    for folder in folders:
+        name = os.path.basename(folder)
+        sample_rows, summary = score_run(folder, samples, downloaded, args.truth, truths)
+        all_samples += [{"run": name, **r} for r in sample_rows]
+        all_summary += [{"run": name, **r} for r in summary]
+    if not all_samples:
+        sys.exit(f"no profiles of the chosen samples in the run folders of {out}")
+    scores = os.path.join(out, "scores")
+    os.makedirs(scores, exist_ok=True)
+    write_tsv(os.path.join(scores, "samples_by_run.tsv"), ["run"] + SAMPLE_COLUMNS, all_samples)
+    write_tsv(os.path.join(scores, "summary_by_run.tsv"), ["run"] + SUMMARY_COLUMNS, all_summary)
+    print("\t".join(["run"] + SUMMARY_COLUMNS))
+    for r in all_summary:
+        print("\t".join(str(fmt(r[c])) for c in ["run"] + SUMMARY_COLUMNS))
 
 
 def main():
@@ -354,20 +575,33 @@ def main():
     for name in ("run", "score"):
         p = sub.add_parser(name)
         p.add_argument("--reads", required=True, help="download_mocks.py's output folder (-o)")
-        p.add_argument("--out", default="", help="where protal/ and scores/ go (default: --reads)")
+        p.add_argument("--out", default="", help="where the run folders and scores/ go (default: --reads)")
         p.add_argument("--sets", default="", help="comma-separated sets (default: all)")
         p.add_argument("--samples", default=os.path.join(HERE, "samples.tsv"))
         if name == "run":
-            p.add_argument("--db", required=True, help="the protal database")
-            p.add_argument("--protal", default="protal", help="the protal binary (default: protal on PATH)")
+            p.add_argument("--tool", choices=("protal", "sylph"), default="protal")
+            p.add_argument("--run-name", default="", help="the run folder's name (default: from the tool's "
+                           "--version: <version>_<commit> for protal, sylph_<version>_<database> for sylph)")
             p.add_argument("-t", "--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "8")))
             p.add_argument("--chunks", type=int, default=1, help="split each set into N chunks (SLURM arrays)")
             p.add_argument("--chunk", type=int, default=None, help="the chunk to run (default $SLURM_ARRAY_TASK_ID)")
-            p.add_argument("--strains", action="store_true", help="write strain MSAs (default --no_strains)")
             p.add_argument("--rerun", action="store_true", help="run samples that have profiles again")
-            p.add_argument("--protal-args", default="", help="more protal options, quoted")
-            p.add_argument("--map-only", action="store_true", help="write the maps, do not run protal")
+            p.add_argument("--dry-run", "--map-only", dest="dry_run", action="store_true",
+                           help="write protal's maps and print the commands, run nothing")
+            g = p.add_argument_group("protal")
+            g.add_argument("--db", default="", help="the protal database")
+            g.add_argument("--protal", default="protal", help="the protal binary (default: protal on PATH)")
+            g.add_argument("--strains", action="store_true", help="write strain MSAs (default --no_strains)")
+            g.add_argument("--protal-args", default="", help="more protal options, quoted")
+            g = p.add_argument_group("sylph")
+            g.add_argument("--sylph-db", default="", help="sylph's database (.syldb)")
+            g.add_argument("--sylph", default="sylph", help="the sylph binary (default: sylph on PATH)")
+            g.add_argument("--gtdb", default="", help="folder of a GTDB release's bac120/ar53_taxonomy_rNNN.tsv(.gz) "
+                           "(or _metadata_): the truth tables' release (r226) first; comma-separated, later folders "
+                           "name the genomes the earlier ones lack (e.g. r226,r232 for an r232 database)")
+            g.add_argument("--sylph-args", default="", help="more sylph profile options, quoted")
         else:
+            p.add_argument("--runs", default="", help="comma-separated run folders (default: all with profiles)")
             p.add_argument("--truth", default=os.path.join(HERE, "truth"), help="folder of the truth tables")
     args = ap.parse_args()
     if args.command == "run":

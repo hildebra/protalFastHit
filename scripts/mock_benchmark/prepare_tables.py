@@ -148,7 +148,8 @@ def samples_meslier():
 
 
 def samples_treichel():
-    """Treichel et al. 2026: Mock-even-70, Mock-stag-24, Mock-stag-70 and ten 24-strain variants (NovaSeq; one ONT run)."""
+    """Treichel et al. 2026: Mock-even-70, Mock-stag-24, Mock-stag-70 and ten 24-strain variants (NovaSeq; one ONT
+    run)."""
     out = []
     for r in ena_runs("PRJEB83573"):
         alias, acc = r["sample_alias"], r["run_accession"]
@@ -242,7 +243,8 @@ def samples_hcom():
         group = re.sub(r"_(Flex|KAPA)$", "", group)  # an inoculum's three libraries
         out.append(row("hcom2_invitro", f"hcom2_{r['run_accession']}", [r["run_accession"]], "pe", "hcom2_closed",
                        group, library))
-    arms = {"hCom1a": "hcom1a_full", "ΔCh": "hcom1a_minus_ch", "ΔCs": "hcom1a_minus_cs", "ΔChΔCs": "hcom1a_minus_chcs"}
+    arms = {"hCom1a": "hcom1a_full", "ΔCh": "hcom1a_minus_ch", "ΔCs": "hcom1a_minus_cs",
+            "ΔChΔCs": "hcom1a_minus_chcs"}
     for r in ena_runs("PRJNA978640"):  # hCom1a with designed dropouts (Wang et al. 2023)
         arm, kind = r["sample_title"].split("_")[0], r["sample_title"].split("_")[1]
         if arm not in arms:
@@ -380,7 +382,8 @@ NIBSC = [
 # Members whose genome the release lacks or whose source name it renamed: how to find them instead.
 OVERRIDES = {
     "GCA_000009225.1": "named:Pseudomonas|SBW25",  # Meslier: P. fluorescens SBW25, its other assemblies
-    "Blautia fusiformis CLA-AA-11": "species:Blautia_A fusiformis",  # Treichel: no assembly; source said B. massiliensis
+    # Treichel: no assembly; the source's GTDB-Tk name, B. massiliensis, is not in r226
+    "Blautia fusiformis CLA-AA-11": "species:Blautia_A fusiformis",
 }
 HCOM1A_DROPOUTS = [("Clostridium hylemonae DSM 15053", "strain:DSM 15053"),
                    ("Clostridium scindens ATCC 35704", "strain:ATCC 35704")]
