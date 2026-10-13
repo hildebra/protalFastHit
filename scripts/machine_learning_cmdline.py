@@ -1517,34 +1517,48 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
     out.to_csv(prefix + ".test_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
 
 
-def extra_test_scores(rf, cols, table, opts, depth_knobs):
+def extra_test_scores(rf, cols, table, opts, depth_knobs, unseen=0):
     """The fitted forest's calls on a test table as protal makes them (the knob curve, or the knob; the singleton rule's
-    rows never called): its samples, taxa, TP, FP, FN, sensitivity, precision and F1."""
+    rows never called): its samples, taxa, present, TP, FP, FN, sensitivity, precision and F1. unseen: the present
+    species of its samples without a row (<table>.unseen.tsv), counted as missed (FN, present) and given alone."""
     check_features(table, cols)
     y = table["truth"].to_numpy()
     cs = call_scores(table, rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1])
     call = depth_knob_calls(cs, sample_depths(table), depth_knobs, opts.knob) if depth_knobs else cs >= opts.knob
-    tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+    tp, fp = int((call & (y == 1)).sum()), int((call & (y == 0)).sum())
+    fn = int((~call & (y == 1)).sum()) + unseen
     return {"samples": int(table["meta_sample"].nunique()) if "meta_sample" in table else 1, "taxa": int(len(y)),
-            "present": int(y.sum()), "TP": tp, "FP": fp, "FN": fn,
+            "present": int(y.sum()) + unseen, "unseen": unseen, "TP": tp, "FP": fp, "FN": fn,
             "sensitivity": tp / (tp + fn) if tp + fn else None, "precision": tp / (tp + fp) if tp + fp else None,
             "F1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None}
+
+
+def unseen_in(unseen, samples):
+    """The species of an unseen table (unseen_rows; None: none known) of these samples."""
+    if unseen is None or not len(unseen):
+        return 0
+    return int(unseen["meta_sample"].astype(str).isin(samples).sum())
 
 
 def study_extra_tests(report, rf, cols, opts, depth_knobs, test):
     """--extra-test-file: each table, samples of --test-file (`test`, all its rows) profiled otherwise (another
     sparse-first gate, say), scored by the fitted forest as protal calls, beside --test-file's rows of the same samples
-    (meta_sample), so that the two differ only in how the samples were profiled."""
+    (meta_sample), so that the two differ only in how the samples were profiled. The present species of a table's
+    samples without a row in it (its <table>.unseen.tsv, beside it; the test file's --test-unseen-file) count as
+    missed: a gate that gives up every read of a species leaves it no row, which its table alone would not count
+    (until 2026-10-13 these were left out, and a gate losing more species looked better)."""
     report.section("Extra test tables (samples of the test file, profiled otherwise)")
     report.add(f"calls at the model's {knob_label(depth_knobs, opts.knob)}, the design's and the scenarios' rows together; "
-               "each table beside the test file's rows of the same samples")
+               "each table beside the test file's rows of the same samples; unseen: present species of the samples "
+               "with reads on a marker gene and no row, counted as missed (FN)")
+    test_unseen = unseen_rows(opts.test_unseen_file, opts.test_file)
     rows, data = [], {}
     for label, path in opts.extra_test_file:
         extra = load_table(path, opts.taxonomy)
         samples = set(extra["meta_sample"].astype(str)) if "meta_sample" in extra else set()
         base = test[test["meta_sample"].astype(str).isin(samples)] if "meta_sample" in test else test
-        scores = extra_test_scores(rf, cols, extra, opts, depth_knobs)
-        same = extra_test_scores(rf, cols, base, opts, depth_knobs) if len(base) else None
+        scores = extra_test_scores(rf, cols, extra, opts, depth_knobs, unseen_in(unseen_rows("auto", path), samples))
+        same = extra_test_scores(rf, cols, base, opts, depth_knobs, unseen_in(test_unseen, samples)) if len(base) else None
         data[label] = {"file": path, "scores": scores, "test_file_same_samples": same}
         rows.append({"table": label, **scores})
         if same:

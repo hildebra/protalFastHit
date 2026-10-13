@@ -23,6 +23,7 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <map>
 #include <optional>
 #include "RunStatus.h"
 #include "BuildInfo.h"
@@ -356,19 +357,36 @@ namespace protal {
     // gives up count no failed candidates, which the models' failed_candidate_rate uses: the database's models were
     // trained on runs gated as it records, and a run gated otherwise (a read type's gate, or a sample's) is warned.
     // --stage1_probe measures what a gate would give up: the database's gates are not used with it. Each gate's pick
-    // (--sparse_first_pick: hash or stride) likewise: given, else the database's (hash where it does not say), a map's
-    // SPARSE_FIRST_PICK a sample's own; a sample gated with another pick than its database's is gated otherwise.
+    // (--sparse_first_pick: hash or stride) likewise: given, else the database's (build_settings::DatabasePick: stride
+    // where it does not say, hash for a database that records its gates but no pick), a map's SPARSE_FIRST_PICK a
+    // sample's own; a sample gated with another pick than its database's is gated otherwise. A database may hold models
+    // trained at other gates than its own (GateModelFile): each sample is profiled with the model of the gate nearest
+    // its own (Options::ModelGate), and is gated otherwise only if that gate is not its own.
     // --sparse_seeding stands for an index of the hash pick's cores: a sample it would seed with the stride pick stops
     // the run (exit 2).
     static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, std::ostream& out = std::cout) {
         std::array<size_t, kReadTypeCount> gates{};
         std::array<SparseFirstPick, kReadTypeCount> picks{};
+        std::array<SparseFirstPick, kReadTypeCount> database_picks{};
+        std::array<size_t, kReadTypeCount> database_gates{};
+        std::array<std::vector<size_t>, kReadTypeCount> model_gates;
         for (size_t t = 0; t < kReadTypeCount; t++) {
             auto const& given = options.SparseFirstGiven()[t];
-            gates[t] = given ? *given : options.Stage1Probe() ? 0 : settings.sparse_first[t].value_or(0);
+            database_gates[t] = settings.sparse_first[t].value_or(0);
+            gates[t] = given ? *given : options.Stage1Probe() ? 0 : database_gates[t];
+            database_picks[t] = build_settings::DatabasePick(settings, t);
             auto const& pick_given = options.SparseFirstPickGiven()[t];
-            picks[t] = pick_given ? *pick_given : settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash);
+            picks[t] = pick_given ? *pick_given : database_picks[t];
+            // The gates the read type has models of: the database's own, and those of its models at other gates.
+            model_gates[t].push_back(database_gates[t]);
+            for (size_t gate : kModelGates) {
+                if (gate != database_gates[t] && options.GateModelDbFile(static_cast<ReadType>(t), gate).Exists()) {
+                    model_gates[t].push_back(gate);
+                }
+            }
+            std::sort(model_gates[t].begin(), model_gates[t].end());
         }
+        options.SetModelGates(model_gates, database_gates);
         size_t const recorded_score = settings.sparse_first_score.value_or(14);
         size_t const recorded_hits = settings.sparse_first_hits.value_or(1);
         options.SetSparseFirst(gates, options.SparseFirstScoreGiven().value_or(recorded_score),
@@ -387,11 +405,12 @@ namespace protal {
                                               [](auto const& g) { return g && *g > 0; });
         if (!recorded_any && !options.AnySparseFirst()) return;  // ungated database and run: nothing to say
         // The read types of this run's samples, as the run gates them and as the database does (a gate's pick named
-        // where it is stride); the samples gated otherwise than the database gates their read type (a read type's gate
-        // or pick, or the map's SPARSE_FIRST or SPARSE_FIRST_PICK).
+        // where it is stride; the gates of its models at other gates in brackets); the samples gated otherwise than the
+        // model they are profiled with was trained (a read type's gate or pick, or the map's SPARSE_FIRST or
+        // SPARSE_FIRST_PICK, without a model of that gate).
         std::string run, database;
         size_t others = 0;
-        std::string example;
+        std::string example, example_gates;
         auto const level = [](size_t c, SparseFirstPick pick) {
             return c ? std::to_string(c) + (pick == SparseFirstPick::Stride && c > 1 ? " stride" : "") : std::string("off");
         };
@@ -399,17 +418,24 @@ namespace protal {
             if (!options.AnySample(info.type)) continue;
             size_t const t = static_cast<size_t>(info.type);
             run += (run.empty() ? "" : ", ") + info.token + " " + level(gates[t], picks[t]);
-            database += (database.empty() ? "" : ", ") + info.token + " " +
-                        level(settings.sparse_first[t].value_or(0), settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash));
+            database += (database.empty() ? "" : ", ") + info.token + " " + level(database_gates[t], database_picks[t]);
+            std::string also;
+            for (size_t gate : model_gates[t]) {
+                if (gate != database_gates[t]) also += (also.empty() ? "" : ", ") + (gate ? std::to_string(gate) : std::string("off"));
+            }
+            if (!also.empty()) database += " (models also at " + also + ")";
         }
         for (auto index : options.GetRange()) {
             size_t const t = static_cast<size_t>(options.GetReadType(index));
             size_t const gate = options.GetSparseFirst(index);
             // At C 1 both picks look up every core: the pick then makes no difference.
-            bool const same_pick = gate <= 1 ||
-                                   options.GetSparseFirstPick(index) == settings.sparse_first_pick[t].value_or(SparseFirstPick::Hash);
-            if (gate == settings.sparse_first[t].value_or(0) && same_pick) continue;
-            if (others++ == 0) example = options.GetSampleId(index);
+            bool const same_pick = gate <= 1 || options.GetSparseFirstPick(index) == database_picks[t];
+            if (gate == options.ModelGate(index) && same_pick) continue;
+            if (others++ == 0) {
+                example = options.GetSampleId(index);
+                example_gates = example + " gated at " + level(gate, options.GetSparseFirstPick(index)) +
+                                ", its model at " + level(options.ModelGate(index), database_picks[t]);
+            }
         }
         bool const score_differs = options.AnySparseFirst() &&
                                    (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
@@ -426,20 +452,16 @@ namespace protal {
                                                       ") are gated otherwise (--sparse_first, --sparse_first_pick or the map's "
                                                       "SPARSE_FIRST or SPARSE_FIRST_PICK)"
                                                     : std::string("this run's sparse-first gates score otherwise"))
-                      << " than the database's models were trained with: the reads a gate gives up count no failed "
+                      << " than the database's models were trained with" << (others > 0 ? " (" + example_gates + ")" : "")
+                      << ": the reads a gate gives up count no failed "
                       << "candidates, so their calls are not those of training. Leave out --sparse_first and "
-                      << "--sparse_first_pick (auto) to gate as they were trained." << std::endl;
+                      << "--sparse_first_pick (auto) to gate as they were trained, or gate at a gate the database has a "
+                      << "model of." << std::endl;
         }
     }
 
-    // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
-    // with (build_settings.tsv; classic for a database built before 2026-10-11). Warns when the run aligns otherwise than
-    // the database was built: its strain alleles, congener gaps and column weights, and the runs its models were trained
-    // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Also how the
-    // model's `fragments` feature counts (--fragment_count, else the database's), and each read type's sparse-first gate
-    // (--sparse_first, else the database's). Exits 8 if build_settings.tsv cannot be read.
-    static void ApplyBuildSettings(Options& options, std::ostream& out = std::cout) {
-        if (options.BuildMode()) return;
+    // The database's build_settings.tsv (none: every setting unsaid); exits 8 if it cannot be read.
+    static build_settings::Settings DatabaseBuildSettings(Options const& options) {
         auto const file = options.BuildSettingsDbFile();
         build_settings::Settings settings;
         if (file.Exists()) {
@@ -454,6 +476,18 @@ namespace protal {
                 exit(8);
             }
         }
+        return settings;
+    }
+
+    // The WFA2 traceback a run aligns with (WfaTraceback.h): --wfa_traceback, else (auto) the one the database was built
+    // with (build_settings.tsv; classic for a database built before 2026-10-11). Warns when the run aligns otherwise than
+    // the database was built: its strain alleles, congener gaps and column weights, and the runs its models were trained
+    // on, chose among equally good alignments the other way. --build records its own (WriteBuildSettings). Also how the
+    // model's `fragments` feature counts (--fragment_count, else the database's), and each read type's sparse-first gate
+    // (--sparse_first, else the database's). Exits 8 if build_settings.tsv cannot be read.
+    static void ApplyBuildSettings(Options& options, std::ostream& out = std::cout) {
+        if (options.BuildMode()) return;
+        auto const settings = DatabaseBuildSettings(options);
         auto const given = options.WfaTracebackGiven();
         WfaTraceback const database = ResolveWfaTraceback(std::nullopt, settings.wfa_traceback);
         WfaTraceback const traceback = ResolveWfaTraceback(given, settings.wfa_traceback);
@@ -1404,8 +1438,15 @@ namespace protal {
 //         }
 //     }
 
-    // The model of each kind of reads (ReadType), loaded if the samples have such reads.
-    using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypeCount>;
+    // The models the samples are profiled with (Options::SampleModelDbFile: of their read types, trained at the gates
+    // nearest theirs), by ModelKey, each loaded once per read type.
+    using ReadTypeModels = std::map<std::string, profiler::TaxonFilterObj>;
+
+    // A model's key in ReadTypeModels: the read type it profiles and its file (one file given for several read types,
+    // --model, is loaded and named for each).
+    inline std::string ModelKey(ReadType type, db::DbFile const& file) {
+        return Info(type).token + '\t' + file.Name();
+    }
 
     // A taxon that a sample's profile leaves out (score below --knob) although its own reads are strong
     // evidence that it is present (profiler::StrongOwnEvidence).
@@ -1621,13 +1662,13 @@ namespace protal {
             auto i = range[idx];
 
             auto const read_type = options.GetReadType(i);
-            auto& sample_filter = filters[static_cast<size_t>(read_type)];
-            if (!sample_filter) {  // loaded up front for every kind of reads the samples have
+            auto const sample_filter = filters.find(ModelKey(read_type, options.SampleModelDbFile(i)));
+            if (sample_filter == filters.end()) {  // loaded up front for every sample
                 RunStatus::Get().Fail("No model loaded for the " + ReadTypeName(read_type) + " reads of sample " + options.GetSampleId(i));
                 profile_slots[idx].emplace(genomes);
                 return;
             }
-            auto& filter = *sample_filter;
+            auto& filter = sample_filter->second;
 
             if (options.Verbose()) {
                 auto [sam, compressed] = options.SamFile(i);
@@ -3557,10 +3598,25 @@ namespace protal {
             else if (!options.AddTables().empty()) protal::build::AddTables(options);
             else if (!options.WriteSpeciesNeighboursFile().empty()) protal::build::WriteSpeciesNeighboursOnly(options);
             else {
+                // A model of another gate than the database's own (--model_gate; build_settings.tsv) goes in as its
+                // GateModelFile, which runs gated at or near that gate take; the database's gate's as the type's model.
+                auto const settings = DatabaseBuildSettings(options);
                 std::vector<std::pair<std::string, std::string>> models;  // file, member
-                for (auto const& [file, read_type] : options.AddModels()) {
-                    LoadModel(db::DbFile::OnDisk(file), options.GetKnob());  // exits 2 if unusable, before anything is written
-                    models.emplace_back(file, Info(read_type).model_file);
+                for (auto const& model : options.AddModels()) {
+                    LoadModel(db::DbFile::OnDisk(model.file), options.GetKnob());  // exits 2 if unusable, before anything is written
+                    size_t const own = settings.sparse_first[static_cast<size_t>(model.type)].value_or(0);
+                    bool const other = model.gate && *model.gate != own;
+                    std::string const member = other ? GateModelFile(model.type, *model.gate) : Info(model.type).model_file;
+                    if (model.gate && !other) {
+                        std::cout << "--model_gate " << *model.gate << " is the database's own gate of " << ReadTypeName(model.type)
+                                  << " reads: " << model.file << " goes in as " << member << std::endl;
+                    }
+                    if (std::any_of(models.begin(), models.end(), [&member](auto const& m) { return m.second == member; })) {
+                        std::cerr << "--add_model: two models would be stored as " << member << " (the database's gate of "
+                                  << ReadTypeName(model.type) << " reads is " << own << "; --model_gate)" << std::endl;
+                        exit(2);
+                    }
+                    models.emplace_back(model.file, member);
                 }
                 protal::build::AddModel(options, models);
             }
@@ -3660,17 +3716,29 @@ namespace protal {
             }));
         }
 
-        // The model of each kind of reads the samples have, loaded once for all samples.
+        // The models the samples are profiled with (Options::SampleModelDbFile: their read types', trained at the gates
+        // nearest theirs), each loaded once for all its samples; without samples, the paired-end model.
         bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
-        std::vector<ReadTypeInfo> model_types;
+        struct ModelToLoad {
+            db::DbFile file;
+            ReadType type;
+            size_t gate;
+        };
+        std::vector<ModelToLoad> model_files;
         if (run_profiling) {
-            for (auto const& info : kReadTypes) {
-                if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) model_types.push_back(info);
+            auto const add = [&model_files](db::DbFile file, ReadType type, size_t gate) {
+                bool const listed = std::any_of(model_files.begin(), model_files.end(),
+                                                [&](ModelToLoad const& m) { return ModelKey(m.type, m.file) == ModelKey(type, file); });
+                if (!listed) model_files.push_back({std::move(file), type, gate});
+            };
+            for (auto index : options.GetRange()) {
+                add(options.SampleModelDbFile(index), options.GetReadType(index), options.ModelGate(index));
             }
+            if (!any_sample) add(options.ModelDbFile(ReadType::Paired), ReadType::Paired, 0);
         }
-        auto load_models = [&options, &model_types]() {
+        auto load_models = [&options, &model_files]() {
             std::vector<profiler::TaxonFilterObj> loaded;
-            for (auto const& info : model_types) loaded.push_back(LoadModel(options.ModelDbFile(info.type), options.GetKnob()));
+            for (auto const& model : model_files) loaded.push_back(LoadModel(model.file, options.GetKnob()));
             return loaded;
         };
         auto preload = [&options, &db]() {
@@ -3764,11 +3832,16 @@ namespace protal {
         ReadTypeModels models;
         if (run_profiling) {
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            for (size_t m = 0; m < model_types.size(); m++) {
-                auto const& info = model_types[m];
-                auto const model_file = options.ModelDbFile(info.type);
-                std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
-                auto const& model = models[static_cast<size_t>(info.type)].emplace(std::move(loaded_models[m]));
+            for (size_t m = 0; m < model_files.size(); m++) {
+                auto const& info = Info(model_files[m].type);
+                auto const& model_file = model_files[m].file;
+                // The gate it was trained at, where the database has models of more than one.
+                bool const gated = options.ModelGates(info.type).size() > 1 && options.ModelNamed(info.type).empty();
+                size_t const gate = model_files[m].gate;
+                std::cout << "Model of " << info.name << " reads"
+                          << (gated ? " gated at " + (gate ? std::to_string(gate) : std::string("off")) : std::string())
+                          << ": " << model_file.Name() << std::endl;
+                auto const& model = models.emplace(ModelKey(info.type, model_file), std::move(loaded_models[m])).first->second;
                 if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
                     std::cerr << "--fdr needs a model with a calibration (machine_learning_cmdline.py --fdr-calls); "
                               << model_file.Name() << " has none" << std::endl;
@@ -3906,8 +3979,7 @@ namespace protal {
             ahead.reset();
             // Which taxa pass, for the statistics and strains: the scores ProfileWrapper cached, each
             // from its sample's model (any model reads them), at each profile's knobs.
-            auto const loaded = std::find_if(models.begin(), models.end(), [](auto const& m) { return m.has_value(); });
-            auto& filter = loaded->value();
+            auto& filter = models.begin()->second;
             bm_profiling.Stop();
             bm_profiling.PrintResults();
             CpuLog::Get().Mark("profiling");

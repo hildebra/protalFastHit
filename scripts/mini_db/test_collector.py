@@ -668,6 +668,64 @@ class CollectorTest(unittest.TestCase):
         with open(os.path.join(root, "protal_cpu.tsv")) as fh:  # this protal writes no stage table
             self.assertEqual([line.split("\t")[:2] for line in fh.read().splitlines()[1:]], [["run1", collect.WHOLE_RUN]])
 
+    def test_streamed_runs_at_the_models_gates(self):
+        # --model_levels: a streamed simulation's samples are profiled at the models' other gates too, each level's
+        # samples made again by a simulator of their own (the same command into stream_pe_c<C>, stream_se_c<C>) into
+        # pipes of their own, in the same protal run after the samples' own rows; the same reads. The unit is profiled
+        # once its dumps at those levels are there, and the streams' folders go.
+        root, opts, points, units, keys, runs = self.follow_fixture("streamed_levels", (
+            "open(runs, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+            "for r in rows:\n"
+            "    reads = open(r[1]).read() + (open(r[2]).read() if r[2] != '-' else '')\n"
+            "    open(runs, 'a').write(r[0] + ' ' + reads.replace('\\n', ' ') + '\\n')\n"
+            "    os.makedirs(os.path.dirname(r[5]), exist_ok=True)\n"
+            "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"))
+        simulator = os.path.join(root, "simulate")
+        with open(simulator, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport os, sys\na = sys.argv[1:]\n"
+                     "out, n, prefix = a[a.index('-o') + 1], int(a[a.index('-n') + 1]), a[a.index('--sample_prefix') + 1]\n"
+                     "names = [f'{prefix}_{i}' for i in range(1, n + 1)]\n"
+                     "if '--test' in a:\n"
+                     "    with open(os.path.join(out, 'protal.meta'), 'w') as fh:\n"
+                     "        fh.write(f'#OUTPUT_DIR\\t{a[a.index(\"--protal_metafile\") + 1]}\\n#INPUT_DIR\\t{out}/reads\\n'\n"
+                     "                 '#SAMPLEID\\tFIRST\\tSECOND\\tSAM\\tPREFIX\\tPROFILE\\tPROFILE_TRUTH\\n')\n"
+                     "        fh.writelines(f'{s}\\t{s}_R1.fq.zst\\t{s}_R2.fq.zst\\t{s}.sam.gz\\t{s}\\t{s}.profile\\t/t\\n'\n"
+                     "                      for s in names)\n"
+                     "    sys.exit(0)\n"
+                     "for s in names:\n"
+                     "    for r in (1,) if '--first_reads_only' in a else (1, 2):\n"
+                     "        with open(os.path.join(out, 'reads', f'{s}_R{r}.fq.zst'), 'w') as fh:\n"
+                     "            fh.write(f'@{s}/{r}\\nACGT\\n+\\nIIII\\n')\n")
+        os.chmod(simulator, 0o755)
+        points, units = points[:1], units[:2]
+        opts = argparse.Namespace(**{**vars(opts), "simulator": simulator, "stream_above": 1e-12,
+                                     "model_levels": {"pe": [4], "se": [8]}})
+
+        def pe_command(point, threads):
+            base, sim, profiles = collect.point_dirs(point, opts)
+            return [simulator, "-o", sim, "-n", str(point["samples"]), "--sample_prefix", point["name"] + "_s",
+                    "--protal_metafile", profiles, "-t", str(threads)]
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console):
+            collect.follow(units, opts, keys, None, pe_command)
+        self.assertIn("every design point is profiled, in 1 protal run\n", console.getvalue())
+        with open(runs) as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(lines[0], "rl100_p10_s_1 rl100_p10_s_2 rl100_p10_s_1__c4 rl100_p10_s_2__c4 rl100_p10_s_1_se "
+                                   "rl100_p10_s_2_se rl100_p10_s_1_se__c8 rl100_p10_s_2_se__c8")
+        reads = dict(line.split(" ", 1) for line in lines[1:])
+        self.assertEqual(reads["rl100_p10_s_1__c4"], reads["rl100_p10_s_1"])
+        self.assertEqual(reads["rl100_p10_s_2_se__c8"], reads["rl100_p10_s_2_se"])
+        self.assertEqual(reads["rl100_p10_s_1_se"], "@rl100_p10_s_1/1 ACGT + IIII ")
+        key_of = collect.profile_keys(units, opts, keys)
+        self.assertTrue(all(collect.profiled(u, opts, key_of[u["name"]]) for u in units))
+        self.assertEqual(len(collect.level_dumps(units[0], opts, 4)), 2)
+        self.assertEqual(len(collect.level_dumps(units[1], opts, 8)), 2)
+        self.assertEqual(glob.glob(os.path.join(root, "points", "*", "stream_*", "")), [])
+        # Without its dumps at a model's gate, a streamed unit is not profiled.
+        shutil.rmtree(collect.level_dir(units[0], opts, 4))
+        self.assertFalse(collect.profiled(units[0], opts, key_of[units[0]["name"]]))
+
     def test_tables_in_parallel(self):
         # The read types' tables written in forked worker processes: the same files and the same lines, in the same
         # order, as one after the other; a table that fails stops the collector as it did, after the same lines.
@@ -926,6 +984,19 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual({r["SAMPLEID"]: r["SPARSE_FIRST"] for r in collect.read_map(os.path.join(root, "written.map"))
                           if "__c" in r["SAMPLEID"]}, {"pb_b1e6_s_1__c0": "0", "pb_b1e6_s_1__c4": "4", "rl100_p10_s_1__c0": "0"})
         self.assertEqual(sorted(r["SAMPLEID"] for r in streamed), ["pb_b1e6_s_1", "rl100_p10_s_1"])
+        # --model_levels (the models' other gates): every sample at them, a streamed one too, its rows at them reading
+        # pipes of their own (in paths_of); its rows at the other levels left out still.
+        models = argparse.Namespace(**vars(opts), model_levels={"pe": [8], "pb": [16]})
+        self.assertEqual(collect.unit_levels(units[1], models), [0, 4, 16])
+        self.assertEqual(collect.unit_streamed_level_ids(units[1], models), [16])
+        pipes = {"rl100_p10_s_1": ("/p/r1", "/p/r2"), "rl100_p10_s_1__c8": ("/p8/r1", "/p8/r2"),
+                 "pb_b1e6_s_1__c16": ("/p16/r", "-")}
+        with unittest.mock.patch.object(collect, "unit_map_rows_of", rows_of):
+            streamed = collect.profile_map(units, models, os.path.join(root, "streamed_models.map"), paths_of=pipes)
+        self.assertEqual({r["SAMPLEID"]: (r["FIRST"], r.get("SPARSE_FIRST", "-")) for r in streamed},
+                         {"rl100_p10_s_1": ("/p/r1", "-"), "rl100_p10_s_1__c8": ("/p8/r1", "8"),
+                          "pb_b1e6_s_1": (os.path.join(root, "pb_b1e6", "pb_b1e6_s_1.fq"), "-"),
+                          "pb_b1e6_s_1__c16": ("/p16/r", "16")})
 
     def test_rows_with_flex_indels(self):
         # --flex_indels_levels: an ONT unit's samples (key ont) and an Ultima unit's (key ultima) also at these gates with
@@ -987,10 +1058,14 @@ class CollectorTest(unittest.TestCase):
         illumina = {"type": "pe", "name": "rl100_p10", "point": {"name": "rl100_p10"}, "samples": 1}
         self.assertEqual(collect.unit_level_ids(pb, opts), [0, 4, "4s", "8s", "8f"])
         self.assertEqual(collect.unit_level_ids(illumina, opts), [])
-        self.assertEqual([collect.level_parts(c) for c in (4, "8s", "8f")], [(4, False, False), (8, False, True),
-                                                                               (8, True, False)])
-        self.assertEqual(sorted(["8f", "8s", 4, 0, "4s"], key=collect.level_order), [0, 4, "4s", "8s", "8f"])
+        self.assertEqual([collect.level_parts(c) for c in (4, "8s", "8f", "8h")],
+                         [(4, False, ""), (8, False, "stride"), (8, True, ""), (8, False, "hash")])
+        self.assertEqual(sorted(["8f", "8s", 4, 0, "4s", "4h"], key=collect.level_order), [0, 4, "4s", "8s", "4h", "8f"])
         self.assertEqual(collect.level_text("8s"), "sparse-first gate 8, stride pick")
+        self.assertEqual(collect.level_text("8h"), "sparse-first gate 8, hash pick")
+        # --hash_levels: the same with the hash pick (for a database whose gates pick by stride).
+        hashed = argparse.Namespace(out=root, hash_levels={"pb": [16]})
+        self.assertEqual(collect.unit_level_ids(pb, hashed), ["16h"])
         self.assertEqual(collect.stride_levels("pe:4/2,pb:16"), {"pe": [2, 4], "pb": [16]})
         for bad in ("pe:1/4", "pe:0", "pe:3"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):

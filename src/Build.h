@@ -330,12 +330,18 @@ namespace protal::build {
         });
     }
 
-    // The read types (their tokens) whose model is among names, and those whose is not.
+    // The read types (their tokens) whose model is among names, each with the other gates it has models of (GateModelFile:
+    // "pe (also gates 1, 8)"), and those whose is not.
     inline std::pair<std::string, std::string> ModelCoverage(std::vector<std::string> const& names) {
         std::string with, without;
         for (auto const& info : kReadTypes) {
             std::string& list = HasModel(names, info.type) ? with : without;
-            list += (list.empty() ? "" : ", ") + info.token;
+            std::string gates;
+            for (size_t gate : kModelGates) {
+                if (std::find(names.begin(), names.end(), GateModelFile(info.type, gate)) == names.end()) continue;
+                gates += (gates.empty() ? "" : ", ") + (gate ? std::to_string(gate) : std::string("off"));
+            }
+            list += (list.empty() ? "" : ", ") + info.token + (gates.empty() ? "" : " (also gates " + gates + ")");
         }
         return {with, without};
     }
@@ -2523,10 +2529,11 @@ namespace protal::build {
             settings.sparse_first_score = options.GetSparseFirstScore();
             settings.sparse_first_hits = options.GetSparseFirstHits();
         }
-        // The gates' picks given (--sparse_first_pick; auto: none, hash).
-        settings.sparse_first_pick = options.SparseFirstPickGiven();
-        bool const picks = std::any_of(settings.sparse_first_pick.begin(), settings.sparse_first_pick.end(),
-                                       [](auto const& p) { return p.has_value(); });
+        // Every read type's pick: given (--sparse_first_pick), else (auto) stride, protal's default since 2026-10-13. A
+        // database built before records none where the gate was hash's (build_settings::DatabasePick).
+        for (size_t t = 0; t < kReadTypeCount; t++) {
+            settings.sparse_first_pick[t] = options.SparseFirstPickGiven()[t].value_or(SparseFirstPick::Stride);
+        }
         std::ofstream out(target);
         build_settings::Write(out, settings);
         out.close();
@@ -2539,7 +2546,7 @@ namespace protal::build {
                   << SparseFirstGatesText(settings.sparse_first)
                   << (settings.sparse_first_score ? ", score " + std::to_string(*settings.sparse_first_score) + ", " +
                                                     std::to_string(*settings.sparse_first_hits) + " hit(s)" : std::string())
-                  << (picks ? ", pick " + SparseFirstPicksText(settings.sparse_first_pick) : std::string())
+                  << ", pick " << SparseFirstPicksText(settings.sparse_first_pick)
                   << " (" << target << ")" << std::endl;
     }
 

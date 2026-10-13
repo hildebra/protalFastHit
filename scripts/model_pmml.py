@@ -47,6 +47,12 @@ LABELS = ("FALSE", "TRUE")
 PLACEHOLDER_MARKER = "protal:placeholder"
 # Database member of each read type's model (kReadTypes in src/ReadType.h).
 MODEL_FILES = {"pe": "model_pe.xml", "se": "model_se.xml", "pb": "model_PB.xml", "ont": "model_ONT.xml"}
+
+
+def gate_model_file(read_type, gate):
+    """A read type's model trained at another sparse-first gate than its database's (protal --add_model --model_gate,
+    ReadType.h GateModelFile): model_pe_c1.xml, model_PB_c32.xml."""
+    return MODEL_FILES[read_type].removesuffix(".xml") + f"_c{gate}.xml"
 # The header extension with a model's knob curve over the sample's depth (profiler::kDepthKnobCurveExtension, read by
 # profiler::DepthKnobAt): "1.300:0.12,2.890:0.4", log10 of the sample's fragments over all its taxa : knob, linear between
 # the points and the ends' beyond them. machine_learning_cmdline.py --depth-knobs writes it.

@@ -412,6 +412,37 @@ TEST(BuildSettings, SparseFirstPicksParsedWrittenAndReadBack) {
     EXPECT_NE(build_settings::Read(bad, settings).find("hash or stride"), std::string::npos);
 }
 
+// The pick a database's runs gate with by default (DatabasePick): as recorded; hash for a gate recorded without a pick
+// (databases built on 2026-10-12/13, before the pick could be chosen); stride for a read type with neither (an
+// ungated database's runs gated by --sparse_first: protal's default since 2026-10-13).
+TEST(BuildSettings, DatabasePickDefaultsToStrideButHashForOlderGates) {
+    auto const index = [](ReadType type) { return static_cast<size_t>(type); };
+    build_settings::Settings settings;
+    std::istringstream file("sparse_first_pe\t2\nsparse_first_se\t4\nsparse_first_pick_se\tstride\nsparse_first_pick_pb\thash\n");
+    ASSERT_EQ(build_settings::Read(file, settings), "");
+    EXPECT_EQ(build_settings::DatabasePick(settings, index(ReadType::Paired)), SparseFirstPick::Hash);
+    EXPECT_EQ(build_settings::DatabasePick(settings, index(ReadType::Single)), SparseFirstPick::Stride);
+    EXPECT_EQ(build_settings::DatabasePick(settings, index(ReadType::PacBio)), SparseFirstPick::Hash);
+    EXPECT_EQ(build_settings::DatabasePick(settings, index(ReadType::ONT)), SparseFirstPick::Stride);
+    EXPECT_EQ(build_settings::DatabasePick(build_settings::Settings(), index(ReadType::Paired)), SparseFirstPick::Stride);
+}
+
+// A sample is profiled with the model of the gate nearest its own (NearestGate): on the scale of log2 C, off one step
+// below C 1, the lower of two as near.
+TEST(BuildSettings, NearestGateOnTheLogScaleLowerOnTies) {
+    std::vector<size_t> const ladder = { 1, 4, 8 };
+    EXPECT_EQ(NearestGate(4, ladder), 4u);
+    EXPECT_EQ(NearestGate(0, ladder), 1u);
+    EXPECT_EQ(NearestGate(1, ladder), 1u);
+    EXPECT_EQ(NearestGate(2, ladder), 1u);  // 1 and 4 one step away each: the lower
+    EXPECT_EQ(NearestGate(16, ladder), 8u);
+    EXPECT_EQ(NearestGate(32, ladder), 8u);
+    EXPECT_EQ(NearestGate(2, std::vector<size_t>{ 8, 16, 32 }), 8u);
+    EXPECT_EQ(NearestGate(0, std::vector<size_t>{ 0, 4 }), 0u);
+    EXPECT_EQ(NearestGate(1, std::vector<size_t>{ 0, 4 }), 0u);  // off one step below 1, 4 two above
+    EXPECT_EQ(NearestGate(8, std::vector<size_t>{ 4 }), 4u);
+}
+
 // A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's first 18 bases are free
 // (dovetail), the rest must align. Without X-drop it aligns over the whole read. WFA2-lib v2.3.6 with X-drop 50 reports
 // it completed, with operations for 151 read bases where the read has 150: the wrapper reports it failed, and so does a

@@ -590,7 +590,14 @@ TEST(Database, ModelsPerReadType) {
     EXPECT_EQ(std::set<std::string>(all.begin(), all.end()).size(), all.size()) << "each file once";
     for (auto const type : {ReadType::Paired, ReadType::Single, ReadType::PacBio, ReadType::ONT}) {
         for (auto const& name : ModelCandidates(type)) EXPECT_NE(std::find(all.begin(), all.end(), name), all.end()) << name;
+        // Its models at other sparse-first gates (--add_model --model_gate) too.
+        for (size_t gate : kModelGates) {
+            EXPECT_NE(std::find(all.begin(), all.end(), GateModelFile(type, gate)), all.end()) << GateModelFile(type, gate);
+        }
     }
+    EXPECT_EQ(GateModelFile(ReadType::Paired, 1), "model_pe_c1.xml");
+    EXPECT_EQ(GateModelFile(ReadType::PacBio, 32), "model_PB_c32.xml");
+    EXPECT_EQ(GateModelFile(ReadType::ONT, 0), "model_ONT_c0.xml");
     EXPECT_EQ(ReadTypeFromToken("pe"), std::optional<ReadType>(ReadType::Paired));
     EXPECT_EQ(ReadTypeFromToken("se"), std::optional<ReadType>(ReadType::Single));
     EXPECT_EQ(ReadTypeFromToken("pb"), std::optional<ReadType>(ReadType::PacBio));

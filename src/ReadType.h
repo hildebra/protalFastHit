@@ -76,10 +76,25 @@ namespace protal {
         return names;
     }
 
-    // Every model file a database may hold.
+    // The sparse-first gates (--sparse_first C; 0 off) a database may hold models of besides its own gate's.
+    inline constexpr std::array<size_t, 7> kModelGates = { 0, 1, 2, 4, 8, 16, 32 };
+
+    // The database's model of reads of `type` trained on runs gated at `gate`, another gate than the database's own
+    // (since 2026-10-13; --add_model --model_gate): model_pe_c1.xml, model_PB_c32.xml. A run gated at `gate` takes it
+    // instead of the type's model_file, which is the database's gate's (Options::ModelDbFile).
+    inline std::string GateModelFile(ReadType type, size_t gate) {
+        std::string const& file = Info(type).model_file;
+        return file.substr(0, file.size() - 4) + "_c" + std::to_string(gate) + ".xml";
+    }
+
+    // Every model file a database may hold: each read type's, its models at other gates (GateModelFile), and those of
+    // older databases.
     inline std::vector<std::string> AllModelFiles() {
         std::vector<std::string> names;
         for (auto const& info : kReadTypes) names.push_back(info.model_file);
+        for (auto const& info : kReadTypes) {
+            for (size_t gate : kModelGates) names.push_back(GateModelFile(info.type, gate));
+        }
         names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
         return names;
     }

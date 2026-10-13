@@ -136,7 +136,7 @@ namespace protal {
                 ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. 0 (default): no such rule; on GTDB r226 training data the model called none of the taxa the rule would have vetoed, so it is off (docs/claude/2026-10-03-false-positive-anatomy). The training dump's prediction column and the trainer (machine_learning_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("0"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
-                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
+                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples, trained at the database's sparse-first gate; a sample gated otherwise (--sparse_first) takes the database's model trained at the gate nearest its own where it has models of other gates (model_pe_c1.xml, model_PB_c32.xml, ...). --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_ont", "PMML model file for ONT samples, given as --model. Default: --model if given, else the database's model_ONT.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -178,10 +178,10 @@ namespace protal {
                 ("no_indel_bound", "ONT reads: screen the candidates by their k-mers, as other reads and as before 2026-10-09, instead of by the bound that refuses a candidate whose read and gene window are too far apart by their indel distance for any alignment within the score budget to exist (AlignmentScreen.h IndelBound; the k-mer screen refuses next to nothing at their identity floor). Neither changes an alignment; this is for measuring the bound.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
-                ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level, or every C-th in read order: --sparse_first_pick) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A run gated otherwise than its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
+                ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level, or every C-th in read order: --sparse_first_pick) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A database may also hold models trained at other gates (model_pe_c1.xml, ...: build_gtdb_database.py --model-gates, protal --add_model --model_gate): a sample is profiled with the model trained at the gate nearest its own (on the scale of log2 C, off next to 1; between two, the lower). A run gated otherwise than any model of its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
                 ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count (default: the database's, else 14; --build records it with the gates).", cxxopts::value<size_t>())
                 ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept (default: the database's, else 1; --build records it with the gates).", cxxopts::value<size_t>())
-                ("sparse_first_pick", "With --sparse_first: which 1/C of a read's cores the gate looks up first. hash: those whose hash falls in 1/C of its range (stage1_probe::Level; the only pick before 2026-10-13), the same cores in every read, so gaps fall by chance; stride: every C-th core of each mate (of each chunk of a long read) in read order (stage1_probe::StridePicked), spread evenly over the read, which keeps far more of the reads with records at the same C (locally at C 8, 99.4% against 92.0% of the pairs; docs/claude/2026-10-13-stride-pick) for a few more lookups. At C 1 both look up every core. One pick for every read type, read types and theirs (pe:stride,pb:hash; a read type not listed as the database has it), or auto (default): the database's picks, hash where it records none. --build records its value with the gates (build_settings.tsv), and the models must be trained on runs picked so; a run picked otherwise than its database is warned. A map's SPARSE_FIRST_PICK column sets it per sample. --sparse_seeding stands for an index of the hash pick's cores and takes the hash pick only.", cxxopts::value<std::string>()->default_value("auto"))
+                ("sparse_first_pick", "With --sparse_first: which 1/C of a read's cores the gate looks up first. hash: those whose hash falls in 1/C of its range (stage1_probe::Level; the only pick before 2026-10-13), the same cores in every read, so gaps fall by chance; stride: every C-th core of each mate (of each chunk of a long read) in read order (stage1_probe::StridePicked), spread evenly over the read, which keeps far more of the reads with records at the same C (locally at C 8, 99.4% against 92.0% of the pairs; docs/claude/2026-10-13-stride-pick) for a few more lookups. At C 1 both look up every core. One pick for every read type, read types and theirs (pe:stride,pb:hash; a read type not listed as the database has it), or auto (default): the database's picks (stride where it records none; hash for a database that records its gates but no pick, built on 2026-10-12/13). --build records its value with the gates (build_settings.tsv; auto: stride, the default since 2026-10-13), and the models must be trained on runs picked so; a run picked otherwise than its database is warned. A map's SPARSE_FIRST_PICK column sets it per sample. --sparse_seeding stands for an index of the hash pick's cores and takes the hash pick only.", cxxopts::value<std::string>()->default_value("auto"))
                 ("sparse_seeding", "With --sparse_first: seed the reads kept from the cores of the gate's level alone (1/C of them), as an index holding only those cores would, and log after the index load which share of its values and keys such an index would hold, per C. For measuring what a sparse index (less memory) would cost in records and calls; the whole index is loaded all the same. Short reads at C 1 are seeded as without it.")
                 ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), or in a stride pick of every c-th core of a mate in read order, tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, with the share of the lookups a gate would make, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv (hash sample), _stage1_probe_stride.tsv (stride pick), _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
@@ -201,6 +201,7 @@ namespace protal {
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, build_settings.tsv, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
+                ("model_gate", "With --add_model: the sparse-first gate (--sparse_first C: 0 off, 1 to 32) the runs each model was trained on were gated at, comma-separated as its files (--add_model pe.xml,pe_c1.xml --read_type pe,pe --model_gate -,1). A model of another gate than the database's own is stored as model_<type>_c<C>.xml (model_pe_c1.xml, model_PB_c32.xml), which runs gated at C, or nearer C than any other of the database's models, are profiled with; '-' or the database's own gate (build_settings.tsv): the read type's model (model_pe.xml, ...). A read type may have one model per gate. Default: every model the database's gate's.", cxxopts::value<std::string>()->default_value(""))
                 ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes), species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08) or ncbi_taxids.tsv (gtdb_to_protal_db.py --priors_only too: the species' NCBI taxids for --ncbi_taxids, for a database converted before 2026-10-11). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
                 ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
@@ -347,6 +348,7 @@ namespace protal {
         std::string model_ont;
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
+        std::string model_gate;  // --model_gate as given (with --add_model)
         std::string add_tables;  // --add_tables
         std::string write_species_neighbours;  // --write_species_neighbours
         double knob = 0.5;
@@ -443,9 +445,12 @@ namespace protal {
         size_t m_sparse_first_score = 14;
         size_t m_sparse_first_hits = 1;
         // --sparse_first_pick as given (per read type; nothing: auto), and as the run picks for each read type: given,
-        // else the database's (SetSparseFirstPick; --build: as given, hash where not).
+        // else the database's (SetSparseFirstPick; --build: as given, stride where not).
         SparseFirstPicks m_sparse_first_pick_given;
         std::array<SparseFirstPick, kReadTypeCount> m_sparse_first_pick{};
+        // The gates each read type has models of, and the database's own gates (SetModelGates).
+        std::array<std::vector<size_t>, kReadTypeCount> m_model_gates;
+        std::array<size_t, kReadTypeCount> m_database_gates{};
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_write_unmapped_reads = false;
@@ -515,6 +520,7 @@ namespace protal {
         std::string m_model_ont;
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
+        std::string m_model_gate;  // --model_gate
         std::string m_add_tables;  // --add_tables
         std::string m_write_species_neighbours;  // --write_species_neighbours
         double m_knob = 0.5;
@@ -665,7 +671,7 @@ namespace protal {
                 m_sparse_first_score(d.sparse_first_score.value_or(14)),
                 m_sparse_first_hits(d.sparse_first_hits.value_or(1)),
                 m_sparse_first_pick_given(d.sparse_first_pick),
-                m_sparse_first_pick(PicksOrHash(d.sparse_first_pick)),
+                m_sparse_first_pick(PicksOrStride(d.sparse_first_pick)),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_write_unmapped_reads(d.write_unmapped_reads),
@@ -714,6 +720,7 @@ namespace protal {
                 m_model_ont(std::move(d.model_ont)),
                 m_read_type(std::move(d.read_type)),
                 m_add_model(std::move(d.add_model)),
+                m_model_gate(std::move(d.model_gate)),
                 m_add_tables(std::move(d.add_tables)),
                 m_write_species_neighbours(std::move(d.write_species_neighbours)),
                 m_knob(d.knob),
@@ -1000,10 +1007,18 @@ namespace protal {
             return m_add_model;
         }
 
-        // The models --add_model stores, each with the reads it is for: its files, comma-separated, and --read_type's
-        // tokens at the same places (a single model: pe if --read_type is not given). Checked in PrepareAndCheckValidity;
-        // a read type that is no token is paired-end here.
-        std::vector<std::pair<std::string, ReadType>> AddModels() const {
+        // A model --add_model stores: its file, the reads it is for, and the gate its training runs were gated at
+        // (--model_gate; nothing: the database's own).
+        struct AddedModel {
+            std::string file;
+            ReadType type;
+            std::optional<size_t> gate;
+        };
+
+        // The models --add_model stores: its files, comma-separated, with --read_type's tokens and --model_gate's gates at
+        // the same places (a single model: pe if --read_type is not given; the database's gate where --model_gate gives
+        // none or '-'). Checked in PrepareAndCheckValidity; a read type that is no token is paired-end here.
+        std::vector<AddedModel> AddModels() const {
             auto split = [](std::string const& text) {
                 std::vector<std::string> items;
                 std::string item;
@@ -1013,10 +1028,12 @@ namespace protal {
             };
             auto const files = split(m_add_model);
             auto const types = split(m_read_type);
-            std::vector<std::pair<std::string, ReadType>> models;
+            auto const gates = split(m_model_gate);
+            std::vector<AddedModel> models;
             for (size_t i = 0; i < files.size(); i++) {
-                models.emplace_back(files[i], i < types.size() ? ReadTypeFromToken(types[i]).value_or(ReadType::Paired)
-                                                               : ReadType::Paired);
+                models.push_back({files[i], i < types.size() ? ReadTypeFromToken(types[i]).value_or(ReadType::Paired)
+                                                             : ReadType::Paired,
+                                  i < gates.size() && gates[i] != "-" ? ParseSparseFirstLevel(gates[i]) : std::nullopt});
             }
             return models;
         }
@@ -1458,6 +1475,23 @@ namespace protal {
                 if (model.Exists()) return model;
             }
             return DbFileNamed(candidates.front(), (std::filesystem::path(m_database_path) / candidates.front()).string());
+        }
+
+        // The database's model of reads of `type` trained at another gate than its own (GateModelFile); Exists() is false
+        // if it has none.
+        db::DbFile GateModelDbFile(ReadType type, size_t gate) const {
+            std::string const file = GateModelFile(type, gate);
+            return DbFileNamed(file, (std::filesystem::path(m_database_path) / file).string());
+        }
+
+        // The PMML model sample `index` is profiled with: the one given for its reads (ModelNamed), else the database's
+        // model of its read type trained at the gate nearest its own (ModelGate): the type's model at the database's
+        // gate (ModelDbFile), its model at another gate (GateModelDbFile) there.
+        db::DbFile SampleModelDbFile(size_t index) const {
+            auto const type = GetReadType(index);
+            size_t const gate = ModelGate(index);
+            if (!ModelNamed(type).empty() || gate == m_database_gates[static_cast<size_t>(type)]) return ModelDbFile(type);
+            return GateModelDbFile(type, gate);
         }
 
         // The kind of reads of sample `index` (see ResolveReadTypes).
@@ -1902,7 +1936,7 @@ namespace protal {
             if (index < m_sparse_first_pick_list.size() && m_sparse_first_pick_list[index]) return *m_sparse_first_pick_list[index];
             return GetSparseFirstPick(GetReadType(index));
         }
-        // The pick of a read type: --sparse_first_pick's, else the database's (SetSparseFirstPick; --build: hash where
+        // The pick of a read type: --sparse_first_pick's, else the database's (SetSparseFirstPick; --build: stride where
         // not given).
         SparseFirstPick GetSparseFirstPick(ReadType type) const {
             return m_sparse_first_pick[static_cast<size_t>(type)];
@@ -1915,11 +1949,30 @@ namespace protal {
         void SetSparseFirstPick(std::array<SparseFirstPick, kReadTypeCount> const& picks) {
             m_sparse_first_pick = picks;
         }
-        // --sparse_first_pick per read type with hash where not given (--build, and a run until the database's are known).
-        static std::array<SparseFirstPick, kReadTypeCount> PicksOrHash(SparseFirstPicks const& picks) {
+        // --sparse_first_pick per read type with stride where not given (--build, and a run until the database's are
+        // known).
+        static std::array<SparseFirstPick, kReadTypeCount> PicksOrStride(SparseFirstPicks const& picks) {
             std::array<SparseFirstPick, kReadTypeCount> out{};
-            for (size_t t = 0; t < kReadTypeCount; t++) out[t] = picks[t].value_or(SparseFirstPick::Hash);
+            for (size_t t = 0; t < kReadTypeCount; t++) out[t] = picks[t].value_or(SparseFirstPick::Stride);
             return out;
+        }
+
+        // The gates each read type has models of: the database's own gate (its model_file) and those of its models at
+        // other gates (GateModelFile), sorted; set once the database's gates are known (RunProtal: ApplySparseFirst).
+        void SetModelGates(std::array<std::vector<size_t>, kReadTypeCount> gates, std::array<size_t, kReadTypeCount> own) {
+            m_model_gates = std::move(gates);
+            m_database_gates = own;
+        }
+        std::vector<size_t> const& ModelGates(ReadType type) const {
+            return m_model_gates[static_cast<size_t>(type)];
+        }
+        // The gate whose model profiles sample `index`: of the gates its read type has models of, the one nearest its
+        // gate (NearestGate); its read type's database gate before SetModelGates, or with a model given (--model, ...).
+        size_t ModelGate(size_t index) const {
+            auto const type = GetReadType(index);
+            auto const& gates = ModelGates(type);
+            if (gates.empty() || !ModelNamed(type).empty()) return m_database_gates[static_cast<size_t>(type)];
+            return NearestGate(GetSparseFirst(index), gates);
         }
         // A map's SPARSE_FIRST_PICK values: hash or stride, or nothing for '-' (LoadFromMap admits no other value).
         static std::vector<std::optional<SparseFirstPick>> SparseFirstPickList(std::vector<std::string> const& values) {
@@ -2810,7 +2863,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 }
             }
             if (add_model) {
-                // --add_model FILE[,FILE...] with --read_type TYPE[,TYPE...]: one read type per model, each once.
+                // --add_model FILE[,FILE...] with --read_type TYPE[,TYPE...]: one read type per model, each once per gate
+                // (--model_gate: one per model, '-' the database's).
                 size_t const models = static_cast<size_t>(std::count(m_add_model.begin(), m_add_model.end(), ',')) + 1;
                 size_t const types = m_read_type.empty() ? 0 : static_cast<size_t>(std::count(m_read_type.begin(), m_read_type.end(), ',')) + 1;
                 if (models > 1 && types != models) {
@@ -2821,19 +2875,36 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     error_log.emplace_back("--read_type gives " + std::to_string(types) + " read types for --add_model's " +
                                            std::to_string(models) + " model");
                 }
-                std::istringstream type_tokens(m_read_type);
+                size_t const gates = m_model_gate.empty() ? 0 : static_cast<size_t>(std::count(m_model_gate.begin(), m_model_gate.end(), ',')) + 1;
+                if (gates > 0 && gates != models) {
+                    error_log.emplace_back("--model_gate must give a gate per model of --add_model (" + std::to_string(models) +
+                                           "), comma-separated ('-': the database's own), not '" + m_model_gate + "'");
+                }
+                std::istringstream gate_tokens(m_model_gate);
                 std::string token;
+                std::vector<std::string> gate_of;
+                while (!m_model_gate.empty() && std::getline(gate_tokens, token, ',')) {
+                    if (token != "-" && !ParseSparseFirstLevel(token)) {
+                        error_log.emplace_back("--model_gate: a gate is -, 0, 1, 2, 4, 8, 16 or 32, not '" + token + "'");
+                    }
+                    gate_of.push_back(token);
+                }
+                std::istringstream type_tokens(m_read_type);
                 std::set<std::string> seen;
-                while (!m_read_type.empty() && std::getline(type_tokens, token, ',')) {
+                for (size_t i = 0; !m_read_type.empty() && std::getline(type_tokens, token, ','); i++) {
+                    std::string const gate = i < gate_of.size() ? gate_of[i] : "-";
                     if (!ReadTypeFromToken(token)) {
                         error_log.emplace_back("--read_type must be one of " + ReadTypeTokens() + ", not '" + token + "'");
-                    } else if (!seen.insert(token).second) {
-                        error_log.emplace_back("--read_type names " + token + " twice for --add_model");
+                    } else if (!seen.insert(token + "@" + gate).second) {
+                        error_log.emplace_back("--read_type names " + token + " twice for --add_model" +
+                                               (gate == "-" ? std::string() : " at --model_gate " + gate));
                     }
                 }
-                for (auto const& [file, _] : AddModels()) {
-                    if (!std::filesystem::is_regular_file(file)) error_log.emplace_back("--add_model: " + file + " is not a file");
+                for (auto const& model : AddModels()) {
+                    if (!std::filesystem::is_regular_file(model.file)) error_log.emplace_back("--add_model: " + model.file + " is not a file");
                 }
+            } else if (!m_model_gate.empty()) {
+                error_log.emplace_back("--model_gate goes with --add_model");
             }
             if (m_unpack_db && !m_bundle && error_log.empty()) {
                 error_log.emplace_back("--unpack_db needs a single-file database, but " + m_database_path + " holds separate files" +
@@ -3975,6 +4046,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.model_ont                = result["model_ont"].as<std::string>();
             d.read_type                = result["read_type"].as<std::string>();
             d.add_model                = result["add_model"].as<std::string>();
+            d.model_gate               = result["model_gate"].as<std::string>();
             d.add_tables               = result["add_tables"].as<std::string>();
             d.write_species_neighbours = result["write_species_neighbours"].as<std::string>();
 

@@ -1169,5 +1169,34 @@ class GoldenModelRulesTest(unittest.TestCase):
                 self.assertEqual(list(calls), [True, False], name)
 
 
+class ExtraTestsUnseenTest(unittest.TestCase):
+    """--extra-test-file (a test set profiled otherwise, e.g. at another sparse-first gate): the present species of its
+    samples without a row in its table (its <table>.unseen.tsv) count as missed, so that a gate giving up all of a
+    species' reads does not look better for leaving it out (2026-10-13)."""
+
+    def test_unseen_species_count_as_missed(self):
+        import unittest.mock
+        import pandas as pd
+        import machine_learning_cmdline as trainer
+
+        class Forest:
+            def predict_proba(self, x):
+                return np.column_stack([1 - x[:, 0], x[:, 0]])
+        table = pd.DataFrame({"meta_sample": ["a", "a", "b"], "truth": [1, 0, 1], "f": [0.9, 0.8, 0.1]})
+        opts = types.SimpleNamespace(knob=0.5)
+        with unittest.mock.patch.object(trainer, "call_scores", lambda frame, p: p):
+            plain = trainer.extra_test_scores(Forest(), ["f"], table, opts, None)
+            seen = trainer.extra_test_scores(Forest(), ["f"], table, opts, None, unseen=2)
+        self.assertEqual({k: plain[k] for k in ("samples", "TP", "FP", "FN", "present", "unseen")},
+                         {"samples": 2, "TP": 1, "FP": 1, "FN": 1, "present": 2, "unseen": 0})
+        self.assertEqual((seen["TP"], seen["FN"], seen["present"], seen["unseen"]), (1, 3, 4, 2))
+        self.assertAlmostEqual(seen["F1"], 2 / (2 + 1 + 3))
+        self.assertAlmostEqual(seen["sensitivity"], 1 / 4)
+        unseen = pd.DataFrame({"meta_design": ["d"] * 3, "meta_sample": ["a", "b", "c"], "meta_scenario": [""] * 3,
+                               "taxon_name": ["x", "y", "z"], "marker_reads": [3, 1, 2]})
+        self.assertEqual(trainer.unseen_in(unseen, {"a", "b"}), 2)
+        self.assertEqual(trainer.unseen_in(None, {"a"}), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

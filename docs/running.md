@@ -569,13 +569,25 @@ sample has gaps by chance; the only pick before), or `stride`, every C-th core o
 chunk of a long read) in read order, spread evenly over the read. On local test data the stride kept
 far more of the pairs with records at the same C (C = 8: 99.4% against 92.0%) for a few more lookups,
 and at a recall of 99% needed C = 8 where the hash needed C = 2
-([report](claude/2026-10-13-stride-pick/README.md)); at C = 1 both look up every core. Like the gates,
-`--build` records the picks (`build_settings.tsv`), runs follow the database's (`auto`, the default;
-`hash` where it records none), `--sparse_first_pick` takes one pick for all read types or read types
+([report](claude/2026-10-13-stride-pick/README.md)); at C = 1 both look up every core. At GTDB r226
+the stride lost 2.5-17 times fewer present species than the hash at equal or better F1, and it is the
+default since 2026-10-13 ([report](claude/2026-10-13-r226-v27-c-gates.md)). Like the gates, `--build`
+records the picks (`build_settings.tsv`; `stride` where not given), runs follow the database's
+(`auto`, the default; `stride` where it records none, `hash` for a database that records its gates but
+no pick, built on 2026-10-12/13), `--sparse_first_pick` takes one pick for all read types or read types
 and theirs (`pe:stride,pb:hash`), a map's optional `SPARSE_FIRST_PICK` column one sample's (`hash`,
 `stride`, or `-`: its read type's), and a sample picked otherwise than its database is warned.
 `--sparse_seeding` stands for an index of the hash pick's cores: a sample it would seed with the
-stride pick stops the run.
+stride pick stops the run (give `--sparse_first_pick hash` with it).
+
+A database may hold models trained at other gates than its own (since 2026-10-13: `model_pe_c1.xml`,
+`model_PB_c32.xml`, ..., which `build_gtdb_database.py --model-gates` trains and
+`--add_model FILE --read_type TYPE --model_gate C` stores). A sample is then profiled with the model
+trained at the gate nearest its own (on the scale of log2 C, off next to C 1; between two, the lower),
+and is warned only if that gate is not its own. The run names each model it loads with its gate
+("Model of paired-end reads gated at 1: model_pe_c1.xml ..."), and the gates line says which other gates
+the database has models of. With `--profile_only` the gate (`--sparse_first`, else the database's)
+only chooses the model.
 
 `--sparse_seeding` (with a gate) seeds the reads the gate keeps from its 1/C of the cores alone, as an
 index holding only those cores would, and logs after the index load what such an index would hold

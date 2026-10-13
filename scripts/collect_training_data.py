@@ -201,6 +201,16 @@ def parse_args(argv=None):
                         "pe:2/4,pb:4/8/16: rows <sample>__c<C>s in <point>/protal_c<C>s, tables in OUT/c_gates/c<C>s/ "
                         f"(build_gtdb_database.py --test-c-gates). Needs a protal that reads {STRIDE_COLUMN} (an older "
                         "one ignores the column)")
+    p.add_argument("--hash_levels", type=stride_levels, default={}, metavar="READ_TYPE:C/C/...,...",
+                   help="as --stride_levels, with the hash pick (the cores whose hash falls in 1/C of its range; the "
+                        "pick of databases built before 2026-10-13): rows <sample>__c<C>h in <point>/protal_c<C>h, tables "
+                        "in OUT/c_gates/c<C>h/")
+    p.add_argument("--model_levels", type=sparse_first_levels, default={}, metavar="READ_TYPE:C/C/...,...",
+                   help="sparse-first gates at which every sample of these read types is profiled too, the samples "
+                        "streamed into protal through pipes included (each such simulation streamed again for each "
+                        "gate, into protal runs reading <sample>__c<C> from pipes of their own): the gates the database's "
+                        "other models are trained at (build_gtdb_database.py --model-gates), rows and tables as "
+                        "--sparse_first_levels'")
     p.add_argument("--write_simulations", type=names_list, default=set(), metavar="NAME,...",
                    help="simulations written to the disk whatever --stream_above says, so that their samples are "
                         "profiled at other gates too (build_gtdb_database.py: the test set's Ultima simulations, for "
@@ -365,15 +375,18 @@ MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFI
                "SPARSE_FIRST"]
 # A map row without a column (one of an older collector's map, --also_profile) takes its default.
 MAP_DEFAULTS = {"UNMAPPED_READS": "count", "SPARSE_FIRST": "-"}
-# A sample's sparse-first gate picking its cores by stride (every C-th in read order) rather than by their hash: the
-# map column and its value (protal's --sparse_first_pick per sample; build_gtdb_database.py checks that protal has it).
-STRIDE_COLUMN, STRIDE_VALUE = "SPARSE_FIRST_PICK", "stride"
+# A sample's sparse-first gate picking its cores by stride (every C-th in read order) or by their hash, whichever the
+# database does not: the map column and its values (protal's --sparse_first_pick per sample; build_gtdb_database.py
+# checks that protal has it). A row without the column picks as the database does (stride for one built since
+# 2026-10-13).
+STRIDE_COLUMN, STRIDE_VALUE, HASH_VALUE = "SPARSE_FIRST_PICK", "stride", "hash"
 # Map columns written only when a row has a value: protal ignores a column it does not know, so FLEX_INDELS and
 # SPARSE_FIRST_PICK must reach only a protal that reads them (build_gtdb_database.py checks), and the other maps stay as
 # they were.
 OPTIONAL_MAP_COLUMNS = ["FLEX_INDELS", STRIDE_COLUMN]
 FLEX_SUFFIX = "f"  # a level's id with protal's --flex_indels too: gate 1 with it is "1f" (rows <sample>__c1f)
 STRIDE_SUFFIX = "s"  # a level's id with the stride pick: gate 8 with it is "8s" (rows <sample>__c8s)
+HASH_SUFFIX = "h"  # a level's id with the hash pick: gate 8 with it is "8h" (rows <sample>__c8h)
 # --sparse_first_levels: a sample profiled at another sparse-first gate C is <sample>__c<C>, in <profile dir>_c<C>; its
 # tables are in OUT/c_gates/c<C>/.
 LEVEL_SUFFIX = "__c"
@@ -413,12 +426,13 @@ def flex_indels_levels(text):
 
 def stride_levels(text):
     """--stride_levels "pe:2/4,pb:4/8/16" -> {"pe": [2, 4], "pb": [4, 8, 16]}: a read type's units at these gates with
-    the stride pick. A gate below 2 looks every core up first whichever way it picks, so it has no stride."""
+    the stride pick (--hash_levels: with the hash pick). A gate below 2 looks every core up first whichever way it
+    picks, so it has no pick."""
     levels = sparse_first_levels(text)
     for read_type, gates in levels.items():
         if gates and gates[0] < 2:
-            raise argparse.ArgumentTypeError(f"a stride gate is 2, 4, 8, 16 or 32, not {gates[0]} (in {read_type!r}): "
-                                             "below 2 every core is looked up first, by stride or not")
+            raise argparse.ArgumentTypeError(f"a gate with a pick is 2, 4, 8, 16 or 32, not {gates[0]} (in {read_type!r}): "
+                                             "below 2 every core is looked up first, by stride or by hash")
     return levels
 
 
@@ -1105,8 +1119,16 @@ def dumps_of(unit, opts):
 
 
 def unit_levels(unit, opts):
-    """The sparse-first gates a unit's samples are profiled at besides the database's (--sparse_first_levels)."""
-    return (getattr(opts, "sparse_first_levels", None) or {}).get(unit["type"], [])
+    """The sparse-first gates a unit's samples are profiled at besides the database's (--sparse_first_levels and
+    --model_levels)."""
+    return sorted(set((getattr(opts, "sparse_first_levels", None) or {}).get(unit["type"], [])) |
+                  set(unit_model_levels(unit, opts)))
+
+
+def unit_model_levels(unit, opts):
+    """The gates a unit's samples are profiled at whether or not their reads come through pipes (--model_levels): those
+    the database's other models are trained at."""
+    return (getattr(opts, "model_levels", None) or {}).get(unit["type"], [])
 
 
 def is_ultima(unit):
@@ -1127,35 +1149,47 @@ def unit_stride_levels(unit, opts):
     return (getattr(opts, "stride_levels", None) or {}).get(unit["type"], [])
 
 
+def unit_hash_levels(unit, opts):
+    """The gates a unit's samples are profiled at with the hash pick too (--hash_levels)."""
+    return (getattr(opts, "hash_levels", None) or {}).get(unit["type"], [])
+
+
 def unit_level_ids(unit, opts):
     """Every level a unit's samples are profiled at besides the database's gate: its other gates (C, as an int), its
-    gates with the stride pick (C + STRIDE_SUFFIX, as a string: "8s") and its gates with --flex_indels (C +
-    FLEX_SUFFIX: "1f")."""
+    gates with the stride pick (C + STRIDE_SUFFIX, as a string: "8s"), with the hash pick (C + HASH_SUFFIX: "8h") and
+    its gates with --flex_indels (C + FLEX_SUFFIX: "1f")."""
     return unit_levels(unit, opts) + [f"{c}{STRIDE_SUFFIX}" for c in unit_stride_levels(unit, opts)] + \
+        [f"{c}{HASH_SUFFIX}" for c in unit_hash_levels(unit, opts)] + \
         [f"{c}{FLEX_SUFFIX}" for c in unit_flex_levels(unit, opts)]
 
 
+def unit_streamed_level_ids(unit, opts):
+    """The levels a unit's samples are profiled at when their reads come through pipes: its --model_levels (each
+    simulation streamed again for each)."""
+    return unit_model_levels(unit, opts)
+
+
 def level_parts(level):
-    """A level's gate, whether it has --flex_indels and whether its gate picks by stride: 4 -> (4, False, False),
-    "1f" -> (1, True, False), "8s" -> (8, False, True)."""
+    """A level's gate, whether it has --flex_indels, and its pick if it names one ("stride", "hash"; "" the database's):
+    4 -> (4, False, ""), "1f" -> (1, True, ""), "8s" -> (8, False, "stride"), "8h" -> (8, False, "hash")."""
     text = str(level)
-    stride = text.endswith(STRIDE_SUFFIX)
-    text = text.removesuffix(STRIDE_SUFFIX)
-    return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX), stride
+    pick = "stride" if text.endswith(STRIDE_SUFFIX) else "hash" if text.endswith(HASH_SUFFIX) else ""
+    text = text.removesuffix(STRIDE_SUFFIX).removesuffix(HASH_SUFFIX)
+    return int(text.removesuffix(FLEX_SUFFIX)), text.endswith(FLEX_SUFFIX), pick
 
 
 def level_order(level):
-    """Levels sorted: the gates with neither the stride pick nor --flex_indels first, then those with the stride pick,
-    then those with --flex_indels, each by its gate."""
-    gate, flex, stride = level_parts(level)
-    return flex, stride, gate
+    """Levels sorted: the gates with neither a pick of their own nor --flex_indels first, then those with the stride
+    pick, those with the hash pick, then those with --flex_indels, each by its gate."""
+    gate, flex, pick = level_parts(level)
+    return flex, ("", "stride", "hash").index(pick), gate
 
 
 def level_text(level):
     """How a level is said: "sparse-first gate 4", "sparse-first gate 8, stride pick", "sparse-first gate 1,
     --flex_indels"."""
-    gate, flex, stride = level_parts(level)
-    return f"sparse-first gate {gate}" + (", stride pick" if stride else "") + (", --flex_indels" if flex else "")
+    gate, flex, pick = level_parts(level)
+    return f"sparse-first gate {gate}" + (f", {pick} pick" if pick else "") + (", --flex_indels" if flex else "")
 
 
 def level_dir(unit, opts, level):
@@ -1587,7 +1621,7 @@ class Scheduler:
         return failures
 
 
-def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
+def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None, level=None):
     """A long-read unit's simulate_metagenomes --long_samples run for all its samples (LongReadSimulator.cpp: templates
     drawn and reads made in process, written compressed as they are made): its samples and genomes TSVs written in
     sim/tmp, made once its community points' manifests are there. Each sample replays the community of a sample of the
@@ -1596,11 +1630,14 @@ def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
     run's before its reads are there). The truth files named are the sim folder's either way. A scenario's unit with a
     host share draws that share of its bases from the host genome (opts.host_folder), its weight that share of all.
     -> {rows: [(sample, reads, truth, community)], command, base, sim, tmp, stats, threads (long_threads of `slots`,
-    or `threads`), seconds, written}."""
+    or `threads`), seconds, written}. With `level` (stream_run: a streamed unit's samples again at its --model_levels
+    gate), the same run with its files in sim/tmp_c<level> and its reads in sim/reads_c<level>, the marker genes' reads
+    counted into tmp_c<level> (the unit's own in sim are left alone)."""
     source = source or (lambda point: point_dirs(point, opts)[1])
     index = unit.get("seed_index", index)
     host = unit.get("host_share", 0)
     base, sim, _ = point_dirs(unit["point"], opts)
+    tag = "" if level is None else f"_c{level}"
     truth, genomes_of = {}, collections.defaultdict(list)
     for point in unit["communities"]:
         folder, sim_folder = source(point), point_dirs(point, opts)[1]
@@ -1611,15 +1648,15 @@ def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
         for row in manifest_rows(folder):
             genomes_of[row["sample"]].append(row)
     model = pbsim_model(opts, unit["setup"]["model"]) if unit["setup"]["method"] in PBSIM_METHODS else None
-    tmp = os.path.join(sim, "tmp")
+    tmp = os.path.join(sim, "tmp" + tag)
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
-    os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
+    os.makedirs(os.path.join(sim, "reads" + tag), exist_ok=True)
     rows, samples, genomes, seconds, written = [], ["sample\tout\tbases\tseed\n"], ["sample\tgenome\tfasta\tweight\thost\n"], 0.0, 0
     per_sample = bases_of(unit)
     for s, (_, community) in enumerate(unit_communities(unit, opts, source)):
         sample = f"{unit['name']}_s_{s + 1}"
-        out = os.path.join(sim, "reads", sample + ".fq" + reads_suffix(opts))
+        out = os.path.join(sim, "reads" + tag, sample + ".fq" + reads_suffix(opts))
         rows.append((sample, out, truth[community], community))
         # a scenario's sample is read at the depth of its community's sample (<point>_s_<i>: the factor of sample i)
         number = community.rsplit("_", 1)[-1]
@@ -1641,10 +1678,11 @@ def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
     command = [opts.simulator, "--long_samples", os.path.join(tmp, "samples.tsv"), "--long_genomes",
                os.path.join(tmp, "genomes.tsv"), "--long_setup", unit["setup"]["text"], "--long_stats", stats,
                "-t", str(threads)] + (["--long_model", model] if model else []) + genome_store_args(opts)
+    markers = os.path.join(sim if level is None else tmp, MARKER_READS)
     with contextlib.suppress(FileNotFoundError):  # an earlier run's counts
-        os.remove(os.path.join(sim, MARKER_READS))
+        os.remove(markers)
     if marker_args(opts):  # its genomes' reads on a marker gene, kept in sim (tmp goes once the run is done)
-        command += marker_args(opts) + ["--long_marker_reads", os.path.join(sim, MARKER_READS)]
+        command += marker_args(opts) + ["--long_marker_reads", markers]
     return {"rows": rows, "command": command, "base": base, "sim": sim, "tmp": tmp, "stats": stats, "threads": threads,
             "seconds": seconds, "written": written}
 
@@ -1735,16 +1773,16 @@ def map_rows(meta):
 
 def unit_map_rows(unit, opts):
     """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to; with
-    --sparse_first_levels also each sample's rows at those gates (SPARSE_FIRST), with --stride_levels at those with the
-    stride pick (SPARSE_FIRST_PICK stride), with --flex_indels_levels at those with --flex_indels too (FLEX_INDELS 1):
-    unit_level_ids. `_level_of` names the sample, which profile_map leaves out with the sample's reads coming through a
-    pipe."""
+    --sparse_first_levels and --model_levels also each sample's rows at those gates (SPARSE_FIRST), with --stride_levels
+    and --hash_levels at those with that pick (SPARSE_FIRST_PICK stride or hash), with --flex_indels_levels at those
+    with --flex_indels too (FLEX_INDELS 1): unit_level_ids. `_level_of` names the sample, which profile_map leaves out
+    with the sample's reads coming through a pipe, unless the level has pipes of its own (--model_levels)."""
     rows, dirs = unit_map_rows_of(unit, opts)
     unmapped = "write" if writes_unmapped(unit, opts) else "count"
     rows = [{**row, "UNMAPPED_READS": unmapped} for row in rows]
     levels = []
     for level in unit_level_ids(unit, opts):
-        gate, flex, stride = level_parts(level)
+        gate, flex, pick = level_parts(level)
         out = level_dir(unit, opts, level)
         sams, profiles = os.path.join(out, "alignments"), os.path.join(out, "profiles")
         dirs = dirs + [sams, profiles]
@@ -1757,7 +1795,7 @@ def unit_map_rows(unit, opts):
             levels.append({**row, "SAMPLEID": name, "SAM": "-" if sam in ("", "-") else os.path.join(sams, name + ext),
                            "PREFIX": os.path.join(out, name), "PROFILE": os.path.join(profiles, name + ".profile"),
                            "UNMAPPED_READS": "count", "SPARSE_FIRST": str(gate), **({"FLEX_INDELS": "1"} if flex else {}),
-                           **({STRIDE_COLUMN: STRIDE_VALUE} if stride else {}), "_level_of": row["SAMPLEID"]})
+                           **({STRIDE_COLUMN: pick} if pick else {}), "_level_of": row["SAMPLEID"]})
     return rows + levels, dirs
 
 
@@ -1817,11 +1855,12 @@ def profile_map(units, opts, path, paths_of=None):
         for d in dirs:
             os.makedirs(d, exist_ok=True)
         # A streamed run's samples (paths_of given) read their reads from pipes, each once: their rows at other gates are
-        # left out, the long-read units' too (whose map rows name their pipes themselves: they are in no paths_of).
-        # Until 2026-10-13 only the paired-end samples' were, and protal waited forever on a long-read sample's pipe
+        # left out, the long-read units' too (whose map rows name their pipes themselves: they are in no paths_of),
+        # unless a row has pipes of its own (--model_levels: stream_run streams the simulation again for it). Until
+        # 2026-10-13 only the paired-end samples' were left out, and protal waited forever on a long-read sample's pipe
         # opened a second time.
         if paths_of is not None:
-            unit_rows = [row for row in unit_rows if not row.get("_level_of")]
+            unit_rows = [row for row in unit_rows if not row.get("_level_of") or row["SAMPLEID"] in paths_of]
         rows += [{**row, **dict(zip(("FIRST", "SECOND"), paths_of[row["SAMPLEID"]]))}
                  if paths_of and row["SAMPLEID"] in paths_of else row for row in unit_rows]
     write_map(path, rows)
@@ -1842,7 +1881,8 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
     gated = collections.Counter(f"{row['READ_TYPE']} c{row['SPARSE_FIRST']}"
                                 + (FLEX_SUFFIX if row.get("FLEX_INDELS", "-") == "1" else "")
-                                + (STRIDE_SUFFIX if row.get(STRIDE_COLUMN, "-") == STRIDE_VALUE else "") for row in rows
+                                + {STRIDE_VALUE: STRIDE_SUFFIX, HASH_VALUE: HASH_SUFFIX}.get(row.get(STRIDE_COLUMN, "-"), "")
+                                for row in rows
                                 if row.get("SPARSE_FIRST", "-") not in ("", "-"))  # this and the other collection's
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run" +
@@ -1884,7 +1924,7 @@ def write_table(read_type, units, opts, context, gate=None):
     """Joins the dumps of a read type's units into its table; with `gate`, a level (unit_level_ids: a sparse-first gate,
     with --flex_indels too as "1f"), those of its samples profiled at it into OUT/c_gates/c<gate>/, meta_sample the
     samples' own names, and their names into samples_<read type>.txt there (units whose reads came through pipes have
-    none)."""
+    none, but at their --model_levels)."""
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     if gate is None:
@@ -1896,9 +1936,10 @@ def write_table(read_type, units, opts, context, gate=None):
         units = [u for u in units if gate in unit_level_ids(u, opts)]
         dumps = functools.partial(level_dumps, opts=opts, level=gate)
     samples_written = []
-    # <table>.unseen.tsv only with --gene_positions: without the simulator's counts there is nothing to write.
-    unseen_path = os.path.join(opts.out, unseen_table(read_type)) \
-        if getattr(opts, "gene_positions", None) and gate is None else os.devnull
+    # <table>.unseen.tsv only with --gene_positions: without the simulator's counts there is nothing to write. A level's
+    # beside its table (since 2026-10-13): the species a gate leaves without a row are its misses too.
+    unseen_path = os.path.join(os.path.dirname(table), unseen_table(read_type)) \
+        if getattr(opts, "gene_positions", None) else os.devnull
     genomes_of, markers_of = {}, {}
     distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
     unseen_partial = unseen_path + ".partial" if unseen_path != os.devnull else os.devnull
@@ -2266,19 +2307,22 @@ def profile_keys(units, opts, keys):
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
                         **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {}),
                         **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {}),
+                        **({"model_levels": unit_model_levels(u, opts)} if unit_model_levels(u, opts) else {}),
                         **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {}),
-                        **({"stride_levels": unit_stride_levels(u, opts)} if unit_stride_levels(u, opts) else {})}
+                        **({"stride_levels": unit_stride_levels(u, opts)} if unit_stride_levels(u, opts) else {}),
+                        **({"hash_levels": unit_hash_levels(u, opts)} if unit_hash_levels(u, opts) else {})}
             for u in units}
 
 
 def profiled(unit, opts, key):
     """Whether a unit is profiled with this key, all its samples' dumps there, and at its other levels (unit_level_ids:
-    --sparse_first_levels, --stride_levels, --flex_indels_levels) too unless its reads came through pipes."""
+    --sparse_first_levels, --model_levels, --stride_levels, --hash_levels, --flex_indels_levels) too; if its reads came
+    through pipes, only at those it streams (unit_streamed_level_ids: --model_levels)."""
     if not (same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and
             len(dumps_of(unit, opts)) >= unit["samples"]):
         return False
-    return streamed_here(unit, opts) or all(len(level_dumps(unit, opts, c)) >= unit["samples"]
-                                            for c in unit_level_ids(unit, opts))
+    levels = unit_streamed_level_ids(unit, opts) if streamed_here(unit, opts) else unit_level_ids(unit, opts)
+    return all(len(level_dumps(unit, opts, c)) >= unit["samples"] for c in levels)
 
 
 def unit_reads(unit, opts):
@@ -2531,8 +2575,11 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
     se ones, each pipe once; the same read 1s, as the simulator's reads do not depend on whether read 2 is written). A
     long-read unit: long_plan(unit, threads), its simulate_metagenomes --long_samples run (long_unit_plan) into its
     sim/reads. Every simulator starts with the run and writes a sample's pipes only once protal opens them, a sample at a
-    time (the later ones wait at their first pipe, holding little: next_batch); one failing stops the run. The caller
-    has the protal run's turn (follow: --protal_lock)."""
+    time (the later ones wait at their first pipe, holding little: next_batch); one failing stops the run. A unit's
+    samples at its --model_levels (unit_streamed_level_ids: <sample>__c<C>) are made again by a simulator of their own
+    per level, the same command into pipes of their own (stream_pe_c<C>, stream_se_c<C>; a long-read unit's
+    sim/reads_c<C>): the simulator's reads depend on its seeds, not on where they go. The caller has the protal run's
+    turn (follow: --protal_lock)."""
     began = time.time()
     paths_of, companions, folders, drawn_runs = {}, [], [], []
     suffix = ".fq" + reads_suffix(opts)
@@ -2543,23 +2590,29 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
             _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
             for unit in units:
                 first_only = unit["type"] == "se"
-                out = os.path.join(base, "stream_se" if first_only else "stream_pe")
-                shutil.rmtree(out, ignore_errors=True)
-                folders.append(out)
-                for row in rows:
-                    r1 = os.path.join(out, "reads", row["SAMPLEID"] + "_R1" + suffix)
-                    r2 = os.path.join(out, "reads", row["SAMPLEID"] + "_R2" + suffix)
-                    make_pipe(r1)
-                    if not first_only:
-                        make_pipe(r2)
-                    paths_of[row["SAMPLEID"] + ("_se" if first_only else "")] = (r1, "-" if first_only else r2)
-                command = pe_command(point, opts.threads)
-                command[command.index("-o") + 1] = out
-                command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
-                command += genome_store_args(opts) + pipe_args(opts) + marker_args(opts)
-                companions.append((f"{opts.simulator} ({unit['name']})",
-                                   command + (["--first_reads_only"] if first_only else []),
-                                   os.path.join(base, f"stream_{unit['type']}.log")))
+                for level in [None] + unit_streamed_level_ids(unit, opts):
+                    tag = "" if level is None else f"_c{level}"
+                    out = os.path.join(base, ("stream_se" if first_only else "stream_pe") + tag)
+                    shutil.rmtree(out, ignore_errors=True)
+                    folders.append(out)
+                    for row in rows:
+                        r1 = os.path.join(out, "reads", row["SAMPLEID"] + "_R1" + suffix)
+                        r2 = os.path.join(out, "reads", row["SAMPLEID"] + "_R2" + suffix)
+                        make_pipe(r1)
+                        if not first_only:
+                            make_pipe(r2)
+                        name = row["SAMPLEID"] + ("_se" if first_only else "") + \
+                            ("" if level is None else f"{LEVEL_SUFFIX}{level}")
+                        paths_of[name] = (r1, "-" if first_only else r2)
+                    command = pe_command(point, opts.threads)
+                    command[command.index("-o") + 1] = out
+                    command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
+                    # The same command at every level, so that the same reads come (only the database's gate's manifest,
+                    # with the marker genes' reads, is kept).
+                    command += genome_store_args(opts) + pipe_args(opts) + marker_args(opts)
+                    companions.append((f"{opts.simulator} ({unit['name']}{'' if level is None else f', gate {level}'})",
+                                       command + (["--first_reads_only"] if first_only else []),
+                                       os.path.join(base, f"stream_{unit['type']}{tag}.log")))
         else:
             plan = long_plan(units[0], opts.threads)
             for _, out, _, _ in plan["rows"]:
@@ -2568,6 +2621,14 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
             folders.append(plan["tmp"])
             companions.append((f"{opts.simulator} --long_samples ({units[0]['name']})", plan["command"] + pipe_args(opts),
                                os.path.join(base, "stream.log")))
+            for level in unit_streamed_level_ids(units[0], opts):
+                again = long_plan(units[0], opts.threads, level)
+                for sample, out, _, _ in again["rows"]:
+                    make_pipe(out)
+                    paths_of[sample + f"{LEVEL_SUFFIX}{level}"] = (out, "-")
+                folders += [again["tmp"], os.path.dirname(again["rows"][0][1])] if again["rows"] else [again["tmp"]]
+                companions.append((f"{opts.simulator} --long_samples ({units[0]['name']}, gate {level})",
+                                   again["command"] + pipe_args(opts), os.path.join(base, f"stream_c{level}.log")))
             drawn_runs.append((units[0], base, sim))
     units = [u for group in groups for u in group]
     names = [simulation_of(group[0]) for group in groups]
@@ -2583,7 +2644,7 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
         # A streamed run's manifest holds its genomes' reads on a marker gene (--gene_positions), which the design's in
         # sim cannot (no reads): kept there as manifest.stream_pe.tsv or manifest.stream_se.tsv (marker_counts).
         name, manifest = os.path.basename(out), os.path.join(out, "manifest.tsv")
-        if name.startswith("stream_") and os.path.isfile(manifest):
+        if name in ("stream_pe", "stream_se") and os.path.isfile(manifest):
             shutil.copy(manifest, os.path.join(os.path.dirname(out), "sim", f"manifest.{name}.tsv"))
         shutil.rmtree(out, ignore_errors=True)
     for unit, base, sim in drawn_runs:  # its pipes, and the key of a long-read unit made (none of its reads kept)
@@ -2795,8 +2856,8 @@ def collect(opts):
             sys.exit(error)
         return command
 
-    def long_plan(unit, threads):  # a streamed long-read unit's run (stream_run)
-        return long_unit_plan(drawn_index[unit["name"]], unit, opts, threads=threads)
+    def long_plan(unit, threads, level=None):  # a streamed long-read unit's run (stream_run), or its run at a level
+        return long_unit_plan(drawn_index[unit["name"]], unit, opts, threads=threads, level=level)
 
     if opts.follow:
         follow(units, opts, keys, simulate_again, pe_command, long_plan)

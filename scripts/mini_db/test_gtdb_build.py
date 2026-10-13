@@ -65,7 +65,7 @@ class BuildOptionsTest(unittest.TestCase):
     def test_sparse_first_gates(self):
         # --sparse-first: a gate per read type (protal --sparse_first's form), one for all, or none; --test-c-gates: the
         # collector's --sparse_first_levels form, its default every read type's.
-        self.assertEqual(build.sparse_first_spec(build.DEFAULT_SPARSE_FIRST), {"pe": 1, "se": 1, "pb": 8, "ont": 1})
+        self.assertEqual(build.sparse_first_spec(build.DEFAULT_SPARSE_FIRST), {"pe": 4, "se": 4, "pb": 16, "ont": 8})
         self.assertEqual(build.sparse_first_spec("2"), {"pe": 2, "se": 2, "pb": 2, "ont": 2})
         self.assertEqual(build.sparse_first_spec("none"), {})
         self.assertEqual(build.gates_text({"pe": 1, "pb": 8}), "pe:1,pb:8")
@@ -74,21 +74,41 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_spec(bad)
         self.assertEqual(build.sparse_first_levels(build.DEFAULT_TEST_C_GATES),
-                         {"pe": [0, 1, 2, 4], "se": [0, 1, 2, 4], "pb": [0, 4, 8, 16], "ont": [0, 1, 4, 8]})
+                         {"pe": [0, 2, 16], "se": [0, 2, 16], "pb": [0, 4], "ont": [0, 4, 32]})
         self.assertEqual(build.sparse_first_levels("pb:16/4/4"), {"pb": [4, 16]})
         # --test-flex-indels: ONT's gates and the Ultima units' (key ultima) with --flex_indels too; none: no such rows.
         self.assertEqual(build.test_flex_spec(build.DEFAULT_TEST_FLEX_INDELS), {"ont": [0, 1, 4, 8], "ultima": [0, 1, 2, 4]})
         self.assertEqual(build.test_flex_spec("none"), {})
         with self.assertRaises(argparse.ArgumentTypeError):
             build.test_flex_spec("illumina:1")
-        # --test-stride: auto (its default with --test-c-gates), every gate of --test-c-gates of 2 or more with the
-        # stride pick (gates below 2 have none); given gates; none: no rows.
+        # --test-other-pick: auto (its default with --test-c-gates), each read type's database gate if 2 or more, with
+        # the pick the database does not use (gates below 2 have none); given gates; none: no rows.
         default = build.sparse_first_levels(build.DEFAULT_TEST_C_GATES)
-        self.assertEqual(build.test_stride_levels(build.test_stride_spec("auto"), default),
-                         {"pe": [2, 4], "se": [2, 4], "pb": [4, 8, 16], "ont": [4, 8]})
-        self.assertEqual(build.test_stride_levels("auto", {"pe": [0, 1, 2], "se": [0]}), {"pe": [2]})
-        self.assertEqual(build.test_stride_levels("auto", None), {})
-        self.assertEqual(build.test_stride_levels(build.test_stride_spec("pb:8"), default), {"pb": [8]})
+        gates = build.sparse_first_spec(build.DEFAULT_SPARSE_FIRST)
+        self.assertEqual(build.test_stride_levels(build.test_stride_spec("auto"), default, gates),
+                         {"pe": [4], "se": [4], "pb": [16], "ont": [8]})
+        self.assertEqual(build.test_stride_levels("auto", {"pe": [0]}, {"pe": 1, "pb": 8}), {"pb": [8]})
+        self.assertEqual(build.test_stride_levels("auto", None, gates), {})
+        self.assertEqual(build.test_stride_levels(build.test_stride_spec("pb:8"), default, gates), {"pb": [8]})
+        self.assertEqual((build.other_pick("stride"), build.other_pick("hash")), ("hash", "stride"))
+        # --sparse-first-pick: stride (the default) or hash for all, or read types and theirs (the others stride).
+        self.assertEqual(build.sparse_first_pick_spec(build.DEFAULT_SPARSE_FIRST_PICK),
+                         {"pe": "stride", "se": "stride", "pb": "stride", "ont": "stride"})
+        picks = build.sparse_first_pick_spec("pb:hash")
+        self.assertEqual(picks, {"pe": "stride", "se": "stride", "pb": "hash", "ont": "stride"})
+        self.assertEqual(build.picks_text(picks), "pe:stride,se:stride,pb:hash,ont:stride")
+        for bad in ("strided", "pb:8", "xx:hash", "pe:"):
+            with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
+                build.sparse_first_pick_spec(bad)
+        # --model-gates: a ladder per read type, the database's gate added; none: the database's alone. A run gated at C
+        # is profiled with the model of the gate nearest it (log2 C, off below 1, the lower of two).
+        ladder = build.model_gate_ladder(build.model_gates_spec(build.DEFAULT_MODEL_GATES), gates, ["pe", "se", "pb", "ont"])
+        self.assertEqual(ladder, {"pe": [1, 4, 8], "se": [1, 4, 8], "pb": [8, 16, 32], "ont": [1, 8, 16]})
+        self.assertEqual(build.model_gate_ladder(build.model_gates_spec("pe:1/8"), {"pe": 2}, ["pe", "se"]),
+                         {"pe": [1, 2, 8], "se": [0]})
+        self.assertEqual(build.model_gates_spec("none"), {})
+        self.assertEqual([build.nearest_gate(c, [1, 4, 8]) for c in (0, 1, 2, 4, 16, 32)], [1, 1, 1, 4, 8, 8])
+        self.assertEqual([build.nearest_gate(c, [0, 4]) for c in (0, 1, 2, 8)], [0, 0, 4, 4])
         self.assertEqual(build.test_stride_spec("none"), {})
         for bad in ("pe:1", "ultima:4"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
@@ -195,10 +215,17 @@ class BuildOptionsTest(unittest.TestCase):
                                       "--flex_indels_levels", "ont:1/4", "--write_simulations", ont), "test.log")]
         sizes = build.simulation_sizes(gated)
         self.assertEqual(len(sizes), 2)
-        # pe: 0, 2 and 2s (se only 0); ont: 4, 1f and 4f.
-        self.assertEqual([c / (build.KEPT_SHARE * r) for _, r, c in build.simulation_costs(gated)], [3, 3])
-        self.assertEqual([(largest, r) for largest, r, _ in build.simulation_costs(gated)], sizes)
-        self.assertEqual([c for _, _, c in build.simulation_costs(plain)], [0, 0])
+        # pe: 0, 2 and 2s (se only 0); ont: 4, 1f and 4f. Streamed, none (no --model_levels).
+        self.assertEqual([c / (build.KEPT_SHARE * r) for _, r, c, _ in build.simulation_costs(gated)], [3, 3])
+        self.assertEqual([s for _, _, _, s in build.simulation_costs(gated)], [0, 0])
+        self.assertEqual([(largest, r) for largest, r, _, _ in build.simulation_costs(gated)], sizes)
+        self.assertEqual([c for _, _, c, _ in build.simulation_costs(plain)], [0, 0])
+        # --model_levels (--model-gates' other gates): every sample at them, a streamed simulation's too (pe: 1 and 8,
+        # with 0 and 2: four levels written; ont: 8 with 4: two).
+        models = [("training data", command("--sparse_first_levels", "pe:0/2,ont:4", "--model_levels", "pe:1/8,ont:8"),
+                   "training.log")]
+        self.assertEqual([(c / (build.KEPT_SHARE * r), s / (build.KEPT_SHARE * r))
+                          for _, r, c, s in build.simulation_costs(models)], [(4, 2), (2, 1)])
         # Written whatever --stream-above says (--write_simulations) or streamable: the ONT simulation and the pe point's.
         written, streamable = build.simulation_costs(gated, "written"), build.simulation_costs(gated, "streamable")
         self.assertEqual(len(written), 1)
@@ -611,27 +638,69 @@ class BuildFunctionsTest(unittest.TestCase):
         out = os.path.join(root, "c_gates.tsv")
         lines = build.c_gates_summary(["pe", "pb", "ont"], prefixes, {"pe": [0, 4], "pb": [4, "4s", "8s"], "ont": [0, "1f"]},
                                       {"pe": 1, "pb": 8, "ont": 1}, test, cpu, out)
-        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 F1 0.7000",
-                                 "pb: 4 F1 0.9000, 30 CPU s; 4 stride F1 0.9200 (0.9000 by hash), 31 CPU s; 8 (database) "
-                                 "F1 0.8333, 20 CPU s; 8 stride F1 0.8500 (0.8333 by hash), 21 CPU s",
+        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 hash F1 0.7000",
+                                 "pb: 4 hash F1 0.9000, 30 CPU s; 4 stride F1 0.9200 (0.9000 by hash), 31 CPU s; 8 hash "
+                                 "(database) F1 0.8333, 20 CPU s; 8 stride F1 0.8500 (0.8333 by hash), 21 CPU s",
                                  "ont: off F1 0.9500, 90 CPU s; 1 (database) F1 0.9600, 50 CPU s; 1 with --flex_indels F1 "
                                  "0.9700 (0.9600 at the database's gate), 60 CPU s"])
         table = list(csv.DictReader(open(out), delimiter="\t"))
         self.assertEqual(list(table[0]), build.C_GATES_COLUMNS)
-        self.assertEqual([(r["read_type"], r["gate"], r["flex_indels"], r["stride"], r["database_gate"], r["FP"], r["FN"],
-                           r["aligning_cpu_s"], r["aligning_wall_s"], r["baseline_F1"], r["baseline_aligning_cpu_s"])
-                          for r in table],
-                         [("pe", "0", "0", "0", "0", "0", "1", "30.0", "6.0", "0.833333", "20.0"),
-                          ("pe", "1", "0", "0", "1", "1", "1", "20.0", "3.0", "", ""),
-                          ("pe", "4", "0", "0", "0", "1", "3", "", "", "0.833333", "20.0"),
-                          ("pb", "4", "0", "0", "0", "1", "1", "30.0", "3.0", "0.833333", "20.0"),
-                          ("pb", "4", "0", "1", "0", "1", "1", "31.0", "3.0", "0.833333", "20.0"),
-                          ("pb", "8", "0", "0", "1", "1", "1", "20.0", "2.0", "", ""),
-                          ("pb", "8", "0", "1", "0", "1", "1", "21.0", "2.0", "0.833333", "20.0"),
-                          ("ont", "0", "0", "0", "0", "1", "1", "90.0", "9.0", "0.96", "50.0"),
-                          ("ont", "1", "0", "0", "1", "1", "1", "50.0", "5.0", "", ""),
-                          ("ont", "1", "1", "0", "0", "1", "1", "60.0", "6.0", "0.96", "50.0")])
+        self.assertEqual([(r["read_type"], r["gate"], r["pick"], r["flex_indels"], r["database_gate"], r["model_gate"],
+                           r["FP"], r["FN"], r["aligning_cpu_s"], r["aligning_wall_s"], r["baseline_F1"],
+                           r["baseline_aligning_cpu_s"]) for r in table],
+                         [("pe", "0", "-", "0", "0", "1", "0", "1", "30.0", "6.0", "0.833333", "20.0"),
+                          ("pe", "1", "-", "0", "1", "1", "1", "1", "20.0", "3.0", "", ""),
+                          ("pe", "4", "hash", "0", "0", "1", "1", "3", "", "", "0.833333", "20.0"),
+                          ("pb", "4", "hash", "0", "0", "8", "1", "1", "30.0", "3.0", "0.833333", "20.0"),
+                          ("pb", "4", "stride", "0", "0", "8", "1", "1", "31.0", "3.0", "0.833333", "20.0"),
+                          ("pb", "8", "hash", "0", "1", "8", "1", "1", "20.0", "2.0", "", ""),
+                          ("pb", "8", "stride", "0", "0", "8", "1", "1", "21.0", "2.0", "0.833333", "20.0"),
+                          ("ont", "0", "-", "0", "0", "1", "1", "1", "90.0", "9.0", "0.96", "50.0"),
+                          ("ont", "1", "-", "0", "1", "1", "1", "1", "50.0", "5.0", "", ""),
+                          ("ont", "1", "-", "1", "0", "1", "1", "1", "60.0", "6.0", "0.96", "50.0")])
         self.assertEqual(table[0]["F1"], "0.909091")
+
+    def test_c_gates_summary_with_models_at_other_gates(self):
+        # --model-gates: a level is scored by the model of the gate nearest it (scored_by: its own, or the nearest
+        # gate's trainer's extra_tests), its baseline by the database gate's model; the hash row beside the database's
+        # stride pick at its gate. The present species without a row (unseen) are the trainer's, in the table.
+        root = self.tmp.name
+        test = os.path.join(root, "test")
+
+        def scores(f1, unseen=0):
+            return {"samples": 2, "taxa": 10, "present": 6, "unseen": unseen, "TP": 5, "FP": 1, "FN": 1, "precision": 5 / 6,
+                    "sensitivity": 5 / 6, "F1": f1}
+        base = scores(0.9)
+        own = {"extra_tests": {f"c{c}": {"scores": scores(0.5), "test_file_same_samples": base}
+                               for c in (0, 1, 2, 8, "4h")}}
+        own["extra_tests"]["c4h"]["scores"] = scores(0.88, unseen=3)
+        gate_models = {1: {"extra_tests": {"c0": {"scores": scores(0.91)}, "c1": {"scores": scores(0.92)},
+                                           "c2": {"scores": scores(0.93)}}},
+                       8: {"extra_tests": {"c8": {"scores": scores(0.85)}}}}
+        prefixes = {"pe": os.path.join(root, "trained_model")}
+        gate_prefixes = {"pe": {g: os.path.join(root, f"trained_model_c{g}") for g in gate_models}}
+        for prefix, data in [(prefixes["pe"], own)] + [(gate_prefixes["pe"][g], m) for g, m in gate_models.items()]:
+            with open(prefix + ".metrics.json", "w") as fh:
+                json.dump(data, fh)
+        levels = [0, 1, 2, 8, "4h"]
+        for c in levels:
+            os.makedirs(os.path.join(test, build.LEVELS_DIR, f"c{c}"), exist_ok=True)
+            with open(os.path.join(test, build.LEVELS_DIR, f"c{c}", "samples_pe.txt"), "w") as fh:
+                fh.write("s1\ns2\n")
+        scored_by = {"pe": {c: build.nearest_gate(build.level_parts(c)[0], [1, 4, 8]) for c in levels}}
+        self.assertEqual(scored_by["pe"], {0: 1, 1: 1, 2: 1, 8: 8, "4h": 4})
+        out = os.path.join(root, "c_gates_models.tsv")
+        lines = build.c_gates_summary(["pe"], prefixes, {"pe": levels}, {"pe": 4}, test, [], out, gate_prefixes, scored_by,
+                                      {"pe": "stride"})
+        self.assertEqual(lines, ["pe: off (model 1) F1 0.9100; 1 (its model) F1 0.9200; 2 stride (model 1) F1 0.9300; "
+                                 "4 stride (database) F1 0.9000; 4 hash F1 0.8800 (0.9000 by stride); "
+                                 "8 stride (its model) F1 0.8500"])
+        table = list(csv.DictReader(open(out), delimiter="\t"))
+        self.assertEqual([(r["gate"], r["pick"], r["database_gate"], r["model_gate"], r["unseen"], r["F1"], r["baseline_F1"])
+                          for r in table],
+                         [("0", "-", "0", "1", "0", "0.91", "0.9"), ("1", "-", "0", "1", "0", "0.92", "0.9"),
+                          ("2", "stride", "0", "1", "0", "0.93", "0.9"), ("4", "stride", "1", "4", "0", "0.9", ""),
+                          ("4", "hash", "0", "4", "3", "0.88", "0.9"), ("8", "stride", "0", "8", "0", "0.85", "0.9")])
 
     def test_cpu_logs(self):
         # The run's CPU use goes to logs only: a row per command that ended (Job.cpu_row: its wall and CPU seconds and the

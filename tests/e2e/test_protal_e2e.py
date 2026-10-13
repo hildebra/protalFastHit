@@ -2941,6 +2941,55 @@ class ReadTypeModelTest(DbTest):
         self.assertIn("Model of paired-end reads: model_pe.xml in " + bundle, log)
         self.assertEqual(read_text(self.path("out_pe_in_place", "sa.profile")), self.expected["pe"])
 
+    def test_models_at_other_gates(self):
+        """--add_model --model_gate C (2026-10-13) stores a model trained on runs gated at C as model_<type>_c<C>.xml
+        beside the database's gate's (the test database's gate is off). A sample is profiled with the model of the gate
+        nearest its own (--sparse_first): C itself, or the nearest on the scale of log2 C; the database's gate's
+        model_pe.xml at its own gate. --model_gate of the database's own gate stores the type's model."""
+        db, bundle = self.copy("db_gates")
+        rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "pe", "--model_gate", "4", "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"Stored {self.MODEL} as model_pe_c4.xml in {bundle}", log)
+        self.assertRegex(log, r"Models for read types: pe \(also gates 4\)")
+        # (the sample's gate, the model's gate and file, the profile: the test database's model's or the small model's)
+        for out, extra, gate, member, profile in (
+                ("gate_own", (), "off", "model_pe.xml", baseline().text("sa.profile")),
+                ("gate_4", ("--sparse_first", "4"), "4", "model_pe_c4.xml", self.expected["pe"]),
+                ("gate_8", ("--sparse_first", "8"), "4", "model_pe_c4.xml", self.expected["pe"]),
+                ("gate_1", ("--sparse_first", "1"), "off", "model_pe.xml", baseline().text("sa.profile"))):
+            with self.subTest(out=out):
+                rc, log = self.profile_only(db, out, *extra)
+                self.assertEqual(rc, 0, log[-3000:])
+                self.assertIn(f"Model of paired-end reads gated at {gate}: {member} in {bundle}", log)
+                self.assertEqual(read_text(self.path(out, "sa.profile")), profile)
+        rc, log = self.profile_only(db, "gate_8_again", "--sparse_first", "8")
+        self.assertIn("the database's models were trained with pe off (models also at 4)", log)
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked_gates"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(filecmp.cmp(self.path("unpacked_gates", "model_pe_c4.xml"), self.MODEL, shallow=False))
+        # The database's own gate: the type's model.
+        rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "pe", "--model_gate", "0", "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("--model_gate 0 is the database's own gate of paired-end reads", log)
+        self.assertIn(f"Stored {self.MODEL} as model_pe.xml in {bundle} (replaced the previous one)", log)
+        # A read type once per gate; a gate per model; --model_gate only with --add_model.
+        with open(bundle, "rb") as fh:
+            before = fh.read()
+        model = self.MODEL
+        for models, types, gates, problem in ((f"{model},{model}", "pe,pe", "8,8", "--read_type names pe twice for --add_model at --model_gate 8"),
+                                              (f"{model},{model}", "pe,pe", "8", "--model_gate must give a gate per model"),
+                                              (model, "pe", "3", "--model_gate: a gate is -, 0, 1, 2, 4, 8, 16 or 32, not '3'"),
+                                              (f"{model},{model}", "pe,pe", "-,0", "two models would be stored as model_pe.xml")):
+            with self.subTest(gates=gates):
+                rc, log = run(self.work, "--add_model", models, "--read_type", types, "--model_gate", gates, "--db", db)
+                self.assertNotEqual(rc, 0, log[-3000:])
+                self.assertIn(problem, log)
+                with open(bundle, "rb") as fh:
+                    self.assertEqual(fh.read(), before, "the database is unchanged")
+        rc, log = run(self.work, "--db", db, *reads("sa"), "-o", "out_gate_alone", "--model_gate", "4")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--model_gate goes with --add_model", log)
+
     def test_read_type_checks(self):
         rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_x", "--read_type", "nanopore")
         self.assertEqual(rc, 30, log[-3000:])
@@ -4202,7 +4251,7 @@ class SparseFirstGatesTest(WorkDir):
         shutil.copytree(release.inputs, cls.db)
         rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
                                 "--reference", os.path.join(cls.db, "reference.fna"), "--sparse_first", "pe:2,se:4,pb:8,ont:1",
-                                "--sparse_first_score", "13", "--sparse_first_pick", "se:stride")
+                                "--sparse_first_score", "13", "--sparse_first_pick", "pe:hash")
         if rc != 0:
             raise RuntimeError("protal --build --sparse_first failed:\n" + cls.build_log[-3000:])
 
@@ -4218,11 +4267,12 @@ class SparseFirstGatesTest(WorkDir):
         rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
         settings = read_text(os.path.join(unpacked, "build_settings.tsv"))
+        # Every read type's pick: given (pe hash), else stride (protal's default since 2026-10-13).
         for line in ("sparse_first_pe\t2\n", "sparse_first_se\t4\n", "sparse_first_pb\t8\n", "sparse_first_ont\t1\n",
-                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n", "sparse_first_pick_se\tstride\n"):
+                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n", "sparse_first_pick_pe\thash\n",
+                     "sparse_first_pick_se\tstride\n", "sparse_first_pick_pb\tstride\n", "sparse_first_pick_ont\tstride\n"):
             self.assertIn(line, settings)
-        self.assertIn(", pick se stride (", self.build_log)
-        self.assertNotIn("sparse_first_pick_pe", settings)
+        self.assertIn(", pick pe hash, se stride, pb stride, ont stride (", self.build_log)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
         log = self.align("auto")
@@ -4255,9 +4305,11 @@ class SparseFirstGatesTest(WorkDir):
     def test_an_ungated_database_runs_ungated(self):
         log = self.align("plain", db=self.plain_db)
         self.assertNotIn("sparse first", log)
+        # Its runs gated by --sparse_first pick by stride, as its build recorded (protal's default since 2026-10-13).
         log = self.align("plain_gated", "--sparse_first", "2", db=self.plain_db)
-        self.assertIn("sparse first: pe 2 (--sparse_first), score 14, 1 hit(s); the database's models were trained with "
-                      "pe off, score 14, 1 hit(s)", log)
+        self.assertIn("sparse first: pe 2 stride (--sparse_first), score 14, 1 hit(s); the database's models were trained "
+                      "with pe off, score 14, 1 hit(s)", log)
+        self.assertIn("Sample plain_gated sparse first (1/2 of the cores by stride, score 14", log)
         self.assertIn("Warning: 1 sample(s) of this run (e.g. plain_gated) are gated otherwise", log)
 
     def test_every_core_sampled_keeps_every_record(self):
@@ -4335,9 +4387,9 @@ class SparseFirstGatesTest(WorkDir):
         self.assertEqual(records["stride"], records["hash"])
 
     def test_runs_follow_the_databases_picks(self):
-        """A run on the database picks as it records (here se: stride at C 4; pe: hash, as it says nothing) and is warned
-        when it picks otherwise, by --sparse_first_pick or the map's SPARSE_FIRST_PICK; --sparse_seeding, which stands for
-        an index of the hash pick's cores, refuses a sample gated with the stride pick."""
+        """A run on the database picks as it records (here se: stride at C 4, the build's default; pe: hash, as the build
+        was told) and is warned when it picks otherwise, by --sparse_first_pick or the map's SPARSE_FIRST_PICK;
+        --sparse_seeding, which stands for an index of the hash pick's cores, refuses a sample gated with the stride pick."""
         def single(name, *extra, rc_expected=0):
             rc, log = run(self.work, "--db", self.db, "-1", self.reads[0], "--prefix", name, "-o", name, "-t", "2",
                           "--no_strains", "--no_profile", *extra)

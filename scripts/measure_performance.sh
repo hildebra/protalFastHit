@@ -47,7 +47,8 @@
 # logs/<sample>.sparse<C>.log. Printed last: each level's wall, aligning and CPU time against the timed runs' medians.
 # A level with an s (e.g. 8s, since 2026-10-13) also gives protal's --sparse_seeding: the reads kept are seeded from the
 # gate's cores alone, as an index of only those would seed them, and the log tells what such an index would hold
-# (docs/claude/2026-10-13-sparse-seeding).
+# (docs/claude/2026-10-13-sparse-seeding); with --sparse_first_pick hash, as such an index holds the hash pick's cores.
+# The other levels gate with the database's pick (stride for a database built since 2026-10-13).
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -385,8 +386,12 @@ for spec in "$@"; do
             run=$runs/protal/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
             cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "${c%s}")
             # A level C with an s: the reads kept seeded from the gate's cores alone (--sparse_seeding), as an index of
-            # only those would seed them.
-            [ "${c%s}" != "$c" ] && cmd+=(--sparse_seeding)
+            # only those would seed them. Such an index holds the hash pick's cores: a protal that picks by stride by
+            # default (since 2026-10-13) is told the hash pick.
+            if [ "${c%s}" != "$c" ]; then
+                cmd+=(--sparse_seeding)
+                case $("$protal" --full_help 2>&1) in *--sparse_first_pick*) cmd+=(--sparse_first_pick hash) ;; esac
+            fi
             # shellcheck disable=SC2206
             cmd+=(${SPARSE_ARGS:-} ${PROTAL_ARGS:-})
             if ! timed "$log" $use_perf "${cmd[@]}"; then

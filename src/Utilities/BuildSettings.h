@@ -3,19 +3,23 @@
 // traceback (WfaTraceback.h): the strain alleles, congener gaps and column weights are aligned with it, and the models
 // are trained on runs that align with it; how the models' `fragments` feature counts (FragmentCount, since
 // 2026-10-12; mapq when not said); and the sparse-first gate of each read type (--sparse_first, since 2026-10-12; off
-// when not said) and its pick (--sparse_first_pick, since 2026-10-13; hash when not said): the reads it gives up count
-// no failed candidates, so the models are trained on runs gated alike. A
+// when not said) and its pick (--sparse_first_pick, since 2026-10-13; when not said hash if the gate is said, else
+// stride: DatabasePick): the reads it gives up count no failed candidates, so the models are trained on runs gated
+// alike. A
 // database built before 2026-10-11 has no build_settings.tsv; it was built with the classic traceback.
 #pragma once
 
 #include <array>
+#include <bit>
 #include <charconv>
 #include <cstddef>
+#include <cstdlib>
 #include <istream>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "ReadType.h"
 #include "WfaTraceback.h"
@@ -117,6 +121,19 @@ namespace protal {
         return text.empty() ? "none" : text;
     }
 
+    // Of the gates a read type has models of (`trained`, not empty), the one nearest `gate` on the scale of C's log2,
+    // off (0) one step below C 1; of two as near, the lower (the more sensitive) one. A run gated at `gate` is profiled
+    // with that gate's model (Options::ModelGate).
+    inline size_t NearestGate(size_t gate, std::vector<size_t> const& trained) {
+        auto const step = [](size_t c) { return c == 0 ? -1 : static_cast<int>(std::bit_width(c)) - 1; };
+        size_t best = trained.front();
+        for (size_t c : trained) {
+            int const d = std::abs(step(c) - step(gate)), best_d = std::abs(step(best) - step(gate));
+            if (d < best_d || (d == best_d && c < best)) best = c;
+        }
+        return best;
+    }
+
     // "pe 1, se 1, pb 8, ont 1" (the read types given; "off" for 0), for messages; "none" if none is given.
     inline std::string SparseFirstGatesText(SparseFirstGates const& gates) {
         std::string text;
@@ -148,8 +165,17 @@ namespace protal::build_settings {
         SparseFirstGates sparse_first;                // per read type; nothing if the file does not say (off)
         std::optional<size_t> sparse_first_score;     // nothing if the file does not say (14)
         std::optional<size_t> sparse_first_hits;      // nothing if the file does not say (1)
-        SparseFirstPicks sparse_first_pick;           // per read type; nothing if the file does not say (hash)
+        SparseFirstPicks sparse_first_pick;           // per read type; nothing if the file does not say (DatabasePick)
     };
+
+    // The pick a database's runs of reads of type index `t` gate with by default, and its models were trained with: as
+    // build_settings.tsv records it. A database that records the type's gate but not its pick was built in the two
+    // days before the pick could be chosen (2026-10-12/13) and gated by hash; one that records neither was trained
+    // ungated, and a run gated on it picks by stride, protal's default since 2026-10-13.
+    inline SparseFirstPick DatabasePick(Settings const& settings, size_t t) {
+        if (settings.sparse_first_pick[t]) return *settings.sparse_first_pick[t];
+        return settings.sparse_first[t] ? SparseFirstPick::Hash : SparseFirstPick::Stride;
+    }
 
     // A whole number for a setting's value, or nothing.
     inline std::optional<size_t> ParseCount(std::string_view text) {

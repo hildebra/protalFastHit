@@ -28,6 +28,27 @@ for this page.
 
 ## Since 0.8.3
 
+- **The stride pick by default, gates 4/4/16/8, and models at other gates** (2026-10-13). The r226 v27 build
+  tested the gates and both picks ([report](claude/2026-10-13-r226-v27-c-gates.md)): up to pe/se C 4, pb C 16 and
+  ONT C 8 no measurable F1 was lost, for 36-44% less alignment CPU than at C 1 (pb 11% less than C 8), and the stride
+  lost 2.5-17 times fewer present species than the hash, at equal or better F1.
+  - `--build` records the stride pick for every read type unless `--sparse_first_pick` says otherwise. Runs follow
+    the database's pick, stride where it records none; a database built on 2026-10-12/13 that records gates but no
+    pick stays hash ([running.md](running.md#developer-options)).
+  - A database may hold models trained at other gates (`model_pe_c1.xml`, ...; `--add_model --model_gate C`). A
+    sample is profiled with the model trained at the gate nearest its own and warned only if that is not its gate.
+  - `build_gtdb_database.py` builds at `--sparse-first pe:4,se:4,pb:16,ont:8` with `--sparse-first-pick stride` and
+    trains models at `--model-gates pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16`: both collections are profiled at each
+    gate too (the streamed simulations streamed again), and the models go into the finished database. Each other
+    gate costs the collections' alignment once more ([databases.md](databases.md#choosing-the-sparse-first-gates)).
+  - `c_gates.tsv` counts the present species a gate leaves without a row as missed (`unseen`). Before, they were
+    left out, so that the hash, which loses more, looked better. Each row is scored by the model of the gate nearest
+    it (`model_gate`), and the pick is a column (`pick`). `--test-other-pick` (`--test-stride` before) tests the pick
+    the database does not use, by default at its own gate; `--test-c-gates`' default is `pe:0/2/16,se:0/2/16,pb:0/4,
+    ont:0/4/32`.
+  - `measure_performance.sh --test_sparse` gives `--sparse_first_pick hash` with `--sparse_seeding`, which stands
+    for an index of the hash pick's cores.
+
 - **gzip files of many members on several threads** (2026-10-13). 0.8.3 read a gzip file of many small members
   (members one after the other, not BGZF) in pieces at about a third of one thread's speed. Its block finder scanned
   the whole file for blocks to start a piece at and found none. At r226 the paired-end sample's alignment took 58 s

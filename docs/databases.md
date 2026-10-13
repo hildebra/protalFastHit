@@ -22,7 +22,7 @@ databases are in [development.md](development.md).
 | `index.prx` | the k-mer index of the reference marker genes |
 | `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
-| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash` or `stride`) |
+| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash` or `stride`; `--build` records `stride` where not given) |
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
@@ -38,6 +38,7 @@ databases are in [development.md](development.md).
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
 | `column_weights.bin`, `strain_alleles.bin` | only in `database.protal` (since 2026-10-11), beside the text tables they are made from: the same tables as a run holds them (the column weights' codes packed, ~1.5 bytes a column), read straight into memory on several threads without parsing. At r226 the column weights' text took 12 s of every run on one thread and ~7.6 GB more while it was read ([report](claude/2026-10-11-performance-audit/README.md)). Each records the size of its text table; one made from another text (`--add_tables` of the text alone, by an older protal) is not used, and the text is read |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
+| `model_pe_c1.xml`, `model_PB_c32.xml`, ... | since 2026-10-13: models trained at other sparse-first gates than the database's (`--add_model --model_gate`, [`--model-gates`](#choosing-the-sparse-first-gates)), which runs gated nearer that gate are profiled with |
 
 A database without an optional table works; the features that need it are then fixed values (0, or
 0.5). A model trained with a table should run with it.
@@ -108,6 +109,10 @@ protal --decompress_db --db /path/to/protal-db -t 16    # -> separate raw files
 **Models.** `protal --add_model MODEL --read_type pe --db DB` (or `se`, `pb`, `ont`) checks a model
 and replaces the database's model of that read type. Several at once
 (`--add_model pe.xml,se.xml --read_type pe,se`) are all checked before anything is written.
+`--model_gate C` (one per model, `-` for the database's own gate) stores a model trained on runs
+gated at another gate than the database's as `model_<type>_c<C>.xml` (`--add_model pe.xml,pe_c1.xml
+--read_type pe,pe --model_gate -,1`): runs gated at or nearest C are profiled with it
+([below](#choosing-the-sparse-first-gates)).
 `--model` and `--model_se` use another model for a run without changing the database.
 
 The models are the last members of `database.protal`, so `--add_model` replaces them in place: it
@@ -605,30 +610,55 @@ mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 #### Choosing the sparse-first gates
 
 protal's `--sparse_first C` gives a read up before seeding when none of the 1/C of its k-mer cores
-in the sample finds a near-exact hit ([running.md](running.md#developer-options)).
+in the sample finds a near-exact hit ([running.md](running.md#developer-options)); the gate's pick
+(`--sparse_first_pick`) chooses those cores: `stride`, every C-th core of a read in read order, or
+`hash`, those whose hash falls in 1/C of its range.
 A read given up counts no failed candidates, so the models must be trained on runs gated as the
-database's runs will be: the build records `--sparse-first` (default `pe:1,se:1,pb:8,ont:1`) in
-both databases' `build_settings.tsv`, and every run on them, the collections' too, follows it.
+database's runs will be: the build records `--sparse-first` (default `pe:4,se:4,pb:16,ont:8`;
+`pe:1,se:1,pb:8,ont:1` on 2026-10-12/13) and `--sparse-first-pick` (default `stride`; hash before
+2026-10-13) in both databases' `build_settings.tsv`, and every run on them, the collections' too,
+follows them. At r226 (v27) these gates cost no measurable F1 against C 1 (pb C 8) and saved 36-44%
+of the alignment's CPU (pb 11%), and the stride lost 2.5-17 times fewer present species than the
+hash ([report](claude/2026-10-13-r226-v27-c-gates.md)).
 
-To choose the gates for the next build, `--test-c-gates` profiles the test set (the independent
-test samples and the scenarios' hold-out samples) at other gates too, in the same protal runs
-(map rows `<sample>__c<C>` with the map's `SPARSE_FIRST` column; samples streamed through pipes
-only at the database's gate). Each trainer scores those tables with its model as protal calls
-(`--extra-test-file`: the report's "Extra test tables" section and `extra_tests` in
-`<prefix>.metrics.json`), beside the test file's rows of the same samples, and the build writes
-`model_logs/c_gates.tsv` and a console line per read type:
+**Models at other gates.** A user may gate otherwise (`protal --sparse_first`): a sensitive gate,
+or a faster one. `--model-gates` (default `pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16`; `none` for the
+database's gate alone) trains a model at each other gate of a read type too: both collections
+profile all their samples at those gates as well (map rows `<sample>__c<C>`; a simulation streamed
+into protal is streamed again for each, by a simulator of its own into pipes of its own, the same
+reads), a trainer per gate takes the tables in `training/c_gates/c<C>/` and tests on
+`test/c_gates/c<C>/` (`model_logs/trained_model[_<type>]_c<C>.*`, `classifier_training*_c<C>.log`),
+and the models go into the finished database beside its gate's, as `model_pe_c1.xml`,
+`model_PB_c32.xml`, ... (`protal --add_model --model_gate C`; its build packs placeholders of them,
+which `--add_model` replaces in place). A run is profiled with the model of the gate nearest its own
+(on the scale of log2 C, off next to C 1; between two, the lower). Each other gate costs the
+collections' alignment once more, at that gate's speed, and a trainer; the console's
+"models at other gates" line and `summary.txt` (rows `pe c1`, ...) give their F1.
+
+**Comparing gates.** `--test-c-gates` profiles the test set (the independent test samples and the
+scenarios' hold-out samples) at more gates, in the same protal runs (map rows `<sample>__c<C>` with
+the map's `SPARSE_FIRST` column; samples streamed through pipes only at the database's gate and those
+of `--model-gates`). Every level of the test set, those of `--model-gates` too, is scored as protal
+would call it: by the model of the gate nearest it (`--extra-test-file` of that model's trainer: the
+report's "Extra test tables" section and `extra_tests` in `<prefix>.metrics.json`), and by the
+database gate's model beside the test file's rows of the same samples. The present species of a
+table's samples that have no row in it (`<table>.unseen.tsv`, beside it: a gate that gives up every
+read of a species leaves it no row) count as missed; before 2026-10-13 they were left out, so that
+a gate losing more species looked better ([report](claude/2026-10-13-r226-v27-c-gates.md)). The build
+writes `model_logs/c_gates.tsv` and a console line per read type:
 
 | Column | Holds |
 |---|---|
-| `read_type`, `gate`, `flex_indels`, `stride`, `database_gate` | the read type, the gate (0: off), 1 with `--flex_indels`, 1 with the stride pick, and 1 for the database's gate (the test file itself) |
-| `samples`, `taxa`, `present`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate |
+| `read_type`, `gate`, `pick`, `flex_indels`, `database_gate`, `model_gate` | the read type, the gate (0: off), its pick (`stride` or `hash`; `-` below 2, where both look up every core), 1 with `--flex_indels`, 1 for the database's gate (the test file itself), and the gate of the model that scored it |
+| `samples`, `taxa`, `present`, `unseen`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate, `unseen` present species without a row counted in `present` and `FN` |
 | `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the protal runs' `aligning <sample>` rows (`protal_cpu_<collection>.tsv`; empty when a sample has none) |
-| `baseline_F1`, `baseline_aligning_cpu_s` | the same samples at the database's gate without `--flex_indels`, beside every other row (for se's rows with `--flex_indels`, the Ultima samples alone) |
+| `baseline_F1`, `baseline_aligning_cpu_s` | the same samples at the database's gate without `--flex_indels`, scored by its model, beside every other row (for se's rows with `--flex_indels`, the Ultima samples alone) |
 
-The model was trained at the database's gate, so another gate's F1 is that of a model trained
-otherwise: a gate whose F1 holds even so is a safe choice, while one that loses F1 may recover with
-models trained at it (build with it as `--sparse-first` to know). The test set is small
-(its F1 moves by a few thousandths between seeds: compare the FP and FN counts too).
+A gate without a model of its own is scored by a model trained at another: a gate whose F1 holds even
+so is a safe choice, while one that loses F1 may recover with a model trained at it (add it to
+`--model-gates`). The wall seconds of rows profiled side by side in one protal run say little; compare
+the CPU seconds. The test set is small (its F1 moves by a few thousandths between seeds: compare the
+FP and FN counts too).
 
 With `--test-c-gates` the test samples of ONT, at every gate (the database's C 1 too), and the
 Ultima (single-end) ones, at se's gates, are also profiled with protal's `--flex_indels`
@@ -640,23 +670,21 @@ streamed, with a warning, and have no such rows). It needs a protal whose `--ful
 `--flex_indels` and `FLEX_INDELS`; an older one would ignore the column, so the build leaves these
 rows out, with a warning. The models are trained without `--flex_indels`, as with other gates.
 
-With `--test-c-gates` every read type's test samples are also profiled with the stride pick at each
-of its tested gates of 2 or more, the database's included (`--test-stride`, default `auto`: with
-`--test-c-gates`' default `pe:2/4,se:2/4,pb:4/8/16,ont:4/8`; `none` for none). The gate then looks
-up every C-th core of a read in read order first, instead of the cores its hash puts in the sample,
-which spaces them evenly over the read.
-Map rows `<sample>__c<C>s` with the map's `SPARSE_FIRST_PICK` column (`stride`), tables in
-`c_gates/c<C>s/`, rows of `c_gates.tsv` with `stride` 1, each after the same gate's row with the
-hash sample, whose F1 the console line gives beside it. The databases' own gates pick by hash
-(protal's default). It needs a protal whose `--full_help` lists `--sparse_first_pick` and
-`SPARSE_FIRST_PICK`; an older one would ignore the column, so the build leaves these rows out,
-with a warning.
+With `--test-c-gates` every read type's test samples are also profiled at its database's gate (if 2
+or more) with the pick the database does not use (`--test-other-pick`, `--test-stride` before
+2026-10-13; default `auto`; given gates, or `none`): with the default stride pick, the hash's, the
+cores its hash puts in the sample (map rows `<sample>__c<C>h` with the map's `SPARSE_FIRST_PICK`
+column `hash`, tables in `c_gates/c<C>h/`); with `--sparse-first-pick hash`, the stride's (rows
+`<sample>__c<C>s`). Their rows of `c_gates.tsv` follow the same gate's row with the database's
+pick, whose F1 the console line gives beside them. It needs a protal whose `--full_help` lists
+`--sparse_first_pick` and `SPARSE_FIRST_PICK`; an older one would ignore the column, so the build
+leaves these rows out, with a warning.
 
-With all three defaults the test set is profiled in 33 ways (29 besides the databases' own gates):
-pe and se 6 each (Ultima samples 10, with `--flex_indels`), pb 7, ONT 10. Each sample written to
-the disk is aligned once per way; streamed samples only at the database's gate. At r226 that is
-~1,600 more sample alignments, estimated at ~20 CPU hours, ~35 minutes on an 84-thread node, of
-which the stride rows are ~a quarter ([the estimate](claude/2026-10-13-c-gates-cost.md)).
+The `--test-c-gates` default (`pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32`, since 2026-10-13) adds to
+the gates of `--model-gates` the ungated runs, gates between the ladder's and beyond its fast end.
+Each sample written to the disk is aligned once per way; streamed samples only at the database's
+gate and those of `--model-gates`. The estimate of the defaults before 2026-10-13, 33 ways, ~20 CPU
+hours at r226: [c-gates cost](claude/2026-10-13-c-gates-cost.md).
 
 #### Scenarios: kinds of studies
 
@@ -970,8 +998,11 @@ keeps the finished database.
 | `--index-alleles` | 1 (off) | the k-mers of the strain alleles at least this far from the representative's copy (edits per base) go into both databases' indexes under the species as non-unique entries, so that a read of a deep strain finds its species (`protal --build --index_alleles`, [below](#2-build-the-index); 1 or more: none, the default since the r226 v22 build; 0.01 was the default before) |
 | `--fragment-count` | `mapq` | how the models' `fragments` feature counts (`protal --build --fragment_count`): recorded in both databases' `build_settings.tsv`, and followed by every run on them, the collections' included; `soft` adds each fragment the MAPQ and length filters drop by its read-EM share, so that thin divergent strains are not counted as nothing ([report](claude/2026-10-12-r226-v24b-errors/README.md), section 3; untested at r226) |
 | `--wfa-traceback` | protal's (`singletrack`; `classic` before 0.8.2) | the WFA2 traceback of both databases (`protal --build --wfa_traceback`): recorded in their `build_settings.tsv`, and followed by the collection's protal runs, which align as the training database was built. `singletrack` gives the same scores but may choose otherwise among equally good alignments ([below](#2-build-the-index)) |
-| `--sparse-first` | `pe:1,se:1,pb:8,ont:1` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 paired-end C = 1 lost 0.01% of the records for 35% less alignment time, HiFi C = 8 0.54% for 62% less; ONT C = 1 is a trial ([report](claude/2026-10-12-sparse-first/README.md)) |
-| `--test-c-gates [GATES]` | off; without a value `pe:0/1/2/4,se:0/1/2/4,pb:0/4/8/16,ont:0/1/4/8` | the test samples also profiled at these gates (the database's left out: its row in `c_gates.tsv` is the test set itself, profiled at it), in the same protal runs as `<sample>__c<C>`; each model scores them beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN and the samples' alignment CPU and wall seconds ([below](#choosing-the-sparse-first-gates)) |
+| `--sparse-first` | `pe:4,se:4,pb:16,ont:8` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12, `pe:1,se:1,pb:8,ont:1` until 2026-10-13): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 v27 these gates cost no measurable F1 against C 1 (pb C 8) for 36-44% less alignment CPU (pb 11%) ([report](claude/2026-10-13-r226-v27-c-gates.md); [earlier](claude/2026-10-12-sparse-first/README.md)) |
+| `--sparse-first-pick` | `stride` | which 1/C of a read's cores each gate looks up first (`protal --build --sparse_first_pick`, recorded with the gates): `stride`, every C-th core in read order, or `hash`, those whose hash falls in 1/C of its range (the only pick before 2026-10-13); one for all, or read types and theirs (`pb:hash`) |
+| `--model-gates` | `pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` | the gates each read type also gets a model of: both collections profiled at them too (streamed simulations streamed again), a model trained at each and stored as `model_<type>_c<C>.xml`, which runs gated nearer that gate are profiled with; `none`: the database gate's alone ([above](#choosing-the-sparse-first-gates)) |
+| `--test-c-gates [GATES]` | off; without a value `pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32` | the test samples written to the disk also profiled at these gates (the database's left out: its row in `c_gates.tsv` is the test set itself, profiled at it; those of `--model-gates` profiled anyway), in the same protal runs as `<sample>__c<C>`; each table scored by the model of the gate nearest it beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN (present species without a row counted as missed) and the samples' alignment CPU and wall seconds ([above](#choosing-the-sparse-first-gates)); `c_gates.tsv` has the gates of `--model-gates` without it |
+| `--test-other-pick [GATES]` (`--test-stride`) | with `--test-c-gates`: `auto`, each read type's database gate of 2 or more | the gates at which the test samples are also profiled with the pick the database does not use (`hash` rows `<sample>__c<C>h` beside a stride database); `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--test-flex-indels [GATES]` | with `--test-c-gates`: `ont:0/1/4/8,ultima:0/1/2/4` | the gates at which the ONT test samples (key `ont`) and the Ultima ones (key `ultima`) are also profiled with protal's `--flex_indels`; `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--foreign-rates`, `--no-foreign-rates` | off | scan each database's full reference for the gene copies other species' reads reach (`scripts/foreign_rates.py`: the training database's right after its build, the finished database's before its models go in) and store `foreign_rates.tsv` in it, for the `foreign` features ([features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)); without `--foreign-rates` (the default since the r226 v18 build, which measured 0.001 of AUC for two scans of ~21 min: [report](claude/2026-10-08-r226-v18/README.md)), or with `--no-foreign-rates`, which overrides it, there is no scan and the features are unknown (-1). From 2026-10-07 to 2026-10-08 the scan read the genomes the samples are drawn from, which told the models which species those are ([features.md](features.md#the-foreign-features-leak)) |
 | `--foreign-stride`, `--foreign-per-header` | 250, 10 | the scan's reads: 150 bases every this many bases of a gene copy, of at most this many copies of each species' gene (the full reference's first; 0: every genome's) |
@@ -1207,9 +1238,12 @@ below and in the runs a model is trained on ([report](claude/2026-10-11-singletr
 or one gate for all; `--sparse_first_score` and `--sparse_first_hits` with them), which runs on the
 database follow unless their `--sparse_first` says otherwise: the database's models must have been
 trained on runs gated so ([above](#choosing-the-sparse-first-gates)). `--sparse_first_pick` with
-`--build` records each gate's pick likewise (`pe:stride`, or one pick for all; `hash` where it says
-nothing), which runs follow unless their `--sparse_first_pick` says otherwise. The build itself is
-the same.
+`--build` records each gate's pick likewise (`pe:hash`, or one pick for all; `stride` where it says
+nothing, since 2026-10-13), which runs follow unless their `--sparse_first_pick` says otherwise (a
+database that records its gates but no pick, built on 2026-10-12/13, picks by hash). The build
+itself is the same. `protal --add_model FILE --read_type pe --model_gate 1` stores a model trained
+at another gate than the database's as `model_pe_c1.xml`; a run gated at or nearest that gate is
+profiled with it (`build_gtdb_database.py --model-gates`).
 
 The build first makes the tables that need the genes alone (before the index takes its memory),
 then the index:
