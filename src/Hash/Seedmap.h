@@ -476,6 +476,43 @@ namespace protal {
             return s + "; key map " + gb(keymap_size_total * sizeof(KeyMap_t));
         }
 
+        // The key map's bytes: fixed by the core's length, whatever the index holds.
+        uint64_t KeymapBytes() const {
+            return keymap_size_total * sizeof(KeyMap_t);
+        }
+
+        // The bits a slot of the values takes in memory: packed, its share of the region; else 8 bytes.
+        double BitsPerSlot() const {
+            return IsPacked() ? static_cast<double>(m_slot_bits_32) / 32 : 8.0 * sizeof(ValueEntry);
+        }
+
+        // The keys with values, their slots and their entries (a key's slots less its flex cells), by the level
+        // `level_of` gives each main key (capped at levels - 1); one pass over the key map. For --sparse_seeding's
+        // estimate of what an index of some cores alone would hold.
+        struct LevelCounts {
+            uint64_t keys = 0, slots = 0, entries = 0;
+        };
+        template <typename LevelOf>
+        std::vector<LevelCounts> CountByLevel(size_t levels, LevelOf const& level_of) const {
+            std::vector<LevelCounts> counts(std::max<size_t>(levels, 1));
+            uint64_t const cpb = m_keys_per_ctrl_block + ctrl_block_cell_size, blocks = keymap_size / m_keys_per_ctrl_block;
+            for (uint64_t block = 0; block < blocks; block++) {
+                uint64_t const begin = BlockStart(block), end = BlockStart(block + 1);
+                if (begin == end) continue;
+                for (size_t j = 0; j < m_keys_per_ctrl_block; j++) {
+                    uint64_t const start = begin + m_keymap[block * cpb + ctrl_block_cell_size + j];
+                    uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + m_keymap[block * cpb + ctrl_block_cell_size + j + 1];
+                    if (stop <= start) continue;
+                    uint64_t const S = stop - start;
+                    auto& c = counts[std::min<size_t>(level_of(block * m_keys_per_ctrl_block + j), counts.size() - 1)];
+                    c.keys++;
+                    c.slots += S;
+                    c.entries += S >= m_flex_threshold ? S - FlexBlockSize(S) : S;
+                }
+            }
+            return counts;
+        }
+
         // Flex cell i of a key's values.
         static inline uint32_t FlexCell(PackedBlock const& block, uint32_t i) {
             uint64_t x;

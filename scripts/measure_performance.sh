@@ -44,6 +44,9 @@
 # "Sparse first" timer, from 2026-10-12; NA before); each level's stage timers in sparse_stages.tsv (as stages.tsv, with
 # the level for the rep); the profiles in sparse/<sample>.c<C>.profile beside sparse/<sample>.plain.profile, the logs in
 # logs/<sample>.sparse<C>.log. Printed last: each level's wall, aligning and CPU time against the timed runs' medians.
+# A level with an s (e.g. 8s, since 2026-10-13) also gives protal's --sparse_seeding: the reads kept are seeded from the
+# gate's cores alone, as an index of only those would seed them, and the log tells what such an index would hold
+# (docs/claude/2026-10-13-sparse-seeding).
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -102,7 +105,13 @@ if [ $test_sparse = 1 ]; then
         *) echo "$protal has no --sparse_first (a protal from before 2026-10-12)" >&2; exit 1 ;;
     esac
     for c in $sparse_short $sparse_long; do
-        case $c in 1|2|4|8|16|32) ;; *) echo "--test_sparse levels are 1, 2, 4, 8, 16 or 32, not '$c'" >&2; exit 1 ;; esac
+        case $c in 0|1|2|4|8|16|32|1s|2s|4s|8s|16s|32s) ;; *) echo "--test_sparse levels are 0, 1, 2, 4, 8, 16 or 32, each with an optional s (--sparse_seeding), not '$c'" >&2; exit 1 ;; esac
+        if [ "${c%s}" != "$c" ]; then
+            case $("$protal" --full_help 2>&1) in
+                *--sparse_seeding*) ;;
+                *) echo "$protal has no --sparse_seeding (level $c; a protal from before 2026-10-13)" >&2; exit 1 ;;
+            esac
+        fi
     done
 fi
 for spec in "$@"; do
@@ -370,7 +379,10 @@ for spec in "$@"; do
         written_plain=$(awk -F'\t' -v s="$name" '$1 == s { w = $25 } END { print w == "" ? "NA" : w }' "$out/runs.tsv")
         for c in $levels; do
             run=$runs/protal/run.$name.sparse$c; log=$out/logs/$name.sparse$c.log; rm -rf "$run"
-            cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "$c")
+            cmd=("$protal" --db "$db" "${reads[@]}" --read_type "$type" -t "$threads" --prefix "$name" -o "$run" --no_qcmsa --sparse_first "${c%s}")
+            # A level C with an s: the reads kept seeded from the gate's cores alone (--sparse_seeding), as an index of
+            # only those would seed them.
+            [ "${c%s}" != "$c" ] && cmd+=(--sparse_seeding)
             # shellcheck disable=SC2206
             cmd+=(${SPARSE_ARGS:-} ${PROTAL_ARGS:-})
             if ! timed "$log" $use_perf "${cmd[@]}"; then

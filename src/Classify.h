@@ -130,7 +130,7 @@ namespace protal::classify {
             KmerList next_kmers;
             // --sparse_first, as RunPairedEnd does it for pairs.
             constexpr bool has_sparse = requires { anchor_finder.SparsePrepare(kmers); anchor_finder.SparseScore(1u); anchor_finder.PrefetchSparseKeys(kmers);
-                                                   anchor_finder.KeepSparseLookups(kmers); };
+                                                   anchor_finder.KeepSparseLookups(); };
             bool sparse_first = false;
             if constexpr (has_sparse) sparse_first = anchor_finder.SparseFirst();
             uint32_t const sparse_hits = static_cast<uint32_t>(options.GetSparseFirstHits());
@@ -206,7 +206,7 @@ namespace protal::classify {
                     continue;
                 }
                 if constexpr (has_sparse) {
-                    if (sparse_first) anchor_finder.KeepSparseLookups(kmers);  // C 1: seeded from the sampled lookups
+                    if (sparse_first) anchor_finder.KeepSparseLookups();  // C 1, --sparse_seeding: from the gate's lookups
                 }
 
                 bm_anchor_finder.Start();
@@ -671,7 +671,7 @@ namespace protal::classify {
             // hits; only the sampled cores' key map blocks are fetched ahead. A pair it keeps is seeded and aligned as
             // without it.
             constexpr bool has_sparse = requires { anchor_finder1.SparsePrepare(kmers1); anchor_finder1.SparseScore(1u); anchor_finder1.PrefetchSparseKeys(kmers1);
-                                                   anchor_finder1.KeepSparseLookups(kmers1); };
+                                                   anchor_finder1.KeepSparseLookups(); };
             bool sparse_first = false;
             if constexpr (has_sparse) sparse_first = anchor_finder1.SparseFirst();
             uint32_t const sparse_hits = static_cast<uint32_t>(options.GetSparseFirstHits());
@@ -714,8 +714,8 @@ namespace protal::classify {
                 thread_statistics.reads++;
                 thread_statistics.bases += record1.sequence.size() + record2.sequence.size();
                 // --sparse_first: the pair's sampled lookups are made (their blocks fetched) now and scored once the next
-                // pair is read; a pair kept is looked up in full only then (FindSeeds), at C 1 from those lookups, which are
-                // all of them (KeepSparseLookups). Else all its lookups now.
+                // pair is read; a pair kept is looked up in full only then (FindSeeds), at C 1 (or with --sparse_seeding)
+                // from those lookups, which are all it is seeded from (KeepSparseLookups). Else all its lookups now.
                 if constexpr (has_sparse) {
                     if (sparse_first) {
                         bm_anchor_finder.Start(false);
@@ -772,9 +772,9 @@ namespace protal::classify {
                     continue;
                 }
                 if constexpr (has_sparse) {
-                    if (sparse_first) {  // C 1: both mates seeded from their sampled lookups
-                        anchor_finder1.KeepSparseLookups(kmers1);
-                        anchor_finder2.KeepSparseLookups(kmers2);
+                    if (sparse_first) {  // C 1, --sparse_seeding: both mates seeded from their sampled lookups
+                        anchor_finder1.KeepSparseLookups();
+                        anchor_finder2.KeepSparseLookups();
                     }
                 }
 

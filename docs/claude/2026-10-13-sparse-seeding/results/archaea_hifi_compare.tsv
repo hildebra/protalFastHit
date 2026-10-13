@@ -1,0 +1,6 @@
+arm	reads	reads_shared	reads_lost	reads_gained	gene_pairs	gene_shared	gene_lost	gene_gained	taxon_pairs	taxon_shared	taxon_lost	taxon_gained	species	species_lost	species_gained	bray_curtis
+plain	5393	5383	0	10	11092	11082	0	10	5418	5408	0	10	0	0	0	0.0000
+c8	5383	5383	0	0	11082	11082	0	0	5408	5408	0	0	0	0	0	0.0000
+c4s	5383	5378	5	5	11075	11064	18	11	5408	5398	10	10	0	0	0	0.0000
+c8s	5360	5360	23	0	11040	11030	52	10	5383	5375	33	8	0	0	0	0.0000
+c16s	5286	5286	97	0	10935	10929	153	6	5299	5297	111	2	0	0	0	0.0000

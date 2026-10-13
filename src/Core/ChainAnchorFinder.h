@@ -196,17 +196,36 @@ namespace protal {
         uint8_t m_sparse_level = 0;
         uint32_t m_sparse_score = 0;
         LookupResultList m_sparse_lookups;
-        std::vector<size_t> m_sampled;  // the indexes of a read's sampled k-mers (SparseHits)
+        size_t m_sparse_kmers = 0;  // the sampled k-mers of the read SparsePrepare looked up last
+        std::vector<size_t> m_sampled;  // the indexes of a read's sampled k-mers (SparseHits, LookupKmers)
         static constexpr size_t kSparseScoreBehind = 4;  // lookups found but not yet scored, their blocks on the way
+        // --sparse_seeding (SetSeedLevel): a read is seeded from its cores of this level or more alone, as an index
+        // holding only those would seed it; 0: from all.
+        uint8_t m_seed_level = 0;
 
-        // The lookups of a read's k-mers, in read order (those with values).
+        // The lookups of a read's k-mers, in read order (those with values); with a seed level, of its cores of that
+        // level or more only.
         void LookupKmers(KmerList& kmer_list) {
             m_lookups.clear();
-            size_t const n = kmer_list.size();
-            for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
-            for (size_t j = 0; j < n; j++) {
-                if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
-                m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+            size_t n = kmer_list.size();
+            if (m_seed_level > 0) {
+                m_sampled.clear();
+                for (size_t j = 0; j < kmer_list.size(); j++) {
+                    if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) >= m_seed_level) m_sampled.push_back(j);
+                }
+                n = m_sampled.size();
+                auto kmer = [&](size_t i) -> auto& { return kmer_list[m_sampled[i]]; };
+                for (size_t i = 0; i < std::min(kPrefetchKmers, n); i++) m_kmer_lookup.PrefetchKey(kmer(i).first);
+                for (size_t i = 0; i < n; i++) {
+                    if (i + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer(i + kPrefetchKmers).first);
+                    m_kmer_lookup.Get(m_lookups, kmer(i).first, static_cast<uint32_t>(kmer(i).second));
+                }
+            } else {
+                for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
+                for (size_t j = 0; j < n; j++) {
+                    if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+                    m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+                }
             }
             m_seeding.kmers += n;
             m_seeding.found += m_lookups.size();
@@ -653,7 +672,7 @@ namespace protal {
                 m_kmer_lookup(other.m_kmer_lookup), m_max_seed_size(other.m_max_seed_size),
                 m_min_successful_lookups(other.m_min_successful_lookups), m_k(other.m_k),
                 m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
-                m_sparse_level(other.m_sparse_level), m_sparse_score(other.m_sparse_score) {};
+                m_sparse_level(other.m_sparse_level), m_sparse_score(other.m_sparse_score), m_seed_level(other.m_seed_level) {};
 
         bool Success() {
             return !m_error_in_read;
@@ -967,8 +986,10 @@ namespace protal {
         void SparsePrepare(KmerList& kmer_list) {
             m_bm_sparse.Start();
             m_sparse_lookups.clear();
+            m_sparse_kmers = 0;
             for (size_t j = 0; j < kmer_list.size(); j++) {
                 if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) < m_sparse_level) continue;
+                m_sparse_kmers++;
                 m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
             }
             for (auto const& lookup : m_sparse_lookups) KmerLookup::PrefetchValues(lookup);
@@ -985,16 +1006,21 @@ namespace protal {
             m_bm_sparse.Stop();
             return hits;
         }
-        // A short read SparseScore kept, seeded next: at level 0 (C 1) its sampled lookups are all its lookups, made as
-        // LookupKmers makes them (the same k-mers in the same order, their values fetched), so FindSeeds takes them
-        // instead of looking the read up again; at a higher level FindSeeds looks it up in full.
-        void KeepSparseLookups(KmerList const& kmer_list) {
-            if (m_sparse_level != 0) return;
+        // A short read SparseScore kept, seeded next: where the gate's level is the seed level (C 1, or --sparse_seeding)
+        // its sampled lookups are all the lookups it is seeded from, made as LookupKmers makes them (the same k-mers in
+        // the same order, their values fetched), so FindSeeds takes them instead of looking the read up again; else
+        // FindSeeds looks it up in full.
+        void KeepSparseLookups() {
+            if (m_sparse_level != m_seed_level) return;
             std::swap(m_lookups, m_sparse_lookups);
-            m_seeding.kmers += kmer_list.size();
+            m_seeding.kmers += m_sparse_kmers;
             m_seeding.found += m_lookups.size();
             m_prepared = true;
         }
+
+        // --sparse_seeding: the reads kept are seeded from their cores of level `level` or more alone (LookupKmers), as
+        // an index of only those would seed them; the gate's level (SetSparseFirst). Copies keep it.
+        void SetSeedLevel(uint8_t level) { m_seed_level = level; }
 
         // Long reads (LongReadAligner, chunk by chunk, no read ahead): how many of a read's sampled lookups are hits,
         // counted up to `enough`: the sampled k-mers in read order, each core's key map block fetched kPrefetchKmers

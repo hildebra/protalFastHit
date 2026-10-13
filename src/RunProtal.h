@@ -30,6 +30,7 @@
 #include "ScratchSpace.h"
 
 #include <atomic>
+#include <chrono>
 #include <iomanip>
 #include <regex>
 #include <ranges>
@@ -752,6 +753,35 @@ namespace protal {
     // GenomeLoader::IndexFieldMaxima gave, before any thread changes the genes), and checks it against the reference it was
     // built from: the fingerprint the gene tables gave (GenomeLoader::MapFingerprint), else reference.map read again. Its
     // messages go to log. Exits 8 if the index was built against another reference.
+    // --sparse_seeding: what an index of 1/C of the cores alone (those of level log2(C) or more, stage1_probe::Level, as
+    // a gate at C samples them) would hold of the loaded one's values and keys, for each C. The key map is fixed in
+    // size whatever it holds (Seedmap), so only the values would shrink in today's layout.
+    static void LogSparseIndex(Seedmap const& map, std::ostream& log) {
+        auto const started = std::chrono::steady_clock::now();
+        auto const counts = map.CountByLevel(stage1_probe::kLevels, [](uint64_t key) { return stage1_probe::Level(key); });
+        Seedmap::LevelCounts all;
+        for (auto const& c : counts) all.keys += c.keys, all.slots += c.slots, all.entries += c.entries;
+        double const bytes_per_slot = map.BitsPerSlot() / 8;
+        auto share = [](uint64_t part, uint64_t whole) { return whole ? 100.0 * static_cast<double>(part) / static_cast<double>(whole) : 0.0; };
+        log << std::fixed << std::setprecision(2) << "Sparse seeding: an index of 1/C of the cores alone would hold, of the "
+            << all.entries << " entries in " << all.slots << " slots (" << static_cast<double>(all.slots) * bytes_per_slot / 1e9
+            << " GB) of " << all.keys << " keys:";
+        Seedmap::LevelCounts part;
+        std::vector<std::string> per_c;
+        for (size_t l = counts.size(); l-- > 0;) {
+            part.keys += counts[l].keys, part.slots += counts[l].slots, part.entries += counts[l].entries;
+            std::ostringstream os;
+            os << std::fixed << std::setprecision(2) << " C " << (size_t{1} << l) << ": " << part.entries << " entries ("
+               << share(part.entries, all.entries) << "%), " << static_cast<double>(part.slots) * bytes_per_slot / 1e9 << " GB of values, "
+               << part.keys << " keys (" << share(part.keys, all.keys) << "%)";
+            per_c.push_back(os.str());
+        }
+        for (auto it = per_c.rbegin(); it != per_c.rend(); ++it) log << *it << (std::next(it) == per_c.rend() ? "" : ";");
+        double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        log << std::defaultfloat << " (counted in " << seconds << " s); the key map stays " << std::fixed << std::setprecision(1)
+            << map.KeymapBytes() / 1e9 << " GB in this layout" << std::defaultfloat << std::endl;
+    }
+
     static std::unique_ptr<Seedmap> LoadIndex(Options const& options, std::tuple<uint64_t, uint64_t, uint64_t> maxima,
                                               std::optional<ReferenceFingerprint> const& fingerprint, std::ostream& log) {
         auto map = std::make_unique<Seedmap>();
@@ -772,6 +802,7 @@ namespace protal {
         map->Load(index_file, load_threads, &layout);
         log << "Index features: " << map->FeatureDescription() << std::endl;
         log << "Index in memory: " << map->MemoryDescription() << std::endl;
+        if (options.SparseSeeding()) LogSparseIndex(*map, log);
         auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
         auto const reference = fingerprint ? *fingerprint : ReferenceFingerprint::Of(map_file, fna_file);
         if (map->HasReferenceFingerprint() && !(map->GetReferenceFingerprint() == reference)) {
@@ -1000,6 +1031,8 @@ namespace protal {
                 if (size_t const sparse_first = options.GetSparseFirst(index); sparse_first > 0) {
                     anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
                                                  static_cast<uint32_t>(options.GetSparseFirstScore()));
+                    // --sparse_seeding: the reads kept seeded from those cores alone, as an index of only them would.
+                    if (options.SparseSeeding()) anchor_finder.SetSeedLevel(static_cast<uint8_t>(__builtin_ctzll(sparse_first)));
                 }
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);

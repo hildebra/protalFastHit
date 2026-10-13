@@ -4221,6 +4221,28 @@ class SparseFirstGatesTest(WorkDir):
             self.assertEqual(records, plain_records, mode)
             self.assertEqual(header, plain_header, mode)
 
+    def test_sparse_seeding(self):
+        """--sparse_seeding (2026-10-13) seeds the reads a gate keeps from its cores alone, as an index of only those would.
+        Where the gate looks up every core (1) that is all of them: the records are those without the option. After the
+        index load it logs what an index of 1/C of the cores would hold: every entry at C 1, a falling share at each
+        larger C."""
+        reads = ("-1", self.reads[0], "-2", self.reads[1])
+        logs, records = {}, {}
+        for name, extra in (("c1", ()), ("c1s", ("--sparse_seeding",))):
+            rc, logs[name] = run(self.work, "--db", self.plain_db, *reads, "--prefix", name, "-o", name, "-t", "2", "--no_strains",
+                                 "--no_profile", "--sparse_first", "1", *extra)
+            self.assertEqual(rc, 0, logs[name][-3000:])
+            records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
+        self.assertTrue(records["c1"])
+        self.assertEqual(records["c1s"], records["c1"])
+        self.assertNotIn("Sparse seeding: ", logs["c1"])
+        entries = int(re.search(r"Index in memory: (\d+) entries", logs["c1s"]).group(1))
+        self.assertIn(f"Sparse seeding: an index of 1/C of the cores alone would hold, of the {entries} entries", logs["c1s"])
+        per_c = [(int(c), int(n)) for c, n in re.findall(r" C (\d+): (\d+) entries \(", logs["c1s"])]
+        self.assertEqual([c for c, _ in per_c], [1, 2, 4, 8, 16, 32])
+        self.assertEqual(per_c[0][1], entries)
+        self.assertTrue(all(a > b for (_, a), (_, b) in zip(per_c, per_c[1:])), per_c)
+
     def test_bad_gates_stop_the_run(self):
         log = self.align("bad", "--sparse_first", "3", rc_expected=2)
         self.assertIn("--sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs", log)

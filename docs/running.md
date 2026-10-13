@@ -548,6 +548,12 @@ its read type's); `--sparse_first_score` and `--sparse_first_hits` likewise defa
 gated otherwise. `--stage1_probe` and an explicit gate exclude each other; with `--stage1_probe` the
 database's gates are not followed.
 
+`--sparse_seeding` (with a gate) seeds the reads the gate keeps from its 1/C of the cores alone, as an
+index holding only those cores would, and logs after the index load what such an index would hold
+of the loaded one's entries, values and keys for each C. It measures what a smaller index for gated
+runs would cost in records and calls; the whole index is still loaded, so it saves no memory itself.
+Short reads at C = 1 are seeded as without it ([report](claude/2026-10-13-sparse-seeding/README.md)).
+
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
 stage after the alignment takes the rest (the last sample, and any the worker is behind with) on

@@ -180,6 +180,7 @@ namespace protal {
                 ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A run gated otherwise than its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
                 ("sparse_first_score", "With --sparse_first: the flank bases (of 16) a sampled lookup's best flex cell must share with the read to count (default: the database's, else 14; --build records it with the gates).", cxxopts::value<size_t>())
                 ("sparse_first_hits", "With --sparse_first: the sampled lookups of a read (both mates of a pair together) that must count for it to be kept (default: the database's, else 1; --build records it with the gates).", cxxopts::value<size_t>())
+                ("sparse_seeding", "With --sparse_first: seed the reads kept from the cores of the gate's level alone (1/C of them), as an index holding only those cores would, and log after the index load which share of its values and keys such an index would hold, per C. For measuring what a sparse index (less memory) would cost in records and calls; the whole index is loaded all the same. Short reads at C 1 are seeded as without it.")
                 ("stage1_probe", "Measure what the first stage of a two-stage protal would keep: every lookup's best flex score and whether its core is in a sparse index of 1/c of the cores (c = 1 to 32), tallied per read (pair) for rules 'at least m lookups scoring T or more' over the reads and those with records, and per taxon of the best records; and per mate of a short read the best score of its first lookups. Writes misc/<sample>_stage1_probe.tsv, _stage1_probe_taxa.tsv and _first_lookups_probe.tsv and a log line; the SAM and the profile are the same as without it (Stage1Probe.h, docs/claude/2026-10-12-stage1-probe).")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
@@ -280,6 +281,7 @@ namespace protal {
         std::optional<size_t> sparse_first_score;     // --sparse_first_score; nothing: the database's, else 14
         std::optional<size_t> sparse_first_hits;      // --sparse_first_hits; nothing: the database's, else 1
         bool stage1_probe = false;
+        bool sparse_seeding = false;                  // --sparse_seeding
         bool taxon_statistics = false;
         bool full_sam_header = false;
         bool write_unmapped_reads = false;
@@ -425,6 +427,7 @@ namespace protal {
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_stage1_probe = false;  // --stage1_probe
+        bool m_sparse_seeding = false;  // --sparse_seeding
         // --sparse_first as given (per read type; nothing: auto), and as the run gates each read type (C, 0 off): given,
         // else the database's (SetSparseFirst; --build: as given, 0 where not). Its score and hits likewise.
         SparseFirstGates m_sparse_first_given;
@@ -636,6 +639,7 @@ namespace protal {
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_stage1_probe(d.stage1_probe),
+                m_sparse_seeding(d.sparse_seeding),
                 m_sparse_first_given(d.sparse_first),
                 m_sparse_first(GatesOrOff(d.sparse_first)),
                 m_sparse_first_score_given(d.sparse_first_score),
@@ -852,6 +856,7 @@ namespace protal {
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
             result_str << "profile truth:       " << (HasProfileTruths() ? "yes" : "no") << '\n';
             if (m_stage1_probe) result_str << "stage-1 probe:       yes (misc/<sample>_stage1_probe*.tsv)" << '\n';
+            if (m_sparse_seeding) result_str << "sparse seeding:      yes (kept reads seeded from the gate's cores alone)" << '\n';
             if (std::any_of(m_sparse_first_given.begin(), m_sparse_first_given.end(), [](auto const& g) { return g.has_value(); }) ||
                 m_sparse_first_score_given || m_sparse_first_hits_given || !m_sparse_first_list.empty()) {
                 result_str << "sparse first:        " << SparseFirstGatesText(m_sparse_first_given)
@@ -1754,6 +1759,11 @@ namespace protal {
         // --stage1_probe: what a sparse first stage would keep, tallied while aligning (Stage1Probe.h, RunProtal).
         bool Stage1Probe() const {
             return m_stage1_probe;
+        }
+
+        // --sparse_seeding: the reads a gate keeps are seeded from its cores alone (ChainAnchorFinder::SetSeedLevel).
+        bool SparseSeeding() const {
+            return m_sparse_seeding;
         }
 
         // --sparse_first: the gate of sample `index` (C: 1/C of a read's cores looked up first, 0 off): the map's
@@ -3466,6 +3476,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool sequential_load = result.count("sequential_load");
             bool stage1_probe = result.count("stage1_probe");
+            bool sparse_seeding = result.count("sparse_seeding");
             auto const sparse_first = ParseSparseFirstGates(result["sparse_first"].as<std::string>());
             if (!sparse_first) {
                 std::cerr << "Error: --sparse_first is auto, one of 0 (off), 1, 2, 4, 8, 16 or 32, or read types and theirs "
@@ -3692,6 +3703,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.long_read_budget         = long_read_budget;
             d.sequential_load          = sequential_load;
             d.stage1_probe             = stage1_probe;
+            d.sparse_seeding           = sparse_seeding;
             d.sparse_first             = *sparse_first;
             d.sparse_first_score       = sparse_first_score;
             d.sparse_first_hits        = sparse_first_hits;
