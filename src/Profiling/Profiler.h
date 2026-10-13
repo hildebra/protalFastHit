@@ -2908,6 +2908,23 @@ namespace protal {
             return header_end != std::string::npos && xml.rfind(kPlaceholderModelMarker, header_end) != std::string::npos;
         }
 
+        // The kind of the PMML model `xml` (ReadType.h kModelKinds) by how its first segmentation combines its trees:
+        // "gbm" if chained into a logit (modelChain, scripts/model_pmml.py write_boosted), "forest" if averaged or voted
+        // (write_forest, the R forests of older databases); "placeholder" for a placeholder, "" for any other model.
+        inline std::string ModelKindOf(std::string const& xml) {
+            if (IsPlaceholderModel(xml)) return "placeholder";
+            auto const segmentation = xml.find("<Segmentation ");
+            if (segmentation == std::string::npos) return "";
+            auto const end = xml.find('>', segmentation);
+            std::string_view const tag = std::string_view(xml).substr(segmentation, end == std::string::npos ? std::string::npos
+                                                                                                             : end - segmentation);
+            if (tag.find("multipleModelMethod=\"modelChain\"") != std::string_view::npos) return "gbm";
+            for (std::string_view method : {"\"average\"", "\"majorityVote\"", "\"weightedAverage\"", "\"weightedMajorityVote\""}) {
+                if (tag.find(std::string("multipleModelMethod=") + std::string(method)) != std::string_view::npos) return "forest";
+            }
+            return "";
+        }
+
         // A model's knobs by sample depth, which scripts/machine_learning_cmdline.py --depth-knobs writes into the header:
         // <Extension name="protal_depth_knobs" value="2:0.31,3:0.42"/>, depth bin (DepthKnobBin) : knob.
         inline constexpr std::string_view kDepthKnobsExtension = "protal_depth_knobs";

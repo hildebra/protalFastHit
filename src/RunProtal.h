@@ -352,6 +352,39 @@ namespace protal {
         exit(2);
     }
 
+    // The database's models of kind `kind` (--model_kind) of reads of `type`, by the gate they were trained at, each by its
+    // member name: its KindModelFile of the type's model file at the database's gate `own` and of GateModelFile at the
+    // others; where it has none, the default file there if that is of the kind (profiler::ModelKindOf: a database whose
+    // default models are of that kind, or one built before kinds), which is read to tell (a few MB at most).
+    static std::map<size_t, std::string> KindModels(Options const& options, ReadType type, size_t own, std::string const& kind) {
+        std::map<size_t, std::string> members;
+        std::vector<size_t> gates = { own };
+        for (size_t gate : kModelGates) {
+            if (gate != own) gates.push_back(gate);
+        }
+        for (size_t gate : gates) {
+            std::string plain = gate == own ? Info(type).model_file : GateModelFile(type, gate);
+            std::string const kinded = KindModelFile(plain, kind);
+            if (options.DatabaseFileNamed(kinded).Exists()) {
+                members[gate] = kinded;
+                continue;
+            }
+            if (gate == own) {  // the type's model, or a paired-end model of a database from before read types
+                for (auto const& candidate : ModelCandidates(type)) {
+                    if (!options.DatabaseFileNamed(candidate).Exists()) continue;
+                    plain = candidate;
+                    break;
+                }
+            }
+            auto const file = options.DatabaseFileNamed(plain);
+            if (!file.Exists()) continue;
+            std::string error;
+            auto const xml = file.ReadAll(error);
+            if (xml && profiler::ModelKindOf(*xml) == kind) members[gate] = plain;
+        }
+        return members;
+    }
+
     // Each read type's sparse-first gate (--sparse_first): given, else (auto) as the database records it (off where it
     // does not say), and the gates' score and hits likewise; a map's SPARSE_FIRST sets a sample's own. The reads a gate
     // gives up count no failed candidates, which the models' failed_candidate_rate uses: the database's models were
@@ -363,30 +396,49 @@ namespace protal {
     // trained at other gates than its own (GateModelFile): each sample is profiled with the model of the gate nearest
     // its own (Options::ModelGate), and is gated otherwise only if that gate is not its own.
     // --sparse_seeding stands for an index of the hash pick's cores: a sample it would seed with the stride pick stops
-    // the run (exit 2).
+    // the run (exit 2). With a kind of models asked for (--model_kind), the gates are those the read type has models of
+    // that kind at (KindModels); a read type of the run's samples with none stops the run (exit 2).
     static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, std::ostream& out = std::cout) {
         std::array<size_t, kReadTypeCount> gates{};
         std::array<SparseFirstPick, kReadTypeCount> picks{};
         std::array<SparseFirstPick, kReadTypeCount> database_picks{};
         std::array<size_t, kReadTypeCount> database_gates{};
         std::array<std::vector<size_t>, kReadTypeCount> model_gates;
+        std::array<std::map<size_t, std::string>, kReadTypeCount> kind_models;
         for (size_t t = 0; t < kReadTypeCount; t++) {
+            auto const type = static_cast<ReadType>(t);
             auto const& given = options.SparseFirstGiven()[t];
             database_gates[t] = settings.sparse_first[t].value_or(0);
             gates[t] = given ? *given : options.Stage1Probe() ? 0 : database_gates[t];
             database_picks[t] = build_settings::DatabasePick(settings, t);
             auto const& pick_given = options.SparseFirstPickGiven()[t];
             picks[t] = pick_given ? *pick_given : database_picks[t];
+            auto const& kind = options.ModelKind(type);
+            if (!kind.empty() && options.ModelNamed(type).empty()) {
+                // The gates it has models of the kind asked for at.
+                kind_models[t] = KindModels(options, type, database_gates[t], kind);
+                for (auto const& [gate, member] : kind_models[t]) model_gates[t].push_back(gate);
+                if (kind_models[t].empty() && options.AnySample(type) && !options.NoProfile()) {
+                    std::cerr << "Error: --model_kind " << kind << ": the database has no " << kind << " model of " << ReadTypeName(type)
+                              << " reads (" << KindModelFile(Info(type).model_file, kind) << ", or a " << Info(type).model_file
+                              << " of that kind; other gates likewise). build_gtdb_database.py trains both kinds (--model "
+                              << "gbm,forest, its default since 2026-10-13); protal --add_model FILE --read_type " << Info(type).token
+                              << " --model_kind " << kind << " stores one. Leave out --model_kind for the database's default models."
+                              << std::endl;
+                    exit(2);
+                }
+                continue;
+            }
             // The gates the read type has models of: the database's own, and those of its models at other gates.
             model_gates[t].push_back(database_gates[t]);
             for (size_t gate : kModelGates) {
-                if (gate != database_gates[t] && options.GateModelDbFile(static_cast<ReadType>(t), gate).Exists()) {
+                if (gate != database_gates[t] && options.GateModelDbFile(type, gate).Exists()) {
                     model_gates[t].push_back(gate);
                 }
             }
             std::sort(model_gates[t].begin(), model_gates[t].end());
         }
-        options.SetModelGates(model_gates, database_gates);
+        options.SetModelGates(model_gates, database_gates, kind_models);
         size_t const recorded_score = settings.sparse_first_score.value_or(14);
         size_t const recorded_hits = settings.sparse_first_hits.value_or(1);
         options.SetSparseFirst(gates, options.SparseFirstScoreGiven().value_or(recorded_score),
@@ -3597,14 +3649,16 @@ namespace protal {
     }
 
     // Loads the PMML presence model and its depth knobs (ParseDepthKnobCurve, or an older model's ParseDepthKnobs) and
-    // checks that protal can use it (ModelContractProblemInXml); exits 2 if not.
-    static profiler::TaxonFilterObj LoadModel(db::DbFile const& file, double knob) {
+    // checks that protal can use it (ModelContractProblemInXml); exits 2 if not. Its kind into `kind` if given
+    // (profiler::ModelKindOf: gbm, forest, placeholder, or "").
+    static profiler::TaxonFilterObj LoadModel(db::DbFile const& file, double knob, std::string* kind = nullptr) {
         std::string read_error;
         auto const xml = file.ReadAll(read_error);
         if (!xml) {
             std::cerr << "Cannot load the model " << file.Name() << ": " << read_error << std::endl;
             exit(2);
         }
+        if (kind) *kind = profiler::ModelKindOf(*xml);
         std::optional<profiler::TaxonFilterObj> model;
         try {
             model.emplace(cpmml::Model::from_string(*xml), knob);
@@ -3696,18 +3750,27 @@ namespace protal {
             if (options.CompressDbMode()) protal::build::CompressDatabase(options);
             else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
             else if (options.UnpackDbMode()) protal::build::UnpackDatabase(options);
-            else if (!options.AddTables().empty()) protal::build::AddTables(options);
             else if (!options.WriteSpeciesNeighboursFile().empty()) protal::build::WriteSpeciesNeighboursOnly(options);
+            else if (options.GetAddModel().empty()) protal::build::AddTables(options);
             else {
                 // A model of another gate than the database's own (--model_gate; build_settings.tsv) goes in as its
-                // GateModelFile, which runs gated at or near that gate take; the database's gate's as the type's model.
+                // GateModelFile, which runs gated at or near that gate take; the database's gate's as the type's model. A
+                // model of a kind (--model_kind) as the KindModelFile of that, which runs given --model_kind take; it must
+                // be of that kind (or a placeholder). --add_tables' tables go in with them.
                 auto const settings = DatabaseBuildSettings(options);
                 std::vector<std::pair<std::string, std::string>> models;  // file, member
                 for (auto const& model : options.AddModels()) {
-                    LoadModel(db::DbFile::OnDisk(model.file), options.GetKnob());  // exits 2 if unusable, before anything is written
+                    std::string kind;
+                    LoadModel(db::DbFile::OnDisk(model.file), options.GetKnob(), &kind);  // exits 2 if unusable, before anything is written
+                    if (model.kind && kind != *model.kind && kind != "placeholder") {
+                        std::cerr << "--add_model: " << model.file << " is " << (kind.empty() ? "no gbm or forest model" : "a " + kind + " model")
+                                  << ", not a " << *model.kind << " model (--model_kind)" << std::endl;
+                        exit(2);
+                    }
                     size_t const own = settings.sparse_first[static_cast<size_t>(model.type)].value_or(0);
                     bool const other = model.gate && *model.gate != own;
-                    std::string const member = other ? GateModelFile(model.type, *model.gate) : Info(model.type).model_file;
+                    std::string member = other ? GateModelFile(model.type, *model.gate) : Info(model.type).model_file;
+                    if (model.kind) member = KindModelFile(member, *model.kind);
                     if (model.gate && !other) {
                         std::cout << "--model_gate " << *model.gate << " is the database's own gate of " << ReadTypeName(model.type)
                                   << " reads: " << model.file << " goes in as " << member << std::endl;
@@ -3719,7 +3782,8 @@ namespace protal {
                     }
                     models.emplace_back(model.file, member);
                 }
-                protal::build::AddModel(options, models);
+                if (options.AddTables().empty()) protal::build::AddModel(options, models);
+                else protal::build::AddTables(options, models);
             }
             return RunStatus::Get().Finish();
         }
@@ -3839,9 +3903,10 @@ namespace protal {
             }
             if (!any_sample) add(options.ModelDbFile(ReadType::Paired), ReadType::Paired, 0);
         }
-        auto load_models = [&options, &model_files]() {
+        std::vector<std::string> model_kinds(model_files.size());  // each one's kind (profiler::ModelKindOf), once loaded
+        auto load_models = [&options, &model_files, &model_kinds]() {
             std::vector<profiler::TaxonFilterObj> loaded;
-            for (auto const& model : model_files) loaded.push_back(LoadModel(model.file, options.GetKnob()));
+            for (size_t m = 0; m < model_files.size(); m++) loaded.push_back(LoadModel(model_files[m].file, options.GetKnob(), &model_kinds[m]));
             return loaded;
         };
         auto preload = [&options, &db]() {
@@ -3938,12 +4003,22 @@ namespace protal {
             for (size_t m = 0; m < model_files.size(); m++) {
                 auto const& info = Info(model_files[m].type);
                 auto const& model_file = model_files[m].file;
-                // The gate it was trained at, where the database has models of more than one.
+                // The gate it was trained at, where the database has models of more than one; its kind, and the other kinds
+                // the database has models of these reads of (--model_kind).
                 bool const gated = options.ModelGates(info.type).size() > 1 && options.ModelNamed(info.type).empty();
                 size_t const gate = model_files[m].gate;
+                std::string about = model_kinds[m];
+                if (options.ModelNamed(info.type).empty() && options.ModelKind(info.type).empty()) {
+                    for (auto const& kind : kModelKinds) {
+                        if (kind == model_kinds[m]) continue;
+                        bool has = options.DatabaseFileNamed(KindModelFile(info.model_file, kind)).Exists();
+                        for (size_t g : kModelGates) has = has || options.DatabaseFileNamed(KindModelFile(GateModelFile(info.type, g), kind)).Exists();
+                        if (has) about += (about.empty() ? "" : "; ") + std::string("the database also has ") + kind + " models: --model_kind " + kind;
+                    }
+                }
                 std::cout << "Model of " << info.name << " reads"
                           << (gated ? " gated at " + (gate ? std::to_string(gate) : std::string("off")) : std::string())
-                          << ": " << model_file.Name() << std::endl;
+                          << ": " << model_file.Name() << (about.empty() ? "" : " (" + about + ")") << std::endl;
                 auto const& model = models.emplace(ModelKey(info.type, model_file), std::move(loaded_models[m])).first->second;
                 if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
                     std::cerr << "--fdr needs a model with a calibration (machine_learning_cmdline.py --fdr-calls); "

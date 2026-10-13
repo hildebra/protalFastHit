@@ -140,6 +140,7 @@ namespace protal {
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_ont", "PMML model file for ONT samples, given as --model. Default: --model if given, else the database's model_ONT.xml.", cxxopts::value<std::string>()->default_value(""))
+                ("model_kind", "Which kind of the database's presence models profiles the samples: gbm (gradient-boosted trees) or forest (a random forest), one for every read type, or read types and theirs (pe:forest,pb:gbm; a read type not listed: auto), or auto (default): the database's default models (model_pe.xml, ...). A database built by build_gtdb_database.py since 2026-10-13 holds both kinds of every read type at every gate it has models of: its default kind (--model, gbm by default) as model_pe.xml, model_pe_c1.xml, ..., the other as model_pe_forest.xml, model_pe_c1_forest.xml, ... (--add_model --model_kind); a sample takes the model of that kind trained at the gate nearest its own (--sparse_first), the default files where they are of that kind. A run whose read type has no model of the kind stops (exit 2). Not used for the reads whose model --model, --model_se, --model_pb or --model_ont names. With --add_model: the kind of each model, comma-separated as its files ('-': the read type's default model file, as without it), stored under the kind's name (--add_model pe.xml,pe_rf.xml --read_type pe,pe --model_kind -,forest stores model_pe.xml and model_pe_forest.xml); each model is checked to be of its kind.", cxxopts::value<std::string>()->default_value("auto"))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""))
                 ("no_unknown_share", "Report the called species' abundances as shares of their summed depth (adding up to 1), as protal did before 2026-10-08. By default, where the database gives genome sizes (species_priors.tsv) and the SAM says how many reads were scanned, the profile ends with a line '?' of the genomes the called species do not explain (the reads they leave over, at their average genome size), and the abundances are shares of all genomes sequenced. <profile>.composition gives the numbers either way.")
                 ("ncbi_taxids", "Add two columns to each line of the profile: the species' NCBI taxid and NCBI's name of it, from the database's ncbi_taxids.tsv (per GTDB species the NCBI species taxid most of its genomes have in GTDB's metadata). For most GTDB species NCBI names no species: their taxid is one of NCBI's placeholders ('uncultured Lachnospiraceae bacterium', 'Streptomyces sp. IB2014 016-6'), which NCBI files under the deepest rank it can name, and which several GTDB species may share (the table's named and shared_by columns say which). NA for a species the table lacks; the line '?' gets '?'. A database converted before 2026-10-11 gets the table with gtdb_to_protal_db.py --priors_only and --add_tables.");
@@ -203,8 +204,8 @@ namespace protal {
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, build_settings.tsv, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, ncbi_taxids.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv, ancestry_sites.bin, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("model_gate", "With --add_model: the sparse-first gate (--sparse_first C: 0 off, 1 to 32) the runs each model was trained on were gated at, comma-separated as its files (--add_model pe.xml,pe_c1.xml --read_type pe,pe --model_gate -,1). A model of another gate than the database's own is stored as model_<type>_c<C>.xml (model_pe_c1.xml, model_PB_c32.xml), which runs gated at C, or nearer C than any other of the database's models, are profiled with; '-' or the database's own gate (build_settings.tsv): the read type's model (model_pe.xml, ...). A read type may have one model per gate. Default: every model the database's gate's.", cxxopts::value<std::string>()->default_value(""))
-                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes), species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08) or ncbi_taxids.tsv (gtdb_to_protal_db.py --priors_only too: the species' NCBI taxids for --ncbi_taxids, for a database converted before 2026-10-11). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
+                ("model_gate", "With --add_model: the sparse-first gate (--sparse_first C: 0 off, 1 to 32) the runs each model was trained on were gated at, comma-separated as its files (--add_model pe.xml,pe_c1.xml --read_type pe,pe --model_gate -,1). A model of another gate than the database's own is stored as model_<type>_c<C>.xml (model_pe_c1.xml, model_PB_c32.xml), which runs gated at C, or nearer C than any other of the database's models, are profiled with; '-' or the database's own gate (build_settings.tsv): the read type's model (model_pe.xml, ...). A read type may have one model per gate and kind (--model_kind). Default: every model the database's gate's.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of the full reference's marker genes and how many came from other species), congener_gaps.tsv, strain_alleles.tsv or column_weights.tsv (what --build writes), species_priors.tsv (gtdb_to_protal_db.py --priors_only: the priors with the species' genome sizes, for a database converted before 2026-10-08) or ncbi_taxids.tsv (gtdb_to_protal_db.py --priors_only too: the species' NCBI taxids for --ncbi_taxids, for a database converted before 2026-10-11); or the files a run does not read but a database carries (since 2026-10-13): build_metadata.tsv (build_gtdb_database.py: what it was built from and with, and its models' scores), gene2geneid.tsv and genome2tiid.tsv (gtdb_to_protal_db.py: its genes' and genomes' names), stored as they are. Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are (in place where it held the table and only later members follow it, as for build_metadata.tsv, the last); a database of separate files gets the files copied beside them. With --add_model: the tables and the models in one write.", cxxopts::value<std::string>()->default_value(""))
                 ("write_species_neighbours", "With --db FOLDER of separate files (a converted release before any build: reference.fna, reference.map, internal_taxonomy.dmp): write every species' nearest congeners by their references' marker genes (species_neighbours.tsv's table, which --build also stores in the database) to this file, without building. build_gtdb_database.py chooses the species its training database leaves out by it (species_clouds.tsv): a species complex is left out or kept whole.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
@@ -355,6 +356,7 @@ namespace protal {
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
         std::string model_gate;  // --model_gate as given (with --add_model)
+        std::string model_kind = "auto";  // --model_kind as given
         std::string add_tables;  // --add_tables
         std::string write_species_neighbours;  // --write_species_neighbours
         double knob = 0.5;
@@ -457,9 +459,13 @@ namespace protal {
         // else the database's (SetSparseFirstPick; --build: as given, stride where not).
         SparseFirstPicks m_sparse_first_pick_given;
         std::array<SparseFirstPick, kReadTypeCount> m_sparse_first_pick{};
-        // The gates each read type has models of, and the database's own gates (SetModelGates).
+        // The gates each read type has models of, and the database's own gates (SetModelGates); with a kind of models asked
+        // for a read type (--model_kind), the database's member of that kind at each of its gates.
         std::array<std::vector<size_t>, kReadTypeCount> m_model_gates;
         std::array<size_t, kReadTypeCount> m_database_gates{};
+        std::array<std::map<size_t, std::string>, kReadTypeCount> m_kind_models;
+        // --model_kind of a run: each read type's kind of models, empty for auto (the database's default files).
+        std::array<std::string, kReadTypeCount> m_model_kinds;
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_write_unmapped_reads = false;
@@ -530,6 +536,7 @@ namespace protal {
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
         std::string m_model_gate;  // --model_gate
+        std::string m_model_kind;  // --model_kind as given (ModelKindsOf parses it)
         std::string m_add_tables;  // --add_tables
         std::string m_write_species_neighbours;  // --write_species_neighbours
         double m_knob = 0.5;
@@ -596,6 +603,11 @@ namespace protal {
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
         static inline const std::string PROTAL_BUILD_SETTINGS_FILE = build_settings::kFileName;
+        // The notes a database carries for its users, which no run reads (NoteFiles): build_gtdb_database.py's account of
+        // the build, and the converter's names of the genes and genomes (gtdb_to_protal_db.py).
+        static inline const std::string PROTAL_BUILD_METADATA_FILE = "build_metadata.tsv";
+        static inline const std::string PROTAL_GENE_IDS_FILE = "gene2geneid.tsv";
+        static inline const std::string PROTAL_GENOME_IDS_FILE = "genome2tiid.tsv";
         // The presence models of paired-end and of single-end reads.
 
         static inline const std::string MAP_SAMPLEID = "#SAMPLEID";
@@ -733,6 +745,7 @@ namespace protal {
                 m_read_type(std::move(d.read_type)),
                 m_add_model(std::move(d.add_model)),
                 m_model_gate(std::move(d.model_gate)),
+                m_model_kind(std::move(d.model_kind)),
                 m_add_tables(std::move(d.add_tables)),
                 m_write_species_neighbours(std::move(d.write_species_neighbours)),
                 m_knob(d.knob),
@@ -897,6 +910,9 @@ namespace protal {
             result_str << "phasing:             " << (m_no_phasing ? "no" : "long-read samples") << '\n';
             result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << '\n';
             result_str << "suspect gene copies: " << (m_keep_suspect_copies ? "kept" : "left out of the evidence") << '\n';
+            if (m_add_model.empty()) {
+                result_str << "model kind:          " << (m_model_kind == "auto" ? "auto (the database's default models)" : m_model_kind) << '\n';
+            }
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
@@ -998,10 +1014,26 @@ namespace protal {
             return m_write_species_neighbours;
         }
 
-        // The tables --add_tables may store, by file name.
+        // The tables --add_tables may store, by file name: those runs read, and the notes (NoteFiles).
         static std::vector<std::string> AddableTables() {
-            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE, PROTAL_NCBI_TAXIDS_FILE,
-                     PROTAL_STRAIN_ALLELES_FILE, PROTAL_COLUMN_WEIGHTS_FILE };
+            std::vector<std::string> tables = { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE, PROTAL_SPECIES_PRIORS_FILE,
+                                                PROTAL_NCBI_TAXIDS_FILE, PROTAL_STRAIN_ALLELES_FILE, PROTAL_COLUMN_WEIGHTS_FILE };
+            for (auto const& note : NoteFiles()) tables.push_back(note);
+            return tables;
+        }
+
+        // The files a database carries that no run reads (since 2026-10-13): what it was built from and with, and the names
+        // of its genes and genomes, so that database.protal holds everything of a database, not only what runs read.
+        // --build and --compress_db pack them where the folder has them and leave the files there (build inputs, read by
+        // scripts); --add_tables stores them; --unpack_db writes them back. build_metadata.tsv goes last, after the models
+        // (Build.h ModelsLast), so that a build's last step replaces it in place with them.
+        static std::vector<std::string> NoteFiles() {
+            return { PROTAL_GENE_IDS_FILE, PROTAL_GENOME_IDS_FILE, PROTAL_BUILD_METADATA_FILE };
+        }
+
+        static bool IsNoteFile(std::string const& name) {
+            auto const notes = NoteFiles();
+            return std::find(notes.begin(), notes.end(), name) != notes.end();
         }
 
         // --no_allele_scores: candidates scored against the reference alone, not their species' strain alleles.
@@ -1019,35 +1051,70 @@ namespace protal {
             return m_add_model;
         }
 
-        // A model --add_model stores: its file, the reads it is for, and the gate its training runs were gated at
-        // (--model_gate; nothing: the database's own).
+        // A model --add_model stores: its file, the reads it is for, the gate its training runs were gated at
+        // (--model_gate; nothing: the database's own), and its kind (--model_kind; nothing: the read type's default file).
         struct AddedModel {
             std::string file;
             ReadType type;
             std::optional<size_t> gate;
+            std::optional<std::string> kind = std::nullopt;
         };
 
-        // The models --add_model stores: its files, comma-separated, with --read_type's tokens and --model_gate's gates at
-        // the same places (a single model: pe if --read_type is not given; the database's gate where --model_gate gives
-        // none or '-'). Checked in PrepareAndCheckValidity; a read type that is no token is paired-end here.
+        // The models --add_model stores: its files, comma-separated, with --read_type's tokens, --model_gate's gates and
+        // --model_kind's kinds at the same places (a single model: pe if --read_type is not given; the database's gate where
+        // --model_gate gives none or '-'; the default file where --model_kind gives none, '-' or auto). Checked in
+        // PrepareAndCheckValidity; a read type that is no token is paired-end here.
         std::vector<AddedModel> AddModels() const {
-            auto split = [](std::string const& text) {
-                std::vector<std::string> items;
-                std::string item;
-                std::istringstream is(text);
-                while (std::getline(is, item, ',')) items.push_back(item);
-                return items;
-            };
-            auto const files = split(m_add_model);
-            auto const types = split(m_read_type);
-            auto const gates = split(m_model_gate);
+            auto const files = SplitCommas(m_add_model);
+            auto const types = SplitCommas(m_read_type);
+            auto const gates = SplitCommas(m_model_gate);
+            auto const kinds = m_model_kind == "auto" ? std::vector<std::string>() : SplitCommas(m_model_kind);
             std::vector<AddedModel> models;
             for (size_t i = 0; i < files.size(); i++) {
                 models.push_back({files[i], i < types.size() ? ReadTypeFromToken(types[i]).value_or(ReadType::Paired)
                                                              : ReadType::Paired,
-                                  i < gates.size() && gates[i] != "-" ? ParseSparseFirstLevel(gates[i]) : std::nullopt});
+                                  i < gates.size() && gates[i] != "-" ? ParseSparseFirstLevel(gates[i]) : std::nullopt,
+                                  i < kinds.size() && kinds[i] != "-" ? std::optional(kinds[i]) : std::nullopt});
             }
             return models;
+        }
+
+        // Comma-separated items, empty ones kept ("a,,b": a, "", b).
+        static std::vector<std::string> SplitCommas(std::string const& text) {
+            std::vector<std::string> items;
+            std::string item;
+            std::istringstream is(text);
+            while (std::getline(is, item, ',')) items.push_back(item);
+            return items;
+        }
+
+        // --model_kind of a run: each read type's kind of models (ReadType.h kModelKinds), empty for auto; nullopt with a
+        // message in error if `text` is none of auto, a kind, or read types and theirs (pe:forest,pb:gbm).
+        static std::optional<std::array<std::string, kReadTypeCount>> ModelKindsOf(std::string const& text, std::string& error) {
+            std::array<std::string, kReadTypeCount> kinds{};
+            if (text == "auto") return kinds;
+            if (IsModelKind(text)) {
+                kinds.fill(text);
+                return kinds;
+            }
+            auto const items = SplitCommas(text);
+            for (auto const& item : items.empty() ? std::vector<std::string>{ "" } : items) {
+                auto const colon = item.find(':');
+                auto const type = colon == std::string::npos ? std::nullopt : ReadTypeFromToken(item.substr(0, colon));
+                std::string const kind = colon == std::string::npos ? "" : item.substr(colon + 1);
+                if (!type || !(IsModelKind(kind) || kind == "auto")) {
+                    error = "--model_kind is auto, " + ModelKindNames() + ", or read types and their kinds (pe:forest,pb:gbm; "
+                            "read types " + ReadTypeTokens() + "), not '" + text + "'";
+                    return std::nullopt;
+                }
+                kinds[static_cast<size_t>(*type)] = kind == "auto" ? "" : kind;
+            }
+            return kinds;
+        }
+
+        // The kind of models a run profiles reads of `type` with (--model_kind), empty for the database's default files.
+        std::string const& ModelKind(ReadType type) const {
+            return m_model_kinds[static_cast<size_t>(type)];
         }
 
         bool PreloadGenomes() const {
@@ -1502,12 +1569,22 @@ namespace protal {
             return DbFileNamed(file, (std::filesystem::path(m_database_path) / file).string());
         }
 
+        // A file of the database by its name: a member of database.protal, or the file in the database's folder.
+        db::DbFile DatabaseFileNamed(std::string const& name) const {
+            return DbFileNamed(name, (std::filesystem::path(m_database_path) / name).string());
+        }
+
         // The PMML model sample `index` is profiled with: the one given for its reads (ModelNamed), else the database's
-        // model of its read type trained at the gate nearest its own (ModelGate): the type's model at the database's
-        // gate (ModelDbFile), its model at another gate (GateModelDbFile) there.
+        // model of its read type trained at the gate nearest its own (ModelGate): with a kind asked for (--model_kind), the
+        // database's model of that kind there (SetModelGates); else the type's model at the database's gate (ModelDbFile),
+        // its model at another gate (GateModelDbFile) there.
         db::DbFile SampleModelDbFile(size_t index) const {
             auto const type = GetReadType(index);
             size_t const gate = ModelGate(index);
+            if (ModelNamed(type).empty()) {
+                auto const& kinds = m_kind_models[static_cast<size_t>(type)];
+                if (auto const it = kinds.find(gate); it != kinds.end()) return DatabaseFileNamed(it->second);
+            }
             if (!ModelNamed(type).empty() || gate == m_database_gates[static_cast<size_t>(type)]) return ModelDbFile(type);
             return GateModelDbFile(type, gate);
         }
@@ -1986,10 +2063,13 @@ namespace protal {
         }
 
         // The gates each read type has models of: the database's own gate (its model_file) and those of its models at
-        // other gates (GateModelFile), sorted; set once the database's gates are known (RunProtal: ApplySparseFirst).
-        void SetModelGates(std::array<std::vector<size_t>, kReadTypeCount> gates, std::array<size_t, kReadTypeCount> own) {
+        // other gates (GateModelFile), sorted; set once the database's gates are known (RunProtal: ApplySparseFirst). With a
+        // kind asked for (--model_kind), the gates it has a model of that kind at, and `kinds` that model's member at each.
+        void SetModelGates(std::array<std::vector<size_t>, kReadTypeCount> gates, std::array<size_t, kReadTypeCount> own,
+                           std::array<std::map<size_t, std::string>, kReadTypeCount> kinds = {}) {
             m_model_gates = std::move(gates);
             m_database_gates = own;
+            m_kind_models = std::move(kinds);
         }
         std::vector<size_t> const& ModelGates(ReadType type) const {
             return m_model_gates[static_cast<size_t>(type)];
@@ -2840,10 +2920,17 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool const write_neighbours = !m_write_species_neighbours.empty();
             bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model || add_tables || write_neighbours;
             if (!m_build && !db_mode) ResolveReadTypes(warning_log, &note_log);
-            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(add_tables) + int(write_neighbours) +
+            // --add_model and --add_tables store their files in one write.
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model || add_tables) + int(write_neighbours) +
                 int(m_build) > 1) {
-                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db, --add_model, --add_tables and "
+                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db, --add_model or --add_tables, and "
                                        "--write_species_neighbours cannot be combined (--build compresses unless --no_compress)");
+            }
+            if (!add_model) {
+                // A run's kinds of models (with --add_model, each model's kind: checked below).
+                std::string error;
+                if (auto const kinds = ModelKindsOf(m_model_kind, error)) m_model_kinds = *kinds;
+                else error_log.emplace_back(error);
             }
             if (write_neighbours && m_bundle) {
                 error_log.emplace_back("--write_species_neighbours needs a folder of separate files (reference.fna, reference.map, "
@@ -2891,15 +2978,31 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     }
                     gate_of.push_back(token);
                 }
+                // --model_kind: one kind per model ('-': the read type's default file), or auto (every model so).
+                std::vector<std::string> kind_of;
+                if (m_model_kind != "auto") {
+                    kind_of = SplitCommas(m_model_kind);
+                    if (kind_of.size() != models) {
+                        error_log.emplace_back("--model_kind with --add_model gives a kind per model (" + std::to_string(models) +
+                                               "), comma-separated ('-': the read type's default model file), not '" + m_model_kind + "'");
+                    }
+                    for (auto const& kind : kind_of) {
+                        if (kind != "-" && !IsModelKind(kind)) {
+                            error_log.emplace_back("--model_kind: a model's kind is -, " + ModelKindNames() + ", not '" + kind + "'");
+                        }
+                    }
+                }
                 std::istringstream type_tokens(m_read_type);
                 std::set<std::string> seen;
                 for (size_t i = 0; !m_read_type.empty() && std::getline(type_tokens, token, ','); i++) {
                     std::string const gate = i < gate_of.size() ? gate_of[i] : "-";
+                    std::string const kind = i < kind_of.size() ? kind_of[i] : "-";
                     if (!ReadTypeFromToken(token)) {
                         error_log.emplace_back("--read_type must be one of " + ReadTypeTokens() + ", not '" + token + "'");
-                    } else if (!seen.insert(token + "@" + gate).second) {
+                    } else if (!seen.insert(token + "@" + gate + "@" + kind).second) {
                         error_log.emplace_back("--read_type names " + token + " twice for --add_model" +
-                                               (gate == "-" ? std::string() : " at --model_gate " + gate));
+                                               (gate == "-" ? std::string() : " at --model_gate " + gate) +
+                                               (kind == "-" ? std::string() : " of --model_kind " + kind));
                     }
                 }
                 for (auto const& model : AddModels()) {
@@ -2985,12 +3088,13 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
                 }
-                // The model of each kind of reads the samples have (of paired-end reads without samples).
+                // The model of each kind of reads the samples have (of paired-end reads without samples); one of the kind
+                // --model_kind asks for is looked for once the database's gates are known (RunProtal.h KindModels).
                 bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [this](ReadTypeInfo const& t) { return AnySample(t.type); });
                 for (auto const& info : kReadTypes) {
                     auto const type = info.type;
                     if (m_no_profile || write_neighbours || !(AnySample(type) || (type == ReadType::Paired && !any_sample)) ||
-                        ModelDbFile(type).Exists()) continue;
+                        ModelDbFile(type).Exists() || (ModelNamed(type).empty() && !ModelKind(type).empty())) continue;
                     if (!ModelNamed(type).empty()) {
                         error_log.emplace_back("Model file does not exist: " + ModelDbFile(type).Name());
                         continue;
@@ -4062,6 +4166,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.read_type                = result["read_type"].as<std::string>();
             d.add_model                = result["add_model"].as<std::string>();
             d.model_gate               = result["model_gate"].as<std::string>();
+            d.model_kind               = result["model_kind"].as<std::string>();
             d.add_tables               = result["add_tables"].as<std::string>();
             d.write_species_neighbours = result["write_species_neighbours"].as<std::string>();
 

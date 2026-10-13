@@ -103,14 +103,15 @@ class GtdbBuildTest(unittest.TestCase):
         only test_f keeps the reads of the models' errors; zstd level 1 for both databases, whose content is the same at
         any level. The runs scan the full references for the foreign rates (--foreign-rates, off by default), so that
         their tables compare; test_f has the default, no scan, and so do test_b and test_i, which do not look at them.
-        Only the database gates' models (--model-gates none): test_j trains one at another gate. On 4 threads (the runs
-        take ~15% less time than on 2, the tables are the same on any)."""
+        Only the database gates' models (--model-gates none): test_j trains one at another gate. One kind of models (--model
+        gbm): test_j trains the forests too. On 4 threads (the runs take ~15% less time than on 2, the tables are the same
+        on any)."""
         command = [cls.python, BUILD, "--inputs", cls.inputs, "--outdir", os.path.join(cls.tmp.name, out),
                    "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "4",
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
-                   "--test-read-pairs", "2000", "--ntree", "16", "--rounds", "40", "--evaluation", "basic",
+                   "--test-read-pairs", "2000", "--model", "gbm", "--ntree", "16", "--rounds", "40", "--evaluation", "basic",
                    "--progress-every", "5", "--training-db-level", "1", "--final-db-level", "1",
                    "--error-reads", error_reads, "--model-gates", "none", *([] if scenarios else ["--scenarios", "none"]),
                    *(["--foreign-rates"] if foreign else []), *extra]
@@ -1019,7 +1020,10 @@ class GtdbBuildTest(unittest.TestCase):
         # se's 0 and 4 by hash and by grid (their rows <sample>__c<C>, __c<C>h and __c<C>g in the same protal runs, each
         # run once), each scored by the model of the gate nearest it (pe 0, 1 and 2 by c1's);
         # c_gates.tsv has a row per gate with F1 and the alignment's CPU seconds; both main tables as the full build's;
-        # the console says each protal run, what it holds, and the trainers' evaluations.
+        # the console says each protal run, what it holds, and the trainers' evaluations. Both kinds of models this
+        # time (--model gbm,forest): the forests trained after the boosted models at both gates, checked for parity,
+        # scored in the summary, and stored beside them (model_pe_forest.xml, model_pe_c1_forest.xml), in place, with
+        # build_metadata.tsv; a run with --model_kind forest is profiled with them.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         gates, scratch = self.copy_of_full("gates")  # the full build as it left it (test_a builds out again)
@@ -1027,6 +1031,10 @@ class GtdbBuildTest(unittest.TestCase):
         subprocess.run([os.environ["PROTAL"], "--unpack_db", "--db", os.path.join(self.tmp.name, gates, "protal_db",
                                                                                   "database.protal"),
                         "--unpack_dir", unpacked, "-t", "4"], check=True, capture_output=True)
+        # The full build's database.protal holds its notes too: build_metadata.tsv as the build wrote it at its end, the
+        # converter's gene2geneid.tsv and genome2tiid.tsv as beside it.
+        for note in ("build_metadata.tsv", "gene2geneid.tsv", "genome2tiid.tsv"):
+            self.assertEqual(self.text(gates, "protal_db", note), self.text("gates_db", note), note)
         with open(os.path.join(unpacked, "build_settings.tsv")) as fh:
             settings = dict(line.rstrip("\n").split("\t", 1) for line in fh if "\t" in line)
         self.assertEqual({k: settings.get(f"sparse_first_{k}") for k in ("pe", "se", "pb", "ont")},
@@ -1039,7 +1047,7 @@ class GtdbBuildTest(unittest.TestCase):
                 self.assertIn("sparse first: pe 4 stride, se 4 stride, score 14, 1 hit(s); the database's models were "
                               "trained with pe 4 stride, se 4 stride, score 14, 1 hit(s)", fh.read(), path)
         result = self.build(gates, "--scratch", scratch, "--profile-blocks", "0.00001", "--test-c-gates", "pe:0/1/2,se:0",
-                            "--model-gates", "pe:1")
+                            "--model-gates", "pe:1", "--model", "gbm,forest")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertNotRegex(result.stdout, r"built training_db")
         self.assertRegex(result.stdout, r"built protal_db")
@@ -1106,15 +1114,48 @@ class GtdbBuildTest(unittest.TestCase):
                       "pe:stride,se:stride,pb:stride,ont:stride; models also at pe:1", metadata)
         self.assertIn("test samples also at pe:0/1/2,se:0 (model_logs/c_gates.tsv); and with the other pick at pe:4,se:4; "
                       "and with the grid pick at pe:4,se:4", metadata)
-        # The finished database holds the model of gate 1, trained (not its placeholder), which a run gated near 1 takes.
-        self.assertRegex(self.text(gates, "logs", "final_package.log"), r"Models for read types: pe \(also gates 1\), se")
+        # The finished database holds the model of gate 1, trained (not its placeholder), which a run gated near 1 takes,
+        # and the forests beside the boosted models at both gates, all put in in place with build_metadata.tsv.
+        import compressed
+        import model_pmml
+        package = self.text(gates, "logs", "final_package.log")
+        self.assertRegex(package, r"Models for read types: pe \(also gates 1; forest at its gate, 1\), se \(forest at its gate\)")
+        self.assertRegex(package, r"Replace the last \d+ of \d+ members of \S+ in place")
         unpacked = os.path.join(self.tmp.name, "gates_final")
         subprocess.run([os.environ["PROTAL"], "--unpack_db", "--db", os.path.join(self.tmp.name, gates, "protal_db",
                                                                                   "database.protal"),
                         "--unpack_dir", unpacked, "-t", "4"], check=True, capture_output=True)
-        with open(os.path.join(unpacked, "model_pe_c1.xml")) as fh, \
-                open(os.path.join(self.tmp.name, gates, "model_logs", "trained_model_c1.xml")) as trained:
-            self.assertEqual(fh.read(), trained.read())
+        for member, trained, kind in (("model_pe.xml", "trained_model.xml", "gbm"),
+                                      ("model_pe_c1.xml", "trained_model_c1.xml", "gbm"),
+                                      ("model_se.xml", "trained_model_se.xml", "gbm"),
+                                      ("model_pe_forest.xml", "trained_model_forest.xml", "forest"),
+                                      ("model_pe_c1_forest.xml", "trained_model_c1_forest.xml", "forest"),
+                                      ("model_se_forest.xml", "trained_model_se_forest.xml", "forest")):
+            self.assertEqual(self.text("gates_final", member), self.text(gates, "model_logs", trained), member)
+            self.assertEqual(model_pmml.model_kind(os.path.join(unpacked, member)), kind, member)
+        self.assertEqual(self.text("gates_final", "build_metadata.tsv"), self.text(gates, "protal_db", "build_metadata.tsv"))
+        self.assertIn("--model forest --ntree 16 --maxnodes 512", self.text(gates, "logs", "classifier_training_c1_forest.log"))
+        self.assertRegex(result.stdout, r"forest: trained in .*F1 with species held out")
+        self.assertIn("trained_model_se_forest.xml (se reads)", self.text(gates, "model_logs", "parity.txt"))
+        summary = self.text(gates, "model_logs", "summary.txt")
+        for label in ("pe forest", "se forest", "pe c1 forest"):
+            self.assertRegex(summary, rf"\n{label} +independent test set ", label)
+        metadata = self.metadata(gates)
+        self.assertRegex(metadata["model_pe_forest"], r"species held out F1 [\d.]+")
+        self.assertIn("forest (model_<type>_forest.xml, model_<type>_c<C>_forest.xml: protal --model_kind forest), 16 trees, "
+                      "max leaves pe:512,se:512", metadata["classifier_other_kinds"])
+        # A run with --model_kind forest takes the forest of the gate nearest its own.
+        sam = next(path for path in glob.glob(os.path.join(scratch, "test", "points", "*", "protal*", "alignments", "*.sam*"))
+                   if path.endswith((".sam", ".sam.gz", ".sam.zst")) and "__c" not in os.path.basename(path) and
+                   "@CO\tprotal read type: pe" in compressed.read_text(path))
+        for out, extra, line in (("gates_forest_c1", ("--sparse_first", "pe:1"), "gated at 1: model_pe_c1_forest.xml in "),
+                                 ("gates_forest_c4", (), "gated at 4: model_pe_forest.xml in ")):
+            proc = subprocess.run([os.environ["PROTAL"], "--db", os.path.join(self.tmp.name, gates, "protal_db", "database.protal"),
+                                   "--profile_only", sam, "-o", os.path.join(self.tmp.name, out), "--no_strains",
+                                   "--no_qcmsa", "-t", "2", "--model_kind", "forest", *extra],
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stdout[-3000:])
+            self.assertIn(f"Model of paired-end reads {line}", proc.stdout)
 
 
 if __name__ == "__main__":

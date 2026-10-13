@@ -39,6 +39,8 @@ databases are in [development.md](development.md).
 | `column_weights.bin`, `strain_alleles.bin` | only in `database.protal` (since 2026-10-11), beside the text tables they are made from: the same tables as a run holds them (the column weights' codes packed, ~1.5 bytes a column), read straight into memory on several threads without parsing. At r226 the column weights' text took 12 s of every run on one thread and ~7.6 GB more while it was read ([report](claude/2026-10-11-performance-audit/README.md)). Each records the size of its text table; one made from another text (`--add_tables` of the text alone, by an older protal) is not used, and the text is read |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
 | `model_pe_c1.xml`, `model_PB_c32.xml`, ... | since 2026-10-13: models trained at other sparse-first gates than the database's (`--add_model --model_gate`, [`--model-gates`](#choosing-the-sparse-first-gates)), which runs gated nearer that gate are profiled with |
+| `model_pe_forest.xml`, `model_pe_c1_forest.xml`, ... | since 2026-10-13: each of those models of the other kind, a random forest beside the default gradient-boosted trees (`..._gbm.xml` where the default is a forest; `--add_model --model_kind`), which runs given `--model_kind forest` are profiled with ([below](#kinds-of-models)) |
+| `build_metadata.tsv`, `gene2geneid.tsv`, `genome2tiid.tsv` | optional (since 2026-10-13): notes no run reads, so that `database.protal` holds the whole database: what it was built from and with and its models' scores, the gene ids, the genomes by name ([below](#the-notes-a-database-carries)) |
 
 A database without an optional table works; the features that need it are then fixed values (0, or
 0.5). A model trained with a table should run with it.
@@ -113,6 +115,10 @@ and replaces the database's model of that read type. Several at once
 gated at another gate than the database's as `model_<type>_c<C>.xml` (`--add_model pe.xml,pe_c1.xml
 --read_type pe,pe --model_gate -,1`): runs gated at or nearest C are profiled with it
 ([below](#choosing-the-sparse-first-gates)).
+`--model_kind KIND` (one per model, `-` for the read type's default file) stores a model of another kind
+beside the default one ([below](#kinds-of-models)), and checks that the file is of that kind.
+`--add_tables FILE` with `--add_model` stores the tables in the same write (the GTDB build stores its
+models and `build_metadata.tsv` so).
 `--model` and `--model_se` use another model for a run without changing the database.
 
 The models are the last members of `database.protal`, so `--add_model` replaces them in place: it
@@ -127,6 +133,40 @@ already holds a model or placeholder for every read type (unless `--no-placehold
 bytes being overwritten. If `--add_model` stops halfway, running it again first puts those bytes
 back; other protal commands say so instead of reading a broken file. Do not start protal runs on the
 database while `--add_model` replaces its models.
+
+### Kinds of models
+
+Since 2026-10-13 a database may hold its models in two kinds: gradient-boosted trees (`gbm`) and a
+random forest (`forest`). The read types' files (`model_pe.xml`, `model_pe_c1.xml`, ...) hold the
+database's default kind; a model of the other kind sits beside each as `model_pe_forest.xml`,
+`model_pe_c1_forest.xml`, ... (or `..._gbm.xml` where the default is a forest). A GTDB build trains
+both at every gate it trains (`build_gtdb_database.py --model gbm,forest`, the default): boosting is the
+default, the forests go beside it. A run picks the kind with `--model_kind`:
+
+```bash
+protal --db DB -1 r1.fq.gz -2 r2.fq.gz -o out --model_kind forest            # every read type
+protal --db DB --profile_only 'out/*.sam.zst' -o out_forest --model_kind pe:forest   # again, pe by forests
+```
+
+Each sample takes the model of that kind trained at the gate nearest its own (`--sparse_first`), as
+without `--model_kind` it takes the default files; a default file counts as a model of its own kind
+(protal tells the kind from how the PMML combines its trees), so a database of forests alone, older
+ones too, serves `--model_kind forest`. A run whose read type has no model of the kind stops (exit 2).
+The model's log line names its kind, and without `--model_kind` the other kind the database also has.
+`--profile_only` with `--model_kind` re-profiles a run's SAMs with the other kind without aligning
+again. The build scores both kinds side by side in `model_logs/summary.txt` (`pe forest`, `pe c1
+forest`), and `build_metadata.tsv` gives the forests' scores (`model_pe_forest`).
+
+### The notes a database carries
+
+`database.protal` holds every file a run reads, and since 2026-10-13 also the notes no run reads, so
+that the one file is the whole database: `build_metadata.tsv` (what `build_gtdb_database.py` built it
+from and with, its models' scores), and the converter's `gene2geneid.tsv` (marker ids to protal gene
+ids) and `genome2tiid.tsv` (genomes by name). `--build` and `--compress_db` pack them where the folder
+has them and, unlike the other files, leave them there, where scripts read them. `--add_tables` stores
+them as they are (text, checked line by line); `build_metadata.tsv` is the last member, after the
+models, so the build's last step (`--add_model ... --add_tables build_metadata.tsv`, one write) replaces
+both in place. `--unpack_db` writes them back.
 
 ### The database in memory
 
@@ -311,9 +351,13 @@ numbered line when it starts and indented lines when it ends.
    a random forest before 2026-10-06), trained in parallel on the default feature set and evaluated with
    rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
+   Since 2026-10-13 the same models again as random forests once the boosted ones are trained (`--model
+   gbm,forest`, the default; `classifier_training*_forest.log`, `trained_model*_forest.*`), at every gate,
+   for `protal --model_kind forest` ([kinds of models](#kinds-of-models)); `--model gbm` trains one kind.
 8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does; the read
-   types' checks side by side (`protal --profile_only`, no index loaded).
-9. **Packaging** (`final_package.log`): the models go into the finished database. The reports
+   types' checks side by side (`protal --profile_only`, no index loaded), those of both kinds.
+9. **Packaging** (`final_package.log`): the models of both kinds go into the finished database, with
+   `build_metadata.tsv`, in one write in place (the database's build packed placeholders of them). The reports
    of what the models' errors rest on (`trace_relatives.log`, `error_reads_<read type>.log`) start
    right after the models are trained, beside steps 8 and 9 and the wait for the finished database's
    build (since 2026-10-09).
@@ -417,7 +461,7 @@ with `--scratch`, and about 1,400 with `--share-logs`, whose error-read SAMs are
 
 | Path in `--outdir` | |
 |---|---|
-| `protal_db/` | the database: `database.protal` with its models; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes |
+| `protal_db/` | the database: `database.protal` with its models of both kinds; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes. Since 2026-10-13 `database.protal` holds these three too ([the notes](#the-notes-a-database-carries)): it alone is the database |
 | `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
 | `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the read types' parity checks, run side by side, each after a `==> parity_<read type> <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
 | `console.log` | the console's lines, of every run into the folder |
@@ -1000,8 +1044,8 @@ keeps the finished database.
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), and in 0.8.1 the column weights (`weights`), which need a protal of 0.8.1 or later (0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
-| `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
-| `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
+| `--model` | `gbm,forest` | the kinds of models, comma-separated: `gbm`, gradient-boosted trees (the default since 2026-10-06), `forest`, a random forest ([below](#training)); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_forest.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13, `gbm` alone before |
+| `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items; `--maxnodes` for `--model`'s first kind, the others their defaults) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |

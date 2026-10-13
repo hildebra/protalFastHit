@@ -4,6 +4,7 @@
 // them, --add_model stores one), and a SAM names the kind of its reads in a header comment.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <string>
@@ -87,13 +88,42 @@ namespace protal {
         return file.substr(0, file.size() - 4) + "_c" + std::to_string(gate) + ".xml";
     }
 
-    // Every model file a database may hold: each read type's, its models at other gates (GateModelFile), and those of
-    // older databases.
+    // The kinds of presence models (since 2026-10-13; scripts/machine_learning_cmdline.py --model): gradient-boosted trees
+    // and a random forest. A database's model files (model_file, GateModelFile) hold its default kind, the one
+    // build_gtdb_database.py --model names first; a model of another kind of the same reads and gate is its KindModelFile,
+    // which runs given --model_kind take.
+    inline const std::array<std::string, 2> kModelKinds = { "gbm", "forest" };
+
+    inline bool IsModelKind(std::string const& kind) {
+        return std::find(kModelKinds.begin(), kModelKinds.end(), kind) != kModelKinds.end();
+    }
+
+    // "gbm or forest", for messages.
+    inline std::string ModelKindNames() {
+        std::string names;
+        for (size_t k = 0; k < kModelKinds.size(); k++) {
+            names += (k == 0 ? "" : k + 1 == kModelKinds.size() ? " or " : ", ") + kModelKinds[k];
+        }
+        return names;
+    }
+
+    // The model of kind `kind` stored beside model file `file` (--add_model --model_kind): model_pe.xml ->
+    // model_pe_forest.xml, model_pe_c1.xml -> model_pe_c1_forest.xml.
+    inline std::string KindModelFile(std::string const& file, std::string const& kind) {
+        return file.substr(0, file.size() - 4) + "_" + kind + ".xml";
+    }
+
+    // Every model file a database may hold: each read type's, its models at other gates (GateModelFile), each of them of
+    // every kind (KindModelFile), and those of older databases.
     inline std::vector<std::string> AllModelFiles() {
         std::vector<std::string> names;
         for (auto const& info : kReadTypes) names.push_back(info.model_file);
         for (auto const& info : kReadTypes) {
             for (size_t gate : kModelGates) names.push_back(GateModelFile(info.type, gate));
+        }
+        size_t const plain = names.size();
+        for (auto const& kind : kModelKinds) {
+            for (size_t i = 0; i < plain; i++) names.push_back(KindModelFile(names[i], kind));
         }
         names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
         return names;

@@ -3001,6 +3001,110 @@ class ReadTypeModelTest(DbTest):
         self.assertNotEqual(rc, 0, log[-3000:])
         self.assertIn("--model_gate goes with --add_model", log)
 
+    def test_models_of_other_kinds(self):
+        """--add_model --model_kind (2026-10-13) stores a model of another kind beside the database's default one: the
+        small gradient-boosted model as model_pe_gbm.xml beside the test database's random forest model_pe.xml, and at
+        gate 4 as model_pe_c4_gbm.xml. --model_kind picks the kind a run is profiled with, at every gate: the kind's own
+        file, or the default file where that is of the kind; auto (the default) the default files, and the log names the
+        other kind. A kind the database has no model of stops the run; a model of another kind than --model_kind says
+        is refused."""
+        db, bundle = self.copy("db_kinds")
+        rc, log = self.profile_only(db, "kind_missing", "--model_kind", "gbm")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--model_kind gbm: the database has no gbm model of paired-end reads (model_pe_gbm.xml", log)
+        rc, log = run(self.work, "--add_model", f"{self.MODEL},{self.MODEL}", "--read_type", "pe,pe", "--model_gate", "-,4",
+                      "--model_kind", "gbm,gbm", "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"Stored {self.MODEL} as model_pe_gbm.xml in {bundle}", log)
+        self.assertIn(f"Stored {self.MODEL} as model_pe_c4_gbm.xml in {bundle}", log)
+        self.assertRegex(log, r"Models for read types: pe \(gbm at its gate, 4\)")
+        # (the run's options, the model's gate as logged, its file and kind, the profile: the test database's model's or
+        # the small model's)
+        forest, small = baseline().text("sa.profile"), self.expected["pe"]
+        for out, extra, gated, member, about, profile in (
+                ("kind_auto", (), "", "model_pe.xml", "forest; the database also has gbm models: --model_kind gbm", forest),
+                ("kind_forest", ("--model_kind", "forest"), "", "model_pe.xml", "forest", forest),
+                ("kind_gbm", ("--model_kind", "gbm"), " gated at off", "model_pe_gbm.xml", "gbm", small),
+                ("kind_gbm_4", ("--model_kind", "pe:gbm", "--sparse_first", "4"), " gated at 4", "model_pe_c4_gbm.xml", "gbm", small),
+                ("kind_gbm_8", ("--model_kind", "gbm", "--sparse_first", "8"), " gated at 4", "model_pe_c4_gbm.xml", "gbm", small),
+                ("kind_forest_4", ("--model_kind", "forest", "--sparse_first", "4"), "", "model_pe.xml", "forest", forest)):
+            with self.subTest(out=out):
+                rc, log = self.profile_only(db, out, *extra)
+                self.assertEqual(rc, 0, log[-3000:])
+                self.assertIn(f"Model of paired-end reads{gated}: {member} in {bundle} ({about})\n", log)
+                self.assertEqual(read_text(self.path(out, "sa.profile")), profile)
+        # A model of the other kind than --model_kind says, and malformed kinds, are refused; the database is unchanged.
+        with open(bundle, "rb") as fh:
+            before = fh.read()
+        model = self.MODEL
+        for args, code, problem in (((model, "pe", "forest"), 2, f"--add_model: {model} is a gbm model, not a forest model"),
+                                    ((f"{model},{model}", "pe,pe", "gbm"), 30, "--model_kind with --add_model gives a kind per model (2)"),
+                                    ((model, "pe", "rf"), 30, "--model_kind: a model's kind is -, gbm or forest, not 'rf'"),
+                                    ((f"{model},{model}", "pe,pe", "gbm,gbm"), 30,
+                                     "--read_type names pe twice for --add_model of --model_kind gbm")):
+            with self.subTest(args=args):
+                rc, log = run(self.work, "--add_model", args[0], "--read_type", args[1], "--model_kind", args[2], "--db", db)
+                self.assertEqual(rc, code, log[-3000:])
+                self.assertIn(problem, log)
+                with open(bundle, "rb") as fh:
+                    self.assertEqual(fh.read(), before, "the database is unchanged")
+        rc, log = self.profile_only(db, "kind_bad", "--model_kind", "pe:rf")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("--model_kind is auto, gbm or forest, or read types and their kinds", log)
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked_kinds"))
+        self.assertEqual(rc, 0, log[-3000:])
+        for member in ("model_pe_gbm.xml", "model_pe_c4_gbm.xml"):
+            self.assertTrue(filecmp.cmp(self.path("unpacked_kinds", member), self.MODEL, shallow=False), member)
+
+    def test_notes_in_the_database(self):
+        """database.protal carries the notes no run reads (2026-10-13): the converter's gene2geneid.tsv and genome2tiid.tsv,
+        which --build packs from its folder and leaves there, and build_metadata.tsv, which --add_tables stores as it is,
+        last, so that storing it again, alone or with models (one write), replaces it in place. --unpack_db writes them
+        back. A note that is no text is refused."""
+        db, bundle = self.copy("db_notes")
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked_before"))
+        self.assertEqual(rc, 0, log[-3000:])
+        folder = os.path.dirname(single_file(DB) or "")
+        for note in ("gene2geneid.tsv", "genome2tiid.tsv"):  # the test database's build packed its folder's
+            if folder and os.path.isfile(os.path.join(folder, note)):
+                self.assertTrue(filecmp.cmp(self.path("unpacked_before", note), os.path.join(folder, note), shallow=False), note)
+        os.mkdir(self.path("notes"))
+        metadata = self.path("notes", "build_metadata.tsv")
+        with open(metadata, "w") as fh:
+            fh.write("gtdb_release\tr0\nbuilt\tbefore\n")
+        rc, log = run(self.work, "--add_tables", metadata, "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"{metadata}: 2 lines, stored as they are", log)
+        self.assertIn(f"Stored {metadata} as build_metadata.tsv in {bundle}", log)
+        with open(metadata, "w") as fh:
+            fh.write("gtdb_release\tr0\nbuilt\tafter\nmodel_pe\tF1 1\n")
+        rc, log = run(self.work, "--add_tables", metadata, "--db", db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertRegex(log, r"Replace the last 1 of \d+ members of \S+ in place")
+        # With the models in one write: a new model member rewrites the file once, then both are replaced in place.
+        for in_place in (False, True):
+            rc, log = run(self.work, "--add_model", self.MODEL, "--read_type", "pe", "--model_kind", "gbm", "--add_tables", metadata,
+                          "--db", db, "-t", "2")
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertEqual(log.count("Models for read types:"), 1)
+            self.assertIn(f"Stored {self.MODEL} as model_pe_gbm.xml in {bundle}", log)
+            if in_place:
+                self.assertRegex(log, r"Replace the last 2 of \d+ members of \S+ in place")
+        rc, log = run(self.work, "--unpack_db", "--db", bundle, "--unpack_dir", self.path("unpacked_notes"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(filecmp.cmp(self.path("unpacked_notes", "build_metadata.tsv"), metadata, shallow=False))
+        self.assertTrue(filecmp.cmp(self.path("unpacked_notes", "model_pe_gbm.xml"), self.MODEL, shallow=False))
+        with open(bundle, "rb") as fh:
+            before = fh.read()
+        binary = self.path("notes", "genome2tiid.tsv")
+        with open(binary, "wb") as fh:
+            fh.write(b"GCF_1\t1\n\0\n")
+        rc, log = run(self.work, "--add_tables", binary, "--db", db, "-t", "2")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("is no valid genome2tiid.tsv: line 2 holds a NUL byte", log)
+        with open(bundle, "rb") as fh:
+            self.assertEqual(fh.read(), before, "the database is unchanged")
+
     def test_read_type_checks(self):
         rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_x", "--read_type", "nanopore")
         self.assertEqual(rc, 30, log[-3000:])

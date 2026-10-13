@@ -79,14 +79,22 @@ hash sample of the cores rather than every C-th (--test-other-pick).
 Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
 soil, 90% host reads) add samples of their own, each at a depth drawn around its
 scenario's: their hold-in samples join the training data, their hold-out samples
-the test set, and every model's report scores both. The models are gradient-boosted
-trees on the default feature set, evaluated with rows, samples and species held
-out (--features, --evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
-set with species held out, and the run then says which set won and why.
+the test set, and every model's report scores both. The models are trained on the
+default feature set, evaluated with rows, samples and species held out (--features,
+--evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
+set with species held out, and the run then says which set won and why. Every
+model is trained in two kinds (--model, default gbm,forest): gradient-boosted
+trees, the database's default (model_pe.xml, model_pe_c1.xml, ...), and a random
+forest, stored beside them (model_pe_forest.xml, model_pe_c1_forest.xml, ...),
+which protal --model_kind forest profiles with, at every gate. The second kind
+trains after the first (the trainers' memory as with one kind); the summary
+scores both.
 
 OUT_DIR holds, each file once:
-  protal_db/      the database: database.protal and build_metadata.tsv (what it was built from and with), and the
-                  converter's gene2geneid.tsv and genome2tiid.tsv (gene ids and genomes by name)
+  protal_db/      the database: database.protal, which holds every file protal reads and these notes (protal
+                  --unpack_db writes them), also kept beside it: build_metadata.tsv (what it was built from and with,
+                  its models' scores) and the converter's gene2geneid.tsv and genome2tiid.tsv (gene ids and genomes by
+                  name)
   model_logs/     what tells whether the models are good, and what the run chose
   logs/           every step's log
   console.log     the console's lines
@@ -195,7 +203,7 @@ from gtdb_to_protal_db import (allele_genome, clear_build_outputs, full_referenc
                                REFERENCE_WRITTEN, remove_full_reference as remove_full_reference_files)
 import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
-from model_pmml import MODEL_FILES, gate_model_file, write_placeholder  # noqa: E402
+from model_pmml import MODEL_FILES, MODEL_KINDS, gate_model_file, kind_model_file, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
 from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, parse_args as collector_args  # noqa: E402
 
@@ -1417,6 +1425,23 @@ def max_leaves(spec, read_type):
     return given.get(read_type, default)
 
 
+def model_kinds_spec(text):
+    """--model: the kinds of models to train (machine_learning_cmdline.py --model), comma-separated, each once; the first
+    is the database's default (model_pe.xml, ...), the others go beside it (model_pe_forest.xml, ...)."""
+    kinds = [k.strip() for k in text.split(",") if k.strip()]
+    if not kinds or any(k not in MODEL_KINDS for k in kinds) or len(set(kinds)) != len(kinds):
+        raise argparse.ArgumentTypeError(f"kinds of {', '.join(MODEL_KINDS)}, comma-separated, each once; got {text!r}")
+    return kinds
+
+
+def kind_leaves(args, kind):
+    """--maxnodes of the models of `kind`: as given (or its kind's default) for the database's default kind (--model's
+    first), its kind's default for another."""
+    if kind == args.model:
+        return args.maxnodes
+    return BOOSTED_LEAVES if kind == "gbm" else FOREST_LEAVES
+
+
 def depth_knob_types(args):
     """The read types whose models get knobs by sample depth (--depth-knob-read-types)."""
     return {t.strip() for t in args.depth_knob_read_types.split(",") if t.strip()}
@@ -1877,9 +1902,10 @@ def versions_at_end(started, ended):
 
 
 def provenance(args, versions, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all",
-               insilico="none"):
+               insilico="none", kind_prefixes=None):
     """build_metadata.tsv: what the database was built from and with, so that two builds can be compared; versions:
-    versions_at_end's."""
+    versions_at_end's. kind_prefixes {kind: (prefixes, gate prefixes)}: the models of --model's other kinds, each with a
+    row of its scores (model_<type>_<kind>)."""
     genomes, species = 0, set()
     with open(genome_table) as fh:
         for line in fh:
@@ -1925,6 +1951,11 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("classifier_features", args.features), ("classifier_model", args.model),
             ("classifier_trees", args.ntree if args.model == "forest" else f"{args.rounds or TRAINER_ROUNDS} rounds"),
             ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
+            ("classifier_other_kinds", "; ".join(
+                f"{kind} (model_<type>_{kind}.xml, model_<type>_c<C>_{kind}.xml: protal --model_kind {kind}), "
+                + (f"{args.ntree} trees" if kind == "forest" else f"{args.rounds or TRAINER_ROUNDS} rounds")
+                + ", max leaves " + ",".join(f"{t}:{max_leaves(kind_leaves(args, kind), t)}" for t in read_types)
+                for kind in getattr(args, "other_kinds", [])) or "none"),
             ("classifier_evaluation", args.evaluation),
             ("classifier_previous_procedure",
              "compared" if args.previous_procedure and args.evaluation != "none" else "not compared"),
@@ -1987,6 +2018,18 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             rows.append((f"model_{t}_false_calls", f"target {false_calls['fdr']} per sample; species held out F1 "
                                                    f"{false_calls['F1']}; independent test F1 at it "
                                                    f"{metrics.get('test_false_calls', {}).get('F1')}"))
+    for kind, (own, _) in (kind_prefixes or {}).items():  # the other kinds' models at the database's gates
+        for t in read_types:
+            try:
+                with open(own[t] + ".metrics.json") as fh:
+                    metrics = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            species_cv = metrics.get("evaluation", {}).get("species", {})
+            called = metrics.get("test_depth_knobs") or metrics.get("test", {}).get("this one", {})
+            rows.append((f"model_{t}_{kind}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
+                                              f"{species_cv.get('FP_per_sample')}; independent test F1 {called.get('F1')} "
+                                              f"(as protal calls), FP per sample {called.get('FP_per_sample')}"))
     return rows
 
 
@@ -2218,13 +2261,15 @@ def scenario_scores(read_types, prefixes, order=()):
             "; ".join(f"{name} {', '.join(found[name])}" for name in names)) if found else "no scenario scores"
 
 
-def summary_lines(read_types, prefixes, db, gate_prefixes=None):
+def summary_lines(read_types, prefixes, db, gate_prefixes=None, kind_prefixes=None):
     """model_logs/summary.txt: for each read type's model, TP, FP, TN, FN and the rates, with species held
     out in training (cross-validation), on the independent test set and, with --scenarios, on each scenario's
     hold-out and hold-in samples, from its .metrics.json; for its models at other gates (gate_prefixes {read type:
     {gate: prefix}}, read type "pe c1"), with species held out and on the test set at their gates, and on each
-    scenario's hold-out samples."""
+    scenario's hold-out samples; then the same of each other kind of models (kind_prefixes {kind: (prefixes, gate
+    prefixes)}, read type "pe forest", "pe c1 forest")."""
     gate_prefixes = gate_prefixes or {}
+    kind_prefixes = kind_prefixes or {}
     header = ("read type", "evaluated on", "knob", "taxa", "TP", "FP", "TN", "FN", "sensitivity", "specificity",
               "precision", "F1", "FP rate", "FN rate", "FP/sample")
     rows = []
@@ -2236,9 +2281,13 @@ def summary_lines(read_types, prefixes, db, gate_prefixes=None):
                 rate(tp / (tp + fp) if tp + fp else None), rate(2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None),
                 rate(fp / (fp + tn) if fp + tn else None), rate(fn / (tp + fn) if tp + fn else None),
                 "-" if per_sample is None else f"{per_sample:.2f}")
-    # (its label, its prefix, whether all its rows): the read types' models, then those at other gates
+    # (its label, its prefix, whether all its rows): the read types' models, then those at other gates; then those of the
+    # other kinds alike
     models = [(t, prefixes[t], True) for t in read_types] + \
         [(f"{t} c{g}", prefix, False) for t in read_types for g, prefix in sorted(gate_prefixes.get(t, {}).items())]
+    for kind, (own, own_gates) in kind_prefixes.items():
+        models += [(f"{t} {kind}", own[t], True) for t in read_types] + \
+            [(f"{t} c{g} {kind}", prefix, False) for t in read_types for g, prefix in sorted(own_gates.get(t, {}).items())]
     for t, prefix, full in models:
         try:
             with open(prefix + ".metrics.json") as fh:
@@ -2293,7 +2342,10 @@ def summary_lines(read_types, prefixes, db, gate_prefixes=None):
             "reads on a marker gene (the others left out, called or not; those without a row counted as FN), as protal "
             "calls. " + ("<read type> c<C>: its model at sparse-first gate C (model_<type>_c<C>.xml), trained and tested "
                          "on the samples profiled at that gate, which runs gated at or nearer C take. "
-                         if gate_prefixes else "") + "Details: trained_model*.report.txt", ""] + table
+                         if gate_prefixes else "") +
+            "".join(f"<read type> [c<C>] {kind}: the same model as a {kind} (model_<type>[_c<C>]_{kind}.xml), which runs "
+                    f"given protal --model_kind {kind} take; the others are the database's default models. "
+                    for kind in kind_prefixes) + "Details: trained_model*.report.txt", ""] + table
 
 
 def composition_report(read_types, prefixes, training, test, heldout, logs, threads=1):
@@ -2508,9 +2560,10 @@ def gates_text(gates):
 
 def build_command(protal, db, threads, *extra, alleles=None, gate_models=False):
     """protal --build of `db`, with the training database's allele options unless `alleles` (FINAL_ALLELE_ARGS). With
-    gate_models (the finished database): its folder's models at other gates made GATE_PLACEHOLDERS first."""
+    gate_models (the finished database): its folder's models at other gates and of other kinds made MODEL_PLACEHOLDERS
+    first, and a build_metadata.tsv put there if it has none (refresh_model_placeholders)."""
     if gate_models:
-        refresh_gate_placeholders(db, GATE_PLACEHOLDERS)
+        refresh_model_placeholders(db, MODEL_PLACEHOLDERS)
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *TRACEBACK_ARGS, *extra]
     if full_reference_path(db):
@@ -2518,21 +2571,45 @@ def build_command(protal, db, threads, *extra, alleles=None, gate_models=False):
     return command
 
 
-# The finished database's models at other gates (--model-gates) as placeholders, [(file, read type)], which its build
-# packs (protal's AllModelFiles) so that --add_model replaces them in place at the end (a new member makes it rewrite the
-# whole file once); set in main. Empty with --no-placeholder-models or without other gates.
-GATE_PLACEHOLDERS = []
+# The finished database's models at other gates (--model-gates) and of other kinds (--model's after the first) as
+# placeholders, [(file, read type)], which its build packs (protal's AllModelFiles) so that --add_model replaces them in
+# place at the end (a new member makes it rewrite the whole file once); set in main (model_placeholders). Empty with
+# --no-placeholder-models, or without other gates and kinds.
+MODEL_PLACEHOLDERS = []
+# build_metadata.tsv until the build writes it at its end: packed by the finished database's build as its last member,
+# so that the last step (protal --add_model ... --add_tables build_metadata.tsv) replaces it in place with the models.
+METADATA_PLACEHOLDER = "status\tbuilding: build_gtdb_database.py writes this table when the database is finished\n"
+# What protal's --full_help says when --add_tables stores build_metadata.tsv in the database (since 2026-10-13).
+NOTES_HELP = "build_metadata.tsv (build_gtdb_database.py"
 
 
-def refresh_gate_placeholders(db, placeholders):
-    """The models at other gates in folder `db`: placeholders [(file, read type)] written, any other model_*_c*.xml (an
-    earlier build's of other gates, which a run near such a gate would take) removed."""
+def model_placeholders(read_types, extra_gates, other_kinds):
+    """MODEL_PLACEHOLDERS: [(file, read type)] of the models at other gates (extra_gates {read type: [gate]}:
+    model_pe_c1.xml) and, for each kind of other_kinds, of every model of the read types (model_pe_forest.xml,
+    model_pe_c1_forest.xml)."""
+    gates = [(gate_model_file(t, g), t) for t, gs in extra_gates.items() for g in gs]
+    kinds = [(kind_model_file(name, k), t) for k in other_kinds for t in read_types
+             for name in [MODEL_FILES[t]] + [gate_model_file(t, g) for g in extra_gates.get(t, [])]]
+    return gates + kinds
+
+
+def refresh_model_placeholders(db, placeholders):
+    """The models at other gates and of other kinds in folder `db`: placeholders [(file, read type)] written, any other
+    model_*_c*.xml or model_*_<kind>.xml (an earlier build's, which a run near such a gate or given --model_kind would
+    take) removed; and a build_metadata.tsv (METADATA_PLACEHOLDER) where the folder has none."""
     keep = {name for name, _ in placeholders}
-    for stale in glob.glob(os.path.join(db, "model_*_c*.xml")):
-        if os.path.basename(stale) not in keep:
-            os.remove(stale)
+    stale = glob.glob(os.path.join(db, "model_*_c*.xml"))
+    for kind in MODEL_KINDS:
+        stale += glob.glob(os.path.join(db, f"model_*_{kind}.xml"))
+    for path in set(stale):
+        if os.path.basename(path) not in keep:
+            os.remove(path)
     for name, read_type in placeholders:
         write_placeholder(os.path.join(db, name), read_type)
+    metadata = os.path.join(db, "build_metadata.tsv")
+    if not os.path.isfile(metadata):
+        with open(metadata, "w") as fh:
+            fh.write(METADATA_PLACEHOLDER)
 
 
 def split_allele_genomes(table, reps, share, output):
@@ -3153,18 +3230,22 @@ def main():
                         "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
                         "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--model", choices=["gbm", "forest"], default="gbm",
-                   help="the presence models (machine_learning_cmdline.py --model): gbm (default since 2026-10-06), "
-                        "gradient-boosted trees, which beat the forest on the r226 v13 tables "
-                        "(docs/claude/2026-10-06-r226-v13-soil); forest, a random forest, as before")
+    p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("gbm,forest"),
+                   help="the kinds of presence models to train (machine_learning_cmdline.py --model), comma-separated: "
+                        "gbm, gradient-boosted trees, which beat the forest on the r226 v13 tables "
+                        "(docs/claude/2026-10-06-r226-v13-soil); forest, a random forest, the default before 2026-10-06. "
+                        "The first is the database's default (model_pe.xml, model_pe_c1.xml, ...), each other one is stored "
+                        "beside it (model_pe_forest.xml, model_pe_c1_forest.xml, ...: protal --model_kind forest) and trained "
+                        "after it, at the same gates. Default gbm,forest (since 2026-10-13; gbm alone before)")
     p.add_argument("--ntree", type=int, default=64, help="a forest's trees (default 64)")
     p.add_argument("--rounds", type=int,
                    help=f"boosting's rounds (machine_learning_cmdline.py --rounds; default {TRAINER_ROUNDS})")
     p.add_argument("--maxnodes", default=None,
                    help=f"leaves per tree at most (machine_learning_cmdline.py --maxnodes), N or TYPE:N items, a bare N for "
-                        f"the read types not named (default {BOOSTED_LEAVES} for boosting, {FOREST_LEAVES} for a forest: "
-                        "at r226 512 leaves gave the short-read forests a lower log loss and fewer false positives than "
-                        "256, 128 the long-read forests a lower log loss at the same F1)")
+                        f"the read types not named, for the models of --model's first kind (default {BOOSTED_LEAVES} for "
+                        f"boosting, {FOREST_LEAVES} for a forest, which the other kinds take: at r226 512 leaves gave the "
+                        "short-read forests a lower log loss and fewer false positives than 256, 128 the long-read forests "
+                        "a lower log loss at the same F1)")
     p.add_argument("--no-gene-neighbours", action="store_true",
                    help="do not record which marker genes lie next to which in the genomes to simulate from "
                         "(gene_neighbours.py; protal then pairs no mates across neighbouring genes)")
@@ -3334,6 +3415,14 @@ def main():
             "the database gate's models are trained (--model-gates)")
         args.extra_gates = {}
         args.model_ladder = model_gate_ladder({}, args.sparse_first, read_types)
+    # --model: the database's default kind (args.model) and the others (args.other_kinds), stored beside it
+    # (model_pe_forest.xml, ...: protal --add_model --model_kind).
+    args.model_kinds = args.model
+    args.model, args.other_kinds = args.model_kinds[0], args.model_kinds[1:]
+    if args.other_kinds and "--model_kind" not in full_help(args.protal):
+        say(f"WARNING: {args.protal} cannot store models of other kinds (its --full_help lists no --model_kind): only "
+            f"the {args.model} models are trained (--model)")
+        args.model_kinds, args.other_kinds = [args.model], []
     if args.maxnodes is None:
         args.maxnodes = BOOSTED_LEAVES if args.model == "gbm" else FOREST_LEAVES
     try:
@@ -3484,12 +3573,16 @@ def main():
                    "placeholders": not args.no_placeholder_models}
     final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level,
                   "alleles": FINAL_ALLELE_ARGS}
-    # The finished database's models at other gates (--model-gates), packed by its build as placeholders
-    # (GATE_PLACEHOLDERS): another set builds it again (only with some, so that earlier keys stay valid).
-    GATE_PLACEHOLDERS[:] = [] if args.no_placeholder_models else \
-        [(gate_model_file(t, g), t) for t, gates in args.extra_gates.items() for g in gates]
+    # The finished database's models at other gates (--model-gates) and of other kinds (--model), packed by its build as
+    # placeholders (MODEL_PLACEHOLDERS): another set builds it again (only with some, so that earlier keys stay valid).
+    MODEL_PLACEHOLDERS[:] = [] if args.no_placeholder_models else \
+        model_placeholders(read_types, args.extra_gates, args.other_kinds)
+    gate_placeholders = [name for name, _ in model_placeholders(read_types, args.extra_gates, [])]
     if args.extra_gates:
-        final_base["gate_models"] = sorted(name for name, _ in GATE_PLACEHOLDERS) or levels_text(args.extra_gates)
+        final_base["gate_models"] = (sorted(gate_placeholders) if MODEL_PLACEHOLDERS else []) or levels_text(args.extra_gates)
+    if args.other_kinds:
+        final_base["kind_models"] = sorted(name for name, _ in MODEL_PLACEHOLDERS if name not in gate_placeholders) or \
+            ",".join(args.other_kinds)
     if TRACEBACK_ARGS:  # only when given, so that the keys of earlier builds stay valid
         final_base["traceback"] = TRACEBACK_ARGS
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
@@ -4560,8 +4653,13 @@ def main():
     # One model per read type, and one per other gate of --model-gates (trained on the collections' tables at that gate,
     # tested on the test set's there), all in parallel, their outputs in model_logs/ (the model as it goes into the
     # database, the report, the numbers, the predictions and calls): the other gates' as trained_model[_<type>]_c<C>.
+    # The same models of each other kind of --model next (kind_prefixes), after the first kind's (the trainers' memory
+    # as with one kind), as trained_model[_<type>][_c<C>]_<kind>.
     prefixes = {t: os.path.join(logs, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
     gate_prefixes = {t: {g: f"{prefixes[t]}_c{g}" for g in gates} for t, gates in args.extra_gates.items()}
+    kind_prefixes = {k: ({t: f"{p}_{k}" for t, p in prefixes.items()},
+                         {t: {g: f"{p}_{k}" for g, p in gps.items()} for t, gps in gate_prefixes.items()})
+                     for k in args.other_kinds}
     # Each level of the test samples is scored by the model of the gate nearest it, as protal profiles a run gated so;
     # the database gate's model scores every level too, for the baseline of its samples.
     scored_by = {t: {level: nearest_gate(level_parts(level)[0], args.model_ladder[t]) for level in test_levels.get(t, [])}
@@ -4579,47 +4677,51 @@ def main():
     # database's build, if still running, is paused (its memory kept) and goes on after them.
     check_jobs()
     paused = final_build is not None and final_build.pause()
-    Steps.start(f"training {models} (classifier_training*.log){' in parallel' if len(jobs) > 1 else ''}, "
-                f"{trainer_threads} thread{'s' if trainer_threads > 1 else ''} each")
+    kinds_note = f"; then as {', '.join(args.other_kinds)} too (--model)" if args.other_kinds else ""
+    Steps.start(f"training {models} as {args.model} (classifier_training*.log){' in parallel' if len(jobs) > 1 else ''}, "
+                f"{trainer_threads} thread{'s' if trainer_threads > 1 else ''} each{kinds_note}")
     if paused:
         Steps.done(f"{os.path.basename(db)}'s build in the background paused meanwhile")
-    trainers = {}
-    for t, g in jobs:
-        tables = training if g is None else os.path.join(training, LEVELS_DIR, f"c{g}")
-        tests = test if g is None else os.path.join(test, LEVELS_DIR, f"c{g}")
-        command = [sys.executable, TRAINER, "--truth-file", os.path.join(tables, TABLES[t]),
-                   "--output-prefix", prefixes[t] if g is None else gate_prefixes[t][g], "--features", args.features,
-                   "--model", args.model, "--ntree", str(args.ntree), "--maxnodes", str(max_leaves(args.maxnodes, t)),
-                   "--seed", str(args.seed), "--threads", str(trainer_threads),
-                   "--scenario-weight", str(args.scenario_weight), "--taxonomy", taxonomy, "--evaluation", args.evaluation]
-        if args.rounds:
-            command += ["--rounds", str(args.rounds)]
-        if args.previous_procedure:
-            command += ["--previous-procedure"]
-        if t in depth_knob_types(args):
-            command += ["--depth-knobs"]
-        if args.call_mode == "fdr":
-            command += ["--fdr-calls"]
-        if has_test and os.path.isfile(os.path.join(tests, TABLES[t])):
-            command += ["--test-file", os.path.join(tests, TABLES[t])]
-            # The test samples at the other gates (and with the other pick, and with --flex_indels): every level for the
-            # database gate's model, those nearest its gate for another's.
-            for c in test_levels.get(t, []):
-                table = os.path.join(test, LEVELS_DIR, f"c{c}", TABLES[t])
-                if os.path.isfile(table) and (g is None or scored_by[t][c] == g):
-                    command += ["--extra-test-file", f"c{c}={table}"]
-        name = t if g is None else f"{t} c{g}"
-        trainers[(t, g)] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) +
-                                                 ("" if g is None else f"_c{g}") + ".log"),
-                               label=f"training the {name} model", relay=trainer_relay(name))
-    seconds = max(job.finish().seconds for job in trainers.values())
+    for kind in args.model_kinds:
+        own, own_gates = (prefixes, gate_prefixes) if kind == args.model else kind_prefixes[kind]
+        suffix = "" if kind == args.model else f"_{kind}"
+        trainers = {}
+        for t, g in jobs:
+            tables = training if g is None else os.path.join(training, LEVELS_DIR, f"c{g}")
+            tests = test if g is None else os.path.join(test, LEVELS_DIR, f"c{g}")
+            command = [sys.executable, TRAINER, "--truth-file", os.path.join(tables, TABLES[t]),
+                       "--output-prefix", own[t] if g is None else own_gates[t][g], "--features", args.features,
+                       "--model", kind, "--ntree", str(args.ntree), "--maxnodes", str(max_leaves(kind_leaves(args, kind), t)),
+                       "--seed", str(args.seed), "--threads", str(trainer_threads),
+                       "--scenario-weight", str(args.scenario_weight), "--taxonomy", taxonomy, "--evaluation", args.evaluation]
+            if args.rounds:
+                command += ["--rounds", str(args.rounds)]
+            if args.previous_procedure:
+                command += ["--previous-procedure"]
+            if t in depth_knob_types(args):
+                command += ["--depth-knobs"]
+            if args.call_mode == "fdr":
+                command += ["--fdr-calls"]
+            if has_test and os.path.isfile(os.path.join(tests, TABLES[t])):
+                command += ["--test-file", os.path.join(tests, TABLES[t])]
+                # The test samples at the other gates (and with the other pick, and with --flex_indels): every level for
+                # the database gate's model, those nearest its gate for another's.
+                for c in test_levels.get(t, []):
+                    table = os.path.join(test, LEVELS_DIR, f"c{c}", TABLES[t])
+                    if os.path.isfile(table) and (g is None or scored_by[t][c] == g):
+                        command += ["--extra-test-file", f"c{c}={table}"]
+            name = (t if g is None else f"{t} c{g}") + suffix.replace("_", " ")
+            trainers[(t, g)] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) +
+                                                     ("" if g is None else f"_c{g}") + suffix + ".log"),
+                                   label=f"training the {name} model", relay=trainer_relay(name))
+        seconds = max(job.finish().seconds for job in trainers.values())
+        each = f" ({', '.join(f'{t}{f' c{g}' if g is not None else ''} {clock(job.seconds)}' for (t, g), job in trainers.items())})" \
+            if len(trainers) > 1 else ""
+        Steps.done(f"{kind}: trained in {clock(seconds)}{each}; {model_scores(read_types, own)}")
+        if args.extra_gates:
+            Steps.done(f"{kind}: " + gate_model_scores(args.extra_gates, own_gates, args.sparse_first))
     if paused:
         final_build.resume()
-    each = f" ({', '.join(f'{t}{f' c{g}' if g is not None else ''} {clock(job.seconds)}' for (t, g), job in trainers.items())})" \
-        if len(trainers) > 1 else ""
-    Steps.done(f"trained in {clock(seconds)}{each}; {model_scores(read_types, prefixes)}")
-    if args.extra_gates:
-        Steps.done(gate_model_scores(args.extra_gates, gate_prefixes, args.sparse_first))
     if marker_scores(read_types, prefixes):
         Steps.done(marker_scores(read_types, prefixes))
     if test_levels:  # the test samples' F1 and alignment CPU at each gate (the database's marked), as protal would call
@@ -4647,23 +4749,30 @@ def main():
     reporting = threading.Thread(target=report_all, name="reports", daemon=True)
     reporting.start()
     # protal must score as the trainer does, and compute the features as it did during collection: the read types'
-    # checks side by side (protal --profile_only: no index loaded), their logs then joined in parity.log.
+    # checks side by side (protal --profile_only: no index loaded), their logs then joined in parity.log; those of the
+    # models of each kind (--model), each into its own folder (TRAINING/parity[_<type>][_<kind>]).
     Steps.start("checking that protal scores the models as the trainer does (parity.log)")
     began = time.time()
     parity_log = step_log("parity.log")
-    checks = [Job([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
-                   "--read_type", t, "--protal", args.protal, "-t", str(max(1, args.threads // len(read_types)))],
-                  step_log(f"parity_{t}.log"), label=f"checking the {t} model's parity with protal") for t in read_types]
+    parity_runs = [(t, kind, prefixes[t] if kind == args.model else kind_prefixes[kind][0][t],
+                    os.path.join(training, ("parity" if t == "pe" else "parity_" + t) + ("" if kind == args.model else "_" + kind)))
+                   for kind in args.model_kinds for t in read_types]
+    checks = [Job([sys.executable, PARITY, "--db", training_db, "--model", prefix + ".xml", "--training", training,
+                   "--read_type", t, "--protal", args.protal, "-t", str(max(1, args.threads // len(parity_runs))), "-o", out],
+                  step_log(f"parity_{t}{'' if kind == args.model else '_' + kind}.log"),
+                  label=f"checking the {t}{'' if kind == args.model else ' ' + kind} model's parity with protal")
+              for t, kind, prefix, out in parity_runs]
     for job in checks:
         job.finish()
     concatenate_logs([job.log for job in checks], parity_log, lambda p: os.path.basename(p).removesuffix(".log"))
     for job in checks:
         os.remove(job.log)
-    Steps.done(f"{', '.join(read_types)}: the same probabilities and features, checked in {clock(time.time() - began)}")
-    # model_logs/parity.txt: each read type's result (check_model_parity.py's parity.txt), which names its model.
+    Steps.done(f"{', '.join(read_types)}{' (' + ', '.join(args.model_kinds) + ')' if args.other_kinds else ''}: the same "
+               f"probabilities and features, checked in {clock(time.time() - began)}")
+    # model_logs/parity.txt: each model's result (check_model_parity.py's parity.txt), which names its model.
     results = []
-    for t in read_types:
-        path = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
+    for _, _, _, out in parity_runs:
+        path = os.path.join(out, "parity.txt")
         if os.path.isfile(path):
             with open(path) as fh:
                 results.append(fh.read().rstrip("\n"))
@@ -4695,21 +4804,34 @@ def main():
         removed = scanned(db)
         if removed:
             Steps.done(f"{os.path.basename(db)}'s full reference, read by the scan{removed}")
-    # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
-    # each and replaces them in place at the end of the file (seconds; without placeholders, a read type's
-    # model is a new member and the ~20 GB file is rewritten once instead). Those of other gates go in as such
-    # (--model_gate: model_pe_c1.xml, ...); the database gate's as the read type's model ('-').
-    began = time.time()
-    added = [(prefixes[t] + ".xml", t, "-") for t in read_types] + \
-        [(gate_prefixes[t][g] + ".xml", t, str(g)) for t, gates in args.extra_gates.items() for g in gates]
-    run([args.protal, "--add_model", ",".join(f for f, _, _ in added), "--read_type", ",".join(t for _, t, _ in added)] +
-        (["--model_gate", ",".join(g for _, _, g in added)] if args.extra_gates else []) +
-        ["--db", db, "-t", str(args.threads)], step_log("final_package.log"), label=f"adding {models}")
-    Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
+    # The trained models replace the shipped one and the placeholders in database.protal, and build_metadata.tsv its
+    # placeholder (written first); --add_model checks each model and replaces them with the table in place at the end
+    # of the file (seconds; without placeholders, a read type's model is a new member and the ~20 GB file is rewritten
+    # once instead). Those of other gates go in as such (--model_gate: model_pe_c1.xml, ...), the database gate's as the
+    # read type's model ('-'); those of other kinds likewise (--model_kind: model_pe_forest.xml, model_pe_c1_forest.xml).
     versions, changed = versions_at_end(args.versions_at_start, tool_versions(args))
-    with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
+    metadata = os.path.join(db, "build_metadata.tsv")
+    with open(metadata, "w") as fh:
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, versions, release, genome_table, heldout, n_heldout,
-                                                                  read_types, prefixes, genes_note, insilico_note)))
+                                                                  read_types, prefixes, genes_note, insilico_note,
+                                                                  kind_prefixes)))
+    began = time.time()
+    added = []
+    for kind in args.model_kinds:
+        own, own_gates = (prefixes, gate_prefixes) if kind == args.model else kind_prefixes[kind]
+        k = "-" if kind == args.model else kind
+        added += [(own[t] + ".xml", t, "-", k) for t in read_types]
+        added += [(own_gates[t][g] + ".xml", t, str(g), k) for t, gates in args.extra_gates.items() for g in gates]
+    notes = NOTES_HELP in full_help(args.protal)  # protal stores build_metadata.tsv (since 2026-10-13)
+    run([args.protal, "--add_model", ",".join(a[0] for a in added), "--read_type", ",".join(a[1] for a in added)] +
+        (["--model_gate", ",".join(a[2] for a in added)] if args.extra_gates else []) +
+        (["--model_kind", ",".join(a[3] for a in added)] if args.other_kinds else []) +
+        (["--add_tables", metadata] if notes else []) +
+        ["--db", db, "-t", str(args.threads)], step_log("final_package.log"),
+        label=f"adding {models}{' (' + ', '.join(args.model_kinds) + ')' if args.other_kinds else ''}")
+    Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}" +
+               (f"; {' and '.join(args.model_kinds)} models" if args.other_kinds else "") +
+               ("; build_metadata.tsv with them" if notes else ""))
     if changed:
         say(f"Warning: {', '.join(k.replace('_', ' ') for k in changed)} changed during the run, so its later steps ran "
             "other scripts or binaries than its first (build_metadata.tsv has both): rebuild the database if that matters")
@@ -4717,7 +4839,7 @@ def main():
     for name in ("gene_congeners.tsv", "gene_incongruence.tsv"):
         if os.path.isfile(os.path.join(db, name)):
             os.replace(os.path.join(db, name), os.path.join(logs, name))
-    summary = summary_lines(read_types, prefixes, db, gate_prefixes) + ["", *composition_text]
+    summary = summary_lines(read_types, prefixes, db, gate_prefixes, kind_prefixes) + ["", *composition_text]
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     with SAYING:  # in one piece, whatever the reports' thread says meanwhile
@@ -4725,7 +4847,9 @@ def main():
         console_log("\n" + "\n".join(summary) + "\n")
     say(f"Ready protal database: {db}{db_size(db)}" +
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
-        f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
+        f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt" +
+        (f"; the {', '.join(args.other_kinds)} models' trained_model*_{args.other_kinds[0]}.report.txt, which protal "
+         f"--model_kind {args.other_kinds[0]} profiles with" if args.other_kinds else "") + ")")
     reporting.join()  # started after the training (report_all)
     with contextlib.suppress(OSError):
         os.remove(os.path.join(training_db, ANCESTRY_REFERENCE))  # read by the ancestry report; 15 GB at r226

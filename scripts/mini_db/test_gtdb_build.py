@@ -33,6 +33,7 @@ import prerequisites  # noqa: E402
 
 import build_gtdb_database as build  # noqa: E402
 import build_gtdb_releases as releases  # noqa: E402
+import model_pmml  # noqa: E402
 
 class BuildOptionsTest(unittest.TestCase):
     def test_leaves_per_read_type(self):
@@ -45,6 +46,49 @@ class BuildOptionsTest(unittest.TestCase):
         for bad in ("512,xx:4", "pb:", "many"):
             with self.assertRaises(ValueError):
                 build.max_leaves(bad, "pe")
+
+    def test_kinds_of_models(self):
+        # --model: the kinds to train, the first the database's default; --maxnodes for it, the others their kind's
+        # leaves. The finished database's placeholders: the models at other gates, then every model of the other kinds
+        # (model_pe_forest.xml, model_pe_c1_forest.xml); refreshing them removes an earlier build's of other gates and
+        # kinds and puts a build_metadata.tsv where there is none (packed last, replaced in place at the end).
+        self.assertEqual(build.model_kinds_spec("gbm,forest"), ["gbm", "forest"])
+        self.assertEqual(build.model_kinds_spec("forest,"), ["forest"])
+        for bad in ("", "gbm,gbm", "rf", "gbm,rf"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                build.model_kinds_spec(bad)
+        args = argparse.Namespace(model="gbm", maxnodes="31")
+        self.assertEqual((build.kind_leaves(args, "gbm"), build.kind_leaves(args, "forest")), ("31", build.FOREST_LEAVES))
+        args = argparse.Namespace(model="forest", maxnodes=build.FOREST_LEAVES)
+        self.assertEqual(build.kind_leaves(args, "gbm"), build.BOOSTED_LEAVES)
+        self.assertEqual(build.model_placeholders(["pe", "se"], {"pe": [1, 8]}, ["forest"]),
+                         [("model_pe_c1.xml", "pe"), ("model_pe_c8.xml", "pe"), ("model_pe_forest.xml", "pe"),
+                          ("model_pe_c1_forest.xml", "pe"), ("model_pe_c8_forest.xml", "pe"), ("model_se_forest.xml", "se")])
+        self.assertEqual(build.model_placeholders(["pe"], {}, []), [])
+        with tempfile.TemporaryDirectory() as db:
+            for name in ("model_pe.xml", "model_pe_c4.xml", "model_se_gbm.xml", "model_pe_c1_forest.xml"):
+                with open(os.path.join(db, name), "w") as fh:
+                    fh.write("an earlier build's")
+            build.refresh_model_placeholders(db, [("model_pe_c1_forest.xml", "pe"), ("model_se_forest.xml", "se")])
+            self.assertEqual(sorted(os.listdir(db)), ["build_metadata.tsv", "model_pe.xml", "model_pe_c1_forest.xml",
+                                                      "model_se_forest.xml"])
+            self.assertEqual(model_pmml.model_kind(os.path.join(db, "model_se_forest.xml")), "placeholder")
+            with open(os.path.join(db, "build_metadata.tsv")) as fh:
+                self.assertEqual(fh.read(), build.METADATA_PLACEHOLDER)
+            with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
+                fh.write("gtdb_release\tr226\n")
+            build.refresh_model_placeholders(db, [])
+            with open(os.path.join(db, "build_metadata.tsv")) as fh:
+                self.assertEqual(fh.read(), "gtdb_release\tr226\n", "an earlier build's is kept until the end")
+        # The kind of a model as protal tells it (profiler::ModelKindOf): by its first segmentation.
+        with tempfile.TemporaryDirectory() as tmp:
+            for method, kind in (("modelChain", "gbm"), ("average", "forest"), ("majorityVote", "forest"), ("sum", "")):
+                path = os.path.join(tmp, f"{method}.xml")
+                with open(path, "w") as fh:
+                    fh.write(f'<PMML><Header/><MiningModel><Segmentation multipleModelMethod="{method}">'
+                             '<Segment/></Segmentation></MiningModel></PMML>')
+                self.assertEqual(model_pmml.model_kind(path), kind, method)
+        self.assertEqual(model_pmml.kind_model_file(model_pmml.gate_model_file("pb", 32), "gbm"), "model_PB_c32_gbm.xml")
 
     def test_the_wfa_traceback_reaches_both_builds(self):
         # --wfa-traceback: main() sets TRACEBACK_ARGS, which every protal --build carries (the training database's and the

@@ -286,9 +286,10 @@ namespace protal::build {
     // and ancestry_sites.bin if the build wrote them, species_priors.tsv, ncbi_taxids.tsv,
     // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
-    // reads only the first), and every presence model there is (AllModelFiles in
-    // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
-    // random_forest.xml of older databases).
+    // reads only the first), every presence model there is (AllModelFiles in
+    // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, those at other gates and of other kinds, and
+    // model.xml / random_forest.xml of older databases), and the notes no run reads (Options::NoteFiles: gene2geneid.tsv,
+    // genome2tiid.tsv and build_metadata.tsv, since 2026-10-13), which the folder keeps (IsKeptSource).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<db::Source> sources = {
@@ -314,15 +315,31 @@ namespace protal::build {
             std::string const path = (fs::path(options.GetLocation().dir) / model).string();
             if (fs::exists(path)) sources.push_back({model, path});
         }
+        for (auto const& note : Options::NoteFiles()) {
+            std::string const path = (fs::path(options.GetLocation().dir) / note).string();
+            if (fs::exists(path)) sources.push_back({note, path});
+        }
         return sources;
     }
 
-    // The models after the other members, each group in its order: at the end of database.protal, --add_model
-    // replaces them in place (db::InPlaceFrom).
+    // A file packed into database.protal that stays in the folder: a note (Options::NoteFiles), which the converter wrote
+    // and scripts read there (error_reads.py, trace_relatives.py and gene_neighbours.py genome2tiid.tsv,
+    // build_gtdb_releases.py build_metadata.tsv).
+    inline bool IsKeptSource(db::Source const& source) {
+        return Options::IsNoteFile(source.name);
+    }
+
+    // The models after the other members, each group in its order, and build_metadata.tsv after them: at the end of
+    // database.protal, --add_model replaces the models in place (db::InPlaceFrom), and a build's last step the models and
+    // its build_metadata.tsv together.
     inline void ModelsLast(std::vector<db::Source>& sources) {
         auto const models = AllModelFiles();
         std::stable_partition(sources.begin(), sources.end(), [&models](db::Source const& source) {
-            return std::find(models.begin(), models.end(), source.name) == models.end();
+            return std::find(models.begin(), models.end(), source.name) == models.end() &&
+                   source.name != Options::PROTAL_BUILD_METADATA_FILE;
+        });
+        std::stable_partition(sources.begin(), sources.end(), [](db::Source const& source) {
+            return source.name != Options::PROTAL_BUILD_METADATA_FILE;
         });
     }
 
@@ -334,18 +351,28 @@ namespace protal::build {
         });
     }
 
-    // The read types (their tokens) whose model is among names, each with the other gates it has models of (GateModelFile:
-    // "pe (also gates 1, 8)"), and those whose is not.
+    // The read types (their tokens) whose model is among names, each with the other gates it has models of (GateModelFile)
+    // and its models of other kinds (KindModelFile: "pe (also gates 1, 8; forest at its gate, 1, 8)"), and those whose is
+    // not.
     inline std::pair<std::string, std::string> ModelCoverage(std::vector<std::string> const& names) {
+        auto const has = [&names](std::string const& name) { return std::find(names.begin(), names.end(), name) != names.end(); };
+        auto const gate_name = [](size_t gate) { return gate ? std::to_string(gate) : std::string("off"); };
         std::string with, without;
         for (auto const& info : kReadTypes) {
             std::string& list = HasModel(names, info.type) ? with : without;
             std::string gates;
             for (size_t gate : kModelGates) {
-                if (std::find(names.begin(), names.end(), GateModelFile(info.type, gate)) == names.end()) continue;
-                gates += (gates.empty() ? "" : ", ") + (gate ? std::to_string(gate) : std::string("off"));
+                if (has(GateModelFile(info.type, gate))) gates += (gates.empty() ? "" : ", ") + gate_name(gate);
             }
-            list += (list.empty() ? "" : ", ") + info.token + (gates.empty() ? "" : " (also gates " + gates + ")");
+            std::string parts = gates.empty() ? "" : "also gates " + gates;
+            for (auto const& kind : kModelKinds) {
+                std::string at = has(KindModelFile(info.model_file, kind)) ? "its gate" : "";
+                for (size_t gate : kModelGates) {
+                    if (has(KindModelFile(GateModelFile(info.type, gate), kind))) at += (at.empty() ? "" : ", ") + gate_name(gate);
+                }
+                if (!at.empty()) parts += (parts.empty() ? "" : "; ") + kind + " at " + at;
+            }
+            list += (list.empty() ? "" : ", ") + info.token + (parts.empty() ? "" : " (" + parts + ")");
         }
         return {with, without};
     }
@@ -552,8 +579,13 @@ namespace protal::build {
             std::cerr << "Writing " << target << " failed: " << error << std::endl;
             exit(8);
         }
+        std::string kept;
         for (auto const& source : sources) {
             if (source.generated) continue;
+            if (IsKeptSource(source)) {
+                kept += (kept.empty() ? "" : ", ") + source.name;
+                continue;
+            }
             fs::remove(source.path, ec);
             if (ec) std::cerr << "Warning: cannot remove " << source.path << ": " << ec.message() << std::endl;
         }
@@ -566,8 +598,8 @@ namespace protal::build {
         bm.Stop();
         std::cout << target << ": " << HumanBytes(*written) << " (" << HumanBytes(before) << " as separate files"
                   << (index ? ", besides the index" : "") << (replaces ? "; replaced the previous one" : "")
-                  << "). Removed the separate files; " << options.ProgramName() << " --unpack_db --db "
-                  << Options::ShellWord(target) << " writes them back." << std::endl;
+                  << "). Removed the separate files" << (kept.empty() ? "" : " but " + kept + ", packed and kept for the scripts that read them")
+                  << "; " << options.ProgramName() << " --unpack_db --db " << Options::ShellWord(target) << " writes them back." << std::endl;
         bm.PrintResults();
     }
 
@@ -816,10 +848,12 @@ namespace protal::build {
         return "";
     }
 
-    // --add_tables: stores tables (congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, species_priors.tsv, ncbi_taxids.tsv) in the database by their file
-    // names, as AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder
-    // gets the files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
-    static void AddTables(protal::Options const& options) {
+    // --add_tables: stores tables (congener_gaps.tsv, strain_alleles.tsv, foreign_rates.tsv, species_priors.tsv, ncbi_taxids.tsv,
+    // and the notes: build_metadata.tsv, gene2geneid.tsv, genome2tiid.tsv) in the database by their file names, as AddModel
+    // stores models (a single-file database rewritten once, or replaced at its tail in place; a folder gets the files copied
+    // beside the others), with `models` (--add_model given too: checked, (file, member)) in the same write. Each table is
+    // read and checked first (a note: as text); exits 8 if one is unusable.
+    static void AddTables(protal::Options const& options, std::vector<std::pair<std::string, std::string>> const& models = {}) {
         namespace fs = std::filesystem;
         std::vector<std::pair<std::string, std::string>> tables;  // file, member
         for (auto const& file : options.AddTables()) {
@@ -827,7 +861,17 @@ namespace protal::build {
             std::ifstream is(file);
             std::string error = is ? "" : "cannot be opened";
             std::string summary;
-            if (error.empty() && name == Options::PROTAL_CONGENER_GAPS_FILE) {
+            if (error.empty() && Options::IsNoteFile(name)) {
+                // Stored as it is: text of tab-separated lines, which nothing reads but people and scripts.
+                size_t lines = 0;
+                std::string line;
+                while (error.empty() && std::getline(is, line)) {
+                    lines++;
+                    if (line.find('\0') != std::string::npos) error = "line " + std::to_string(lines) + " holds a NUL byte (not a text table)";
+                }
+                if (error.empty() && is.bad()) error = "cannot be read";
+                summary = std::to_string(lines) + " lines, stored as they are";
+            } else if (error.empty() && name == Options::PROTAL_CONGENER_GAPS_FILE) {
                 congener_gaps::Table table;
                 error = table.Read(is);
                 summary = std::to_string(table.Copies()) + " gene copies of " + std::to_string(table.Species()) + " species";
@@ -884,7 +928,9 @@ namespace protal::build {
                 binaries.push_back(target);
             }
         }
-        AddModel(options, tables, "tables");
+        std::string const what = models.empty() ? "tables" : tables.empty() ? "models" : "models and tables";
+        tables.insert(tables.end(), models.begin(), models.end());
+        AddModel(options, tables, what);
         std::error_code ec;
         for (auto const& path : binaries) fs::remove(path, ec);
     }

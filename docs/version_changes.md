@@ -110,6 +110,18 @@ for this page.
 - **The build's disk estimate counts the test samples at other gates** (2026-10-13). Each row a `--test-c-gates`
   point is profiled at writes its own SAMs and profiles: ~74 GB at r226 with the defaults, which the estimate left
   out. `--stream-above auto` now counts them for every point it writes.
+- **Both kinds of models in the database, chosen per run** (2026-10-13). `build_gtdb_database.py` trains every model
+  twice by default (`--model gbm,forest`): gradient-boosted trees, the database's default files as before, then random
+  forests at the same gates, stored beside them (`model_pe_forest.xml`, `model_pe_c1_forest.xml`, ...; the trainers'
+  memory as with one kind, the training time about doubled). Both are checked for parity with protal and scored side
+  by side in `summary.txt`. `protal --model_kind forest` (or `gbm`, or per read type, `pe:forest`) profiles with that
+  kind, each sample with the model of the gate nearest its own; `--profile_only` with it re-profiles a run's SAMs.
+  `--add_model --model_kind` stores a model of a kind, checked to be one ([databases.md](databases.md#kinds-of-models)).
+- **The database file holds its notes** (2026-10-13). `database.protal` also carries `build_metadata.tsv`,
+  `gene2geneid.tsv` and `genome2tiid.tsv`, which no run reads, so the one file is the whole database: `--build` packs
+  them from its folder and leaves them there, `--add_tables` stores them (with `--add_model` in one write), and the
+  GTDB build's last step puts in the models and `build_metadata.tsv` together, in place
+  ([databases.md](databases.md#the-notes-a-database-carries)). Every file a run reads was already in it.
 
 ## What 0.8.3 adds
 

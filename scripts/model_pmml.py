@@ -53,6 +53,34 @@ def gate_model_file(read_type, gate):
     """A read type's model trained at another sparse-first gate than its database's (protal --add_model --model_gate,
     ReadType.h GateModelFile): model_pe_c1.xml, model_PB_c32.xml."""
     return MODEL_FILES[read_type].removesuffix(".xml") + f"_c{gate}.xml"
+
+
+# The kinds of presence models (machine_learning_cmdline.py --model; ReadType.h kModelKinds): a database's model files hold
+# its default kind, a model of another kind sits beside its file as kind_model_file (protal --add_model --model_kind).
+MODEL_KINDS = ("gbm", "forest")
+
+
+def kind_model_file(name, kind):
+    """The model of kind `kind` beside model file `name` (ReadType.h KindModelFile): model_pe.xml -> model_pe_forest.xml,
+    model_pe_c1.xml -> model_pe_c1_forest.xml."""
+    return name.removesuffix(".xml") + f"_{kind}.xml"
+
+
+def model_kind(path):
+    """The kind of the PMML model at path, as protal tells it (profiler::ModelKindOf): "gbm" (trees chained into a logit),
+    "forest" (trees averaged or voted), "placeholder", or ""."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    header = text.find("</Header>")
+    if header >= 0 and f"<Annotation>{PLACEHOLDER_MARKER}</Annotation>" in text[:header]:
+        return "placeholder"
+    start = text.find("<Segmentation ")
+    tag = text[start:text.find(">", start)] if start >= 0 else ""
+    if 'multipleModelMethod="modelChain"' in tag:
+        return "gbm"
+    if any(f'multipleModelMethod="{m}"' in tag for m in ("average", "majorityVote", "weightedAverage", "weightedMajorityVote")):
+        return "forest"
+    return ""
 # The header extension with a model's knob curve over the sample's depth (profiler::kDepthKnobCurveExtension, read by
 # profiler::DepthKnobAt): "1.300:0.12,2.890:0.4", log10 of the sample's fragments over all its taxa : knob, linear between
 # the points and the ends' beyond them. machine_learning_cmdline.py --depth-knobs writes it.
