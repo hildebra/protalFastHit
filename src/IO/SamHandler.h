@@ -177,10 +177,16 @@ namespace protal {
         TLEN_t m_tlen;
         uint16_t m_uniques;
         uint16_t m_uniques_two;
-        // ZS tag (since 2026-10-14): the seeds of the anchor its ZU and ZT were counted over, so that their share of them is known
-        // whatever share of the read's cores was looked up (a sparse index, a shorter read). 0: not written (a mate rescued on
-        // one seed, an unmapped record, SAMs of older protal versions).
+        // ZS tag (since 2026-10-14): the seeds ZU and ZT were counted over, so that their share of them is known whatever share
+        // of the read's cores was looked up (a sparse index, a shorter read). With the database's unique_cores.bin (since
+        // 2026-10-14, later) the gene's cores the alignment covers with exact k-mers, ZU and ZT the unique ones among them
+        // (UniqueCores.h); without it the seeds of the record's anchor. 0: not written (no core covered, a mate rescued on
+        // one seed without the table, an unmapped record, SAMs of older protal versions).
         uint16_t m_seeds = 0;
+        // ZL tag (since 2026-10-14): the record's anchor, 1 a single seed (a grid's sparse index, AnchorLoneSeeds), 0 none (a
+        // mate rescued); -1: not written (an anchor of two seeds or more, an unmapped record, SAMs of older protal versions).
+        // The failed candidates' shares leave out the fragments anchored on single seeds (profiler::LoneFragment).
+        int8_t m_anchor = -1;
         QUAL_t m_qual;
         SEQ_t m_seq;
         CIGAR_t m_cigar;
@@ -225,6 +231,7 @@ namespace protal {
                     + "ZU:i:" + std::to_string(m_uniques) + '\t'
                     + "ZT:i:" + std::to_string(m_uniques_two)
                     + (m_seeds == 0 ? std::string() : "\tZS:i:" + std::to_string(m_seeds))
+                    + (m_anchor < 0 ? std::string() : "\tZL:i:" + std::to_string(m_anchor))
                     + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives)
                     + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed)
                     + (m_untried.empty() ? std::string() : "\tZC:Z:" + m_untried)
@@ -410,6 +417,8 @@ namespace protal {
         sam.m_uniques = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZU").value_or(0), UINT16_MAX));
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
         sam.m_seeds = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZS").value_or(0), UINT16_MAX));
+        auto const anchor = sam_detail::IntTag(tokens, "ZL");
+        sam.m_anchor = anchor ? static_cast<int8_t>(std::min<uint64_t>(*anchor, 1)) : int8_t{ -1 };
         sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
         sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
         sam.m_untried = sam_detail::StringTag(tokens, "ZC").value_or(std::string_view());

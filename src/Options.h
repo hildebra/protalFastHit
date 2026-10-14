@@ -35,6 +35,7 @@
 #include "StrainAlleles.h"
 #include "ColumnWeights.h"
 #include "AncestrySites.h"
+#include "UniqueCores.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -218,6 +219,7 @@ namespace protal {
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("column_weights_alignment", "With --build and --column_weights: where the family columns come from. auto (default): msa if the database folder has GTDB's alignments and tree (column_msa/, species_tree.nwk: gtdb_to_protal_db.py writes them from the release's *_msa_marker_genes_reps archive and tree), else aa. msa (since 2026-10-10): no alignment, each copy's residues placed on its row of GTDB-Tk's alignment of the marker, every genus of a family voting through its ancestral sequence (Fitch parsimony on GTDB's tree), the family's ancestral base polarising small genera. aa: the copies translated in frame and their proteins aligned (WFA2, up to 0.3 of the amino acids different within a genus, 0.5 among genera), each aligned amino-acid pair mapping its codon's bases. nt: the bases aligned (up to 0.2 and 0.4), which fails for most copies of GTDB's wide genera (docs/claude/2026-10-10-real-ancestry).", cxxopts::value<std::string>()->default_value("auto"))
                 ("no_ancestry_sites", "With --build: do not store every gene copy's ancestry sites (ancestry_sites.bin, AncestrySites.h: where its copy differs from the consensus of its congeners' copies, the ancestry features' sites), computed by default from the species neighbours, congener gaps and column weights the build writes, as a run would compute them on a copy's first record. Without the table a run computes them there, as before 2026-10-11, at ~0.3 M instructions plus ~0.6 M per congener compared for every copy its records touch (half of the profiling of a sample built at r226 v23, docs/claude/2026-10-11-r226-v23); the features are the same.")
+                ("no_unique_cores", "With --build: do not store which of every gene copy's index cores are unique (unique_cores.bin, UniqueCores.h: two bits a core, ~0.7 GB at GTDB r226). With the table a run counts each record's ZS, ZU and ZT from the gene's cores its alignment covers with exact k-mers, the same on the whole index, a sparse index or with --sparse_seeding; without it (or with this option in a run) from the seeds of the record's anchor, as before 2026-10-14, which a sparse index finds a quarter of at C 4.")
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -271,6 +273,7 @@ namespace protal {
         std::string column_weights_alignment = "auto";
         std::string grid_choice = "scored";
         bool no_ancestry_sites = false;
+        bool no_unique_cores = false;
         bool no_site_weights = false;
         bool weighted_site_shift = false;
         double index_alleles = 1;
@@ -427,6 +430,7 @@ namespace protal {
         std::string m_column_weights_alignment = "auto";  // --column_weights_alignment (--build): auto, msa, aa or nt
         std::string m_grid_choice = "scored";  // --grid_choice (--build): scored, even or phase (GridLevels.h Choice)
         bool m_no_ancestry_sites = false;  // --no_ancestry_sites (--build): no ancestry_sites.bin
+        bool m_no_unique_cores = false;  // --no_unique_cores: no unique_cores.bin (--build), or the table left unread (a run)
         bool m_no_site_weights = false;  // --no_site_weights: the table left unread
         bool m_weighted_site_shift = false;  // --weighted_site_shift (off by default since 2026-10-12): the shift discounts
                                              // differences at variable columns
@@ -602,6 +606,7 @@ namespace protal {
         static inline const std::string PROTAL_COLUMN_WEIGHTS_FILE = column_weights::kFileName;
         static inline const std::string PROTAL_COLUMN_WEIGHTS_BIN_FILE = column_weights::kBinaryFileName;
         static inline const std::string PROTAL_ANCESTRY_SITES_FILE = ancestry::kFileName;
+        static inline const std::string PROTAL_UNIQUE_CORES_FILE = unique_cores::kFileName;
         static inline const std::string PROTAL_FOREIGN_RATES_FILE = foreign_rates::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
@@ -672,6 +677,7 @@ namespace protal {
                 m_column_weights_alignment(std::move(d.column_weights_alignment)),
                 m_grid_choice(std::move(d.grid_choice)),
                 m_no_ancestry_sites(d.no_ancestry_sites),
+                m_no_unique_cores(d.no_unique_cores),
                 m_no_site_weights(d.no_site_weights),
                 m_weighted_site_shift(d.weighted_site_shift),
                 m_no_phasing(d.no_phasing),
@@ -1209,6 +1215,12 @@ namespace protal {
             return m_no_ancestry_sites;
         }
 
+        // --no_unique_cores: --build writes no unique_cores.bin (UniqueCores.h); a run counts ZS, ZU and ZT from its anchors'
+        // seeds, as before 2026-10-14, though its database has the table.
+        bool NoUniqueCores() const {
+            return m_no_unique_cores;
+        }
+
         // --no_site_weights: the database's column weights left unread.
         bool NoSiteWeights() const {
             return m_no_site_weights;
@@ -1385,6 +1397,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_ANCESTRY_SITES_FILE;
         }
 
+        // Which of every gene copy's index cores are unique (UniqueCores.h), written and packed by --build (unless --no_unique_cores).
+        std::string GetUniqueCoresFile() const {
+            return m_database_path + "/" + PROTAL_UNIQUE_CORES_FILE;
+        }
+
         // Each gene copy's reads of a tiled scan and their foreign share (ForeignRatesTable.h): packed by --build if the
         // folder has it, or by --add_tables.
         std::string GetForeignRatesFile() const {
@@ -1512,6 +1529,11 @@ namespace protal {
         // The database's ancestry_sites.bin (--build's since 2026-10-11); Exists() is false if it has none.
         db::DbFile AncestrySitesDbFile() const {
             return DbFileNamed(PROTAL_ANCESTRY_SITES_FILE, GetAncestrySitesFile());
+        }
+
+        // The database's unique_cores.bin (--build's since 2026-10-14); Exists() is false if it has none.
+        db::DbFile UniqueCoresDbFile() const {
+            return DbFileNamed(PROTAL_UNIQUE_CORES_FILE, GetUniqueCoresFile());
         }
 
         // The database's foreign_rates.tsv (scripts/foreign_rates.py, --add_tables); Exists() is false if it has none.
@@ -4172,6 +4194,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 exit(2);
             }
             d.no_ancestry_sites        = result.count("no_ancestry_sites") > 0;
+            d.no_unique_cores          = result.count("no_unique_cores") > 0;
             d.no_site_weights          = result.count("no_site_weights") > 0;
             // Off by default (it was on 2026-10-11 to 2026-10-12); --no_weighted_site_shift wins.
             d.weighted_site_shift      = result.count("weighted_site_shift") > 0 && result.count("no_weighted_site_shift") == 0;

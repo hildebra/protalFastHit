@@ -267,7 +267,7 @@ out) it takes the paired-end false positives per sample from 2.34 to 2.19 and F1
 |---|---|---|---|---|
 | `fragments_all` | 0.7.5 | the taxon's reads with a best record before the MAPQ and length filters, a pair or a long read once | 0.001 / 0.002 / 0.001 / 0.001 | thin strains whose reads fell to MAPQ 0; at r226 it is `fragments` plus ~15% and adds nothing |
 | `em_fragments` | 0.7.5 | `em_own_share` × `fragments_all`: the fragments a divergent strain would have had, had its reads not tied with a congener's reference | 0.002 / 0.002 / 0.001 / 0.001 | thin strain; adds nothing at r226 (the misses blamed on the MAPQ filter were ties, which `em_own_share` already covered) |
-| `failed_candidate_rate` | 0.7.5 | of the reads that seeded on the taxon strongly enough to be aligned against it, the share that did not align to it (protal's `ZF` tag, and the SAM header's counts of the reads that aligned nowhere) | **0.119 / 0.110** / 0.011 / 0.021 (v9 0.125 / 0.162 / 0.012 / 0.039) | **missing relative**: it seeds on its nearest species and fails there (median 0.94 for absent taxa, 0.13 for present ones, 0 for present taxa of one or two fragments). The second feature of the short-read models |
+| `failed_candidate_rate` | 0.7.5 | of the reads that seeded on the taxon strongly enough to be aligned against it, the share that did not align to it (protal's `ZF` tag, and the SAM header's counts of the reads that aligned nowhere); both on anchors of two seeds or more | **0.119 / 0.110** / 0.011 / 0.021 (v9 0.125 / 0.162 / 0.012 / 0.039) | **missing relative**: it seeds on its nearest species and fails there (median 0.94 for absent taxa, 0.13 for present ones, 0 for present taxa of one or two fragments). The second feature of the short-read models |
 
 At r226 the group ranks rather than calls: in v10's held-out table it takes the paired-end log loss
 from 0.0319 to 0.0309 and the false positives per sample from 2.19 to 2.14 at the same F1
@@ -638,9 +638,28 @@ Ultima reads since 2026-10-14) can weigh them by it:
 | `aligned_length_ratio` | the taxon's records' mean aligned bases over the sample's: below 1 where its reads align in part (a relative's at a gene's end, clipped); -1 without records |
 
 The unique shares themselves (`unique_seed_share`, `unique2_seed_share`, of the anchors' seeds) are columns of the dump
-in no group: on a grid's sparse index they are 0.79 of the whole index's (the grid keeps conserved cores, less often
-unique), which the enrichments' seed expectation corrects. The single-seed anchors of a grid's sparse index no longer
-count as failed candidates (`ZF`): they tripled `failed_candidate_rate` there.
+in no group. On the strain world's grid index at C 4 they were 1.00 and 1.15 of the whole index's, and the enrichments'
+seed expectation corrects the second to 0.99; a database whose grid levels keep fewer unique cores would lower both
+([validation](claude/2026-10-14-length-free-features/README.md)).
+
+**Counted from the alignment** (after 0.8.4, with a database's `unique_cores.bin`,
+[databases.md](databases.md)). `ZS` counts the gene's cores whose whole 31-mer the record's alignment covers in a run
+of matches, which is what the whole index's seeds find on that stretch, and `ZU` and `ZT` the unique ones among them.
+So every unique-seed feature, the old rates included, is the same on the whole index, on a sparse index and with
+`--sparse_seeding`, and no seed expectation is written (it would be 1). A database without the table, or a run with
+`--no_unique_cores`, counts the anchor's seeds as above.
+
+The single-seed anchors of a grid's sparse index no longer count as failed candidates (`ZF`): they tripled
+`failed_candidate_rate` there. After 0.8.4, the reads anchored on a taxon by single seeds only leave the denominators
+too: `failed_candidate_rate` counts the reads with records from anchors of two seeds or more, and `failed_gene_share`
+their records by gene. A record says its anchor in `ZL` (1 a single seed, 0 a rescued mate, none two seeds or more);
+SAMs without it (protal 0.8.4) count every record as anchored. A whole index has no single-seed anchors, and its rates
+do not change.
+
+Both still fall on a sparse index. On the strain world at C 4, an absent species' mean `failed_candidate_rate` is
+0.163 (0.155 before this change), against 0.340 on the whole index. The cause is the failures, not the denominator: a
+relative's read meets the taxon on one grid seed where the whole index gives it two or more, so the read's failure
+there goes uncounted. 75 bp reads lower it in the same way on a whole index (0.147).
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

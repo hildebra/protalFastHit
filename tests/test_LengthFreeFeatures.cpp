@@ -9,6 +9,7 @@
 #include "Alignment/AlignmentUtils.h"
 #include "IO/SamHandler.h"
 #include "IO/SeedExpectation.h"
+#include "Profiling/Profiler.h"
 #include "Profiling/Strain.h"
 
 using namespace protal;
@@ -72,12 +73,15 @@ TEST(LengthFreeFeatures, SeedsTagAndHeaderLineAreRead) {
     sam.m_uniques = 3;
     sam.m_uniques_two = 2;
     sam.m_seeds = 7;
+    sam.m_anchor = 1;
     std::string const with = sam.ToString();
-    EXPECT_NE(with.find("\tZU:i:3\tZT:i:2\tZS:i:7"), std::string::npos) << with;
+    EXPECT_NE(with.find("\tZU:i:3\tZT:i:2\tZS:i:7\tZL:i:1"), std::string::npos) << with;
     sam.m_qname = "r2";
     sam.m_seeds = 0;
+    sam.m_anchor = -1;
     std::string const without = sam.ToString();
     EXPECT_EQ(without.find("ZS:i:"), std::string::npos) << without;
+    EXPECT_EQ(without.find("ZL:i:"), std::string::npos) << without;
 
     SeedExpectation e;
     e.level = 3;
@@ -90,13 +94,50 @@ TEST(LengthFreeFeatures, SeedsTagAndHeaderLineAreRead) {
     ASSERT_TRUE(reader.Next(a, b, has_a, has_b));
     ASSERT_TRUE(has_a);
     EXPECT_EQ(a.m_seeds, 7);
+    EXPECT_EQ(a.m_anchor, 1);
     EXPECT_EQ(a.m_uniques, 3);
     ASSERT_TRUE(reader.Next(a, b, has_a, has_b));
     EXPECT_EQ(a.m_seeds, 0);
+    EXPECT_EQ(a.m_anchor, -1);
     ASSERT_TRUE(reader.SeedExpectationOf().has_value());
     EXPECT_EQ(reader.SeedExpectationOf()->level, 3u);
     EXPECT_EQ(reader.SeedExpectationOf()->unique, 0.8);
 
     SamReader bad("@CO\tprotal seed expectation: level=1\n" + with + "\n", {}, 0);
     EXPECT_THROW(bad.Next(a, b, has_a, has_b), SamFormatError);
+}
+
+// A fragment whose records on a taxon all come from single-seed anchors (ZL:i:1; a rescued mate beside one, ZL:i:0) was
+// tried there on one seed: as its failure is no failed candidate, it leaves the failed candidates' shares as well. Records
+// without ZL (two seeds or more, or an older protal) count as anchored.
+TEST(LengthFreeFeatures, FragmentsOfSingleSeedAnchorsLeaveTheFailedShares) {
+    SamEntry lone, two, rescued;  // ZL:i:1, no ZL (two seeds or more), ZL:i:0
+    lone.m_anchor = 1;
+    two.m_anchor = -1;
+    two.m_seeds = 1;  // ZS counts the cores the alignment covers: one says nothing of the anchor
+    rescued.m_anchor = 0;
+    EXPECT_TRUE(profiler::LoneFragment(&lone, nullptr));
+    EXPECT_TRUE(profiler::LoneFragment(&rescued, &lone));
+    EXPECT_FALSE(profiler::LoneFragment(&lone, &two));
+    EXPECT_FALSE(profiler::LoneFragment(&rescued, nullptr));
+    EXPECT_FALSE(profiler::LoneFragment(nullptr, nullptr));
+
+    // failed_gene_share over the records of anchored fragments: gene 2's records are all lone, so its failed read
+    // outnumbers them (a gene without records), as gene 4's two failed reads do its one anchored record; gene 3, lone
+    // records only and no failed read, is no gene of the share.
+    tsl::robin_map<uint32_t, profiler::GeneRecords> records;
+    records[1].records = 5;
+    records[2].records = 3;
+    records[2].lone_records = 3;
+    records[3].records = 2;
+    records[3].lone_records = 2;
+    records[4].records = 4;
+    records[4].lone_records = 3;
+    tsl::robin_map<uint32_t, uint32_t> failed;
+    failed[2] = 1;
+    failed[4] = 2;
+    EXPECT_NEAR(profiler::FailedGeneShare(records, failed), 2.0 / 3, 1e-12);
+    // Without lone records: neither gene has more failed reads than records.
+    for (uint32_t gene : { 2u, 3u, 4u }) records[gene].lone_records = 0;
+    EXPECT_EQ(profiler::FailedGeneShare(records, failed), 0);
 }

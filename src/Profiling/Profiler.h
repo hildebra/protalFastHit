@@ -743,10 +743,12 @@ namespace protal {
         // that failed there (failed_gene_share).
         struct GeneRecords {
             uint32_t records = 0;
+            uint32_t lone_records = 0;  // of them, records of fragments anchored on single seeds only (LoneFragment)
             uint64_t differences = 0, aligned = 0, error_ppm = 0;
 
             GeneRecords& operator+=(GeneRecords const& other) {
                 records += other.records;
+                lone_records += other.lone_records;
                 differences += other.differences;
                 aligned += other.aligned;
                 error_ppm += other.error_ppm;
@@ -809,6 +811,10 @@ namespace protal {
             // back (docs/claude/2026-10-03-false-positive-fixes).
             size_t fragments_all = 0;
             size_t last_fragment_link = SIZE_MAX;  // the read fragments_all last counted (not merged)
+            // Of them, those whose records on the taxon all come from single-seed anchors (LoneFragment): tried there on
+            // one seed, whose failure is no failed candidate (FailedCandidate::lone), so they are left out of the
+            // failed candidates' share too (FailedCandidateRate, FailedGeneShare).
+            size_t fragments_lone = 0;
             // Reads that seeded on the taxon strongly enough to be aligned against it but did not align to it (the
             // ZF tags of the sample's records, and of its unmapped records): a relative the database lacks seeds on
             // its nearest species and fails there, a present species' reads align.
@@ -906,6 +912,7 @@ namespace protal {
                 mates_linked += other.mates_linked;
                 mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
                 fragments_all += other.fragments_all;
+                fragments_lone += other.fragments_lone;
                 failed_candidates += other.failed_candidates;
                 settled_by_read += other.settled_by_read;
                 settled_inconsistent += other.settled_inconsistent;
@@ -990,20 +997,40 @@ namespace protal {
             return chi2 / static_cast<double>(n - 1);
         }
 
+        // A fragment anchored on a taxon by single seeds only: of its records there (`a`, `b`, either may be null), one
+        // came from a single-seed anchor (ZL:i:1, AnchorLoneSeeds on a grid's sparse index) and none from an anchor of two
+        // seeds or more (no ZL); a mate rescued beside it has none (ZL:i:0). Records without ZL (an anchor of two seeds or
+        // more, or SAMs of protal before 2026-10-14) count as anchored. Such a fragment was tried on the taxon on one seed,
+        // whose failure is no failed candidate (FailedCandidate::lone), so the failed candidates' shares leave it out
+        // (FailedCandidateRate, FailedGeneShare).
+        inline bool LoneFragment(SamEntry const* a, SamEntry const* b) {
+            bool lone = false;
+            for (auto const* s : { a, b }) {
+                if (!s) continue;
+                if (s->m_anchor < 0) return false;
+                lone |= s->m_anchor == 1;
+            }
+            return lone;
+        }
+
         // failed_gene_share: of the genes with a best record of the taxon or a read that failed on it there (ZF), the share
         // with more failed reads than records. A present species' reads align on all its genes; a relative's reads fail
         // where it differs most from the reference and go to another congener's gene there, or nowhere. 0 without failed
         // reads with genes (the ZF tags of reads that aligned elsewhere: the header counts of unaligned reads name no gene).
+        // The records of fragments anchored on single seeds only are not counted (GeneRecords::lone_records), as their
+        // failures are not (FailedCandidate::lone): a gene whose records all are counts as a gene without records.
         inline double FailedGeneShare(tsl::robin_map<uint32_t, GeneRecords> const& records, tsl::robin_map<uint32_t, uint32_t> const& failed) {
             if (failed.empty()) return 0;
-            size_t genes = records.size(), dominated = 0;
+            size_t genes = 0, dominated = 0;
+            for (auto const& [gene, r] : records) genes += r.records > r.lone_records;
             for (auto const& [gene, reads] : failed) {
                 auto const it = records.find(gene);
-                if (it == records.end()) {
+                uint32_t const anchored = it == records.end() ? 0 : it->second.records - it->second.lone_records;
+                if (anchored == 0) {
                     genes++;
                     dominated += reads > 0;
                 } else {
-                    dominated += reads > it->second.records;
+                    dominated += reads > anchored;
                 }
             }
             return genes == 0 ? 0 : static_cast<double>(dominated) / static_cast<double>(genes);
@@ -1559,10 +1586,14 @@ namespace protal {
             // (RecordEvidence::fragments_all); `fragments` counts those the filters keep.
             size_t FragmentsAll() const { return m_records.fragments_all; }
             // The reads that seeded on the taxon strongly enough to be aligned against it but did not align to it
-            // (RecordEvidence::failed_candidates), and their share of those plus the reads with a record.
+            // (RecordEvidence::failed_candidates), and their share of those plus the reads with a record, both on anchors
+            // of two seeds or more: a single-seed anchor's failure is no failed candidate, and the reads with records
+            // from such anchors alone (fragments_lone, on a grid's sparse index) are left out as well. On the strain
+            // world's sparse index at C 4 this raised an absent species' mean rate from 0.155 to 0.163 only (0.340 on the
+            // whole index): a relative's read meets the taxon there on one grid seed, so its failure goes uncounted.
             size_t FailedCandidates() const { return m_records.failed_candidates; }
             double FailedCandidateRate() const {
-                size_t const all = m_records.failed_candidates + m_records.fragments_all;
+                size_t const all = m_records.failed_candidates + m_records.fragments_all - m_records.fragments_lone;
                 return all == 0 ? 0 : static_cast<double>(m_records.failed_candidates) / static_cast<double>(all);
             }
             // The reads whose seeds fit the taxon as well as the taxa they were aligned against, but that never were aligned
@@ -3338,7 +3369,8 @@ namespace protal {
             }
 
             // See MicrobialProfile::NoteRecord. Returns the identity a kept record's best strain allele adds (NoteAlleles).
-            double NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
+            // `lone`: the record's fragment is anchored on the taxon by single seeds only (LoneFragment).
+            double NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true, bool lone = false) {
                 auto& e = m_counts[taxid];
                 e.records++;
                 e.kept += kept;
@@ -3364,6 +3396,7 @@ namespace protal {
                 }
                 auto& gene = e.gene_records[geneid];
                 gene.records++;
+                gene.lone_records += lone;
                 gene.differences += differences;
                 gene.aligned += aligned;
                 gene.error_ppm += error_ppm;
@@ -3610,12 +3643,13 @@ namespace protal {
             }
 
             // A read (link: the read across its records) with a best record on taxon taxid, before the filters: counted
-            // once per read (MicrobialProfile::PrepareMAPQ).
-            void NoteFragment(uint32_t taxid, size_t link) {
+            // once per read (MicrobialProfile::PrepareMAPQ); `lone`: anchored there by single seeds only (LoneFragment).
+            void NoteFragment(uint32_t taxid, size_t link, bool lone = false) {
                 auto& e = m_counts[taxid];
                 if (link == e.last_fragment_link) return;
                 e.last_fragment_link = link;
                 e.fragments_all++;
+                e.fragments_lone += lone;
             }
 
             // A fragment whose two mates both have a record on taxon taxid (MicrobialProfile::PrepareMAPQ).
@@ -3832,8 +3866,8 @@ namespace protal {
             // covers on conserved or fast genes, and whether its alternatives (ZA) hold a congener or a species of
             // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
             // kept: whether the MAPQ and length filters keep the record (for the abundance-weighted assignment).
-            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
-                m_evidence.NoteRecord(taxid, geneid, sam, kept);
+            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true, bool lone = false) {
+                m_evidence.NoteRecord(taxid, geneid, sam, kept, lone);
             }
 
             // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
@@ -5515,12 +5549,17 @@ namespace protal {
                 // leaves out: a read that fits another taxon as well has MAPQ near 0.
                 // A kept record's best strain allele: the identity it adds, for the taxon's allele identities.
                 double gain1 = 0, gain2 = 0;
-                for (auto [sam, kept, gain] : { std::tuple{ ap.HasFirst() ? &ap.First() : nullptr, take_first, &gain1 },
-                                                std::tuple{ ap.HasSecond() ? &ap.Second() : nullptr, take_second, &gain2 } }) {
+                SamEntry* const first = ap.HasFirst() ? &ap.First() : nullptr;
+                SamEntry* const second = ap.HasSecond() ? &ap.Second() : nullptr;
+                bool const same_taxon = first && second &&
+                    ExtractTaxidGeneid(first->m_rname).first == ExtractTaxidGeneid(second->m_rname).first;
+                for (auto [sam, kept, gain] : { std::tuple{ first, take_first, &gain1 }, std::tuple{ second, take_second, &gain2 } }) {
                     if (!sam) continue;
                     auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
-                    *gain = evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept);
-                    evidence.NoteFragment(static_cast<uint32_t>(taxid), link);
+                    // Anchored on the taxon by single seeds only: of the fragment's records there.
+                    bool const lone = same_taxon ? LoneFragment(first, second) : LoneFragment(sam, nullptr);
+                    *gain = evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept, lone);
+                    evidence.NoteFragment(static_cast<uint32_t>(taxid), link, lone);
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                     if (!sam->m_failed.empty()) evidence.NoteFailedCandidates(sam->m_failed);
                     if (!sam->m_untried.empty()) evidence.NoteUntriedCandidates(sam->m_untried);

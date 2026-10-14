@@ -758,8 +758,38 @@ namespace protal {
             exit(8);
         }
         out << "Ancestry sites: " << table.Copies() << " gene copies of " << table.Species() << " species with sites (" << file.Name()
-            << ")" << std::endl;
+            << ", version " << table.Version() << "; " << protal::build::HumanBytes(table.Bytes()) << " in memory)" << std::endl;
         genomes.SetPrebuiltSites(std::move(table));
+    }
+
+    // Which of every gene copy's index cores are unique (unique_cores.bin, UniqueCores.h), read before the alignment: with
+    // them a run counts each record's ZS, ZU and ZT from the gene's cores its alignment covers with exact k-mers, the same
+    // on the whole index, a sparse index or with --sparse_seeding. Without them (a database built before 2026-10-14 or
+    // with --no_unique_cores, or a run with --no_unique_cores) from the record's anchor's seeds, as before. Exits 8 if the
+    // file cannot be read.
+    static void LoadUniqueCores(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        auto const file = options.UniqueCoresDbFile();
+        if (!file.Exists()) {
+            out << "Unique cores: the database has none (built before 2026-10-14 or with --no_unique_cores): ZS, ZU and ZT "
+                << "from each record's anchor's seeds" << std::endl;
+            return;
+        }
+        if (options.NoUniqueCores()) {
+            out << "Unique cores: " << file.Name() << " not read (--no_unique_cores): ZS, ZU and ZT from each record's anchor's "
+                << "seeds" << std::endl;
+            return;
+        }
+        std::string error;
+        auto content = file.ReadAll(error, TableThreads(options));
+        auto table = std::make_shared<unique_cores::Table>();
+        if (content) error = table->Read(std::move(*content));
+        if (!error.empty()) {
+            std::cerr << "Invalid unique cores " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << "Unique cores: " << table->Rows() << " gene copies (" << file.Name() << "; " << protal::build::HumanBytes(table->Bytes())
+            << " in memory): ZS, ZU and ZT from the cores each alignment covers" << std::endl;
+        genomes.SetUniqueCores(std::move(table));
     }
 
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
@@ -1225,9 +1255,10 @@ namespace protal {
                 std::cout << std::endl;
             }
             // The seed expectation of the grid levels a sample is seeded from alone (a sparse index, --sparse_index emulate, or
-            // --sparse_seeding with the grid pick), for its SAM's header (SeedExpectations).
+            // --sparse_seeding with the grid pick), for its SAM's header (SeedExpectations). None with the database's unique
+            // cores (UniqueCores.h): ZS, ZU and ZT count the cores each alignment covers, as the whole index's seeds would.
             std::vector<std::optional<SeedExpectation>> seed_expectations;
-            {
+            if (!genomes.UniqueCores()) {
                 auto const range = options.GetRange();
                 bool const grid_seeded = std::any_of(range.begin(), range.end(), [&](size_t i) {
                     return options.GetSparseFirst(i) > 1 && options.GetSparseFirstPick(i) == SparseFirstPick::Grid &&
@@ -1315,6 +1346,9 @@ namespace protal {
                 // diagonals that their indels shift, through every link of the chain.
                 alignment_handler.SetAnchoredAlignment(!options.WholeReadAlignment());
                 alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
+                // ZS, ZU and ZT from the gene's cores each alignment covers with exact k-mers (UniqueCores.h), found with the
+                // run's k-mer handler (the build's windows), where the database has unique_cores.bin.
+                if (auto const cores = genomes.UniqueCores()) alignment_handler.SetUniqueCores(cores, iterator);
                 // Before WFA2, a candidate that cannot align within the budget is refused: by the k-mer screen, or for ONT
                 // reads by their indel distance (IndelBound), as the screen refuses next to nothing at their identity floor
                 // of 0.85 (--no_indel_bound: the screen, as before 2026-10-09). PacBio reads keep the screen: the candidates
@@ -4028,6 +4062,8 @@ namespace protal {
                                            (options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single));
         bool const weights_for_alignment = alleles_for_alignment && options.WeightedSiteShift() && !options.NoSiteWeights();
         bool const need_alleles = alleles_for_alignment || run_profiling;
+        bool const cores_for_alignment = run_alignment && !options.BuildMode();  // the unique cores (LoadUniqueCores)
+        std::ostringstream cores_log;
         std::optional<gene_neighbours::Table> neighbours;
         // In a concurrent start-up that aligns, the tables only profiling reads load beside the alignment, and the first
         // sample to be profiled waits for them (DeferredTables); the alignment waits only for what it reads: the gene
@@ -4062,6 +4098,7 @@ namespace protal {
             auto load_alleles = [&]() { LoadStrainAlleles(options, db.GetGenomes(), alleles_log); };
             if (alleles_for_alignment) tables.push_back(std::async(std::launch::async, load_alleles));
             else if (run_profiling) load_later(load_alleles);
+            if (cores_for_alignment) tables.push_back(std::async(std::launch::async, [&]() { LoadUniqueCores(options, db.GetGenomes(), cores_log); }));
             if (!deferred.futures.empty()) {
                 deferred.messages = [&, weights_later = !weights_for_alignment, alleles_later = !alleles_for_alignment]() {
                     return conservation_log.str() + suspect_log.str() + priors_log.str() + ncbi_log.str() + species_neighbours_log.str() +
@@ -4078,6 +4115,7 @@ namespace protal {
         } else {
             preload();
             bm_tables.Start();
+            if (cores_for_alignment) LoadUniqueCores(options, db.GetGenomes(), cores_log);
             if (need_alleles) LoadStrainAlleles(options, db.GetGenomes());
             if (run_profiling) {
                 db.LoadTaxonomy(options.TaxonomyDbFile());
@@ -4167,6 +4205,7 @@ namespace protal {
         }
         if (concurrent && weights_for_alignment && (!deferred.futures.empty() || !run_profiling)) std::cout << weights_log.str();
         if (concurrent && need_alleles && (alleles_for_alignment || !run_alignment)) std::cout << alleles_log.str();
+        std::cout << cores_log.str();
         if (!need_alleles && run_alignment && !options.BuildMode()) {
             std::cout << "Strain alleles: not read (no profiling, and no short reads' alignments scored with them: long reads or "
                       << "--no_allele_scores)" << std::endl;

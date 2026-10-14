@@ -16,6 +16,9 @@
 #include "AnchoredAlignment.h"
 #include "AlignmentScreen.h"
 #include "TargetClones.h"
+#include "KmerIterator.h"
+#include "Minimizer.h"
+#include "UniqueCores.h"
 
 namespace protal {
     struct AlignmentOrientation {
@@ -142,6 +145,9 @@ namespace protal {
         IndelBound m_indel_bound;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
+        // The gene's cores each alignment covers with exact k-mers, and the unique ones (UniqueCores.h, SetUniqueCores): ZS,
+        // ZU and ZT whatever share of the cores was loaded or looked up; inactive without the database's unique_cores.bin.
+        unique_cores::Counter<SimpleKmerHandler<ClosedSyncmer>> m_unique_cores;
         std::string m_reverse; // the reverse complement of the read, when the caller has none
         std::string m_window;  // the window's reference bases, for the whole-window alignment
 
@@ -285,9 +291,22 @@ namespace protal {
                 m_adaptive_candidates(other.m_adaptive_candidates),
                 m_genera(other.m_genera),
                 m_allele_scores(other.m_allele_scores),
-                m_weighted_shift(other.m_weighted_shift) {
+                m_weighted_shift(other.m_weighted_shift),
+                m_unique_cores(other.m_unique_cores) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
+
+        // Counts each record's ZS, ZU and ZT from the gene's cores its alignment covers with exact k-mers (UniqueCores.h):
+        // `table` the database's unique_cores.bin, `kmers` the run's k-mer handler (the build's windows). Copies made after
+        // this count too (each with its own cache).
+        void SetUniqueCores(std::shared_ptr<unique_cores::Table const> table, SimpleKmerHandler<ClosedSyncmer> const& kmers) {
+            m_unique_cores = unique_cores::Counter<SimpleKmerHandler<ClosedSyncmer>>(std::move(table), kmers);
+        }
+
+        // Genes whose cores did not fit the table's row (none for the database's own table).
+        size_t UniqueCoresMismatched() const {
+            return m_unique_cores.Mismatched();
+        }
 
         // Adaptive candidates (--adaptive_candidates): a divergent read tries up to `candidates` more anchors of its
         // crowd, of taxa of its best alignment's genus (`genera`: taxid -> genus, 0 for none). 0 or no genera: off.
@@ -783,7 +802,7 @@ namespace protal {
 
                 info.UpdateScore();
                 alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two,
-                              anchor.seeds);
+                              anchor.seeds, anchor.lone);
 
                 // Safety net: reject an alignment whose CIGAR does not fit the sequences. Its counts must cover the
                 // read and stay inside the gene (every alignment, from the counts alone); one alignment in 64 is also
@@ -815,6 +834,11 @@ namespace protal {
 
                 // (The operations cover the read: `covers` above checked it from the counts.)
                 if (m_allele_scores) ScoreAlleles(anchor, info, read);
+                if (m_unique_cores.Active()) {
+                    if (auto const counts = m_unique_cores.Count(anchor.taxid, anchor.geneid, gene, info.cigar, info.gene_alignment_start)) {
+                        alignment.SetCoreCounts(counts->cores, counts->unique, counts->unique_two);
+                    }
+                }
             }
             bm_alignment.Stop();
             return true;

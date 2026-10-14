@@ -190,6 +190,10 @@ namespace protal {
         uint16_t m_uniques = 0;
         uint16_t m_uniques_two = 0;
         uint16_t m_seeds = 0;  // the anchor's seeds m_uniques and m_uniques_two were counted over (ZS)
+        // The anchor (ZL, with counts from the alignment, SetCoreCounts): 1 a single seed (AnchorLoneSeeds), 0 none (a
+        // rescued mate), -1 two seeds or more; the anchor's seeds are no longer in ZS then.
+        int8_t m_anchor = -1;
+        bool m_cores_from_alignment = false;  // SetCoreCounts: m_seeds, m_uniques, m_uniques_two the alignment's cores
 
         bool m_forward = false;
 
@@ -255,7 +259,7 @@ namespace protal {
         }
 
         void Set(size_t taxid, size_t geneid, int32_t abs_pos, bool forward, uint16_t uniques = 0, uint16_t uniques_two = 0,
-                 uint16_t seeds = 0) {
+                 uint16_t seeds = 0, bool lone = false) {
             m_taxid = taxid;
             m_geneid = geneid;
             m_genepos = abs_pos;
@@ -263,6 +267,26 @@ namespace protal {
             m_uniques = uniques;
             m_uniques_two = uniques_two;
             m_seeds = seeds;
+            m_anchor = lone ? 1 : seeds == 0 ? 0 : -1;
+            m_cores_from_alignment = false;
+        }
+
+        // The counts of the gene's cores the alignment covers with exact k-mers (UniqueCores.h), in place of the anchor's
+        // seeds and their unique ones.
+        void SetCoreCounts(uint32_t cores, uint32_t unique, uint32_t unique_two) {
+            m_seeds = static_cast<uint16_t>(std::min<uint32_t>(cores, UINT16_MAX));
+            m_uniques = static_cast<uint16_t>(std::min<uint32_t>(unique, UINT16_MAX));
+            m_uniques_two = static_cast<uint16_t>(std::min<uint32_t>(unique_two, UINT16_MAX));
+            m_cores_from_alignment = true;
+        }
+
+        bool CoresFromAlignment() const {
+            return m_cores_from_alignment;
+        }
+
+        // The anchor's kind for ZL (see m_anchor).
+        int8_t Anchor() const {
+            return m_anchor;
         }
 
         bool IsSet() const {

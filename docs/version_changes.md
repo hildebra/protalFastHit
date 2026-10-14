@@ -27,6 +27,28 @@ for this page.
 | 0.8.3 | `23bacd9` | 2026-10-13 | 31 | sparse-first gates per read type, recorded by the database and followed by runs (at r226 −35% of the paired-end alignment's time at C = 1, −62% of HiFi's at C = 8); GTDB builds gated by default, `--test-c-gates`; gzip input in pieces on several threads (system ISA-L); a sample's lanes as one sample; F1 over the species the marker genes see; the weighted site shift off again |
 | 0.8.4 | `e990c69` | 2026-10-14 | 35 | the stride pick by default with gates pe:4, se:4, pb:16, ont:8 and models at other gates (r226 v27); the identity against each read's best strain allele; features that do not change with the read length or a sparse index (`length_free`, `read_length`, `ZS`; at the knob a sparse index at C 4 calls as ungated, 75 bp reads still call more false positives); GTDB builds on 75-250 bp paired-end, single-end Illumina and Ultima reads, random forests by default, both kinds of models in the database; opt-in a grid sparse index and a compact key map; zstd and many-member gzip input on several threads |
 
+## Since 0.8.4
+
+- **Unique k-mers counted from the alignment** (2026-10-14). `--build` stores which of every gene copy's index cores
+  are unique (`unique_cores.bin`, two bits a core, ~0.7 GB at r226; `--no_unique_cores`: none), and a run counts a
+  record's `ZS`, `ZU` and `ZT` from the gene's cores its alignment covers with exact k-mers instead of from its
+  anchor's seeds ([databases.md](databases.md), [features.md](features.md#independent-of-the-read-length-and-the-seeding-length_free-read_length-2026-10-14)).
+  The counts are those the whole index's seeds give, also on a sparse index or with `--sparse_seeding`, so every
+  unique-seed feature is the same there and no seed expectation is written. A database without the table, or
+  `--no_unique_cores`, counts the anchors' seeds as 0.8.4 did. The anchor moves to a new tag, `ZL` (1 a single seed, 0 a
+  rescued mate). Models trained on 0.8.4's counts should be retrained.
+- **Ancestry sites in ~0.65 of the memory** (2026-10-14). `ancestry_sites.bin` was 1.13 GB at r226 v27, held whole
+  beside the alignment. Version 2 stores the positions as Rice-coded gaps, the index in 4-byte keys and offsets and the
+  identity in 16 bits; on the reduced r226 database's table that is 0.65 of the bytes (0.69 on the small real world; ~0.73 GB at r226), with the same sites. A run reads
+  either version; the run log gives the table's version and size.
+- **Failed candidates over anchors of two seeds on both sides** (2026-10-14). `failed_candidate_rate` and
+  `failed_gene_share` leave out the reads anchored on a taxon by single seeds only (`ZL:i:1`), as their failures already
+  were ([features.md](features.md#independent-of-the-read-length-and-the-seeding-length_free-read_length-2026-10-14)).
+  - **Whole index:** no single-seed anchors, so its rates do not change.
+  - **Grid's sparse index at C 4:** an absent species' mean rate on the strain world rises only from 0.155 to 0.163
+    (0.340 on the whole index), and its calls do not change. The rest of the fall is in the failures themselves: a
+    relative's read meets the taxon there on a single grid seed.
+
 ## What 0.8.4 adds
 
 0.8.4 collects the 34 commits after 0.8.3. The changes:

@@ -48,6 +48,7 @@
 #include "NcbiTaxids.h"
 #include "SpeciesNeighbours.h"
 #include "AncestrySites.h"
+#include "UniqueCores.h"
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
 #include "StrainAlleles.h"
@@ -865,6 +866,9 @@ namespace protal {
         column_weights::Cache m_column_weights_cache;  // the columns of every copy a run touched, expanded
         ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
         ancestry::Table m_prebuilt_sites;  // every copy's sites as --build made them; empty: computed as a run needs them
+        // Which of every copy's index cores are unique (unique_cores.bin, UniqueCores.h), for counting ZS, ZU and ZT from the
+        // alignments; null: the database has none, or --no_unique_cores.
+        std::shared_ptr<unique_cores::Table const> m_unique_cores;
         // Of those, the ones the species' alleles share (SpeciesAncestrySitesOf), for copies with alleles.
         ShardedCache<std::shared_ptr<ancestry::Sites const>> m_species_sites{ ancestry::kMaxCached };
 
@@ -1252,6 +1256,15 @@ namespace protal {
 
         ancestry::Table const& GetPrebuiltSites() const {
             return m_prebuilt_sites;
+        }
+
+        void SetUniqueCores(std::shared_ptr<unique_cores::Table const> table) {
+            m_unique_cores = std::move(table);
+        }
+
+        // The database's unique cores (UniqueCores.h); null without them.
+        std::shared_ptr<unique_cores::Table const> UniqueCores() const {
+            return m_unique_cores;
         }
 
         // Those of AncestrySitesOf's sites that the species' known genomes share (ancestry::SharedBySpecies): without the

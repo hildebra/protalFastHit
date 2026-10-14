@@ -4550,32 +4550,54 @@ class SparseFirstGatesTest(WorkDir):
         self.assertIn("--compact_keys and --direct_keys ask for different key maps", log)
 
     def test_seed_tags_and_the_seed_expectation(self):
-        """Since 2026-10-14 a record says how many seeds of its anchor its ZU and ZT were counted over (ZS), and the SAM of a
-        sample seeded from a grid level alone (the sparse index) has that level's seed expectation in its header, which the
-        profile scales the genes' unique shares by; a run seeded from every core has none."""
-        logs, texts = {}, {}
-        for name, extra in (("seeds_plain", ()), ("seeds_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid"))):
+        """Since 2026-10-14 a record says how many k-mers its ZU and ZT were counted over (ZS). With the database's
+        unique_cores.bin (the mini database has it) they are the gene's cores the alignment covers with exact k-mers: a
+        record of a read seeded from a grid level alone (the sparse index) has the ZS, ZU and ZT of the same record seeded
+        from every core, and no SAM has a seed expectation. With --no_unique_cores they are the seeds of the record's
+        anchor, and the SAM of a sample seeded from a grid level alone has that level's seed expectation in its header,
+        which the profile scales the genes' unique shares by; a run seeded from every core has none. A record from a
+        single-seed anchor says so (ZL:i:1), a rescued mate ZL:i:0."""
+        grid = ("--sparse_first", "4", "--sparse_first_pick", "grid")
+        runs = {"seeds_plain": (), "seeds_grid": grid, "seeds_plain_anchor": ("--no_unique_cores",),
+                "seeds_grid_anchor": grid + ("--no_unique_cores",)}
+        logs, texts, tags = {}, {}, {}
+        for name, extra in runs.items():
             logs[name] = self.align(name, *extra, db=self.plain_db)
             texts[name] = sam_text(self.path(name, f"{name}.sam"))
-        for name, text in texts.items():
-            records = [line.split("\t") for line in text.splitlines() if not line.startswith("@")]
+            records = [line.split("\t") for line in texts[name].splitlines() if not line.startswith("@")]
             mapped = [r for r in records if r[2] != "*"]
             self.assertTrue(mapped, name)
             seeds = [int(t[5:]) for r in mapped for t in r[11:] if t.startswith("ZS:i:")]
             self.assertGreater(len(seeds), 0.8 * len(mapped), name)
             self.assertTrue(all(s >= 1 for s in seeds), name)
-            # ZU counts a share of those seeds.
+            tags[name] = {}
             for r in mapped:
-                tags = dict(t.split(":", 2)[0::2] for t in r[11:])
-                if "ZS" in tags:
-                    self.assertLessEqual(int(tags["ZU"]), int(tags["ZS"]), r[:3])
-        self.assertNotIn("@CO\tprotal seed expectation:", texts["seeds_plain"])
-        line = [l for l in texts["seeds_grid"].splitlines() if l.startswith("@CO\tprotal seed expectation: ")]
+                t = dict(x.split(":", 2)[0::2] for x in r[11:])
+                self.assertIn(t.get("ZL", "0"), ("0", "1"), r[:3])
+                if "ZS" in t:
+                    self.assertLessEqual(int(t["ZU"]), int(t["ZS"]), r[:3])
+                    self.assertLessEqual(int(t["ZT"]), int(t["ZS"]), r[:3])
+                tags[name][(r[0], r[1], r[2], r[3], r[5])] = (t.get("ZS"), t.get("ZU"), t.get("ZT"))  # the same alignment
+        self.assertRegex(logs["seeds_plain"], r"Unique cores: \d+ gene copies \(")
+        self.assertIn("Unique cores: ", logs["seeds_plain_anchor"])
+        self.assertIn("not read (--no_unique_cores)", logs["seeds_plain_anchor"])
+        # From the alignment: the same records the same counts, whatever was seeded.
+        shared = set(tags["seeds_plain"]) & set(tags["seeds_grid"])
+        self.assertGreater(len(shared), 0.8 * len(tags["seeds_grid"]))
+        differ = [k for k in shared if tags["seeds_plain"][k] != tags["seeds_grid"][k]]
+        self.assertEqual(differ, [], differ[:3])
+        # From the anchors: the grid run counts fewer.
+        shared_anchor = set(tags["seeds_plain_anchor"]) & set(tags["seeds_grid_anchor"])
+        fewer = sum(int(tags["seeds_grid_anchor"][k][0] or 0) < int(tags["seeds_plain_anchor"][k][0] or 0) for k in shared_anchor)
+        self.assertGreater(fewer, 0.3 * len(shared_anchor))
+        for name in ("seeds_plain", "seeds_grid", "seeds_plain_anchor"):
+            self.assertNotIn("@CO\tprotal seed expectation:", texts[name], name)
+            self.assertNotIn("Seed expectation:", logs[name], name)
+        line = [l for l in texts["seeds_grid_anchor"].splitlines() if l.startswith("@CO\tprotal seed expectation: ")]
         self.assertEqual(len(line), 1)
         self.assertRegex(line[0], r"level=2 unique=[0-9.e-]+ two=[0-9.e-]+$")
-        self.assertRegex(logs["seeds_grid"], r"Seed expectation: the unique share of a grid level's values over the whole "
-                                             r"index's \(ZU / ZT\): level 2 \(C 4\) [0-9.]+ / [0-9.]+")
-        self.assertNotIn("Seed expectation:", logs["seeds_plain"])
+        self.assertRegex(logs["seeds_grid_anchor"], r"Seed expectation: the unique share of a grid level's values over the whole "
+                                                    r"index's \(ZU / ZT\): level 2 \(C 4\) [0-9.]+ / [0-9.]+")
 
     def test_sparse_seeding(self):
         """--sparse_seeding (2026-10-13) seeds the reads a gate keeps from its cores alone, as an index of only those would.

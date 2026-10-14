@@ -283,7 +283,7 @@ namespace protal::build {
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, build_settings.tsv (since 2026-10-11), unique_kmers.tsv,
     // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv, congener_gaps.tsv, strain_alleles.tsv, column_weights.tsv
-    // and ancestry_sites.bin if the build wrote them, species_priors.tsv, ncbi_taxids.tsv,
+    // and ancestry_sites.bin and unique_cores.bin if the build wrote them, species_priors.tsv, ncbi_taxids.tsv,
     // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), every presence model there is (AllModelFiles in
@@ -308,6 +308,7 @@ namespace protal::build {
         if (fs::exists(options.GetStrainAllelesFile())) sources.push_back({Options::PROTAL_STRAIN_ALLELES_FILE, options.GetStrainAllelesFile()});
         if (fs::exists(options.GetColumnWeightsFile())) sources.push_back({Options::PROTAL_COLUMN_WEIGHTS_FILE, options.GetColumnWeightsFile()});
         if (fs::exists(options.GetAncestrySitesFile())) sources.push_back({Options::PROTAL_ANCESTRY_SITES_FILE, options.GetAncestrySitesFile()});
+        if (fs::exists(options.GetUniqueCoresFile())) sources.push_back({Options::PROTAL_UNIQUE_CORES_FILE, options.GetUniqueCoresFile()});
         if (fs::exists(options.GetForeignRatesFile())) sources.push_back({Options::PROTAL_FOREIGN_RATES_FILE, options.GetForeignRatesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
@@ -2035,7 +2036,7 @@ namespace protal::build {
             for (size_t k = 0; k < holders.size(); k++) {
                 auto const result = genomes.ComputeAncestrySites(holders[k], static_cast<uint32_t>(g));
                 if (result->Empty()) continue;
-                ancestry::Encode(*result, encoded[k]);
+                ancestry::EncodeCompact(*result, encoded[k]);  // Table::Write's version 2
                 gene_sites += result->positions.size();
                 gene_indels += result->indels.size();
             }
@@ -2692,6 +2693,112 @@ namespace protal::build {
         std::deque<grid_levels::Stats> m_parts;
     };
 
+    // unique_cores.bin in the database (UniqueCores.h): for every gene copy, in the order of its cores as a run finds them
+    // (the build's k-mer handler over the copy's 2-bit sequence), whether its index entry is unique and unique at distance
+    // two (flag 61 for a core of several values, flag 60 for one of one value, as a seed counts them). Read from the index
+    // once its flags are final (after CountUniqueKmers), while the genes are loaded: two passes over the copies on all
+    // threads, the first counting each copy's cores, the second looking each core's entry up. A core without an entry (a
+    // window over an ambiguous base, which the index leaves out, or a key with too many values) is not unique. None with
+    // --no_unique_cores; an earlier build's is removed.
+    template<typename KmerHandler>
+    static void WriteUniqueCores(protal::Options const& options, Seedmap const& map, GenomeLoader& genomes,
+                                 Seedmap::GeneRows const& rows, KmerHandler const& handler) {
+        namespace fs = std::filesystem;
+        std::string const target = options.GetUniqueCoresFile();
+        std::error_code ec;
+        fs::remove(target, ec);
+        if (options.NoUniqueCores()) {
+            std::cout << "Unique cores: none (--no_unique_cores): a run counts ZU and ZT from its anchors' seeds" << std::endl;
+            return;
+        }
+        Benchmark bm("Unique cores");
+        bm.Start();
+        struct Copy { uint64_t row; uint32_t taxid, gene; };
+        std::vector<Copy> copies;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            size_t const genes = genome.GetGeneList().size();
+            for (size_t g = 1; g <= genes; g++) copies.push_back({ rows.first_row[taxid] + g - 1, static_cast<uint32_t>(taxid), static_cast<uint32_t>(g) });
+        }
+        std::sort(copies.begin(), copies.end(), [](Copy const& a, Copy const& b) { return a.row < b.row; });
+        int const threads = static_cast<int>(options.GetThreads());
+        auto const cores_of = [&](Copy const& c, KmerHandler& local, KmerList& kmers) {
+            auto const& gene = genomes.GetGenome(c.taxid).GetGeneOMP(c.gene);
+            if (gene.GetLength() == 0) {
+                kmers.clear();
+                return;
+            }
+            auto const sequence = gene.Sequence();
+            local(std::string_view(sequence), kmers);
+        };
+        std::vector<uint32_t> cores(rows.Size(), 0);
+        #pragma omp parallel num_threads(threads)
+        {
+            KmerHandler local(handler);
+            KmerList kmers;
+            #pragma omp for schedule(dynamic, 256)
+            for (size_t i = 0; i < copies.size(); i++) {
+                cores_of(copies[i], local, kmers);
+                cores[copies[i].row] = static_cast<uint32_t>(kmers.size());
+            }
+        }
+        if (!unique_cores::Table::Fits(cores)) {
+            std::cout << "Unique cores: none (the cores' flags would not fit the table's 32-bit offsets): a run counts ZU and ZT "
+                      << "from its anchors' seeds" << std::endl;
+            return;
+        }
+        unique_cores::Table table(rows.first_row, cores);
+        uint64_t looked_up = 0, without_entry = 0;
+        #pragma omp parallel num_threads(threads) reduction(+ : looked_up, without_entry)
+        {
+            KmerHandler local(handler);
+            KmerList kmers;
+            Seedmap::PackedBlock block;
+            #pragma omp for schedule(dynamic, 256)
+            for (size_t i = 0; i < copies.size(); i++) {
+                auto const& c = copies[i];
+                cores_of(c, local, kmers);
+                for (size_t k = 0; k < kmers.size(); k++) {
+                    looked_up++;
+                    uint64_t const position = kmers[k].second + map.m_flex_k_half;
+                    uint8_t flags = 0;
+                    bool found = false;
+                    if (map.GetPacked(kmers[k].first, block)) {
+                        for (uint32_t e = 0; e < block.size; e++) {
+                            ValueEntry entry;
+                            entry.value = map.EntryValue(block, e);
+                            size_t taxid = 0, geneid = 0, genepos = 0;
+                            entry.Get(taxid, geneid, genepos);
+                            if (taxid != c.taxid || geneid != c.gene || genepos != position) continue;
+                            bool const unique = entry.IsFlagUnique();
+                            bool const two = block.flex == nullptr ? unique : unique && entry.IsFlagUniqueDistanceMinTwo();
+                            flags = static_cast<uint8_t>((unique ? unique_cores::kUnique : 0) | (two ? unique_cores::kUniqueTwo : 0));
+                            found = true;
+                            break;
+                        }
+                    }
+                    without_entry += !found;
+                    if (flags) table.Set(c.row, k, flags);
+                }
+            }
+        }
+        {
+            std::ofstream os(target, std::ios::binary);
+            table.Write(os);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << target << " failed" << std::endl;
+                exit(8);
+            }
+        }
+        auto const [unique, two] = table.Totals();
+        std::cout << "Unique cores: " << looked_up << " cores of " << copies.size() << " gene copies, " << unique << " unique ("
+                  << std::fixed << std::setprecision(1) << (looked_up ? 100.0 * static_cast<double>(unique) / static_cast<double>(looked_up) : 0.0)
+                  << "%), " << two << " unique at distance two, " << without_entry << " without an index entry" << std::defaultfloat
+                  << "; " << HumanBytes(fs::file_size(target, ec)) << ": " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once
     // (CheckReferenceAgainstMap), so that the passes may take its records from the preloaded genes.
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
@@ -3224,10 +3331,6 @@ namespace protal::build {
                   << singles_read << " single entries read back from their genes" << std::endl;
         }
 
-        // No gene is read from here on (the k-mer statistics need only how many genes each taxon has): their
-        // sequences go before the index is written (~4 GB at r226).
-        genomes.ReleaseGeneSequences();
-        ReleaseFreeMemory();
         PrintMemory("the uniqueness check");
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
@@ -3256,6 +3359,16 @@ namespace protal::build {
         bm_statistics.Stop();
         bm_statistics.PrintResults();
         std::cout << "Distance-two flags: " << totals.comparisons << " flex parts compared" << std::endl;
+
+        // Every copy's cores with their final flags (unique_cores.bin), read from the genes, which are still loaded.
+        WriteUniqueCores(options, putter.GetMap(), genomes, gene_rows, kmer_handler_global);
+
+        // No gene is read from here on: their sequences go before the index is written (~4 GB at r226). Until
+        // 2026-10-14 they went before the k-mer statistics (which need only how many genes each taxon has); the
+        // uniqueness check before those held them beside the index as long.
+        genomes.ReleaseGeneSequences();
+        ReleaseFreeMemory();
+        PrintMemory("the unique cores");
 
         // Queries align against the database's reference.fna via reference.map: record which ones.
         // The fingerprint holds the uncompressed size, so it survives compressing reference.fna.

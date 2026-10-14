@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -665,11 +666,7 @@ namespace protal::ancestry {
     // tens of thousands of copies: on a run's first records of a copy that was half of the profiling
     // (docs/claude/2026-10-11-r226-v23, section 5). --build computes them once for every copy (ComputeSites, with the
     // database's species neighbours, congener gaps and column weights, as a run would) and stores them; a run decodes a
-    // copy's on its first record. A copy without sites has no entry.
-    //
-    // The file: kMagic, then little-endian 64-bit integers: the entries n, the payload's bytes, n keys (taxid << 32 |
-    // gene, ascending) and n offsets into the payload; then the payload, where each entry is its length (varint) and
-    // its bytes (Encode).
+    // copy's on its first record. A copy without sites has no entry. The file's two versions: see Table.
     inline const std::string kFileName = "ancestry_sites.bin";
     inline const std::string kMagic = "protal ancestry sites 1\n";
 
@@ -799,28 +796,287 @@ namespace protal::ancestry {
         return in.empty();
     }
 
+    // ---- version 2 (since 2026-10-14): the same sites in ~65% of the bytes ---------------------------------------------
+    //
+    // At r226 v27 ancestry_sites.bin held 1.13 GB (11.9 M copies, 630 M sites, 52.7 a copy), all of it in memory beside
+    // the alignment. On the reduced r226 database 63% of the bytes were the positions (a varint step each, ~1 byte a site)
+    // and 11% the index (a 64-bit key and offset a copy). Version 2 codes a copy's positions as Rice-coded gaps, the
+    // parameter chosen per copy (~0.57 of the varints), the nearest congener's identity in 16 bits instead of a float's
+    // varint, and the table's keys (taxid << 8 | gene) and offsets in 32 bits each where they fit (8 bytes a copy instead
+    // of 16): the file is 0.65 of version 1's on the reduced r226 database, 0.69 on the small real world
+    // (docs/claude/2026-10-14-length-free-features). A run reads either version, and the features are the same.
+    inline const std::string kMagic2 = "protal ancestry sites 2\n";
+    inline constexpr unsigned kMaxRice = 15;  // the largest Rice parameter (a gap below 2^16 then takes one or two unary bits)
+
+    namespace codec {
+        // Bits appended to a string, least significant first in each byte.
+        class BitWriter {
+        public:
+            explicit BitWriter(std::string& out) : m_out(out) {}
+
+            void PutBit(bool bit) {
+                if (m_used == 0) m_out.push_back(0);
+                if (bit) m_out.back() = static_cast<char>(static_cast<uint8_t>(m_out.back()) | (1u << m_used));
+                m_used = (m_used + 1) & 7u;
+            }
+
+            void Put(uint64_t value, unsigned bits) {
+                for (unsigned i = 0; i < bits; i++) PutBit((value >> i) & 1u);
+            }
+
+        private:
+            std::string& m_out;
+            unsigned m_used = 0;  // bits used of the last byte; 0: the next bit starts a byte
+        };
+
+        // BitWriter's bits read back.
+        class BitReader {
+        public:
+            explicit BitReader(std::string_view in) : m_in(in) {}
+
+            bool GetBit(bool& bit) {
+                if (m_bit >= 8 * m_in.size()) return false;
+                bit = ((static_cast<uint8_t>(m_in[m_bit / 8]) >> (m_bit % 8)) & 1u) != 0;
+                m_bit++;
+                return true;
+            }
+
+            bool Get(unsigned bits, uint64_t& value) {
+                value = 0;
+                for (unsigned i = 0; i < bits; i++) {
+                    bool bit = false;
+                    if (!GetBit(bit)) return false;
+                    value |= static_cast<uint64_t>(bit) << i;
+                }
+                return true;
+            }
+
+            size_t BytesBegun() const { return (m_bit + 7) / 8; }
+
+        private:
+            std::string_view m_in;
+            size_t m_bit = 0;
+        };
+
+        inline void PutU32(std::string& out, uint32_t v) {
+            for (int i = 0; i < 4; i++) out.push_back(static_cast<char>((v >> (8 * i)) & 0xff));
+        }
+
+        inline uint32_t GetU32(char const* p) {
+            uint32_t v = 0;
+            for (int i = 0; i < 4; i++) v |= static_cast<uint32_t>(static_cast<uint8_t>(p[i])) << (8 * i);
+            return v;
+        }
+    }
+
+    // The Rice parameter that codes the gaps in the fewest bits: a gap g takes (g >> k) + 1 + k of them.
+    inline unsigned RiceParameter(std::vector<uint32_t> const& gaps) {
+        unsigned best = 0;
+        uint64_t best_bits = UINT64_MAX;
+        for (unsigned k = 0; k <= kMaxRice; k++) {
+            uint64_t bits = 0;
+            for (auto const g : gaps) bits += (g >> k) + 1 + k;
+            if (bits < best_bits) {
+                best_bits = bits;
+                best = k;
+            }
+        }
+        return best;
+    }
+
+    // A copy's sites as version 2's bytes: the nearest congener, the congeners compared and the positions compared
+    // (varints), the identity (16 bits, of 65535), the sites (varint); with sites, a byte of flags (bit 0: the bases
+    // packed four to a byte, else one a byte for a code that is no A/C/G/T; bit 1: the positions as Rice-coded gaps;
+    // bits 2-5: the parameter k), the positions (the gaps between them less one, each as g >> k ones ended by a zero and
+    // its k low bits, padded to a byte; or, for positions out of order, zigzag steps as in version 1) and the bases; then
+    // the indels as in version 1.
+    inline void EncodeCompact(Sites const& s, std::string& out) {
+        using namespace codec;
+        PutVarint(out, s.congener);
+        PutVarint(out, s.congeners);
+        PutVarint(out, s.compared);
+        auto const identity = static_cast<uint32_t>(std::lround(std::clamp(static_cast<double>(s.identity), 0.0, 1.0) * 65535.0));
+        out.push_back(static_cast<char>(identity & 0xff));
+        out.push_back(static_cast<char>(identity >> 8));
+        PutVarint(out, s.positions.size());
+        if (!s.positions.empty()) {
+            bool const packed = std::all_of(s.bases.begin(), s.bases.end(), [](uint8_t b) { return b < 4; });
+            bool const ascending = std::adjacent_find(s.positions.begin(), s.positions.end(),
+                                                      [](uint16_t a, uint16_t b) { return b <= a; }) == s.positions.end();
+            std::vector<uint32_t> gaps;
+            unsigned k = 0;
+            if (ascending) {
+                gaps.reserve(s.positions.size());
+                int64_t previous = -1;
+                for (auto const p : s.positions) {
+                    gaps.push_back(static_cast<uint32_t>(static_cast<int64_t>(p) - previous - 1));
+                    previous = p;
+                }
+                k = RiceParameter(gaps);
+            }
+            out.push_back(static_cast<char>((packed ? 1u : 0u) | (ascending ? 2u : 0u) | (k << 2)));
+            if (ascending) {
+                BitWriter bits(out);
+                for (auto const g : gaps) {
+                    for (uint32_t q = g >> k; q > 0; q--) bits.PutBit(true);
+                    bits.PutBit(false);
+                    bits.Put(g, k);
+                }
+            } else {
+                int64_t previous = 0;
+                for (auto const p : s.positions) {
+                    PutVarint(out, Zigzag(static_cast<int64_t>(p) - previous));
+                    previous = p;
+                }
+            }
+            if (packed) {
+                for (size_t i = 0; i < s.bases.size(); i += 4) {
+                    uint8_t byte = 0;
+                    for (size_t j = 0; j < 4 && i + j < s.bases.size(); j++) byte |= static_cast<uint8_t>(s.bases[i + j] << (2 * j));
+                    out.push_back(static_cast<char>(byte));
+                }
+            } else {
+                for (auto const b : s.bases) out.push_back(static_cast<char>(b));
+            }
+        }
+        PutVarint(out, s.indels.size());
+        int64_t previous = 0;
+        for (auto const& indel : s.indels) {
+            PutVarint(out, Zigzag(static_cast<int64_t>(indel.position) - previous));
+            PutVarint(out, Zigzag(indel.length));
+            previous = indel.position;
+        }
+    }
+
+    // EncodeCompact's bytes back into Sites (the identity to 1/65535); false if they are not a whole entry.
+    inline bool DecodeCompact(std::string_view in, Sites& s) {
+        using namespace codec;
+        s = Sites();
+        uint64_t congener = 0, congeners = 0, compared = 0, n = 0;
+        if (!GetVarint(in, congener) || !GetVarint(in, congeners) || !GetVarint(in, compared) || in.size() < 2 ||
+            congener > UINT32_MAX || congeners > UINT16_MAX) {
+            return false;
+        }
+        s.congener = static_cast<uint32_t>(congener);
+        s.congeners = static_cast<uint16_t>(congeners);
+        s.compared = static_cast<size_t>(compared);
+        uint32_t const identity = static_cast<uint8_t>(in[0]) | (static_cast<uint32_t>(static_cast<uint8_t>(in[1])) << 8);
+        s.identity = static_cast<float>(static_cast<double>(identity) / 65535.0);
+        in.remove_prefix(2);
+        if (!GetVarint(in, n) || n > kMaxLength + 1) return false;
+        if (n > 0) {
+            if (in.empty()) return false;
+            auto const flags = static_cast<uint8_t>(in.front());
+            in.remove_prefix(1);
+            bool const packed = (flags & 1u) != 0, rice = (flags & 2u) != 0;
+            unsigned const k = flags >> 2;
+            if (k > kMaxRice || (!rice && k != 0)) return false;
+            s.positions.reserve(n);
+            if (rice) {
+                BitReader bits(in);
+                int64_t previous = -1;
+                for (uint64_t i = 0; i < n; i++) {
+                    uint64_t q = 0, low = 0;
+                    bool bit = true;
+                    while (true) {
+                        if (!bits.GetBit(bit)) return false;
+                        if (!bit) break;
+                        if (++q > (kMaxLength >> k)) return false;  // no gap that long fits a 16-bit position
+                    }
+                    if (!bits.Get(k, low)) return false;
+                    previous += static_cast<int64_t>((q << k) | low) + 1;
+                    if (previous > static_cast<int64_t>(kMaxLength)) return false;
+                    s.positions.push_back(static_cast<uint16_t>(previous));
+                }
+                in.remove_prefix(bits.BytesBegun());
+            } else {
+                int64_t previous = 0;
+                for (uint64_t i = 0; i < n; i++) {
+                    uint64_t step = 0;
+                    if (!GetVarint(in, step)) return false;
+                    previous += Unzigzag(step);
+                    if (previous < 0 || previous > static_cast<int64_t>(kMaxLength)) return false;
+                    s.positions.push_back(static_cast<uint16_t>(previous));
+                }
+            }
+            size_t const base_bytes = packed ? (n + 3) / 4 : n;
+            if (in.size() < base_bytes) return false;
+            s.bases.resize(n);
+            for (size_t i = 0; i < n; i++) {
+                s.bases[i] = packed ? static_cast<uint8_t>((static_cast<uint8_t>(in[i / 4]) >> (2 * (i % 4))) & 3)
+                                    : static_cast<uint8_t>(in[i]);
+            }
+            in.remove_prefix(base_bytes);
+        }
+        uint64_t indels = 0;
+        if (!GetVarint(in, indels) || indels > kMaxLength) return false;
+        int64_t previous = 0;
+        for (uint64_t i = 0; i < indels; i++) {
+            uint64_t step = 0, length = 0;
+            if (!GetVarint(in, step) || !GetVarint(in, length)) return false;
+            previous += Unzigzag(step);
+            int64_t const l = Unzigzag(length);
+            if (previous < 0 || previous > static_cast<int64_t>(kMaxLength) || l < INT16_MIN || l > INT16_MAX) return false;
+            s.indels.push_back({ static_cast<uint16_t>(previous), static_cast<int16_t>(l) });
+        }
+        return in.empty();
+    }
+
     // The database's sites of every copy (ancestry_sites.bin): looked up by key, decoded on demand. The table keeps the
     // file's bytes as they were read and looks its keys and offsets up there (no copy of the index, no shift of the
-    // payload: a ~1 GB file at GTDB r226 is held once; docs/claude/2026-10-11-performance-audit).
+    // payload: a 1.13 GB file at GTDB r226 v27, ~0.65 of that in version 2, is held once;
+    // docs/claude/2026-10-11-performance-audit).
+    //
+    // Version 1: kMagic, then little-endian 64-bit integers: the entries n, the payload's bytes, n keys (taxid << 32 |
+    // gene, ascending) and n offsets into the payload; then the payload, each entry its length (varint) and its bytes
+    // (Encode). Version 2 (Write's since 2026-10-14): kMagic2, the entries n, the payload's bytes and the index's width
+    // (4 or 8) as 64-bit integers, n keys and n offsets of that width (taxid << 8 | gene in 4 bytes, taxid << 32 | gene in
+    // 8), then the payload with EncodeCompact's entries. 4 bytes where every gene id is below 256, every taxid below 2^24
+    // and the payload below 4 GiB.
     class Table {
     public:
         bool Empty() const { return m_n == 0; }
         size_t Copies() const { return m_n; }
         size_t Species() const { return m_species; }
         size_t PayloadBytes() const { return m_payload_size; }
+        size_t Bytes() const { return m_content.size(); }  // the file, as held
+        int Version() const { return m_version; }
 
         // Appends a copy's sites to a payload (Write's), returning its offset.
         static uint64_t Append(std::string& payload, Sites const& sites) {
             std::string bytes;
-            Encode(sites, bytes);
+            EncodeCompact(sites, bytes);
             uint64_t const offset = payload.size();
             codec::PutVarint(payload, bytes.size());
             payload += bytes;
             return offset;
         }
 
-        // Writes a table: index holds each entry's key and offset into payload (Append's), keys distinct.
+        // Writes a table (version 2): index holds each entry's key (taxid << 32 | gene) and offset into payload
+        // (Append's, or EncodeCompact's entries after their varint lengths), keys distinct.
         static void Write(std::ostream& os, std::vector<std::pair<uint64_t, uint64_t>> index, std::string const& payload) {
+            std::sort(index.begin(), index.end());
+            bool const narrow = payload.size() <= UINT32_MAX &&
+                std::all_of(index.begin(), index.end(), [](auto const& e) { return (e.first >> 32) < (uint64_t{ 1 } << 24) && (e.first & 0xffffffffu) < 256; });
+            std::string head = kMagic2;
+            codec::PutU64(head, index.size());
+            codec::PutU64(head, payload.size());
+            codec::PutU64(head, narrow ? 4 : 8);
+            for (auto const& entry : index) {
+                if (narrow) codec::PutU32(head, static_cast<uint32_t>(((entry.first >> 32) << 8) | (entry.first & 0xff)));
+                else codec::PutU64(head, entry.first);
+            }
+            for (auto const& entry : index) {
+                if (narrow) codec::PutU32(head, static_cast<uint32_t>(entry.second));
+                else codec::PutU64(head, entry.second);
+            }
+            os.write(head.data(), static_cast<std::streamsize>(head.size()));
+            os.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+        }
+
+        // Writes a version 1 table (databases built from 2026-10-11 to 2026-10-14; for tests of their reading): the payload's
+        // entries are Encode's.
+        static void WriteVersion1(std::ostream& os, std::vector<std::pair<uint64_t, uint64_t>> index, std::string const& payload) {
             std::sort(index.begin(), index.end());
             std::string head = kMagic;
             codec::PutU64(head, index.size());
@@ -831,29 +1087,44 @@ namespace protal::ancestry {
             os.write(payload.data(), static_cast<std::streamsize>(payload.size()));
         }
 
-        // Reads Write's bytes; "" or what is wrong with them.
+        // Reads Write's (or WriteVersion1's) bytes; "" or what is wrong with them.
         std::string Read(std::string content) {
             *this = Table();
-            if (content.compare(0, kMagic.size(), kMagic) != 0) return "not a table of ancestry sites (" + kFileName + ")";
-            size_t at = kMagic.size();
-            if (content.size() < at + 16) return "truncated header";
+            int version = 0;
+            size_t at = 0;
+            if (content.compare(0, kMagic.size(), kMagic) == 0) {
+                version = 1;
+                at = kMagic.size();
+            } else if (content.compare(0, kMagic2.size(), kMagic2) == 0) {
+                version = 2;
+                at = kMagic2.size();
+            } else {
+                return "not a table of ancestry sites (" + kFileName + ")";
+            }
+            size_t const fields = version == 1 ? 16 : 24;
+            if (content.size() < at + fields) return "truncated header";
             uint64_t const n = codec::GetU64(content.data() + at), payload = codec::GetU64(content.data() + at + 8);
-            at += 16;
-            if (n > (content.size() - at) / 16 || content.size() - at - 16 * n != payload) return "sizes do not match the file's";
-            char const* const keys = content.data() + at;
+            uint64_t const width = version == 1 ? 8 : codec::GetU64(content.data() + at + 16);
+            if (width != 4 && width != 8) return "an index width of " + std::to_string(width) + " bytes";
+            at += fields;
+            if (n > (content.size() - at) / (2 * width) || content.size() - at - 2 * width * n != payload) {
+                return "sizes do not match the file's";
+            }
+            m_version = version;
+            m_width = static_cast<size_t>(width);
+            m_n = n;
+            m_keys_at = at;
+            m_content = std::move(content);
             for (uint64_t i = 0; i < n; i++) {
-                uint64_t const k = codec::GetU64(keys + 8 * i), offset = codec::GetU64(keys + 8 * (n + i));
-                if ((i > 0 && k <= codec::GetU64(keys + 8 * (i - 1))) || offset >= payload) {
+                uint64_t const k = Key(i);
+                if ((i > 0 && k <= Key(i - 1)) || Offset(i) >= payload) {
                     *this = Table();
                     return "keys out of order or an offset beyond the payload at entry " + std::to_string(i);
                 }
-                if (i == 0 || (k >> 32) != (codec::GetU64(keys + 8 * (i - 1)) >> 32)) m_species++;
+                if (i == 0 || (k >> 32) != (Key(i - 1) >> 32)) m_species++;
             }
-            m_n = n;
-            m_keys_at = at;
-            m_payload_at = at + 16 * n;
+            m_payload_at = at + 2 * width * n;
             m_payload_size = payload;
-            m_content = std::move(content);
             return "";
         }
 
@@ -869,18 +1140,32 @@ namespace protal::ancestry {
             }
             if (lo == m_n || Key(lo) != key) return NoSites();
             std::string_view payload(m_content.data() + m_payload_at, m_payload_size);
-            payload.remove_prefix(codec::GetU64(m_content.data() + m_keys_at + 8 * (m_n + lo)));
+            payload.remove_prefix(Offset(lo));
             uint64_t length = 0;
             if (!codec::GetVarint(payload, length) || length > payload.size()) return NoSites();
             auto sites = std::make_shared<Sites>();
-            if (!Decode(payload.substr(0, length), *sites)) return NoSites();
+            bool const decoded = m_version == 1 ? Decode(payload.substr(0, length), *sites) : DecodeCompact(payload.substr(0, length), *sites);
+            if (!decoded) return NoSites();
             return sites;
         }
 
     private:
-        uint64_t Key(size_t i) const { return codec::GetU64(m_content.data() + m_keys_at + 8 * i); }
+        // Entry i's key as taxid << 32 | gene, whatever the width.
+        uint64_t Key(size_t i) const {
+            char const* const p = m_content.data() + m_keys_at + m_width * i;
+            if (m_width == 8) return codec::GetU64(p);
+            uint32_t const k = codec::GetU32(p);
+            return (static_cast<uint64_t>(k >> 8) << 32) | (k & 0xffu);
+        }
+
+        uint64_t Offset(size_t i) const {
+            char const* const p = m_content.data() + m_keys_at + m_width * (m_n + i);
+            return m_width == 8 ? codec::GetU64(p) : codec::GetU32(p);
+        }
 
         std::string m_content;  // the file: the header, the keys, the offsets, the payload
+        int m_version = 0;
+        size_t m_width = 8;       // bytes of a key and of an offset
         size_t m_n = 0;
         size_t m_keys_at = 0;     // where the keys start in m_content; the offsets follow them
         size_t m_payload_at = 0;  // where the payload starts

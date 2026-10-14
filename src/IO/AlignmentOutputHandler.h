@@ -143,6 +143,7 @@ namespace protal {
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_seeds = ar.Seeds();
+        sam.m_anchor = ar.Anchor();
         sam.m_alternatives.clear();  // set on the read's best record only (AlternativesTag)
         sam.m_failed.clear();        // set on the read's first record only (FailedTag)
         sam.m_untried.clear();       // set on the read's first record only (UntriedTag)
@@ -170,6 +171,7 @@ namespace protal {
         sam.m_uniques = 0;
         sam.m_uniques_two = 0;
         sam.m_seeds = 0;
+        sam.m_anchor = -1;
         sam.m_alternatives.clear();
         sam.m_failed = FailedTag(failed);
         sam.m_settled = 0;

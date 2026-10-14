@@ -486,7 +486,8 @@ TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
 }
 
 namespace {
-    void ExpectSameSites(an::Sites const& a, an::Sites const& b) {
+    // `identity_tolerance`: version 2 keeps the identity to 1/65535.
+    void ExpectSameSites(an::Sites const& a, an::Sites const& b, double identity_tolerance = 0) {
         EXPECT_EQ(a.positions, b.positions);
         EXPECT_EQ(a.bases, b.bases);
         ASSERT_EQ(a.indels.size(), b.indels.size());
@@ -494,7 +495,8 @@ namespace {
         EXPECT_EQ(a.congener, b.congener);
         EXPECT_EQ(a.congeners, b.congeners);
         EXPECT_EQ(a.compared, b.compared);
-        EXPECT_EQ(a.identity, b.identity);
+        if (identity_tolerance == 0) EXPECT_EQ(a.identity, b.identity);
+        else EXPECT_NEAR(a.identity, b.identity, identity_tolerance);
     }
 }
 
@@ -526,6 +528,59 @@ TEST(AncestrySites, EncodedSitesDecodeToTheSame) {
     an::Encode(empty, bytes);
     ASSERT_TRUE(an::Decode(bytes, back));
     EXPECT_TRUE(back.Empty());
+}
+
+// Version 2 (EncodeCompact): the same sites back, the identity to 1/65535; positions as Rice-coded gaps (dense, sparse,
+// the first at 0 and the last at 65535), out of order as zigzag steps, unpacked bases; a cut or overlong entry is
+// refused; and fewer bytes than version 1 for a copy's usual sites (a site every ~20 bases).
+TEST(AncestrySites, CompactSitesDecodeToTheSame) {
+    std::mt19937 rng(7);
+    auto round_trip = [](an::Sites const& s) {
+        std::string bytes;
+        an::EncodeCompact(s, bytes);
+        an::Sites back;
+        EXPECT_TRUE(an::DecodeCompact(bytes, back));
+        ExpectSameSites(s, back, 1.0 / 65535);
+        if (!bytes.empty()) {
+            EXPECT_FALSE(an::DecodeCompact(std::string_view(bytes).substr(0, bytes.size() - 1), back));
+            EXPECT_FALSE(an::DecodeCompact(bytes + "x", back));
+        }
+        return bytes.size();
+    };
+    an::Sites s;
+    s.positions = { 0, 3, 4, 250, 1200, 65535 };
+    s.bases = { 0, 1, 2, 3, 2, 1 };
+    s.indels = { { 10, 3 }, { 40, -6 }, { 900, 12 } };
+    s.congener = 4000000000u;
+    s.congeners = 17;
+    s.compared = 1499;
+    s.identity = 0.9375f;
+    round_trip(s);
+    s.bases[2] = 4;  // not packable
+    round_trip(s);
+    s.positions = { 5, 3, 9, 9, 2, 0 };  // out of order, repeated
+    round_trip(s);
+    an::Sites empty;
+    round_trip(empty);
+    an::Sites dense;  // a site every base
+    for (uint16_t p = 100; p < 400; p++) {
+        dense.positions.push_back(p);
+        dense.bases.push_back(static_cast<uint8_t>(p % 4));
+    }
+    round_trip(dense);
+    an::Sites usual;  // ~50 sites over ~1 kb, as at r226 v27
+    for (uint32_t p = std::uniform_int_distribution<uint32_t>(0, 30)(rng); p < 1000; p += std::uniform_int_distribution<uint32_t>(1, 38)(rng)) {
+        usual.positions.push_back(static_cast<uint16_t>(p));
+        usual.bases.push_back(static_cast<uint8_t>(rng() % 4));
+    }
+    usual.congener = 123456;
+    usual.congeners = 9;
+    usual.compared = 980;
+    usual.identity = 0.95f;
+    size_t const compact = round_trip(usual);
+    std::string v1;
+    an::Encode(usual, v1);
+    EXPECT_LT(compact, v1.size() * 85 / 100) << compact << " against " << v1.size();  // ~0.82; the index halves besides
 }
 
 // The table --build writes (ancestry_sites.bin): every copy's computed sites, read back by key equal to what a run
@@ -562,12 +617,13 @@ TEST(AncestrySites, TheTableHoldsWhatARunComputes) {
     an::Table::Write(os, index, payload);
     an::Table table;
     ASSERT_EQ(table.Read(os.str()), "");
+    EXPECT_EQ(table.Version(), 2);
     EXPECT_EQ(table.Copies(), 6u);
     EXPECT_EQ(table.Species(), 2u);
     for (auto const& [key, sites] : computed) {
         auto const back = table.Get(static_cast<uint32_t>(key >> 32), static_cast<uint32_t>(key & 0xffffffffu));
         EXPECT_EQ(back->Empty(), sites->Empty());
-        if (!sites->Empty()) ExpectSameSites(*sites, *back);
+        if (!sites->Empty()) ExpectSameSites(*sites, *back, 1.0 / 65535);
     }
     EXPECT_TRUE(table.Get(99, 1)->Empty());
     an::Cache cache;
@@ -580,8 +636,41 @@ TEST(AncestrySites, TheTableHoldsWhatARunComputes) {
     EXPECT_NE(bad.Read(whole.substr(0, whole.size() - 3)), "");
     EXPECT_TRUE(bad.Empty());
     std::string swapped = whole;
-    size_t const keys = an::kMagic.size() + 16;
-    std::swap_ranges(swapped.begin() + static_cast<long>(keys), swapped.begin() + static_cast<long>(keys + 8),
-                     swapped.begin() + static_cast<long>(keys + 8));
+    size_t const keys = an::kMagic2.size() + 24;  // the 4-byte keys: small taxids and gene ids
+    std::swap_ranges(swapped.begin() + static_cast<long>(keys), swapped.begin() + static_cast<long>(keys + 4),
+                     swapped.begin() + static_cast<long>(keys + 4));
     EXPECT_NE(bad.Read(swapped), "");
+
+    // Version 1 (databases built from 2026-10-11 to 2026-10-14) reads as before, the identity whole; it is larger.
+    std::vector<std::pair<uint64_t, uint64_t>> index1;
+    std::string payload1;
+    for (auto const& [key, sites] : computed) {
+        if (sites->Empty()) continue;
+        std::string bytes;
+        an::Encode(*sites, bytes);
+        index1.emplace_back(key, payload1.size());
+        an::codec::PutVarint(payload1, bytes.size());
+        payload1 += bytes;
+    }
+    std::ostringstream os1;
+    an::Table::WriteVersion1(os1, index1, payload1);
+    an::Table table1;
+    ASSERT_EQ(table1.Read(os1.str()), "");
+    EXPECT_EQ(table1.Version(), 1);
+    EXPECT_EQ(table1.Copies(), 6u);
+    EXPECT_EQ(table1.Species(), 2u);
+    for (auto const& [key, sites] : computed) {
+        auto const back = table1.Get(static_cast<uint32_t>(key >> 32), static_cast<uint32_t>(key & 0xffffffffu));
+        EXPECT_EQ(back->Empty(), sites->Empty());
+        if (!sites->Empty()) ExpectSameSites(*sites, *back);
+    }
+    EXPECT_LT(table.Bytes(), table1.Bytes());
+
+    // Large taxids or gene ids take the 8-byte index.
+    std::vector<std::pair<uint64_t, uint64_t>> wide{ { (uint64_t{ 1 } << 32 << 24) | 2, an::Table::Append(payload, *computed.begin()->second) } };
+    std::ostringstream os_wide;
+    an::Table::Write(os_wide, wide, payload);
+    an::Table table_wide;
+    ASSERT_EQ(table_wide.Read(os_wide.str()), "");
+    EXPECT_EQ(table_wide.Get(1u << 24, 2)->positions, computed.begin()->second->positions);
 }
