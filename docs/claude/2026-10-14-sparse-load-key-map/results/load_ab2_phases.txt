@@ -1,0 +1,553 @@
+== grid level 0 compact 0 bits 0 threads 1 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.7189
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.4444
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 0 bits 0 threads 1 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0001
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	1.5211
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.2776
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 1 bits 1 threads 1 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0216
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.9890
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.7299
+load phase	whole: compact starts placed (FinishCompact)	0.0553
+== grid level 0 compact 1 bits 1 threads 1 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0163
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.8426
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.5731
+load phase	whole: compact starts placed (FinishCompact)	0.0603
+== grid level 2 compact 0 bits 1 threads 1 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.6146
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3408
+load phase	sparse: direct key map pointers written	0.5014
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.2270
+== grid level 2 compact 0 bits 1 threads 1 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.8350
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5262
+load phase	sparse: direct key map pointers written	0.8178
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0357
+== grid level 2 compact 1 bits 1 threads 1 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.6717
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3483
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.1028
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.2975
+== grid level 2 compact 1 bits 1 threads 1 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.1379
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.7830
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0961
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0358
+== grid level 4 compact 0 bits 1 threads 1 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.7791
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.4887
+load phase	sparse: direct key map pointers written	0.4647
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0733
+== grid level 4 compact 0 bits 1 threads 1 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.7191
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4573
+load phase	sparse: direct key map pointers written	1.0017
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0067
+== grid level 4 compact 1 bits 1 threads 1 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	3.1562
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.7271
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0728
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0568
+== grid level 4 compact 1 bits 1 threads 1 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.7109
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4395
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0703
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0088
+== r226 level 0 compact 1 bits 0 threads 1 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0194
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.3262
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.0520
+load phase	whole: compact starts placed (FinishCompact)	0.0740
+== r226 level 0 compact 1 bits 0 threads 1 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0213
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.0676
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.8003
+load phase	whole: compact starts placed (FinishCompact)	0.0636
+== grid level 0 compact 0 bits 0 threads 2 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	1.1667
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.0744
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 0 bits 0 threads 2 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	0.8932
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.5082
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 1 bits 1 threads 2 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0278
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.4469
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.4955
+load phase	whole: compact starts placed (FinishCompact)	0.0827
+== grid level 0 compact 1 bits 1 threads 2 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0250
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.5351
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.7267
+load phase	whole: compact starts placed (FinishCompact)	0.1460
+== grid level 2 compact 0 bits 1 threads 2 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.6888
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.9789
+load phase	sparse: direct key map pointers written	0.3856
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.1779
+== grid level 2 compact 0 bits 1 threads 2 old 0 round 1
+load phase	sparse: key map allocated	0.0001
+load phase	sparse: frames read, decompressed, decoded and filtered	0.4142
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5340
+load phase	sparse: direct key map pointers written	0.2615
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0210
+== grid level 2 compact 1 bits 1 threads 2 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.0690
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.8651
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0967
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.1401
+== grid level 2 compact 1 bits 1 threads 2 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.4504
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5750
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0848
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0215
+== grid level 4 compact 0 bits 1 threads 2 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.2541
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.1793
+load phase	sparse: direct key map pointers written	0.2429
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0426
+== grid level 4 compact 0 bits 1 threads 2 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3535
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4347
+load phase	sparse: direct key map pointers written	0.2315
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0044
+== grid level 4 compact 1 bits 1 threads 2 old 1 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.0424
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.7972
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0801
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0336
+== grid level 4 compact 1 bits 1 threads 2 old 0 round 1
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3978
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4167
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0730
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0047
+== r226 level 0 compact 1 bits 0 threads 2 old 1 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0182
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.4938
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.6124
+load phase	whole: compact starts placed (FinishCompact)	0.0631
+== r226 level 0 compact 1 bits 0 threads 2 old 0 round 1
+load phase	whole: key map allocated (compact: presence zeroed)	0.0186
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.6980
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.9609
+load phase	whole: compact starts placed (FinishCompact)	0.0592
+== grid level 0 compact 0 bits 0 threads 1 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	2.0636
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.8169
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 0 bits 0 threads 1 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.2353
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.0004
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 1 bits 1 threads 1 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0175
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.0038
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.7617
+load phase	whole: compact starts placed (FinishCompact)	0.0571
+== grid level 0 compact 1 bits 1 threads 1 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0226
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.7460
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.4957
+load phase	whole: compact starts placed (FinishCompact)	0.1499
+== grid level 2 compact 0 bits 1 threads 1 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.4557
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.2044
+load phase	sparse: direct key map pointers written	0.4994
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.2198
+== grid level 2 compact 0 bits 1 threads 1 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.7132
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4697
+load phase	sparse: direct key map pointers written	0.4839
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0305
+== grid level 2 compact 1 bits 1 threads 1 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.0055
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.7563
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0895
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.2194
+== grid level 2 compact 1 bits 1 threads 1 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.8190
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5164
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0888
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0311
+== grid level 4 compact 0 bits 1 threads 1 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.4436
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.1910
+load phase	sparse: direct key map pointers written	0.4799
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0743
+== grid level 4 compact 0 bits 1 threads 1 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.6394
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4007
+load phase	sparse: direct key map pointers written	0.6639
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0087
+== grid level 4 compact 1 bits 1 threads 1 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.0259
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.7597
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0719
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0563
+== grid level 4 compact 1 bits 1 threads 1 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.6745
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4252
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0811
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0074
+== r226 level 0 compact 1 bits 0 threads 1 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0214
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.4277
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.1453
+load phase	whole: compact starts placed (FinishCompact)	0.0702
+== r226 level 0 compact 1 bits 0 threads 1 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0176
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.2264
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.9240
+load phase	whole: compact starts placed (FinishCompact)	0.0698
+== grid level 0 compact 0 bits 0 threads 2 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0001
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	1.3230
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.3180
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 0 bits 0 threads 2 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	0.7334
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.1764
+load phase	whole: compact starts placed (FinishCompact)	0.0029
+== grid level 0 compact 1 bits 1 threads 2 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0208
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.1107
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.9139
+load phase	whole: compact starts placed (FinishCompact)	0.0573
+== grid level 0 compact 1 bits 1 threads 2 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0175
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.4709
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.6728
+load phase	whole: compact starts placed (FinishCompact)	0.0482
+== grid level 2 compact 0 bits 1 threads 2 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.3619
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3935
+load phase	sparse: direct key map pointers written	0.2772
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.1298
+== grid level 2 compact 0 bits 1 threads 2 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.4078
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5336
+load phase	sparse: direct key map pointers written	0.2817
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0181
+== grid level 2 compact 1 bits 1 threads 2 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.1841
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.0469
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.1986
+load phase	sparse: packed values allocated	0.0003
+load phase	sparse: kept entries placed (PutOwned)	0.1227
+== grid level 2 compact 1 bits 1 threads 2 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3930
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5097
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.1060
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0205
+== grid level 4 compact 0 bits 1 threads 2 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.3438
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3518
+load phase	sparse: direct key map pointers written	0.2813
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0465
+== grid level 4 compact 0 bits 1 threads 2 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3761
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4524
+load phase	sparse: direct key map pointers written	0.2328
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0043
+== grid level 4 compact 1 bits 1 threads 2 old 1 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.1232
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.9572
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0822
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0367
+== grid level 4 compact 1 bits 1 threads 2 old 0 round 2
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3627
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4354
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0736
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0058
+== r226 level 0 compact 1 bits 0 threads 2 old 1 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0182
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.4541
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.5130
+load phase	whole: compact starts placed (FinishCompact)	0.0975
+== r226 level 0 compact 1 bits 0 threads 2 old 0 round 2
+load phase	whole: key map allocated (compact: presence zeroed)	0.0185
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.6915
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.0429
+load phase	whole: compact starts placed (FinishCompact)	0.0630
+== grid level 0 compact 0 bits 0 threads 1 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	2.1715
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.8903
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 0 bits 0 threads 1 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	1.5227
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.2884
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 1 bits 1 threads 1 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0181
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.1577
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.8944
+load phase	whole: compact starts placed (FinishCompact)	0.0624
+== grid level 0 compact 1 bits 1 threads 1 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0224
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.8319
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.5507
+load phase	whole: compact starts placed (FinishCompact)	0.0560
+== grid level 2 compact 0 bits 1 threads 1 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.5948
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3474
+load phase	sparse: direct key map pointers written	0.4927
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.2092
+== grid level 2 compact 0 bits 1 threads 1 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.6865
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4561
+load phase	sparse: direct key map pointers written	0.4886
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0335
+== grid level 2 compact 1 bits 1 threads 1 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.0856
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.8396
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0918
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.3034
+== grid level 2 compact 1 bits 1 threads 1 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.7141
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4731
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0861
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0301
+== grid level 4 compact 0 bits 1 threads 1 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.5785
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.3265
+load phase	sparse: direct key map pointers written	0.4492
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0697
+== grid level 4 compact 0 bits 1 threads 1 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.6615
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4143
+load phase	sparse: direct key map pointers written	0.7378
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0072
+== grid level 4 compact 1 bits 1 threads 1 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	2.0981
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.8285
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.1014
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0661
+== grid level 4 compact 1 bits 1 threads 1 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.6999
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4326
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0678
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0069
+== r226 level 0 compact 1 bits 0 threads 1 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0193
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	2.6080
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.2976
+load phase	whole: compact starts placed (FinishCompact)	0.0975
+== r226 level 0 compact 1 bits 0 threads 1 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0204
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.1091
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.8267
+load phase	whole: compact starts placed (FinishCompact)	0.0636
+== grid level 0 compact 0 bits 0 threads 2 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	1.3461
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.4062
+load phase	whole: compact starts placed (FinishCompact)	0.0001
+== grid level 0 compact 0 bits 0 threads 2 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0000
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	0.7647
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.2098
+load phase	whole: compact starts placed (FinishCompact)	0.0000
+== grid level 0 compact 1 bits 1 threads 2 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0183
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.1344
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	1.9846
+load phase	whole: compact starts placed (FinishCompact)	0.0547
+== grid level 0 compact 1 bits 1 threads 2 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0185
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	0.4824
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.6566
+load phase	whole: compact starts placed (FinishCompact)	0.0520
+== grid level 2 compact 0 bits 1 threads 2 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.5585
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.7816
+load phase	sparse: direct key map pointers written	0.3219
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.1733
+== grid level 2 compact 0 bits 1 threads 2 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.4271
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5541
+load phase	sparse: direct key map pointers written	0.5744
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0165
+== grid level 2 compact 1 bits 1 threads 2 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.2698
+load phase	  of which in the handlers (decode + filter; thread-seconds)	2.2122
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.1259
+load phase	sparse: packed values allocated	0.0003
+load phase	sparse: kept entries placed (PutOwned)	0.1263
+== grid level 2 compact 1 bits 1 threads 2 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3977
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.5206
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0999
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0201
+== grid level 4 compact 0 bits 1 threads 2 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.1041
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.9114
+load phase	sparse: direct key map pointers written	0.2451
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0434
+== grid level 4 compact 0 bits 1 threads 2 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3549
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.4386
+load phase	sparse: direct key map pointers written	0.3946
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0053
+== grid level 4 compact 1 bits 1 threads 2 old 1 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	1.0585
+load phase	  of which in the handlers (decode + filter; thread-seconds)	1.8318
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0708
+load phase	sparse: packed values allocated	0.0001
+load phase	sparse: kept entries placed (PutOwned)	0.0286
+== grid level 4 compact 1 bits 1 threads 2 old 0 round 3
+load phase	sparse: key map allocated	0.0000
+load phase	sparse: frames read, decompressed, decoded and filtered	0.3207
+load phase	  of which in the handlers (decode + filter; thread-seconds)	0.3899
+load phase	sparse: compact key map built (MarkUsed + FinishCompact)	0.0669
+load phase	sparse: packed values allocated	0.0000
+load phase	sparse: kept entries placed (PutOwned)	0.0053
+== r226 level 0 compact 1 bits 0 threads 2 old 1 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0164
+load phase	whole: packed values allocated	0.0001
+load phase	whole: frames read, decompressed and decoded	1.2917
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	2.2530
+load phase	whole: compact starts placed (FinishCompact)	0.0572
+== r226 level 0 compact 1 bits 0 threads 2 old 0 round 3
+load phase	whole: key map allocated (compact: presence zeroed)	0.0163
+load phase	whole: packed values allocated	0.0000
+load phase	whole: frames read, decompressed and decoded	0.5949
+load phase	  of which in the handlers (decode + pack + collect; thread-seconds)	0.9066
+load phase	whole: compact starts placed (FinishCompact)	0.0469
+done

@@ -1,0 +1,30 @@
+     16 0000000000158850 <protal::gene_incongruence::ScanGene(unsigned int, protal::gene_incongruence::GeneCopies const&, std::unordered_map<unsigned int, protal::gene_incongruence::Lineage, std::hash<unsigned int>, std:
+     16 00000000001500f0 <protal::gene_incongruence::ScanGene(unsigned int, protal::gene_incongruence::GeneCopies const&, std::unordered_map<unsigned int, protal::gene_incongruence::Lineage, std::hash<unsigned int>, std:
+     15 0000000000378b60 <protal::LongReadAligner<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM> >::operator()(FastxRecord const&, std::vector<protal::LongReadSegment, s
+     14 0000000000156af0 <protal::Seedmap::CompactKeymap(int) [clone ._omp_fn.1]>:
+      8 000000000008a830 <protal::IndelBound::LcsAbove(std::basic_string_view<char, std::char_traits<char> >, unsigned long, long, bool) [clone .default]>:
+      7 00000000003d9530 <protal::taxonomy::StdTaxonomy::SubsetAndRelabel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::all
+      7 0000000000371ec0 <protal::build::UniquenessCounts protal::build::UniquenessPass<protal::build::TextSource, protal::SimpleKmerHandler<protal::ClosedSyncmer> >(protal::build::TextSource&, protal::SimpleKmerHandler<
+      7 000000000036f890 <protal::build::UniquenessCounts protal::build::UniquenessPass<protal::build::FramesSource, protal::SimpleKmerHandler<protal::ClosedSyncmer> >(protal::build::FramesSource&, protal::SimpleKmerHand
+      7 00000000001f2de0 <protal::Seedmap::CompactKeymap(int)>:
+      7 00000000001d9690 <protal::KmerLookupSM::ScoreAtLevel(protal::LookupPointer const&)>:
+      7 00000000001908d0 <protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::allocator<unsigned int> >
+      7 000000000018e700 <protal::Seedmap::Locate(unsigned long, unsigned long&, unsigned long&) const>:
+      7 0000000000106eb0 <protal::Statistics protal::build::Run<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::KmerPutterSM, (protal::DebugLevel)0>(protal::Options const&, protal::KmerPutterSM&, protal::Simple
+      7 000000000004ef30 <protal::Seedmap::UniqueSharesByLevel(int) const [clone ._omp_fn.0]>:
+      6 00000000001f6660 <std::pair<unsigned int, unsigned int> protal::flex_scan::ScoreScalar<true>(protal::Seedmap::PackedBlock const&, unsigned int, unsigned char*)>:
+      6 0000000000042ec0 <protal::flex_scan::IndelSimilarity(unsigned int, protal::flex_scan::IndelKeys const&) [clone .isra.0]>:
+      4 0000000000296e00 <protal::Seedmap::CountUniqueKmers(std::basic_ostream<char, std::char_traits<char> >&, protal::Seedmap::GeneRows const&, int, std::vector<unsigned int, std::allocator<unsigned int> > const*)>:
+      3 00000000003e7f80 <void tsl::detail_sparse_hash::sparse_hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, tsl::sparse_set<std::__cxx11::basic_string<char, std::char_traits<char>
+      3 00000000003e50d0 <std::pair<tsl::detail_sparse_hash::sparse_hash<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, int>, tsl::sparse_map<std::__cxx11::basic_string<char, s
+      3 00000000003e1750 <std::pair<tsl::detail_sparse_hash::sparse_hash<std::pair<int, protal::taxonomy::Node*>, tsl::sparse_map<int, protal::taxonomy::Node*, std::hash<int>, std::equal_to<int>, std::allocator<std::pair
+      3 00000000003db850 <protal::taxonomy::IntTaxonomy::Load(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)>:
+      3 00000000003d79f0 <std::pair<tsl::detail_sparse_hash::sparse_hash<protal::taxonomy::Node*, tsl::sparse_set<protal::taxonomy::Node*, std::hash<protal::taxonomy::Node*>, std::equal_to<protal::taxonomy::Node*>, std::
+      3 00000000003d67a0 <protal::taxonomy::StdTaxonomy::InitRankMaps()>:
+      3 00000000003d5fe0 <std::pair<tsl::detail_sparse_hash::sparse_hash<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, int>, tsl::sparse_map<std::__cxx11::basic_string<char, s
+      3 00000000003d3ea0 <std::pair<tsl::detail_sparse_hash::sparse_hash<std::pair<int, protal::taxonomy::Node*>, tsl::sparse_map<int, protal::taxonomy::Node*, std::hash<int>, std::equal_to<int>, std::allocator<std::pair
+      3 00000000002af200 <protal::GetTruth(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::taxonomy::IntTaxonomy&)>:
+      3 000000000029f300 <std::pair<tsl::detail_sparse_hash::sparse_hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, tsl::sparse_set<std::__cxx11::basic_string<char, std::char_traits<
+      3 000000000028c370 <std::pair<unsigned long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > protal::gene_table::AddPieceByGenome<protal::GenomeLoader::LoadPositionMap(protal::db::
+      3 0000000000273bd0 <protal::zstd::ParallelFor<protal::GenomeLoader::LoadGeneTable(protal::db::DbFile const&, std::optional<unsigned long>, int)::{lambda(unsigned long, unsigned long)#4}>(unsigned long, int, protal:
+      3 00000000000a1330 <std::pair<tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<unsigned int>, tsl::sh::power_of_t

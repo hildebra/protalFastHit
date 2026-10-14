@@ -1,0 +1,120 @@
+#### sparse2c_old1
+14,988,518,996 (100.0%)  PROGRAM TOTALS
+3,609,246,227 (24.08%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+3,429,239,531 (22.88%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+2,297,474,550 (15.33%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+1,547,099,666 (10.32%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  896,198,028 ( 5.98%)  ???:protal::Seedmap::PutOwned(unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  572,052,348 ( 3.82%)  ???:__popcountdi2 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+  439,643,324 ( 2.93%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  385,282,690 ( 2.57%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  290,972,880 ( 1.94%)  ???:protal::index_codec::detail::FillEmptyBlocks(unsigned short*, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  228,584,479 ( 1.53%)  ???:protal::Seedmap::PutBits(unsigned char*, unsigned long, unsigned long, unsigned int, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  185,444,260 ( 1.24%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 1.23%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  169,437,006 ( 1.13%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+#### sparse2c_old0
+7,052,190,504 (100.0%)  PROGRAM TOTALS
+2,397,117,965 (33.99%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+1,547,099,666 (21.94%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  440,771,940 ( 6.25%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  439,643,324 ( 6.23%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  354,554,550 ( 5.03%)  ???:__popcountdi2 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+  321,078,089 ( 4.55%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  274,941,397 ( 3.90%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  185,444,260 ( 2.63%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 2.62%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  163,719,868 ( 2.32%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  151,597,785 ( 2.15%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/sparseprof/build/keybench]
+   98,500,935 ( 1.40%)  ???:protal::zstd::ParallelFor<protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_st
+   79,093,299 ( 1.12%)  ???:protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::all
+#### sparse2d_old1
+17,339,161,989 (100.0%)  PROGRAM TOTALS
+5,025,699,664 (28.98%)  ???:protal::zstd::ParallelFor<protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_st
+3,429,238,307 (19.78%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+2,297,474,550 (13.25%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+1,617,346,880 ( 9.33%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+1,547,099,666 ( 8.92%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  832,142,348 ( 4.80%)  ???:protal::Seedmap::PutOwned(unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  439,643,324 ( 2.54%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  385,282,690 ( 2.22%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  290,972,880 ( 1.68%)  ???:protal::index_codec::detail::FillEmptyBlocks(unsigned short*, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  267,365,526 ( 1.54%)  ???:0x000000000010fbc0 [???]
+  228,584,479 ( 1.32%)  ???:protal::Seedmap::PutBits(unsigned char*, unsigned long, unsigned long, unsigned int, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  185,444,260 ( 1.07%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 1.07%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+#### sparse2d_old0
+12,998,989,152 (100.0%)  PROGRAM TOTALS
+5,025,699,664 (38.66%)  ???:protal::zstd::ParallelFor<protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_st
+2,397,117,965 (18.44%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+1,617,346,901 (12.44%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+1,547,099,666 (11.90%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  440,771,940 ( 3.39%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  439,643,324 ( 3.38%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  274,941,397 ( 2.12%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  267,365,526 ( 2.06%)  ???:0x000000000010fbc0 [???]
+  185,444,260 ( 1.43%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 1.42%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  163,719,716 ( 1.26%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  151,597,785 ( 1.17%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/sparseprof/build/keybench]
+   74,936,754 ( 0.58%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+#### sparse2d_fill
+6,981,570,323 (100.0%)  PROGRAM TOTALS
+2,397,117,965 (34.33%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+1,547,099,666 (22.16%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  694,612,469 ( 9.95%)  ???:protal::zstd::ParallelFor<protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_st
+  440,771,940 ( 6.31%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  439,643,324 ( 6.30%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  274,941,397 ( 3.94%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+  189,374,465 ( 2.71%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  185,444,260 ( 2.66%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 2.65%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  163,719,716 ( 2.35%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  151,597,785 ( 2.17%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/sparseprof/build/keybench]
+   74,936,754 ( 1.07%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   66,587,100 ( 0.95%)  ???:protal::Seedmap::LoadColumnsAtLevel(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_trait
+#### wholec_old1
+15,073,276,219 (100.0%)  PROGRAM TOTALS
+3,619,715,661 (24.01%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+3,429,241,655 (22.75%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+3,383,843,804 (22.45%)  ???:protal::Seedmap::LoadColumns(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>
+1,547,099,666 (10.26%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+1,022,119,814 ( 6.78%)  ???:protal::Seedmap::LoadColumns(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>
+  385,282,690 ( 2.56%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  354,554,550 ( 2.35%)  ???:__popcountdi2 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+  290,972,880 ( 1.93%)  ???:protal::index_codec::detail::FillEmptyBlocks(unsigned short*, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  205,747,392 ( 1.36%)  ???:protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::all
+  185,444,260 ( 1.23%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 1.23%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  133,570,658 ( 0.89%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   79,093,299 ( 0.52%)  ???:protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::all
+#### wholec_old0
+7,603,260,092 (100.0%)  PROGRAM TOTALS
+2,397,121,121 (31.53%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+1,547,099,666 (20.35%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+1,265,533,148 (16.64%)  ???:protal::Seedmap::LoadColumns(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>
+  440,771,940 ( 5.80%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  354,554,550 ( 4.66%)  ???:__popcountdi2 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+  331,547,859 ( 4.36%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  231,867,431 ( 3.05%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/sparseprof/build/keybench]
+  205,747,392 ( 2.71%)  ???:protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::all
+  185,444,260 ( 2.44%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 2.43%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  127,852,833 ( 1.68%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   79,093,299 ( 1.04%)  ???:protal::Seedmap::FinishCompact(protal::CompactKeys&, std::vector<std::vector<unsigned int, std::allocator<unsigned int> >, std::allocator<std::vector<unsigned int, std::all
+   74,936,754 ( 0.99%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+#### wholed_old0
+7,497,682,968 (100.0%)  PROGRAM TOTALS
+3,429,241,823 (45.74%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+1,547,099,666 (20.63%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  991,296,874 (13.22%)  ???:protal::Seedmap::LoadColumns(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>
+  385,282,690 ( 5.14%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsi
+  290,972,880 ( 3.88%)  ???:protal::index_codec::detail::FillEmptyBlocks(unsigned short*, unsigned long, unsigned long) [/home/falk/sparseprof/build/keybench]
+  185,444,260 ( 2.47%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  185,006,197 ( 2.47%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  161,508,929 ( 2.15%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  101,939,265 ( 1.36%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   74,936,754 ( 1.00%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   43,703,287 ( 0.58%)  ???:0x00000000000aa2bd [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   14,551,224 ( 0.19%)  ???:0x000000000010fd50 [???]
+   13,500,380 ( 0.18%)  ???:protal::GenomeLoader::LoadGeneTable(protal::db::DbFile const&, std::optional<unsigned long>, int)::{lambda(unsigned long, unsigned long)#1}::operator()[abi:cxx11](unsigned 

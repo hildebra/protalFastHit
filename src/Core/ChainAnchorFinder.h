@@ -191,9 +191,9 @@ namespace protal {
         // while a lookup's values are read, those of the one kPrefetchLookups ahead (pfbench, 2026-10-02: -24% on its
         // own; with the read's lookups prepared one read ahead, PrepareLookups, -30%).
         static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
-        // With a compact key map (--compact_keys) a lookup reads two lines of it: the key's presence and rank (PrefetchKey,
-        // kPrefetchKmers ahead), then its start, which needs the first (PrefetchStart, half as far ahead).
-        static constexpr size_t kPrefetchStarts = kPrefetchKmers / 2;
+        // With a compact key map (--compact_keys) a lookup reads two lines of it: the key's presence and rank (PrefetchKey),
+        // then its start, which needs the first (PrefetchStart): fetched twice and once kPrefetchKmers ahead, or, where the
+        // keys were fetched a read earlier, every start of the read before its lookups (LookupKmers, SparsePrepare).
         bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
         stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
         uint32_t m_probe_cores = 0;  // --stage1_probe: the k-mers of the read m_lookups are of (LookupKmers)
@@ -223,40 +223,37 @@ namespace protal {
 
         // The lookups of a read's k-mers, in read order (those with values); with a seed level, of its cores of that
         // level or more only (the hash pick's), or with the grid pick of every core, only their entries of that grid
-        // level or more counting (KmerLookupSM::Get).
-        void LookupKmers(KmerList& kmer_list) {
+        // level or more counting (KmerLookupSM::Get). `keys_fetched`: the read's key map lines were fetched a read earlier
+        // (PrefetchKeys, Classify's loops), so a compact key map's starts are all fetched before the first lookup: their
+        // presence lines are there (fetched a few ahead in the loop instead, a read's first lookups waited for them one
+        // after another). Compiled for x86-64-v3 too, so that a compact key map's ranks are counted with popcnt
+        // (CompactKeys.h; docs/claude/2026-10-14-sparse-load-key-map).
+        PROTAL_CLONE_V3 void LookupKmers(KmerList& kmer_list, bool keys_fetched = false) {
             m_lookups.clear();
             size_t n = kmer_list.size();
-            // How far ahead the key map is fetched: a compact one twice as far (its two lines a lookup), so that the rank of a
-            // key fetched starts_ahead ahead finds its presence line there.
-            size_t const ahead = m_kmer_lookup.CompactKeys() ? 2 * kPrefetchKmers : kPrefetchKmers, starts_ahead = ahead / 2;
-            if (m_seed_level > 0 && m_sparse_grid) {
-                for (size_t j = 0; j < std::min(ahead, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
-                for (size_t j = 0; j < n; j++) {
-                    if (j + ahead < n) m_kmer_lookup.PrefetchKey(kmer_list[j + ahead].first);
-                    if (j + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer_list[j + starts_ahead].first);
-                    m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), m_seed_level);
-                }
-            } else if (m_seed_level > 0) {
+            bool const hash_pick = m_seed_level > 0 && !m_sparse_grid;  // the cores of the seed level alone
+            if (hash_pick) {
                 m_sampled.clear();
                 for (size_t j = 0; j < kmer_list.size(); j++) {
                     if (stage1_probe::Level(m_kmer_lookup.MainKey(kmer_list[j].first)) >= m_seed_level) m_sampled.push_back(j);
                 }
                 n = m_sampled.size();
-                auto kmer = [&](size_t i) -> auto& { return kmer_list[m_sampled[i]]; };
-                for (size_t i = 0; i < std::min(ahead, n); i++) m_kmer_lookup.PrefetchKey(kmer(i).first);
-                for (size_t i = 0; i < n; i++) {
-                    if (i + ahead < n) m_kmer_lookup.PrefetchKey(kmer(i + ahead).first);
-                    if (i + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer(i + starts_ahead).first);
-                    m_kmer_lookup.Get(m_lookups, kmer(i).first, static_cast<uint32_t>(kmer(i).second));
-                }
-            } else {
-                for (size_t j = 0; j < std::min(ahead, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
-                for (size_t j = 0; j < n; j++) {
-                    if (j + ahead < n) m_kmer_lookup.PrefetchKey(kmer_list[j + ahead].first);
-                    if (j + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer_list[j + starts_ahead].first);
-                    m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
-                }
+            }
+            auto kmer = [&](size_t i) -> auto& { return kmer_list[hash_pick ? m_sampled[i] : i]; };
+            uint8_t const level = m_sparse_grid ? m_seed_level : 0;
+            bool const compact = m_kmer_lookup.CompactKeys();
+            // How far ahead the key map is fetched: a compact one twice as far (its two lines a lookup), so that the rank of a
+            // key fetched starts_ahead ahead finds its presence line there.
+            size_t const ahead = compact ? 2 * kPrefetchKmers : kPrefetchKmers, starts_ahead = ahead / 2;
+            bool const starts_in_loop = compact && !keys_fetched;
+            if (compact && keys_fetched) {
+                for (size_t i = 0; i < n; i++) m_kmer_lookup.PrefetchStart(kmer(i).first);
+            }
+            for (size_t i = 0; i < std::min(ahead, n); i++) m_kmer_lookup.PrefetchKey(kmer(i).first);
+            for (size_t i = 0; i < n; i++) {
+                if (i + ahead < n) m_kmer_lookup.PrefetchKey(kmer(i + ahead).first);
+                if (starts_in_loop && i + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer(i + starts_ahead).first);
+                m_kmer_lookup.Get(m_lookups, kmer(i).first, static_cast<uint32_t>(kmer(i).second), level);
             }
             m_seeding.kmers += n;
             m_seeding.found += m_lookups.size();
@@ -1082,18 +1079,19 @@ namespace protal {
         // Short reads, seeded one read (pair) ahead as Classify's loops do: a read's sampled lookups made and their blocks
         // fetched (SparsePrepare; the key map blocks were fetched a read earlier, PrefetchSparseKeys), then, once the next
         // read has been read, scored (SparseScore): how many are hits, counted up to `enough`. The lookups made are
-        // counted in m_seeding.sparse_lookups.
-        void SparsePrepare(KmerList& kmer_list) {
+        // counted in m_seeding.sparse_lookups. Compiled for x86-64-v3 too (popcnt for a compact key map, as LookupKmers).
+        PROTAL_CLONE_V3 void SparsePrepare(KmerList& kmer_list) {
             m_bm_sparse.Start();
             m_sparse_lookups.clear();
             m_sparse_kmers = 0;
             size_t const n = kmer_list.size();
-            bool const compact = m_kmer_lookup.CompactKeys();
-            for (size_t j = 0; j < n; j++) {
-                // The keys were fetched a read earlier (PrefetchSparseKeys); a compact key map's starts now, a few ahead.
-                if (compact && j + kPrefetchStarts < n && SparsePicked(j + kPrefetchStarts, n, kmer_list[j + kPrefetchStarts].first)) {
-                    m_kmer_lookup.PrefetchStart(kmer_list[j + kPrefetchStarts].first);
+            // The keys were fetched a read earlier (PrefetchSparseKeys): a compact key map's starts all now, before the lookups.
+            if (m_kmer_lookup.CompactKeys()) {
+                for (size_t j = 0; j < n; j++) {
+                    if (SparsePicked(j, n, kmer_list[j].first)) m_kmer_lookup.PrefetchStart(kmer_list[j].first);
                 }
+            }
+            for (size_t j = 0; j < n; j++) {
                 if (!SparsePicked(j, n, kmer_list[j].first)) continue;
                 m_sparse_kmers++;
                 m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), GateLevel(), m_grid_whole);
@@ -1148,8 +1146,9 @@ namespace protal {
         // Long reads (LongReadAligner, chunk by chunk, no read ahead): how many of a read's sampled lookups are hits,
         // counted up to `enough`: the sampled k-mers in read order, each core's key map block fetched kPrefetchKmers
         // k-mers ahead, a lookup's block fetched as soon as it is found and scored kSparseScoreBehind lookups later, so
-        // the misses overlap and a read kept stops at its first hits. Counted in m_seeding.sparse_lookups.
-        uint32_t SparseHits(KmerList& kmer_list, uint32_t enough) {
+        // the misses overlap and a read kept stops at its first hits. Counted in m_seeding.sparse_lookups. Compiled for
+        // x86-64-v3 too (popcnt for a compact key map, as LookupKmers).
+        PROTAL_CLONE_V3 uint32_t SparseHits(KmerList& kmer_list, uint32_t enough) {
             m_sampled.clear();
             for (size_t j = 0; j < kmer_list.size(); j++) {
                 if (SparsePicked(j, kmer_list.size(), kmer_list[j].first)) m_sampled.push_back(j);
@@ -1179,7 +1178,7 @@ namespace protal {
         void PrepareLookups(KmerList& kmer_list) {
             m_bm_operator.Start(false);
             m_bm_seeding.Start(false);
-            LookupKmers(kmer_list);
+            LookupKmers(kmer_list, true);  // its keys were fetched a read earlier (PrefetchKeys)
             for (auto const& lookup : m_lookups) KmerLookup::PrefetchValues(lookup);
             m_prepared = true;
             m_bm_seeding.Stop();

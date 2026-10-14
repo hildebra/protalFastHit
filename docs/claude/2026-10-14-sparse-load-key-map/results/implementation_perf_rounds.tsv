@@ -1,0 +1,14 @@
+load_whole_base	1s 685ms	1s 248ms	1s 327ms
+load_whole_new	1s 385ms	1s 328ms	1s 356ms
+load_sparse_base	2s 355ms	2s 434ms	1s 845ms
+load_sparse_new	887ms	1s 145ms	963ms
+load_sparsec_base	1s 941ms	1s 853ms	1s 888ms
+load_sparsec_new	745ms	654ms	638ms
+seed_pe_direct_base	75.1	140.8	77.9
+seed_pe_direct_new	52.6	57.0	55.5
+seed_pe_compact_base	81.4	86.0	95.3
+seed_pe_compact_new	56.0	50.7	80.9
+seed_hifi_direct_base	58.1	58.4	57.1
+seed_hifi_direct_new	53.4	42.3	47.1
+seed_hifi_compact_base	67.4	73.2	136.4
+seed_hifi_compact_new	36.9	38.4	51.2

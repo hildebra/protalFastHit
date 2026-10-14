@@ -142,25 +142,40 @@ namespace protal::index_codec {
         // (its flex cells, then its entries, as the 8-byte file layout has them) from its first slot, `range` all cells
         // of a chunk stored raw. False refuses them (DecodeChunk returns kSinkRefused). Seedmap packs the cells as they
         // come, without the chunk's ~50 MB of 8-byte cells on each loading thread (1.6 GB on 32 threads at r226).
+        // `key_at`, instead of both: each key's cells with the key's index among the chunk's keys (its block less the
+        // chunk's first, times keys_per_block, plus its place in the block), a chunk stored raw too, so that the taker
+        // needs no key map to tell the keys (a compact or sparse load builds its own; docs/claude/
+        // 2026-10-14-sparse-load-key-map).
         struct ValueSink {
             using Take = bool (*)(void* context, uint64_t first_slot, uint64_t const* cells, uint64_t n);
+            using TakeAt = bool (*)(void* context, uint64_t key, uint64_t first_slot, uint64_t const* cells, uint64_t n);
             Take key = nullptr, range = nullptr;
+            TakeAt key_at = nullptr;
             void* context = nullptr;
         };
 
         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals). With
         // `expected` (vals unused) the value cells are compared with the index's cells instead (kValuesDiffer if
         // any differs): a check of a chunk against the index needs no copy of its values (~50 MB per chunk at r226).
-        // With `sink` (vals unused) they go to it (ValueSink).
+        // With `sink` (vals unused) they go to it (ValueSink). With a sink's key_at, km may be null: the chunk's key map
+        // is then only checked, not written, and its empty blocks cost a bit each (a chunk stored raw, rare, is read
+        // from a copy).
         PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
                                        uint64_t* vals, Cells const* expected = nullptr, ValueSink const* sink = nullptr) {
             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
             if (size < kChunkHeaderBytes) return "chunk shorter than its header";
             auto const* u = reinterpret_cast<unsigned char const*>(data);
             uint8_t const mode = u[0];
+            bool const key_at = sink && sink->key_at;
+            if (!km && !key_at) return "no key map to decode the chunk into";
             if (mode == kModeRaw) {
                 uint64_t const expected_size = kChunkHeaderBytes + 2 * c.blocks * cpb + 8 * c.values;
                 if (size != expected_size) return "raw chunk of " + std::to_string(size) + " bytes, expected " + std::to_string(expected_size);
+                std::vector<uint16_t> own_km;
+                if (!km) {
+                    own_km.resize(c.blocks * cpb);
+                    km = own_km.data();
+                }
                 std::memcpy(km, data + kChunkHeaderBytes, 2 * c.blocks * cpb);
                 char const* const raw_values = data + kChunkHeaderBytes + 2 * c.blocks * cpb;
                 if (c.values > 0 && expected) {
@@ -171,9 +186,31 @@ namespace protal::index_codec {
                 if (c.values > 0 && sink) {  // rare (a chunk the split form does not give exactly): an aligned copy
                     std::vector<uint64_t> cells(c.values);
                     std::memcpy(cells.data(), raw_values, 8 * c.values);
-                    return sink->range(sink->context, c.first_value, cells.data(), c.values) ? "" : kSinkRefused;
+                    if (!key_at) return sink->range(sink->context, c.first_value, cells.data(), c.values) ? "" : kSinkRefused;
+                    // Its keys with cells, from its key map: block b's keys start at its control cell's slot plus their
+                    // offsets; the last key ends where the next block starts (the chunk's end after its last block).
+                    auto block_start = [&](uint64_t b) {
+                        if (b == c.blocks) return c.first_value + c.values;
+                        uint64_t start;
+                        std::memcpy(&start, km + b * cpb, 8);
+                        return start;
+                    };
+                    for (uint64_t b = 0; b < c.blocks; b++) {
+                        uint64_t const begin = block_start(b), end = block_start(b + 1);
+                        if (end <= begin) continue;
+                        for (uint64_t j = 0; j < kpb; j++) {
+                            uint64_t const start = begin + km[b * cpb + l.ctrl_cells + j];
+                            uint64_t const stop = j + 1 < kpb ? begin + km[b * cpb + l.ctrl_cells + j + 1] : end;
+                            if (stop <= start) continue;
+                            if (start < c.first_value || stop > c.first_value + c.values) return "a key's cells lie outside its chunk";
+                            if (!sink->key_at(sink->context, b * kpb + j, start, cells.data() + (start - c.first_value), stop - start)) {
+                                return kSinkRefused;
+                            }
+                        }
+                    }
+                    return "";
                 }
-                if (c.values > 0) std::memcpy(vals, raw_values, 8 * c.values);
+                if (c.values > 0 && vals) std::memcpy(vals, raw_values, 8 * c.values);
                 return "";
             }
             if (mode != kModeSplit) return "unknown chunk mode " + std::to_string(mode);
@@ -198,7 +235,33 @@ namespace protal::index_codec {
             // Key map: block offsets and per-key offsets are prefix sums of the counts; empty blocks
             // have all key offsets 0.
             uint64_t v = c.first_value, flex_sum = 0, entry_sum = 0, k = 0;
-            for (uint64_t b = 0; b < c.blocks; b++) {
+            // With key_at, the filled blocks (chunk-relative), so that a key's index follows from its place among them.
+            std::vector<uint32_t> filled_blocks;
+            if (key_at) filled_blocks.reserve(filled);
+            if (!km) {
+                // The filled blocks from the bitmap, a word at a time; their counts checked as below, nothing written.
+                for (uint64_t w = 0; w < bitmap_bytes; w += 8) {
+                    uint64_t word = 0;
+                    std::memcpy(&word, bitmap + w, std::min<uint64_t>(8, bitmap_bytes - w));
+                    while (word) {
+                        uint64_t const b = w * 8 + static_cast<uint64_t>(__builtin_ctzll(word));
+                        word &= word - 1;
+                        if (b >= c.blocks) break;  // padding bits of the last byte (never set)
+                        if (k == keys) return "chunk has more filled blocks than its header says";
+                        filled_blocks.push_back(static_cast<uint32_t>(b));
+                        uint64_t local = 0;
+                        for (uint64_t j = 0; j < kpb; j++, k++) {
+                            if (local > 0xffff) return "block " + std::to_string(c.first_block + b) + " holds more than 65535 cells";
+                            uint64_t const n = count(k);
+                            local += n;
+                            flex_sum += FlexCells(n);
+                            entry_sum += n - FlexCells(n);
+                        }
+                        v += local;
+                    }
+                }
+            }
+            for (uint64_t b = 0; km && b < c.blocks; b++) {
                 uint16_t* cells = km + b * cpb;
                 if (cpb == 12 && (b & 63) == 0 && b + 64 <= c.blocks) {
                     uint64_t word;
@@ -221,6 +284,7 @@ namespace protal::index_codec {
                     continue;
                 }
                 if (k == keys) return "chunk has more filled blocks than its header says";
+                if (key_at) filled_blocks.push_back(static_cast<uint32_t>(b));
                 std::memcpy(cells, &v, 8);
                 uint64_t local = 0;
                 for (uint64_t j = 0; j < kpb; j++, k++) {
@@ -246,13 +310,17 @@ namespace protal::index_codec {
             uint64_t want = c.first_value;  // the first slot of the next key to compare or hand to the sink
             std::vector<uint64_t> buffer;
             // A key's f flex cells and n - f entries to the values, compared with the index's cells of the key, or,
-            // side by side in `buffer`, to the sink.
-            auto put = [&dst, &want, &buffer, expected, sink](uint64_t const* flex_cells, uint64_t f, uint64_t const* entry_cells, uint64_t n) {
+            // side by side in `buffer`, to the sink (with key_at its index among the chunk's keys, from the filled
+            // key's ordinal `fk`).
+            auto put = [&dst, &want, &buffer, &filled_blocks, expected, sink, key_at, kpb](uint64_t fk, uint64_t const* flex_cells, uint64_t f,
+                                                                                            uint64_t const* entry_cells, uint64_t n) {
                 if (sink) {
                     buffer.resize(n);
                     if (f) std::memcpy(buffer.data(), flex_cells, f * 8);
                     std::memcpy(buffer.data() + f, entry_cells, (n - f) * 8);
-                    if (!sink->key(sink->context, want, buffer.data(), n)) return false;
+                    bool const taken = key_at ? sink->key_at(sink->context, filled_blocks[fk / kpb] * kpb + fk % kpb, want, buffer.data(), n)
+                                              : sink->key(sink->context, want, buffer.data(), n);
+                    if (!taken) return false;
                     want += n;
                 } else if (expected) {
                     uint64_t const* const key = expected->Key(want, n, buffer);
@@ -291,7 +359,7 @@ namespace protal::index_codec {
                         if (n == 0) continue;
                         // Keys of one cell have no flex cells, and tmp_flex has no data pointer while it is
                         // empty. n - f >= 1, so tmp_entries is never empty here.
-                        if (!put(f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return sink ? kSinkRefused : kValuesDiffer;
+                        if (!put(key, f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return sink ? kSinkRefused : kValuesDiffer;
                         fp += f;
                         ep += n - f;
                     }

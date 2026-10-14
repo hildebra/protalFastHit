@@ -1,0 +1,5 @@
+21 popcnt, 0 libgcc calls: 0000000000082ad0 <_ZN6protal17ChainAnchorFinderINS_12KmerLookupSMEE11LookupKmersERSt6vecto
+7 popcnt, 0 libgcc calls: 000000000003d840 <protal::CompactKeys::CountRanks() [clone .arch_x86_64_v3]>:
+7 popcnt, 0 libgcc calls: 0000000000084c50 <protal::KmerLookupSM::ScoreAtLevel(protal::LookupPointer const&) [clone .arch_x86_64]
+14 popcnt, 0 libgcc calls: 0000000000069e70 <_ZN6protal17ChainAnchorFinderINS_12KmerLookupSMEE13SparsePrepareERSt6vec
+21 popcnt, 0 libgcc calls: 00000000000f3c70 <protal::ChainAnchorFinder<protal::KmerLookupSM>::SparseHits(std::vector&)

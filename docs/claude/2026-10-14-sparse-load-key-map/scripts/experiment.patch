@@ -1,0 +1,473 @@
+--- a/src/Hash/IndexCodec.h
++++ b/src/Hash/IndexCodec.h
+@@ -135,6 +135,12 @@
+             for (uint64_t i = 0; i < n; i += 4) std::memcpy(out + 24 * i, pattern, sizeof(pattern));
+         }
+ 
++        // Whether a chunk payload is stored raw (rare: the split form did not give its bytes back), which DecodeChunk
++        // decodes only into a key map.
++        inline bool IsRawChunk(char const* data, size_t size) {
++            return size >= kChunkHeaderBytes && static_cast<uint8_t>(data[0]) == kModeRaw;
++        }
++
+         inline std::string const kValuesDiffer = "its values differ from the index";
+         inline std::string const kSinkRefused = "its values were refused";
+ 
+@@ -144,14 +150,20 @@
+         // come, without the chunk's ~50 MB of 8-byte cells on each loading thread (1.6 GB on 32 threads at r226).
+         struct ValueSink {
+             using Take = bool (*)(void* context, uint64_t first_slot, uint64_t const* cells, uint64_t n);
++            // `key_at` instead of `key`: also the key's index among the chunk's keys (its block less the chunk's first,
++            // times keys_per_block, plus its place in the block), so that the taker needs no key map to tell the keys.
++            using TakeAt = bool (*)(void* context, uint64_t key, uint64_t first_slot, uint64_t const* cells, uint64_t n);
+             Take key = nullptr, range = nullptr;
++            TakeAt key_at = nullptr;
+             void* context = nullptr;
+         };
+ 
+         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals). With
+         // `expected` (vals unused) the value cells are compared with the index's cells instead (kValuesDiffer if
+         // any differs): a check of a chunk against the index needs no copy of its values (~50 MB per chunk at r226).
+-        // With `sink` (vals unused) they go to it (ValueSink).
++        // With `sink` (vals unused) they go to it (ValueSink). With a sink's key_at, km may be null for a chunk in the
++        // split form (IsRawChunk false): its key map is then only checked, not written (a compact or sparse load builds
++        // its own from the keys); its empty blocks cost a bit each.
+         PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
+                                        uint64_t* vals, Cells const* expected = nullptr, ValueSink const* sink = nullptr) {
+             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
+@@ -159,6 +171,7 @@
+             auto const* u = reinterpret_cast<unsigned char const*>(data);
+             uint8_t const mode = u[0];
+             if (mode == kModeRaw) {
++                if (!km) return "a chunk stored raw needs a key map to decode into";
+                 uint64_t const expected_size = kChunkHeaderBytes + 2 * c.blocks * cpb + 8 * c.values;
+                 if (size != expected_size) return "raw chunk of " + std::to_string(size) + " bytes, expected " + std::to_string(expected_size);
+                 std::memcpy(km, data + kChunkHeaderBytes, 2 * c.blocks * cpb);
+@@ -198,7 +211,35 @@
+             // Key map: block offsets and per-key offsets are prefix sums of the counts; empty blocks
+             // have all key offsets 0.
+             uint64_t v = c.first_value, flex_sum = 0, entry_sum = 0, k = 0;
+-            for (uint64_t b = 0; b < c.blocks; b++) {
++            // With key_at, the filled blocks (chunk-relative), so that a key's index follows from its place among them.
++            bool const key_at = sink && sink->key_at;
++            std::vector<uint32_t> filled_blocks;
++            if (key_at) filled_blocks.reserve(filled);
++            if (!km) {
++                if (!key_at) return "no key map to decode into";
++                // The filled blocks from the bitmap, a word at a time; their counts checked as below, nothing written.
++                for (uint64_t w = 0; w < bitmap_bytes; w += 8) {
++                    uint64_t word = 0;
++                    std::memcpy(&word, bitmap + w, std::min<uint64_t>(8, bitmap_bytes - w));
++                    while (word) {
++                        uint64_t const b = w * 8 + static_cast<uint64_t>(__builtin_ctzll(word));
++                        word &= word - 1;
++                        if (b >= c.blocks) break;  // padding bits of the last byte (never set)
++                        if (k == keys) return "chunk has more filled blocks than its header says";
++                        filled_blocks.push_back(static_cast<uint32_t>(b));
++                        uint64_t local = 0;
++                        for (uint64_t j = 0; j < kpb; j++, k++) {
++                            if (local > 0xffff) return "block " + std::to_string(c.first_block + b) + " holds more than 65535 cells";
++                            uint64_t const n = count(k);
++                            local += n;
++                            flex_sum += FlexCells(n);
++                            entry_sum += n - FlexCells(n);
++                        }
++                        v += local;
++                    }
++                }
++            }
++            for (uint64_t b = 0; km && b < c.blocks; b++) {
+                 uint16_t* cells = km + b * cpb;
+                 if (cpb == 12 && (b & 63) == 0 && b + 64 <= c.blocks) {
+                     uint64_t word;
+@@ -221,6 +262,7 @@
+                     continue;
+                 }
+                 if (k == keys) return "chunk has more filled blocks than its header says";
++                if (key_at) filled_blocks.push_back(static_cast<uint32_t>(b));
+                 std::memcpy(cells, &v, 8);
+                 uint64_t local = 0;
+                 for (uint64_t j = 0; j < kpb; j++, k++) {
+@@ -246,13 +288,17 @@
+             uint64_t want = c.first_value;  // the first slot of the next key to compare or hand to the sink
+             std::vector<uint64_t> buffer;
+             // A key's f flex cells and n - f entries to the values, compared with the index's cells of the key, or,
+-            // side by side in `buffer`, to the sink.
+-            auto put = [&dst, &want, &buffer, expected, sink](uint64_t const* flex_cells, uint64_t f, uint64_t const* entry_cells, uint64_t n) {
++            // side by side in `buffer`, to the sink (with key_at its index among the chunk's keys, from the filled
++            // key's ordinal `fk`).
++            auto put = [&dst, &want, &buffer, &filled_blocks, expected, sink, key_at, kpb](uint64_t fk, uint64_t const* flex_cells, uint64_t f,
++                                                                                            uint64_t const* entry_cells, uint64_t n) {
+                 if (sink) {
+                     buffer.resize(n);
+                     if (f) std::memcpy(buffer.data(), flex_cells, f * 8);
+                     std::memcpy(buffer.data() + f, entry_cells, (n - f) * 8);
+-                    if (!sink->key(sink->context, want, buffer.data(), n)) return false;
++                    bool const taken = key_at ? sink->key_at(sink->context, filled_blocks[fk / kpb] * kpb + fk % kpb, want, buffer.data(), n)
++                                              : sink->key(sink->context, want, buffer.data(), n);
++                    if (!taken) return false;
+                     want += n;
+                 } else if (expected) {
+                     uint64_t const* const key = expected->Key(want, n, buffer);
+@@ -291,7 +337,7 @@
+                         if (n == 0) continue;
+                         // Keys of one cell have no flex cells, and tmp_flex has no data pointer while it is
+                         // empty. n - f >= 1, so tmp_entries is never empty here.
+-                        if (!put(f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return sink ? kSinkRefused : kValuesDiffer;
++                        if (!put(key, f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return sink ? kSinkRefused : kValuesDiffer;
+                         fp += f;
+                         ep += n - f;
+                     }
+--- a/src/Hash/Seedmap.h
++++ b/src/Hash/Seedmap.h
+@@ -324,6 +324,19 @@
+ 
+         uint64_t m_found_counter = 0;
+ 
++        // EXPERIMENT ONLY (sparse-load profiling): wall time of each load phase to stderr with PROTAL_LOAD_PHASES set.
++        struct LoadPhases {
++            bool on = std::getenv("PROTAL_LOAD_PHASES") != nullptr;
++            std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
++            void Mark(char const* what) {
++                if (!on) return;
++                auto const now = std::chrono::steady_clock::now();
++                std::fprintf(stderr, "load phase\t%s\t%.4f\n", what, std::chrono::duration<double>(now - last).count());
++                last = now;
++            }
++        };
++        std::atomic<uint64_t> m_handle_ns{0};  // EXPERIMENT ONLY: time inside the frame handlers (decode + sink)
++
+         void Print() {
+             std::cout << "m_keys_per_ctrl_block:               " << m_keys_per_ctrl_block << std::endl;
+             std::cout << "ctrl_block_frequency_bitshift:       " << ctrl_block_frequency_bitshift << std::endl;
+@@ -1377,6 +1390,8 @@
+             // SetCompactLoad: a compact key map built as the chunks are decoded (their key maps into the workers' buffers),
+             // never the direct one.
+             bool const compact_load = m_compact_load && pack;
++            LoadPhases ph;
++            m_handle_ns = 0;
+             std::unique_ptr<CompactKeys> compact;
+             std::vector<std::vector<uint32_t>> used_starts;
+             std::vector<std::vector<KeyMap_t>> buffers;
+@@ -1388,6 +1403,7 @@
+             } else {
+                 AllocateKeymap(keymap_size_total);
+             }
++            ph.Mark("whole: key map allocated (compact: presence zeroed)");
+             if (!pack) {
+                 AllocateValues(values_size);
+                 std::string const error = index_codec::Decode(path, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map),
+@@ -1397,6 +1413,7 @@
+             }
+             SetLayout(*pack);
+             AllocatePacked();
++            ph.Mark("whole: packed values allocated");
+             // Each key's cells are packed as the chunk is decoded (index_codec::ValueSink): no thread holds its chunk's
+             // values in the 8-byte layout, ~50 MB each at r226. A chunk stored raw is packed from its cells at once.
+             struct Packing {
+@@ -1406,6 +1423,8 @@
+                 KeyMap_t const* km;             // the chunk's decoded key map (its blocks)
+                 uint64_t entries = 0;
+                 uint64_t bad = 0;
++                CompactKeys* compact = nullptr;          // a compact load: the keys marked here,
++                std::vector<uint32_t>* starts = nullptr;  // and their first slots less the chunk's first value
+             };
+             index_codec::detail::ValueSink sink;
+             sink.key = [](void* context, uint64_t slot, uint64_t const* cells, uint64_t n) {
+@@ -1423,6 +1442,17 @@
+                 p.entries += *n;
+                 return true;
+             };
++            // A compact load takes each key with its index from the decoder (key_at): the chunk's key map is never decoded
++            // (a chunk stored raw excepted), its keys marked and their starts kept as they are packed.
++            index_codec::detail::ValueSink sink_at;
++            sink_at.key_at = [](void* context, uint64_t key, uint64_t slot, uint64_t const* cells, uint64_t n) {
++                auto& p = *static_cast<Packing*>(context);
++                if (!p.map->PackKey(slot, n, cells, p.safe_begin, p.safe_end, p.bad)) return false;
++                p.entries += n >= p.map->m_flex_threshold ? n - p.map->FlexBlockSize(n) : n;
++                p.compact->MarkUsed(p.chunk->first_block * p.map->m_keys_per_ctrl_block + key);
++                p.starts->push_back(static_cast<uint32_t>(slot - p.chunk->first_value));
++                return true;
++            };
+             std::atomic<uint64_t> entries{0};
+             // The key map and the packed values become resident as they are written (calloc): near the end of the load
+             // fewer threads decode, so that their frames do not sit on top of an index nearly all resident.
+@@ -1430,8 +1460,22 @@
+             budget.allowance = m_load_allowance;
+             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
+                     [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
++                auto const t_handle = std::chrono::steady_clock::now();
+                 index_codec::Chunk const& ch = container.chunks[frame - 1];
+                 uint64_t const first_bit = SlotBit(ch.first_value), end_bit = SlotBit(ch.first_value + ch.values);
++                if (compact_load && !index_codec::detail::IsRawChunk(data, size) && !std::getenv("PROTAL_OLD_LOAD")) {
++                    Packing packing{ this, &ch, (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), end_bit >> 3, nullptr };
++                    packing.compact = compact.get();
++                    packing.starts = &used_starts[frame - 1];
++                    auto own = sink_at;
++                    own.context = &packing;
++                    std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, nullptr, nullptr, nullptr, &own);
++                    if (e == index_codec::detail::kSinkRefused) return BadValueMessage(packing.bad);
++                    if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
++                    entries += packing.entries;
++                    m_handle_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t_handle).count());
++                    return "";
++                }
+                 KeyMap_t* km = nullptr;
+                 if (compact_load) {
+                     auto& buffer = buffers[worker];
+@@ -1450,8 +1494,11 @@
+                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
+                 if (compact_load) CollectUsed(ch, km, *compact, used_starts[frame - 1]);
+                 entries += packing.entries;
++                m_handle_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t_handle).count());
+                 return "";
+             }, &budget);
++            ph.Mark("whole: frames read, decompressed and decoded");
++            if (ph.on) std::fprintf(stderr, "load phase\t  of which in the handlers (decode + pack + collect; thread-seconds)\t%.4f\n", m_handle_ns * 1e-9);
+             // A value outside the layout is the index's content (another reference); anything else is the file.
+             if (!error.empty()) InvalidIndex(name, error.rfind("holds a value", 0) == 0 ? error : error + " (truncated or corrupt file?)");
+             if (compact_load) {
+@@ -1466,6 +1513,7 @@
+             } else {
+                 std::memcpy(m_keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
+             }
++            ph.Mark("whole: compact starts placed (FinishCompact)");
+             m_packed_entries = entries;
+             m_chunks_on_fewer_threads = budget.frames_on_fewer;
+         }
+@@ -1553,6 +1601,15 @@
+                     return lo;
+                 }
+             };
++            // The keys with their index from the decoder (key_at): no key map decoded and no key searched in it (a chunk
++            // stored raw excepted, which goes through the Cursor below).
++            index_codec::detail::ValueSink sink_at;
++            sink_at.key_at = [](void* context, uint64_t key, uint64_t, uint64_t const* cells, uint64_t n) {
++                auto& c = *static_cast<Cursor*>(context);
++                (*c.keep)(*c.kept, c.chunk->first_block * c.kpb + key, cells, n);
++                return true;
++            };
++            bool const old_load = std::getenv("PROTAL_OLD_LOAD") != nullptr;
+             index_codec::detail::ValueSink sink;
+             sink.key = [](void* context, uint64_t slot, uint64_t const* cells, uint64_t n) {
+                 auto& c = *static_cast<Cursor*>(context);
+@@ -1586,16 +1643,30 @@
+             // SetCompactLoad: the chunks' key maps decoded into the workers' buffers, and a compact key map of the kept
+             // cores built below, never the direct one.
+             bool const compact_load = m_compact_load;
++            LoadPhases ph;
++            m_handle_ns = 0;
+             std::vector<std::vector<KeyMap_t>> buffers;
+             if (compact_load) {
+                 buffers.resize(static_cast<size_t>(std::max(threads, 1)));
+             } else {
+                 AllocateKeymap(keymap_size_total);
+             }
++            ph.Mark("sparse: key map allocated");
+             std::string error = zstd::ForEachFrame(path, table, 1, threads,
+                     [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
++                auto const t_handle = std::chrono::steady_clock::now();
+                 index_codec::Chunk const& ch = container.chunks[frame - 1];
+                 Kept& k = kept[frame - 1];
++                if (!old_load && !index_codec::detail::IsRawChunk(data, size)) {
++                    Cursor cursor{ &ch, nullptr, &k, &keep_key, cpb, kpb, l.ctrl_cells };
++                    auto own = sink_at;
++                    own.context = &cursor;
++                    std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, nullptr, nullptr, nullptr, &own);
++                    if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
++                    for (auto const n : k.counts) k.slots += slots_of(n);
++                    m_handle_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t_handle).count());
++                    return "";
++                }
+                 KeyMap_t* km = nullptr;
+                 if (compact_load) {
+                     auto& buffer = buffers[worker];
+@@ -1612,9 +1683,12 @@
+                 if (e == index_codec::detail::kSinkRefused) return "chunk " + std::to_string(frame) + ": its key map and values disagree";
+                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
+                 for (auto const n : k.counts) k.slots += slots_of(n);
++                m_handle_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t_handle).count());
+                 return "";
+             });
+             if (!error.empty()) InvalidIndex(name, error + " (truncated or corrupt file?)");
++            ph.Mark("sparse: frames read, decompressed, decoded and filtered");
++            if (ph.on) std::fprintf(stderr, "load phase\t  of which in the handlers (decode + filter; thread-seconds)\t%.4f\n", m_handle_ns * 1e-9);
+             // The pointers, as BuildValuePointers would set them from the kept counts: every key with entries in the file
+             // passed the build's limits on a key's and a block's values with more, so none is left out, and a block's keys
+             // take their slots in key order. Each chunk's first slot, then its blocks' control cells and keys' offsets
+@@ -1652,8 +1726,45 @@
+                     InvalidIndex(name, "its sparse key map cannot be made compact: run without --compact_keys");
+                 }
+                 m_compact = std::move(keys);
++                ph.Mark("sparse: compact key map built (MarkUsed + FinishCompact)");
+             }
+-            if (!compact_load) error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
++            // The empty blocks between two blocks with kept keys share one pattern (their first slot, offsets 0): written
++            // in runs (index_codec's FillEmptyBlocks, four blocks a copy), not a block and a memset at a time (2^27 blocks).
++            auto fill_empty = [&](uint64_t first_block, uint64_t n, uint64_t position) {
++                KeyMap_t* cells = m_keymap + first_block * cpb;
++                uint64_t const runs = (cpb == 12 && kpb == 8) ? n / 4 * 4 : 0;
++                if (runs) index_codec::detail::FillEmptyBlocks(cells, runs, position);
++                for (uint64_t b = runs; b < n; b++) {
++                    std::memcpy(cells + b * cpb, &position, 8);
++                    std::fill_n(cells + b * cpb + l.ctrl_cells, kpb, KeyMap_t{0});
++                }
++            };
++            if (!compact_load && !old_load) error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
++                index_codec::Chunk const& ch = container.chunks[c];
++                Kept const& k = kept[c];
++                uint64_t position = chunk_slot[c];
++                uint64_t b = 0;
++                size_t i = 0;
++                while (i < k.keys.size()) {
++                    uint64_t const key_block = k.keys[i] / kpb;
++                    if (key_block < ch.first_block + b || key_block >= ch.first_block + ch.blocks) return "a kept key outside its chunk's blocks";
++                    uint64_t const block = key_block - ch.first_block;
++                    fill_empty(ch.first_block + b, block - b, position);
++                    KeyMap_t* const cells = m_keymap + key_block * cpb;
++                    std::memcpy(cells, &position, 8);
++                    uint64_t const first_key = key_block * kpb;
++                    uint64_t local = 0;
++                    for (uint64_t j = 0; j < kpb; j++) {
++                        cells[l.ctrl_cells + j] = static_cast<KeyMap_t>(local);
++                        if (i < k.keys.size() && k.keys[i] == first_key + j) local += slots_of(k.counts[i++]);
++                    }
++                    position += local;
++                    b = block + 1;
++                }
++                fill_empty(ch.first_block + b, ch.blocks - b, position);
++                return "";
++            });
++            if (!compact_load && old_load) error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+                 index_codec::Chunk const& ch = container.chunks[c];
+                 Kept const& k = kept[c];
+                 uint64_t position = chunk_slot[c];
+@@ -1676,10 +1787,12 @@
+                 return i == k.keys.size() ? "" : "a kept key outside its chunk's blocks";
+             });
+             if (!error.empty()) InvalidIndex(name, error);
++            if (!compact_load) ph.Mark("sparse: direct key map pointers written");
+             values_size = chunk_slot.back();
+             if (!compact_load) std::memcpy(m_keymap + keymap_size_total - ctrl_block_cell_size, &values_size, 8);
+             SetLayout(pack);
+             AllocatePacked();  // zeroed: an all-zero entry is empty
++            ph.Mark("sparse: packed values allocated");
+             m_packed_entries = entries;
+             // A k-mer of a kept entry's core and flex cell, as PutOwned takes it (the inverse of MainKey and FlexKey: the
+             // flex cell's high half the k-mer's left flank, above the core, its low half the right flank, below it).
+@@ -1690,10 +1803,36 @@
+             error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+                 Kept& k = kept[c];
+                 size_t v = 0;
+-                for (size_t i = 0; i < k.keys.size(); i++) {
+-                    for (uint32_t j = 0; j < k.counts[i]; j++, v++) {
+-                        if (!PutOwned(kmer_of(k.keys[i], k.flex[v]), k.values[v])) return "a key of the sparse load has no slots";
++                if (old_load) {
++                    for (size_t i = 0; i < k.keys.size(); i++) {
++                        for (uint32_t j = 0; j < k.counts[i]; j++, v++) {
++                            if (!PutOwned(kmer_of(k.keys[i], k.flex[v]), k.values[v])) return "a key of the sparse load has no slots";
++                        }
++                    }
++                } else {
++                    // Each key's region packed in order, as PackKey packs a whole load's: its flex cells, then its entries;
++                    // the chunk's keys take the slots from chunk_slot[c] on, the bytes it shares with a neighbour OR'd
++                    // atomically (PutBits).
++                    uint64_t const first_bit = SlotBit(chunk_slot[c]), end_bit = SlotBit(chunk_slot[c + 1]);
++                    uint64_t const safe_begin = (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), safe_end = end_bit >> 3;
++                    uint64_t slot = chunk_slot[c];
++                    for (size_t i = 0; i < k.keys.size(); i++) {
++                        uint32_t const e = k.counts[i];
++                        uint64_t const S = slots_of(e);
++                        uint64_t bit = SlotBit(slot);
++                        if (S >= m_flex_threshold) {
++                            for (uint32_t j = 0; j < e; j++) PutBits(m_packed, bit + 32 * j, k.flex[v + j], 32, safe_begin, safe_end);
++                            bit += 32 * static_cast<uint64_t>(e);
++                        }
++                        for (uint32_t j = 0; j < e; j++, bit += m_entry_bits) {
++                            uint64_t packed = 0;
++                            if (!PackValue(k.values[v + j], packed)) return BadValueMessage(k.values[v + j]);
++                            PutBits(m_packed, bit, packed, m_entry_bits, safe_begin, safe_end);
++                        }
++                        v += e;
++                        slot += S;
+                     }
++                    if (slot != chunk_slot[c + 1]) return "the kept keys' slots do not add up to their chunk's";
+                 }
+                 std::vector<uint32_t>().swap(k.keys);
+                 std::vector<uint32_t>().swap(k.counts);
+@@ -1702,6 +1841,7 @@
+                 return "";
+             });
+             if (!error.empty()) InvalidIndex(name, error);
++            ph.Mark("sparse: kept entries placed (PutOwned)");
+         }
+ 
+         // Of the index's chunks last loaded, those decoded after a loading thread had stopped for memory
+--- a/src/Hash/CompactKeys.h
++++ b/src/Hash/CompactKeys.h
+@@ -22,6 +22,7 @@
+ #include <memory>
+ #include <vector>
+ #include <sys/mman.h>
++#include <unistd.h>
+ 
+ namespace protal {
+     class CompactKeys {
+@@ -40,7 +41,7 @@
+             Free();
+             m_cores = cores;
+             m_lines = (cores + kCoresPerLine - 1) / kCoresPerLine;
+-            m_presence = static_cast<uint64_t*>(std::aligned_alloc(64, m_lines * 64));
++            m_presence = static_cast<uint64_t*>(AllocateLines(m_lines * 64));
+             if (!m_presence) Fail("presence lines", m_lines * 64);
+             Advise(m_presence, m_lines * 64);
+             std::memset(m_presence, 0, m_lines * 64);
+@@ -69,11 +70,12 @@
+             std::free(m_bases);
+             std::free(m_offsets);
+             m_groups = (m_used + 1 + kGroup - 1) / kGroup;
+-            m_bases = static_cast<uint64_t*>(std::malloc(m_groups * sizeof(uint64_t)));
++            m_bases = static_cast<uint64_t*>(AllocateLines(m_groups * sizeof(uint64_t)));
+             m_offsets_bytes = 3 * (m_used + 1) + 8;  // a 4-byte load of the last offset stays inside
+-            m_offsets = static_cast<uint8_t*>(std::aligned_alloc(64, (m_offsets_bytes + 63) / 64 * 64));
++            m_offsets = static_cast<uint8_t*>(AllocateLines(m_offsets_bytes));
+             if (!m_bases || !m_offsets) Fail("starts", m_groups * sizeof(uint64_t) + m_offsets_bytes);
+             Advise(m_offsets, m_offsets_bytes);
++            Advise(m_bases, m_groups * sizeof(uint64_t));
+             std::memset(m_offsets, 0, m_offsets_bytes);
+         }
+ 
+@@ -150,15 +152,32 @@
+         }
+ 
+         // Huge pages for a block before it is first touched (see Seedmap::AdviseHugePages): every lookup reads it at random.
++        // madvise takes a page-aligned start (EINVAL otherwise, nothing advised): the block's pages within it.
++        // EXPERIMENT (2026-10-14): KEYBENCH_OLD_ADVICE restores the old call (unaligned start, so never advised).
+         static void Advise(void* data, uint64_t bytes) {
+ #ifdef MADV_HUGEPAGE
+-            if (bytes >= (uint64_t{64} << 20)) madvise(data, bytes & ~((uint64_t{1} << 21) - 1), MADV_HUGEPAGE);
++            if (std::getenv("KEYBENCH_OLD_ADVICE")) {
++                if (bytes >= (uint64_t{64} << 20)) madvise(data, bytes & ~((uint64_t{1} << 21) - 1), MADV_HUGEPAGE);
++                return;
++            }
++            if (bytes < (uint64_t{2} << 20)) return;
++            auto const page = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
++            auto const begin = (reinterpret_cast<uintptr_t>(data) + page - 1) & ~(page - 1);
++            auto const end = (reinterpret_cast<uintptr_t>(data) + bytes) & ~(page - 1);
++            if (end > begin) madvise(reinterpret_cast<void*>(begin), end - begin, MADV_HUGEPAGE);
+ #else
+             (void)data;
+             (void)bytes;
+ #endif
+         }
+ 
++        // A block of `bytes` for Advise: 2 MB-aligned when it is that large, so that huge pages cover all of it.
++        static void* AllocateLines(uint64_t bytes) {
++            uint64_t const huge = uint64_t{1} << 21;
++            if (bytes < huge || std::getenv("KEYBENCH_OLD_ADVICE")) return std::aligned_alloc(64, (bytes + 63) / 64 * 64);
++            return std::aligned_alloc(huge, (bytes + huge - 1) / huge * huge);
++        }
++
+         void Free() {
+             std::free(m_presence);
+             std::free(m_bases);

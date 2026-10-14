@@ -1,0 +1,12 @@
+seed_base_pe_direct_1/pe.sam.zst	39b67a414325 8912
+seed_new_pe_direct_1/pe.sam.zst	39b67a414325 8912
+seed_base_pe_compact_1/pe.sam.zst	39b67a414325 8912
+seed_new_pe_compact_1/pe.sam.zst	39b67a414325 8912
+seed_base_hifi_direct_1/hifi.sam.zst	30d50821362c 363
+seed_new_hifi_direct_1/hifi.sam.zst	30d50821362c 363
+seed_base_hifi_compact_1/hifi.sam.zst	30d50821362c 363
+seed_new_hifi_compact_1/hifi.sam.zst	30d50821362c 363
+load_base_sparse_1/s.sam.zst	5eaa853707c4
+load_new_sparse_1/s.sam.zst	5eaa853707c4
+load_base_sparsec_1/s.sam.zst	5eaa853707c4
+load_new_sparsec_1/s.sam.zst	5eaa853707c4

@@ -1,0 +1,12 @@
+case	base	new
+load_whole_s	1.327	1.356
+load_sparse_s	2.355	0.963
+load_sparsec_s	1.888	0.654
+seed_pe_direct_ns_per_lookup	77.88	55.47
+seed_pe_compact_ns_per_lookup	86.03	56.03
+seed_hifi_direct_ns_per_lookup	58.11	47.12
+seed_hifi_compact_ns_per_lookup	73.24	38.41
+Sample pe seeding: 4478189 k-mers looked up, 1044697 in the index, 1044172 blocks scanned with 2423646 flex cells (2.3 per block); by block size 1: 56.6% of blo
+Sample hifi seeding: 1594377 k-mers looked up, 358292 in the index, 358292 blocks scanned with 820656 flex cells (2.3 per block); by block size 1: 56.9% of bloc
+42
+done

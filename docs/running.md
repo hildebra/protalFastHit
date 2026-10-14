@@ -641,9 +641,13 @@ presence bit for each of the 2^30 cores with ranks (153 MB) and 3 bytes a used c
 16-bit offsets for all of them (3.2 GB, of which r226 uses 9.2%). The load builds it as it decodes, so
 the direct key map is never held: on the reduced r226 database a run peaks at 0.8 GB instead of 3.4
 GB, and at r226 the key map would take ~0.45 GB (less on a grid's sparse index). The records are the
-same; a lookup reads a second line of the key map, which costs paired-end runs nothing measurable and
-HiFi runs ~7 ns a lookup (+2.6% of the wall time there)
-([report](claude/2026-10-13-compact-key-map.md)). Off by default until measured at r226.
+same; a lookup reads a second line of the key map. Since 2026-10-14 that line is fetched with the read's
+keys where those come a read ahead, the map is on huge pages and its ranks are counted with the CPU's
+popcount: on the reduced r226 database, one thread, its seeding takes 56 ns a k-mer for paired-end reads
+and 38 for HiFi, against 55 and 47 with the direct key map (before: 86 and 73, against 78 and 58), and
+a grid's sparse index loads faster with it than without (0.65 against 0.96 s for the strain world's at
+C 4; [report](claude/2026-10-14-sparse-load-key-map/README.md),
+[first report](claude/2026-10-13-compact-key-map.md)). Off by default until measured at r226.
 
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling

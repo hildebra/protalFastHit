@@ -286,7 +286,8 @@ namespace protal {
 
         // A filtered lookup's best flex score and how many cells have it, over the cells of its entries of the level
         // alone (a cell at a time, as ScoreScalar), and their scores in flex_vector (others 0); (0, 0) if it has none.
-        std::pair<uint32_t, uint32_t> ScoreAtLevel(LookupPointer const& pointers) {
+        // Compiled for x86-64-v3 too: a cell's score is a popcount (Seedmap::Similarity), else libgcc's software count.
+        PROTAL_CLONE_V3 std::pair<uint32_t, uint32_t> ScoreAtLevel(LookupPointer const& pointers) {
             uint32_t const size = pointers.size;
             if (flex_vector.size() < size) flex_vector.resize(size);
             auto const keys = flex_scan::MakeIndelKeys(pointers.flex_key);
@@ -316,12 +317,13 @@ namespace protal {
 
         // What Get and GetFromLookup will read, fetched ahead (Seedmap::PrefetchKey): the key map's block of a
         // k-mer, and a lookup's values (PrefetchValues).
-        inline void PrefetchKey(size_t kmer) {
+        [[gnu::always_inline]] inline void PrefetchKey(size_t kmer) {
             m_sm.PrefetchKey(kmer);
         }
 
         // With a compact key map, a lookup's second key map read fetched ahead (Seedmap::PrefetchStart); nothing without.
-        inline void PrefetchStart(size_t kmer) const {
+        // Inlined always, as Get: the rank it counts takes popcnt in the loops compiled for x86-64-v3.
+        [[gnu::always_inline]] inline void PrefetchStart(size_t kmer) const {
             m_sm.PrefetchStart(kmer);
         }
         bool CompactKeys() const { return m_sm.HasCompactKeys(); }
@@ -352,9 +354,11 @@ namespace protal {
         // level_entries, by which FindSeeds orders the lookups (as it orders a sparse index's by size), so that a run on
         // the whole index seeds as one on the sparse index does. `keep_empty`: a core without an entry of the level is kept
         // too (level_entries 0, which a gate scores as no hit), so that the lookups can seed the read from every entry
-        // after the gate (ChainAnchorFinder::KeepSparseLookups: the grid gate on the whole index).
-        inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos, uint8_t min_level = 0,
-                        bool keep_empty = false) {
+        // after the gate (ChainAnchorFinder::KeepSparseLookups: the grid gate on the whole index). Inlined always, so that
+        // the lookup loops compiled for x86-64-v3 (ChainAnchorFinder::LookupKmers) count a compact key map's ranks with
+        // popcnt (Seedmap::Locate).
+        [[gnu::always_inline]] inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos, uint8_t min_level = 0,
+                                               bool keep_empty = false) {
             if (!m_sm.GetPacked(kmer, m_lookup_tmp)) return;
             m_lookup_tmp.min_level = min_level;
             m_lookup_tmp.level_entries = m_lookup_tmp.size;

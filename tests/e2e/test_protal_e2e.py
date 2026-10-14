@@ -4502,7 +4502,8 @@ class SparseFirstGatesTest(WorkDir):
 
     def test_compact_keys_give_the_same_records(self):
         """--compact_keys (2026-10-14) keeps the key map of the cores with values alone (CompactKeys.h), built as the index
-        is loaded: the same records as the direct key map, whole and on the grid's sparse index, a smaller key map on the
+        is loaded: the same records as the direct key map, whole and on the grid's sparse index, and for long reads,
+        gated (their lookups streamed, SparseHits and LookupKmers, not fetched a read ahead), a smaller key map on the
         index line."""
         records, logs = {}, {}
         for name, extra in (("keys_direct", ()), ("keys_compact", ("--compact_keys",)),
@@ -4513,6 +4514,33 @@ class SparseFirstGatesTest(WorkDir):
         self.assertTrue(records["keys_direct"])
         self.assertEqual(records["keys_direct"], records["keys_compact"])
         self.assertEqual(records["keys_grid"], records["keys_grid_compact"])
+        # Six long reads of three of the release's genes each, between random stretches.
+        genes, name = {}, None
+        with open(os.path.join(operon_release().inputs, "reference.fna")) as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith(">"):
+                    name = line[1:].split()[0]
+                    genes[name] = []
+                elif line:
+                    genes[name].append(line.upper())
+        sequences = ["".join(parts) for parts in genes.values() if sum(map(len, parts)) >= 300]
+        rng = random.Random(41)
+        long_reads = self.path("compact_long.fq")
+        with open(long_reads, "w") as out:
+            for r in range(6):
+                pieces = []
+                for g in rng.sample(sequences, 3):
+                    pieces += ["".join(rng.choice("ACGT") for _ in range(rng.randint(500, 1500))), g]
+                read = "".join(pieces)
+                out.write(f"@m64001_000000/{r}/ccs\n{read}\n+\n{'I' * len(read)}\n")
+        for name, extra in (("keys_long", ()), ("keys_long_compact", ("--compact_keys",))):
+            rc, log = run(self.work, "--db", self.plain_db, "-1", long_reads, "--read_type", "pb", "--sparse_first", "8",
+                          "--prefix", name, "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
+        self.assertTrue(records["keys_long"])
+        self.assertEqual(records["keys_long"], records["keys_long_compact"])
         for name in ("keys_compact", "keys_grid_compact"):
             self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 0\.\d GB \(compact: \d+ cores with values of 1073741824")
         self.assertIn("key map 3.2 GB", logs["keys_direct"])

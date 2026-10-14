@@ -1,0 +1,184 @@
+== synth_r226_pe old: synth 0.092 44 8000000 3 27 1 2000
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, merged 0.486 GB (ok 1), buckets 0.542 GB (55509 overflow lines of 8388608)
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23782908	14.96	1602523885046456379
+D2_direct_one_line	24000000	23782908	7.29	1602523885046456379
+C_compact	24000000	23782908	217.03	1602523885046456379
+Cp_compact_primed	24000000	23782908	158.52	1602523885046456379
+Cf_compact_all_starts	24000000	23782908	138.06	1602523885046456379
+Ca_compact_starts_read_ahead	24000000	23782908	128.76	1602523885046456379
+M_merged_primed	24000000	23782908	209.18	1602523885046456379
+Ma_merged_read_ahead	24000000	23782908	135.07	1602523885046456379
+B_bucket128	24000000	23782908	39.30	1602523885046456379
+== synth_r226_pe new: synth 0.092 44 8000000 3 27 1 2000
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, merged 0.486 GB (ok 1), buckets 0.542 GB (55509 overflow lines of 8388608)
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+huge pages: AnonHugePages:   4446208 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23782908	12.43	1602523885046456379
+D2_direct_one_line	24000000	23782908	6.87	1602523885046456379
+C_compact	24000000	23782908	133.00	1602523885046456379
+Cp_compact_primed	24000000	23782908	93.91	1602523885046456379
+Cf_compact_all_starts	24000000	23782908	81.79	1602523885046456379
+Ca_compact_starts_read_ahead	24000000	23782908	76.61	1602523885046456379
+M_merged_primed	24000000	23782908	130.91	1602523885046456379
+Ma_merged_read_ahead	24000000	23782908	79.46	1602523885046456379
+B_bucket128	24000000	23782908	28.19	1602523885046456379
+== synth_r226_long old: synth 0.092 44 8000000 3 3000 0
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, merged 0.486 GB (ok 1), buckets 0.542 GB (55509 overflow lines of 8388608)
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23782908	40.22	1602523885046456379
+D2_direct_one_line	24000000	23782908	32.47	1602523885046456379
+C_compact	24000000	23782908	192.69	1602523885046456379
+Cl_compact_lead_32_16	24000000	23782908	186.44	1602523885046456379
+M_merged	24000000	23782908	176.23	1602523885046456379
+B_bucket128	24000000	23782908	56.13	1602523885046456379
+== synth_r226_long new: synth 0.092 44 8000000 3 3000 0
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, merged 0.486 GB (ok 1), buckets 0.542 GB (55509 overflow lines of 8388608)
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+huge pages: AnonHugePages:   4446208 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23782908	28.38	1602523885046456379
+D2_direct_one_line	24000000	23782908	27.10	1602523885046456379
+C_compact	24000000	23782908	107.17	1602523885046456379
+Cl_compact_lead_32_16	24000000	23782908	107.44	1602523885046456379
+M_merged	24000000	23782908	105.68	1602523885046456379
+B_bucket128	24000000	23782908	28.64	1602523885046456379
+== r226red_pe old: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz 300000 1 3 0 2000
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), merged 0.188 GB (ok 1), buckets 0.545 GB (65141 overflow lines of 8388608)
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+300000 reads, 6717729 cores (22.4 a read), read ahead, gap 2000 ns
+D_direct	20153187	4711167	14.29	1546186887959259
+D2_direct_one_line	20153187	4711167	7.57	1546186887959259
+C_compact	20153187	4711167	41.20	1546186887959259
+Cp_compact_primed	20153187	4711167	23.75	1546186887959259
+Cf_compact_all_starts	20153187	4711167	21.64	1546186887959259
+Ca_compact_starts_read_ahead	20153187	4711167	20.99	1546186887959259
+M_merged_primed	20153187	4711167	43.22	1546186887959259
+Ma_merged_read_ahead	20153187	4711167	23.25	1546186887959259
+B_bucket128	20153187	4711167	26.98	1546186887959259
+== r226red_pe new: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz 300000 1 3 0 2000
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), merged 0.188 GB (ok 1), buckets 0.545 GB (65141 overflow lines of 8388608)
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+huge pages: AnonHugePages:   3885056 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+300000 reads, 6717729 cores (22.4 a read), read ahead, gap 2000 ns
+D_direct	20153187	4711167	16.45	1546186887959259
+D2_direct_one_line	20153187	4711167	7.60	1546186887959259
+C_compact	20153187	4711167	36.35	1546186887959259
+Cp_compact_primed	20153187	4711167	23.14	1546186887959259
+Cf_compact_all_starts	20153187	4711167	21.22	1546186887959259
+Ca_compact_starts_read_ahead	20153187	4711167	19.92	1546186887959259
+M_merged_primed	20153187	4711167	38.19	1546186887959259
+Ma_merged_read_ahead	20153187	4711167	22.20	1546186887959259
+B_bucket128	20153187	4711167	45.87	1546186887959259
+== r226red_hifi old: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz 3000 0 3 0
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), merged 0.188 GB (ok 1), buckets 0.545 GB (65141 overflow lines of 8388608)
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+3000 reads, 4689019 cores (1563.0 a read), streamed, gap 2000 ns
+D_direct	14067057	3184332	21.15	1017851241067707
+D2_direct_one_line	14067057	3184332	16.43	1017851241067707
+C_compact	14067057	3184332	39.94	1017851241067707
+Cl_compact_lead_32_16	14067057	3184332	28.88	1017851241067707
+M_merged	14067057	3184332	29.17	1017851241067707
+B_bucket128	14067057	3184332	22.81	1017851241067707
+== r226red_hifi new: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz 3000 0 3 0
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), merged 0.188 GB (ok 1), buckets 0.545 GB (65141 overflow lines of 8388608)
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+huge pages: AnonHugePages:   3885056 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+3000 reads, 4689019 cores (1563.0 a read), streamed, gap 2000 ns
+D_direct	14067057	3184332	20.69	1017851241067707
+D2_direct_one_line	14067057	3184332	15.99	1017851241067707
+C_compact	14067057	3184332	24.63	1017851241067707
+Cl_compact_lead_32_16	14067057	3184332	30.94	1017851241067707
+M_merged	14067057	3184332	23.97	1017851241067707
+B_bucket128	14067057	3184332	19.62	1017851241067707
+== grid_pe old: keys /home/falk/strainfn/db_grid/database.protal /home/falk/sparseprof/runs/keys_v1/strain_deep_1.fq.gz 100000 1 5 0 2000
+key maps: direct 3.221 GB, compact 0.171 GB (5548925 used cores), merged 0.172 GB (ok 1), buckets 0.538 GB (10982 overflow lines of 8388608)
+bucket lines: 1370527 of 8388608 lines used; by used cores 1-4 956354, 5-10 325744, 11-20 77447, 21-32 9522, 33+ 1460; 5.243% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+58543 reads, 1310658 cores (22.4 a read), read ahead, gap 2000 ns
+D_direct	6553290	6031220	6.41	1291141943309505
+D2_direct_one_line	6553290	6031220	4.87	1291141943309505
+C_compact	6553290	6031220	89.94	1291141943309505
+Cp_compact_primed	6553290	6031220	55.55	1291141943309505
+Cf_compact_all_starts	6553290	6031220	47.59	1291141943309505
+Ca_compact_starts_read_ahead	6553290	6031220	47.13	1291141943309505
+M_merged_primed	6553290	6031220	91.57	1291141943309505
+Ma_merged_read_ahead	6553290	6031220	48.53	1291141943309505
+B_bucket128	6553290	6031220	28.71	1291141943309505
+== grid_pe new: keys /home/falk/strainfn/db_grid/database.protal /home/falk/sparseprof/runs/keys_v1/strain_deep_1.fq.gz 100000 1 5 0 2000
+key maps: direct 3.221 GB, compact 0.171 GB (5548925 used cores), merged 0.172 GB (ok 1), buckets 0.538 GB (10982 overflow lines of 8388608)
+bucket lines: 1370527 of 8388608 lines used; by used cores 1-4 956354, 5-10 325744, 11-20 77447, 21-32 9522, 33+ 1460; 5.243% of used cores in overflow lines
+huge pages: AnonHugePages:   3854336 kB (direct 3.22 GB on them at most)
+every core the same slots in every layout: yes
+58543 reads, 1310658 cores (22.4 a read), read ahead, gap 2000 ns
+D_direct	6553290	6031220	5.26	1291141943309505
+D2_direct_one_line	6553290	6031220	4.42	1291141943309505
+C_compact	6553290	6031220	58.63	1291141943309505
+Cp_compact_primed	6553290	6031220	33.37	1291141943309505
+Cf_compact_all_starts	6553290	6031220	30.21	1291141943309505
+Ca_compact_starts_read_ahead	6553290	6031220	30.09	1291141943309505
+M_merged_primed	6553290	6031220	65.00	1291141943309505
+Ma_merged_read_ahead	6553290	6031220	31.30	1291141943309505
+B_bucket128	6553290	6031220	25.16	1291141943309505
+== synth_c16_pe old: synth 0.055 3 8000000 3 27 1 2000
+synthetic: 59043354 used cores (0.0550), 177142556 slots; key maps: direct 3.221 GB, compact 0.338 GB, merged 0.352 GB (ok 1), buckets 0.537 GB (54 overflow lines of 8388608)
+bucket lines: 8382684 of 8388608 lines used; by used cores 1-4 1352571, 5-10 6230910, 11-20 799149, 21-32 54, 33+ 0; 0.002% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23773005	7.14	65262140479081557
+D2_direct_one_line	24000000	23773005	4.53	65262140479081557
+C_compact	24000000	23773005	98.74	65262140479081557
+Cp_compact_primed	24000000	23773005	53.65	65262140479081557
+Cf_compact_all_starts	24000000	23773005	46.54	65262140479081557
+Ca_compact_starts_read_ahead	24000000	23773005	45.31	65262140479081557
+M_merged_primed	24000000	23773005	115.14	65262140479081557
+Ma_merged_read_ahead	24000000	23773005	53.16	65262140479081557
+B_bucket128	24000000	23773005	12.84	65262140479081557
+== synth_c16_pe new: synth 0.055 3 8000000 3 27 1 2000
+synthetic: 59043354 used cores (0.0550), 177142556 slots; key maps: direct 3.221 GB, compact 0.338 GB, merged 0.352 GB (ok 1), buckets 0.537 GB (54 overflow lines of 8388608)
+bucket lines: 8382684 of 8388608 lines used; by used cores 1-4 1352571, 5-10 6230910, 11-20 799149, 21-32 54, 33+ 0; 0.002% of used cores in overflow lines
+huge pages: AnonHugePages:   4194304 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23773005	12.41	65262140479081557
+D2_direct_one_line	24000000	23773005	5.40	65262140479081557
+C_compact	24000000	23773005	91.07	65262140479081557
+Cp_compact_primed	24000000	23773005	55.76	65262140479081557
+Cf_compact_all_starts	24000000	23773005	49.29	65262140479081557
+Ca_compact_starts_read_ahead	24000000	23773005	44.77	65262140479081557
+M_merged_primed	24000000	23773005	97.52	65262140479081557
+Ma_merged_read_ahead	24000000	23773005	49.99	65262140479081557
+B_bucket128	24000000	23773005	16.28	65262140479081557
+== synth_c16_long old: synth 0.055 3 8000000 3 3000 0
+synthetic: 59043354 used cores (0.0550), 177142556 slots; key maps: direct 3.221 GB, compact 0.338 GB, merged 0.352 GB (ok 1), buckets 0.537 GB (54 overflow lines of 8388608)
+bucket lines: 8382684 of 8388608 lines used; by used cores 1-4 1352571, 5-10 6230910, 11-20 799149, 21-32 54, 33+ 0; 0.002% of used cores in overflow lines
+huge pages: AnonHugePages:   3147776 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23773005	36.48	65262140479081557
+D2_direct_one_line	24000000	23773005	27.00	65262140479081557
+C_compact	24000000	23773005	118.85	65262140479081557
+Cl_compact_lead_32_16	24000000	23773005	115.77	65262140479081557
+M_merged	24000000	23773005	121.42	65262140479081557
+B_bucket128	24000000	23773005	33.55	65262140479081557
+== synth_c16_long new: synth 0.055 3 8000000 3 3000 0
+synthetic: 59043354 used cores (0.0550), 177142556 slots; key maps: direct 3.221 GB, compact 0.338 GB, merged 0.352 GB (ok 1), buckets 0.537 GB (54 overflow lines of 8388608)
+bucket lines: 8382684 of 8388608 lines used; by used cores 1-4 1352571, 5-10 6230910, 11-20 799149, 21-32 54, 33+ 0; 0.002% of used cores in overflow lines
+huge pages: AnonHugePages:   4194304 kB (direct 3.22 GB on them at most)
+every 7th core the same slots in every layout: yes
+D_direct	24000000	23773005	26.01	65262140479081557
+D2_direct_one_line	24000000	23773005	26.46	65262140479081557
+C_compact	24000000	23773005	91.46	65262140479081557
+Cl_compact_lead_32_16	24000000	23773005	90.25	65262140479081557
+M_merged	24000000	23773005	93.96	65262140479081557
+B_bucket128	24000000	23773005	23.88	65262140479081557

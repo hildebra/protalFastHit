@@ -227,6 +227,74 @@ TEST(IndexCodec, NonCanonicalBlocksAreKeptAsRawCells) {
     EXPECT_EQ(vals, index.values);
 }
 
+// A compact or sparse load decodes no key map (2026-10-14): it takes each key's cells with the key's index
+// (ValueSink::key_at) and gives a null key map. The decoder hands over every key with cells, in key order, with its
+// index among the chunk's keys, its first slot and its cells as the index's key map and values say: small and large
+// chunks, runs of empty blocks, more cells than a batch, and chunks stored raw (read from a copy of their key map).
+// Without key_at it needs a key map.
+TEST(IndexCodec, KeysAreNamedWithoutAKeyMap) {
+    ScratchDir tmp;
+    SmallIndex raw(500, 3, 0.2);
+    raw.keymap[100 * raw.layout.CellsPerBlock() + 4] = 1;  // key 0 of block 100 does not start at its block: stored raw
+    struct Taken {
+        uint64_t key, slot;
+        std::vector<uint64_t> cells;
+        bool operator==(Taken const&) const = default;
+    };
+    std::vector<SmallIndex> const indexes{ SmallIndex(3000, 21, 0.5), SmallIndex(5000, 65, 0.3, 0, 65), SmallIndex(22000, 8, 0.2, 20000), raw };
+    for (size_t x = 0; x < indexes.size(); x++) {
+        SmallIndex const& index = indexes[x];
+        for (uint64_t chunk : { uint64_t{2048}, uint64_t{64} << 20 }) {
+            std::string const path = tmp / ("keys" + std::to_string(x) + "_" + std::to_string(chunk) + ".zst");
+            std::string error;
+            size_t raw_chunks = 0;
+            ASSERT_TRUE(index_codec::Write(path, index.header, index.layout, index.keymap.data(), index.values.data(),
+                                           {3, 0, 2, chunk}, error, &raw_chunks)) << error;
+            EXPECT_EQ(raw_chunks > 0, x == 3) << path;
+            auto const table = zstd::ReadSeekTable(path, error);
+            ASSERT_TRUE(table) << error;
+            auto const container = index_codec::ReadContainer(path, *table, error);
+            ASSERT_TRUE(container) << error;
+            auto const& l = container->layout;
+            std::vector<std::vector<Taken>> taken(container->chunks.size());
+            index_codec::detail::ValueSink sink;
+            sink.key_at = [](void* context, uint64_t key, uint64_t slot, uint64_t const* cells, uint64_t n) {
+                static_cast<std::vector<Taken>*>(context)->push_back({ key, slot, std::vector<uint64_t>(cells, cells + n) });
+                return true;
+            };
+            std::string const e = zstd::ForEachFrame(path, *table, 1, 2, [&](size_t frame, char const* data, size_t size, size_t) {
+                index_codec::Chunk const& ch = container->chunks[frame - 1];
+                std::vector<uint64_t> vals(std::max<uint64_t>(ch.values, 1));
+                if (index_codec::detail::DecodeChunk(data, size, l, ch, nullptr, vals.data()) != "no key map to decode the chunk into") {
+                    return std::string("decoded without a key map or key_at");
+                }
+                auto own = sink;
+                own.context = &taken[frame - 1];
+                return index_codec::detail::DecodeChunk(data, size, l, ch, nullptr, nullptr, nullptr, &own);
+            });
+            ASSERT_EQ(e, "") << path;
+            for (size_t c = 0; c < container->chunks.size(); c++) {
+                index_codec::Chunk const& ch = container->chunks[c];
+                std::vector<Taken> want;
+                for (uint64_t b = ch.first_block; b < ch.first_block + ch.blocks; b++) {
+                    uint16_t const* cells = index.keymap.data() + b * l.CellsPerBlock();
+                    uint64_t begin = 0, end = 0;
+                    std::memcpy(&begin, cells, 8);
+                    std::memcpy(&end, cells + l.CellsPerBlock(), 8);
+                    for (uint64_t j = 0; j < l.keys_per_block; j++) {
+                        uint64_t const start = begin + cells[l.ctrl_cells + j];
+                        uint64_t const stop = j + 1 < l.keys_per_block ? begin + cells[l.ctrl_cells + j + 1] : end;
+                        if (stop <= start) continue;
+                        want.push_back({ (b - ch.first_block) * l.keys_per_block + j, start,
+                                         std::vector<uint64_t>(index.values.begin() + start, index.values.begin() + stop) });
+                    }
+                }
+                EXPECT_TRUE(taken[c] == want) << path << ", chunk " << c << ": " << taken[c].size() << " keys, expected " << want.size();
+            }
+        }
+    }
+}
+
 TEST(IndexCodec, EmptyIndex) {
     ScratchDir tmp;
     SmallIndex index(64, 4, 1.0);

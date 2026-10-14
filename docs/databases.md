@@ -185,7 +185,9 @@ both in place. `--unpack_db` writes them back.
   empty, whole or sparse, [report](claude/2026-10-13-compact-key-map.md)).
   `--compact_keys` (since 2026-10-14) keeps it for the cores with values alone (presence bits with ranks, 153 MB, and 3
   bytes a used core: ~0.45 GB at r226), built as the index loads; the same lookups, a second cache line each
-  ([running.md](running.md#developer-options)).
+  ([running.md](running.md#developer-options)). A sparse or compact load decodes no key map of the file's: the
+  decoder names each core with values (since 2026-10-14; a grid's sparse index loads 2.5-3x faster than before,
+  [report](claude/2026-10-14-sparse-load-key-map/README.md)).
 - A full r226 run peaked at 36.5 GB, about 34 GB expected now ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
   it needs the database as separate files (protal prints the `--unpack_db` command).

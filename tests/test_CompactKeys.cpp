@@ -93,6 +93,59 @@ namespace {
     }
 }
 
+// The direct key map gives each core the slots its values take, the cores in order from slot 0 (a core of e >= 2 values
+// e + ceil(e/2): its flex cells beside them), and nothing to a core without values, those of empty blocks included.
+// Seedmap::Locate reads a core's end from its own block and the next block's first slot only for a block's last core
+// (since 2026-10-14): whole blocks used, a block's last core alone, and the last core of the key map (whose end is the
+// final control cell) are among the cores.
+TEST(CompactKeys, TheDirectKeyMapGivesEveryCoreItsSlots) {
+    std::mt19937_64 rng(5);
+    Seedmap map(kCoreBases);
+    uint64_t const cores = uint64_t{1} << (2 * kCoreBases);
+    std::vector<uint64_t> values(cores, 0);
+    std::vector<uint64_t> keys;
+    std::vector<uint64_t> picked{ 0, 1, 2, 3, 4, 5, 6, 7, 15, 16, 23, 4095, cores - 9, cores - 1 };
+    for (size_t k = 0; k < 30000; k++) picked.push_back(rng() & kCoreMask);
+    for (size_t k = 0; k < picked.size(); k++) {
+        size_t const n = k % 4 == 0 ? 1 : 2 + rng() % 30;
+        for (size_t i = 0; i < n; i++) keys.push_back(Key(picked[k], rng() & 0xffffffffu));
+        values[picked[k]] += n;
+    }
+    for (uint64_t key : keys) map.CountUpKey(map.MainKey(key));
+    auto const layout = Seedmap::PackedLayout::For(1000, 100, 1000 + 16);
+    map.BuildValuePointers(2, &layout, false);
+    uint64_t next = 0;
+    for (uint64_t c = 0; c < cores; c++) {
+        uint64_t start = 0, slots = 0;
+        bool const found = map.Locate(c, start, slots);
+        ASSERT_EQ(found, values[c] > 0) << "core " << c;
+        if (!found) continue;
+        ASSERT_EQ(start, next) << "core " << c;
+        ASSERT_EQ(slots, values[c] >= 2 ? values[c] + (values[c] + 1) / 2 : values[c]) << "core " << c;
+        next += slots;
+    }
+    EXPECT_GT(next, keys.size());
+}
+
+// The compact key map's blocks are advised as huge pages, which madvise takes from a page-aligned start alone (until
+// 2026-10-14 the 64-byte-aligned start was passed as it was, and the advice refused): a block of a huge page or more
+// starts on a huge page, and the advice covers its whole pages; a smaller block gets none.
+TEST(CompactKeys, BlocksAreAdvisedAsHugePagesFromAPageBoundary) {
+    uint64_t const page = 4096, huge = CompactKeys::kHugePage;
+    auto const [b0, e0] = CompactKeys::AdvisedRange(0x10040, 8 * huge, page);
+    EXPECT_EQ(b0, 0x11000u);
+    EXPECT_EQ(e0, (0x10040 + 8 * huge) & ~(page - 1));
+    auto const [b1, e1] = CompactKeys::AdvisedRange(0x200000, 4 * huge, page);
+    EXPECT_EQ(b1, 0x200000u);
+    EXPECT_EQ(e1, 0x200000u + 4 * huge);
+    auto const [b2, e2] = CompactKeys::AdvisedRange(0x10040, huge - 1, page);
+    EXPECT_EQ(b2, e2);
+    CompactKeys keys;
+    keys.Init(CompactKeys::kCoresPerLine * (huge / 64));  // presence lines of 2 MB
+    EXPECT_EQ(keys.PresenceBytes(), huge);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(keys.PresenceData()) % huge, 0u);
+}
+
 // An index built as --build builds it (packed), then its key map compacted (Seedmap::CompactKeymap): every core of the
 // 2^20 locates the same slots, so every lookup reads the same packed values; the direct key map is freed, the index line
 // says so, and a second compaction does nothing.
@@ -195,9 +248,11 @@ namespace {
     }
 }
 
-// A load that builds the compact key map as it decodes (SetCompactLoad, --compact_keys), whole and sparse (grid level
-// 2), holds the same index as the load of the direct key map: every core the same slots, every entry the same value
-// and flex cell; the compact one never holds the direct key map, and its index line says so.
+// A load that builds the compact key map as it decodes (SetCompactLoad, --compact_keys), whole and sparse (grid levels
+// 2 and 5), on one thread and three, holds the same index as the load of the direct key map: every core the same
+// slots, every entry the same value and flex cell; the compact one never holds the direct key map, and its index line
+// says so. (The whole direct load is the reference: its key map is decoded as before; the sparse loads' entries are
+// checked against the file's in test_GridLevels.)
 TEST(CompactKeys, ALoadBuildsTheCompactKeyMapAsItDecodes) {
     Seedmap map(kCoreBases);
     auto const values = FillGridIndex(map, 17);
@@ -212,17 +267,20 @@ TEST(CompactKeys, ALoadBuildsTheCompactKeyMapAsItDecodes) {
     ASSERT_EQ(map.SaveCompressed(dir / "index.prx.zst", params, written, raw_chunks), "");
     auto layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
     layout.level_bits = protal::GRID_LEVEL_BITS;
-    for (uint8_t level : { 0, 2 }) {
-        Seedmap direct(kCoreBases), compact(kCoreBases);
-        direct.SetLoadLevel(level);
-        compact.SetLoadLevel(level);
-        compact.SetCompactLoad(true);
-        direct.Load(dir / "index.prx.zst", 3, &layout);
-        compact.Load(dir / "index.prx.zst", 3, &layout);
-        EXPECT_FALSE(direct.HasCompactKeys());
-        ASSERT_TRUE(compact.HasCompactKeys()) << "level " << int(level);
-        EXPECT_LT(compact.KeymapBytes(), direct.KeymapBytes());
-        EXPECT_NE(compact.MemoryDescription().find("compact: "), std::string::npos);
-        ExpectSameIndex(direct, compact, values);
+    for (uint8_t level : { 0, 2, 5 }) {
+        for (int threads : { 1, 3 }) {
+            Seedmap direct(kCoreBases), compact(kCoreBases);
+            direct.SetLoadLevel(level);
+            compact.SetLoadLevel(level);
+            compact.SetCompactLoad(true);
+            direct.Load(dir / "index.prx.zst", threads, &layout);
+            compact.Load(dir / "index.prx.zst", threads, &layout);
+            EXPECT_FALSE(direct.HasCompactKeys());
+            ASSERT_TRUE(compact.HasCompactKeys()) << "level " << int(level);
+            EXPECT_LT(compact.KeymapBytes(), direct.KeymapBytes());
+            EXPECT_NE(compact.MemoryDescription().find("compact: "), std::string::npos);
+            EXPECT_EQ(compact.PackedEntries(), direct.PackedEntries());
+            ExpectSameIndex(direct, compact, values);
+        }
     }
 }
