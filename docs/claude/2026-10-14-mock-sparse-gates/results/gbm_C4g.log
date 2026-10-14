@@ -1,0 +1,45 @@
+run folder /home/falk/Mocks/0.8.4_5369c99_C4g-gbm
+atcc1003_hifi: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/atcc1003_hifi/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 10 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/atcc1003_hifi/protal.log)
+atcc1003_hifi: 1 of 1 profiles written
+d6331_dna: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_dna/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 3 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_dna/protal.log)
+d6331_dna: 1 of 1 profiles written
+d6331_hifi: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_hifi/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 11 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_hifi/protal.log)
+d6331_hifi: 1 of 1 profiles written
+d6331_host: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_host/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 2 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_host/protal.log)
+d6331_host: 1 of 1 profiles written
+d6331_ont: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_ont/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 12 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_ont/protal.log)
+d6331_ont: 1 of 1 profiles written
+d6331_pe_labs: 2 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_pe_labs/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 6 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/d6331_pe_labs/protal.log)
+d6331_pe_labs: 2 of 2 profiles written
+hcom1a_dropouts: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/hcom1a_dropouts/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 3 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/hcom1a_dropouts/protal.log)
+hcom1a_dropouts: 1 of 1 profiles written
+hcom2_invitro: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/hcom2_invitro/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 4 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/hcom2_invitro/protal.log)
+hcom2_invitro: 1 of 1 profiles written
+nibsc_multilab: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/nibsc_multilab/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 1 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/nibsc_multilab/protal.log)
+nibsc_multilab: 1 of 1 profiles written
+strain_mixes: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/strain_mixes/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 8 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/strain_mixes/protal.log)
+strain_mixes: 1 of 1 profiles written
+treichel: 1 samples
+  /home/falk/c4test/protal/build/protal --db /home/falk/c4test/db/protal_db --map /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/treichel/map.tsv -t 4 --no_strains --force --model_kind gbm --sparse_first 4 --sparse_first_pick grid
+  protal exit 0 after 4 s (log: /home/falk/Mocks/0.8.4_5369c99_C4g-gbm/treichel/protal.log)
+treichel: 1 of 1 profiles written

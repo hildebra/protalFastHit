@@ -1,0 +1,49 @@
+set	sample	read_type	kind	level	called	tp	fp	fn	f1	l1	bray_curtis	false_species
+atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	abundance	dbgates	23	19	4	1	0.883721	0.476339	0.23817	s__Escherichia sp004211955,s__Escherichia fergusonii,s__Salmonella enterica,s__Escherichia whittamii
+atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	abundance	C0	22	19	3	1	0.904762	0.468907	0.234453	s__Escherichia sp004211955,s__Salmonella enterica,s__Escherichia whittamii
+atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	abundance	C4s	20	19	1	1	0.95	0.472924	0.236462	s__Escherichia sp004211955
+atcc1003_hifi	atcc1003_hifi_SRR11606871	pb	abundance	C4g	21	19	2	1	0.926829	0.469932	0.234966	s__Escherichia fergusonii,s__Escherichia whittamii
+d6331_dna	d6331_dna_SRR38158090	pe	abundance	dbgates	10	10	0	5	0.8	0.949294	0.474647	
+d6331_dna	d6331_dna_SRR38158090	pe	abundance	C0	10	10	0	5	0.8	0.939559	0.469779	
+d6331_dna	d6331_dna_SRR38158090	pe	abundance	C4s	11	11	0	4	0.846154	0.921575	0.460788	
+d6331_dna	d6331_dna_SRR38158090	pe	abundance	C4g	11	11	0	4	0.846154	0.91826	0.45913	
+d6331_hifi	d6331_hifi_SRR13128012	pb	abundance	dbgates	17	14	3	1	0.875	0.629324	0.314662	s__Escherichia fergusonii,s__Escherichia sp004211955,s__Veillonella sp900766125
+d6331_hifi	d6331_hifi_SRR13128012	pb	abundance	C0	17	14	3	1	0.875	0.629325	0.314662	s__Escherichia fergusonii,s__Escherichia sp004211955,s__Veillonella sp900766125
+d6331_hifi	d6331_hifi_SRR13128012	pb	abundance	C4s	16	14	2	1	0.903226	0.630432	0.315216	s__Escherichia fergusonii,s__Escherichia sp004211955
+d6331_hifi	d6331_hifi_SRR13128012	pb	abundance	C4g	17	14	3	1	0.875	0.624044	0.312022	s__Escherichia fergusonii,s__Veillonella sp900766125,s__Clostridioides difficile_G
+d6331_host	d6331_host_SRR38158106	pe	abundance	dbgates	0	0	0	15	0	1	1	
+d6331_host	d6331_host_SRR38158106	pe	abundance	C0	0	0	0	15	0	1	1	
+d6331_host	d6331_host_SRR38158106	pe	abundance	C4s	0	0	0	15	0	1	1	
+d6331_host	d6331_host_SRR38158106	pe	abundance	C4g	0	0	0	15	0	1	1	
+d6331_ont	d6331_ont_ERR15459768	ont	abundance	dbgates	16	14	2	1	0.903226	0.469901	0.23495	s__Escherichia sp004211955,s__Klebsiella sp004342285
+d6331_ont	d6331_ont_ERR15459768	ont	abundance	C0	16	14	2	1	0.903226	0.474813	0.237407	s__Veillonella dispar,s__Escherichia sp004211955
+d6331_ont	d6331_ont_ERR15459768	ont	abundance	C4s	18	14	4	1	0.848485	0.477214	0.238607	s__Escherichia sp004211955,s__Veillonella dispar,s__Escherichia fergusonii,s__Veillonella sp900766125
+d6331_ont	d6331_ont_ERR15459768	ont	abundance	C4g	17	14	3	1	0.875	0.477334	0.238667	s__Escherichia sp004211955,s__Escherichia fergusonii,s__Veillonella sp900766125
+d6331_pe_labs	d6331_auckland_SRR33710519	pe	abundance	dbgates	12	12	0	3	0.888889	0.407368	0.203684	
+d6331_pe_labs	d6331_auckland_SRR33710519	pe	abundance	C0	12	12	0	3	0.888889	0.408008	0.204004	
+d6331_pe_labs	d6331_auckland_SRR33710519	pe	abundance	C4s	12	12	0	3	0.888889	0.412978	0.206489	
+d6331_pe_labs	d6331_auckland_SRR33710519	pe	abundance	C4g	12	12	0	3	0.888889	0.407048	0.203524	
+d6331_pe_labs	d6331_hku_SRR23926922	pe	abundance	dbgates	12	12	0	3	0.888889	0.188796	0.094398	
+d6331_pe_labs	d6331_hku_SRR23926922	pe	abundance	C0	12	12	0	3	0.888889	0.188795	0.0943975	
+d6331_pe_labs	d6331_hku_SRR23926922	pe	abundance	C4s	12	12	0	3	0.888889	0.207263	0.103632	
+d6331_pe_labs	d6331_hku_SRR23926922	pe	abundance	C4g	12	12	0	3	0.888889	0.184995	0.0924976	
+hcom1a_dropouts	hcom1a_SRR24799833	pe	dropout	dbgates	54	NA	NA	NA	NA	NA	NA	-
+hcom1a_dropouts	hcom1a_SRR24799833	pe	dropout	C0	55	NA	NA	NA	NA	NA	NA	-
+hcom1a_dropouts	hcom1a_SRR24799833	pe	dropout	C4s	57	NA	NA	NA	NA	NA	NA	-
+hcom1a_dropouts	hcom1a_SRR24799833	pe	dropout	C4g	56	NA	NA	NA	NA	NA	NA	-
+hcom2_invitro	hcom2_SRR21819229	pe	closed	dbgates	53	53	0	64	0.623529	NA	NA	
+hcom2_invitro	hcom2_SRR21819229	pe	closed	C0	54	54	0	63	0.631579	NA	NA	
+hcom2_invitro	hcom2_SRR21819229	pe	closed	C4s	56	56	0	61	0.647399	NA	NA	
+hcom2_invitro	hcom2_SRR21819229	pe	closed	C4g	54	54	0	63	0.631579	NA	NA	
+nibsc_multilab	nibsc_SRR36344676	pe	negative	dbgates	0	NA	0	NA	NA	NA	NA	
+nibsc_multilab	nibsc_SRR36344676	pe	negative	C0	0	NA	0	NA	NA	NA	NA	
+nibsc_multilab	nibsc_SRR36344676	pe	negative	C4s	0	NA	0	NA	NA	NA	NA	
+nibsc_multilab	nibsc_SRR36344676	pe	negative	C4g	0	NA	0	NA	NA	NA	NA	
+strain_mixes	strain_mixes_ERR13964287	ont	closed	dbgates	1	1	0	1	0.666667	NA	NA	
+strain_mixes	strain_mixes_ERR13964287	ont	closed	C0	1	1	0	1	0.666667	NA	NA	
+strain_mixes	strain_mixes_ERR13964287	ont	closed	C4s	1	1	0	1	0.666667	NA	NA	
+strain_mixes	strain_mixes_ERR13964287	ont	closed	C4g	1	1	0	1	0.666667	NA	NA	
+treichel	treichel_ERR14788576	pe	abundance	dbgates	62	62	0	1	0.992	0.462898	0.231449	
+treichel	treichel_ERR14788576	pe	abundance	C0	63	62	1	1	0.984127	0.467032	0.233516	s__Roseburia_C sp900315735
+treichel	treichel_ERR14788576	pe	abundance	C4s	63	63	0	0	1	0.458737	0.229369	
+treichel	treichel_ERR14788576	pe	abundance	C4g	63	63	0	0	1	0.460102	0.230051	
