@@ -1,4 +1,4 @@
-// protal 0.8.3. In 0.7 (since 0.6.0a):
+// protal 0.8.4. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -146,6 +146,21 @@
 //   --one_sample). gzip files that are not BGZF inflated with ISA-L in pieces on 1-8 threads per file
 //   (ParallelGzip.cpp; docs/claude/2026-10-12-isal-parallel-inflate), on the system's ISA-L again. Every line of a
 //   lookup's key-map block prefetched.
+// In 0.8.4: features that do not change with the read length or a sparse index (docs/claude/2026-10-14-sparse-index-calls,
+//   docs/claude/2026-10-14-length-free-features): a record's ZS (the seeds of its anchor that its ZU and ZT count), the
+//   reads' unique seeds over those their genes' unique shares lead to expect (a sample seeded from a grid level alone
+//   scaled by that level's seed expectation, in its SAM header), the best reads' identity bounds by their aligned bases,
+//   the ancestry sites per kb, and the sample's read length, its mean and SD (feature groups length_free and read_length,
+//   in the default set); a single-seed anchor's failure is no failed candidate. GTDB builds train paired-end reads of 75,
+//   100, 150 and 250 bp, single-end Illumina reads of 150 and 250 bp and Ultima reads (cut at 320 bases, the last 100
+//   poor, indels with rare substitutions), and random forests as the databases' default models again (--model_kind gbm
+//   for the boosted ones beside them). A sparse index by the genes' grid (--sparse_first_pick grid, --sparse_index; each
+//   index entry's grid level, chosen per gene by strain-allele survival and conservation; a short read's gene anchored on
+//   one grid seed there), a compact key map (--compact_keys, opt-in: 3.4 -> 0.8 GB on a reduced r226 database), both
+//   kinds of presence models in the database (--model_kind), the identity against each read's best strain allele
+//   (allele_identity, allele_top_identity), the stride pick by default with gates pe:4,se:4,pb:16,ont:8 and models at other
+//   gates, --flex_indels, --sparse_seeding, zstd read files on several threads, gzip files of many members by members,
+//   each sample's log of how its input was read.
 #include <iostream>
 #include "RunProtal.h"
 

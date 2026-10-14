@@ -1,7 +1,7 @@
-# What changed from protal 0.6.0a to 0.8.3
+# What changed from protal 0.6.0a to 0.8.4
 
 The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026), the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09), 0.8.1 and 0.8.2 (both 2026-10-11) and 0.8.3 (2026-10-13, branch `audit-fixes`) are compared here:
+2026-09-30 to 0.7.9 on 2026-10-07), 0.8.0 (2026-10-09), 0.8.1 and 0.8.2 (both 2026-10-11), 0.8.3 (2026-10-13) and 0.8.4 (2026-10-14, branch `audit-fixes`) are compared here:
 what changed, and how every version scores on the same simulated data in detection, abundance,
 strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
@@ -26,7 +26,25 @@ for this page.
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 | 0.8.3 | `23bacd9` | 2026-10-13 | 31 | sparse-first gates per read type, recorded by the database and followed by runs (at r226 −35% of the paired-end alignment's time at C = 1, −62% of HiFi's at C = 8); GTDB builds gated by default, `--test-c-gates`; gzip input in pieces on several threads (system ISA-L); a sample's lanes as one sample; F1 over the species the marker genes see; the weighted site shift off again |
 
-## Since 0.8.3
+## What 0.8.4 adds
+
+0.8.4 collects the 34 commits after 0.8.3. The changes:
+- **Presence models:**
+  - the identity against each read's best strain allele;
+  - features that do not change with the read length or a sparse index (`length_free`, `read_length`, and a record's
+    `ZS`);
+  - both kinds of models in the database (`--model_kind`), random forests their default again.
+- **Read alignment:** the stride pick by default, with gates pe:4, se:4, pb:16, ont:8 and models at other gates. Opt-in:
+  a sparse index by the genes' grid, a compact key map, `--flex_indels` and `--sparse_seeding`.
+- **Read input:** zstd files and gzip files of many members read on several threads; each sample's log says how its
+  input was read.
+- **Database builds:**
+  - training on paired-end reads of 75 to 250 bp, and on single-end Illumina and Ultima reads;
+  - `--test-c-gates` also tests the stride pick and `--flex_indels`;
+  - the database file holds its notes.
+- **Mock benchmark:** scripts that download public mock communities and score protal on them (`scripts/mock_benchmark`).
+
+The stride pick and its gates come from the r226 v27 build. The rest is measured on reduced or small databases only.
 
 - **Identity against the best strain allele** (2026-10-13). Two new features, `allele_identity` and
   `allele_top_identity`.
