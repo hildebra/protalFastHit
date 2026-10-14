@@ -636,6 +636,15 @@ grid levels stops a grid-picked run (exit 2). The models must be trained on runs
 the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
 pick; [report](claude/2026-10-13-gene-grid-index.md)).
 
+`--compact_keys` (since 2026-10-14) keeps the index's key map for the cores with values alone: a
+presence bit for each of the 2^30 cores with ranks (153 MB) and 3 bytes a used core, instead of
+16-bit offsets for all of them (3.2 GB, of which r226 uses 9.2%). The load builds it as it decodes, so
+the direct key map is never held: on the reduced r226 database a run peaks at 0.8 GB instead of 3.4
+GB, and at r226 the key map would take ~0.45 GB (less on a grid's sparse index). The records are the
+same; a lookup reads a second line of the key map, which costs paired-end runs nothing measurable and
+HiFi runs ~7 ns a lookup (+2.6% of the wall time there)
+([report](claude/2026-10-13-compact-key-map.md)). Off by default until measured at r226.
+
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
 stage after the alignment takes the rest (the last sample, and any the worker is behind with) on
@@ -656,7 +665,8 @@ protal keeps the index and the reference genes in memory: 36.5 GB peak for a run
 database, measured on real paired-end and HiFi samples (2026-10-05, `2d809cf`, 32 threads), and about
 34 GB expected since the index load frees its threads' buffers as it ends and the index's values take
 41 bits (26.6 GB;
-its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the rest;
+its key map, 3.2 GB, ~0.45 GB with `--compact_keys` (above); the genes at two bits per base, the tables and the run's
+buffers, the rest;
 [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
 59 and 12 GB, predate the 2-bit genes and the packed index).

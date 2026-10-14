@@ -320,6 +320,12 @@ namespace protal {
             m_sm.PrefetchKey(kmer);
         }
 
+        // With a compact key map, a lookup's second key map read fetched ahead (Seedmap::PrefetchStart); nothing without.
+        inline void PrefetchStart(size_t kmer) const {
+            m_sm.PrefetchStart(kmer);
+        }
+        bool CompactKeys() const { return m_sm.HasCompactKeys(); }
+
         // What GetFromLookup reads: the lookup's block, its flex cells (if the key has them) and its entries, every cache
         // line of it up to kPrefetchLines. Only the first line of each was fetched before; the block's later lines then
         // came from memory while it was scored. At GTDB r226 (70 cells a block, ~10 lines) the seeding took 10% less with

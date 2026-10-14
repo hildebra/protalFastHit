@@ -4500,6 +4500,23 @@ class SparseFirstGatesTest(WorkDir):
                          db=self.plain_db, rc_expected=2)
         self.assertIn("--sparse_index on loads the entries of the grid pick's level alone", log)
 
+    def test_compact_keys_give_the_same_records(self):
+        """--compact_keys (2026-10-14) keeps the key map of the cores with values alone (CompactKeys.h), built as the index
+        is loaded: the same records as the direct key map, whole and on the grid's sparse index, a smaller key map on the
+        index line."""
+        records, logs = {}, {}
+        for name, extra in (("keys_direct", ()), ("keys_compact", ("--compact_keys",)),
+                            ("keys_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid")),
+                            ("keys_grid_compact", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--compact_keys"))):
+            logs[name] = self.align(name, *extra, db=self.plain_db)
+            records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
+        self.assertTrue(records["keys_direct"])
+        self.assertEqual(records["keys_direct"], records["keys_compact"])
+        self.assertEqual(records["keys_grid"], records["keys_grid_compact"])
+        for name in ("keys_compact", "keys_grid_compact"):
+            self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 0\.\d GB \(compact: \d+ cores with values of 1073741824")
+        self.assertIn("key map 3.2 GB", logs["keys_direct"])
+
     def test_sparse_seeding(self):
         """--sparse_seeding (2026-10-13) seeds the reads a gate keeps from its cores alone, as an index of only those would.
         Where the gate looks up every core (1) that is all of them: the records are those without the option. After the

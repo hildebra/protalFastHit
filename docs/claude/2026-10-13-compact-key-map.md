@@ -2,7 +2,8 @@
 
 Date: 2026-10-13. Branch `audit-fixes` at `19ccc0e` plus the uncommitted whole-index change of the
 [gene-grid report](2026-10-13-gene-grid-index.md) (follow-up 4) and a count of cores in the sparse load's log line
-(`Seedmap::LoadColumnsAtLevel`: "on K of its N cores with entries"). An evaluation: nothing below is implemented.
+(`Seedmap::LoadColumnsAtLevel`: "on K of its N cores with entries"). An evaluation; the follow-up (2026-10-14) builds it
+as `--compact_keys` and measures it.
 
 ## The questions
 
@@ -115,3 +116,59 @@ Build the rank-indexed key map for the loaded index, whole and sparse, after `se
 It is worth more than any further change to the grid itself: ~2.8 GB in every run, and with the grid at C 16 an r226
 HiFi run in ~6 GB instead of ~34 GB today (or ~9 GB with the grid alone). The models for such runs must still be
 trained on grid-picked runs (gene-grid report, follow-up 5).
+
+## Follow-up: built and measured (2026-10-14)
+
+The user asked to build it and measure its costs. Code on `b5a9aa9` plus the uncommitted `--compact_keys`:
+`src/Hash/CompactKeys.h` (the structure), `Seedmap` (`Locate`, `PrefetchKey` and a new `PrefetchStart` read it; the
+whole and the sparse load build it as they decode; `CompactKeymap` converts a loaded direct key map, for
+`--sparse_seeding`, whose statistics read the direct one), `KmerLookupSM::PrefetchStart`, the lookup loops of
+`ChainAnchorFinder` (the start of a key fetched half as far ahead as its presence line, and both twice as far ahead as
+the direct key map's block), `--compact_keys` (a developer option, off by default). Tests: `tests/test_CompactKeys.cpp`
+(the structure over line and group edges; an index's every core located the same after `CompactKeymap`; whole and
+sparse loads that build it give every core the same slots and every entry the same value and flex cell as direct
+loads) and an e2e test (the same records with and without, whole and on the grid's sparse index).
+
+**As built.** 448 cores per 64-byte line of presence bits with the rank count before the line; a 64-bit base per 64
+used cores and a 24-bit offset per used core. The loads decode each chunk's key map into a buffer of their worker's,
+mark its used cores and keep their starts (4 bytes each, relative to the chunk), then place the ranks, bases and
+offsets once all are known; the direct key map is never allocated.
+
+**Data and commands.** The reduced r226 database of the mock benchmark (WSL `~/Mocks/reduced_db_r226`: 16.4 M entries,
+10.25 M cores with values; the direct key map 3.2 GB, the compact one 0.2 GB) and two real mock samples: paired-end
+`d6331_hku_SRR23926922` (44.8 M k-mers looked up) and the D6331 HiFi run `SRR13128012` (186 M). Ungated
+(`--sparse_first 0`: every core looked up), 4 threads, `--no_qcmsa --no_strains`, runs alternating without and with
+`--compact_keys`, 5 times each:
+
+```bash
+/usr/bin/time -v taskset -c 0-3 protal --db ~/Mocks/reduced_db_r226 -1 SRR23926922_1.fq.gz -2 SRR23926922_2.fq.gz \
+    --read_type pe -t 4 --prefix pe -o run --no_qcmsa --no_strains --sparse_first 0 [--compact_keys]
+```
+
+(HiFi: `-1 SRR13128012.fq.gz --read_type pb`). A lookup's cost: the seeding stage's seconds per thread
+(`misc/<prefix>_runtime.tsv`, row `Seeding`) times the 4 threads over the k-mers looked up (the log's seeding line);
+the records compared sorted, without the SAM header. Three rounds: the conversion after the
+load (stage 1), the build during the load (stage 2), and stage 2 with the longer prefetch lead (final).
+
+| final round | without | with `--compact_keys` |
+|---|---|---|
+| SAM records (sorted, without the header) | | identical in all 10 pairs (every round) |
+| peak RSS | 3.34-3.43 GB | **0.74-0.87 GB** |
+| index load | 0.66-0.99 s | 0.76-0.87 s (stage 2) |
+| paired-end: ns per lookup, median (paired mean difference) | 103.9 | 96.0 (−5.6 ns: noise) |
+| HiFi: ns per lookup, median (paired mean difference) | 86.0 | 90.6 (+7.3 ns, +8.6%) |
+| HiFi: wall, median | 13.30 s | 13.64 s (+2.6%) |
+
+- **Memory: −2.6 GB a run (−76% here).** The run peaks at 0.8 GB instead of 3.4 GB on this database; the whole r226
+  index would drop from 29.8 to ~27 GB (key map 3.2 → ~0.45 GB), a grid run at C 16 from ~4.9 to ~2 GB.
+- **Lookups: a few nanoseconds.** Paired-end reads, whose keys are fetched a read ahead, show no difference beyond
+  the noise (the medians moved −8% to +7% between rounds). HiFi reads, looked up chunk by chunk with a lead of a few
+  k-mers, pay ~7 ns a lookup (+10 ns before the lead was doubled), +2.6% of the wall time. At r226 a lookup takes ~175
+  ns (its flex cells most of it), so the same few ns are ~4% of the seeding; the far smaller tables (153 MB of presence
+  against 3.2 GB) may need fewer page-table walks there, which this database, whose key map misses the caches either
+  way, cannot show.
+- **Load: +0.1 s** here, the used cores collected and their starts placed.
+
+**Not yet measured:** an r226 run (`measure_performance.sh` with `PROTAL_ARGS=--compact_keys` beside a run without),
+which would also settle the page-table question. A line layout with each word's count beside the presence bits
+(fewer popcounts per rank, which `Locate` and `PrefetchStart` each compute) could take back part of the HiFi cost.

@@ -191,6 +191,9 @@ namespace protal {
         // while a lookup's values are read, those of the one kPrefetchLookups ahead (pfbench, 2026-10-02: -24% on its
         // own; with the read's lookups prepared one read ahead, PrepareLookups, -30%).
         static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
+        // With a compact key map (--compact_keys) a lookup reads two lines of it: the key's presence and rank (PrefetchKey,
+        // kPrefetchKmers ahead), then its start, which needs the first (PrefetchStart, half as far ahead).
+        static constexpr size_t kPrefetchStarts = kPrefetchKmers / 2;
         bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
         stage1_probe::Mate* m_probe = nullptr;  // --stage1_probe: where this read's lookups are counted (SetProbe)
         uint32_t m_probe_cores = 0;  // --stage1_probe: the k-mers of the read m_lookups are of (LookupKmers)
@@ -224,10 +227,14 @@ namespace protal {
         void LookupKmers(KmerList& kmer_list) {
             m_lookups.clear();
             size_t n = kmer_list.size();
+            // How far ahead the key map is fetched: a compact one twice as far (its two lines a lookup), so that the rank of a
+            // key fetched starts_ahead ahead finds its presence line there.
+            size_t const ahead = m_kmer_lookup.CompactKeys() ? 2 * kPrefetchKmers : kPrefetchKmers, starts_ahead = ahead / 2;
             if (m_seed_level > 0 && m_sparse_grid) {
-                for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
+                for (size_t j = 0; j < std::min(ahead, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
                 for (size_t j = 0; j < n; j++) {
-                    if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+                    if (j + ahead < n) m_kmer_lookup.PrefetchKey(kmer_list[j + ahead].first);
+                    if (j + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer_list[j + starts_ahead].first);
                     m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), m_seed_level);
                 }
             } else if (m_seed_level > 0) {
@@ -237,15 +244,17 @@ namespace protal {
                 }
                 n = m_sampled.size();
                 auto kmer = [&](size_t i) -> auto& { return kmer_list[m_sampled[i]]; };
-                for (size_t i = 0; i < std::min(kPrefetchKmers, n); i++) m_kmer_lookup.PrefetchKey(kmer(i).first);
+                for (size_t i = 0; i < std::min(ahead, n); i++) m_kmer_lookup.PrefetchKey(kmer(i).first);
                 for (size_t i = 0; i < n; i++) {
-                    if (i + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer(i + kPrefetchKmers).first);
+                    if (i + ahead < n) m_kmer_lookup.PrefetchKey(kmer(i + ahead).first);
+                    if (i + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer(i + starts_ahead).first);
                     m_kmer_lookup.Get(m_lookups, kmer(i).first, static_cast<uint32_t>(kmer(i).second));
                 }
             } else {
-                for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
+                for (size_t j = 0; j < std::min(ahead, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
                 for (size_t j = 0; j < n; j++) {
-                    if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+                    if (j + ahead < n) m_kmer_lookup.PrefetchKey(kmer_list[j + ahead].first);
+                    if (j + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer_list[j + starts_ahead].first);
                     m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
                 }
             }
@@ -1061,8 +1070,14 @@ namespace protal {
             m_bm_sparse.Start();
             m_sparse_lookups.clear();
             m_sparse_kmers = 0;
-            for (size_t j = 0; j < kmer_list.size(); j++) {
-                if (!SparsePicked(j, kmer_list.size(), kmer_list[j].first)) continue;
+            size_t const n = kmer_list.size();
+            bool const compact = m_kmer_lookup.CompactKeys();
+            for (size_t j = 0; j < n; j++) {
+                // The keys were fetched a read earlier (PrefetchSparseKeys); a compact key map's starts now, a few ahead.
+                if (compact && j + kPrefetchStarts < n && SparsePicked(j + kPrefetchStarts, n, kmer_list[j + kPrefetchStarts].first)) {
+                    m_kmer_lookup.PrefetchStart(kmer_list[j + kPrefetchStarts].first);
+                }
+                if (!SparsePicked(j, n, kmer_list[j].first)) continue;
                 m_sparse_kmers++;
                 m_kmer_lookup.Get(m_sparse_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second), GateLevel(), m_grid_whole);
             }
@@ -1123,13 +1138,15 @@ namespace protal {
                 if (SparsePicked(j, kmer_list.size(), kmer_list[j].first)) m_sampled.push_back(j);
             }
             size_t const n = m_sampled.size();
-            for (size_t i = 0; i < std::min(kPrefetchKmers, n); i++) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i]].first);
+            size_t const ahead = m_kmer_lookup.CompactKeys() ? 2 * kPrefetchKmers : kPrefetchKmers, starts_ahead = ahead / 2;
+            for (size_t i = 0; i < std::min(ahead, n); i++) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i]].first);
             m_sparse_lookups.clear();
             uint32_t hits = 0;
             size_t scored = 0;
             auto score_next = [&] { hits += SparseScoreOf(m_sparse_lookups[scored++]) >= m_sparse_score; };
             for (size_t i = 0; i < n && hits < enough; i++) {
-                if (i + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i + kPrefetchKmers]].first);
+                if (i + ahead < n) m_kmer_lookup.PrefetchKey(kmer_list[m_sampled[i + ahead]].first);
+                if (i + starts_ahead < n) m_kmer_lookup.PrefetchStart(kmer_list[m_sampled[i + starts_ahead]].first);
                 size_t const before = m_sparse_lookups.size();
                 auto& [kmer, pos] = kmer_list[m_sampled[i]];
                 m_kmer_lookup.Get(m_sparse_lookups, kmer, static_cast<uint32_t>(pos), GateLevel());

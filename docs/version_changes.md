@@ -87,6 +87,13 @@ for this page.
   pick beside the database's, and `--sparse-first-pick grid` builds a grid-picked database. A database built before
   2026-10-13 has no grid levels: the grid pick stops on it (exit 2); the other picks are unchanged.
 
+- **A compact key map** (2026-10-14; opt-in, `--compact_keys`). The key map gives every one of the 2^30 cores a
+  16-bit offset (3.2 GB), of which r226 uses 9.2%. With the option it holds a presence bit per core with ranks (153
+  MB) and 3 bytes a used core (~0.45 GB at r226), built as the index loads, so the direct key map is never held. On
+  the reduced r226 database a run peaked at 0.8 GB instead of 3.4 GB with the same records; paired-end lookups cost
+  the same within the noise, HiFi lookups ~7 ns more (+2.6% of the wall time) ([report](claude/2026-10-13-compact-key-map.md)).
+  Not yet measured at r226.
+
 - **How the input was read, in every run's log** (2026-10-13). After each sample's alignment a line says how each read
   file was read (format, members, threads; where it went on by members or fell back to one thread). It also says the
   share of the alignment its threads spent getting reads, a quarter or more being "the input held the alignment

@@ -980,10 +980,25 @@ namespace protal {
         // without raising the run's peak: the r226 load took 0.67 s longer with one thread's frames allowed.
         constexpr uint64_t kAlignmentBytesPerThread = uint64_t{24} << 20;
         map->SetLoadAllowance(static_cast<uint64_t>(load_threads) * kAlignmentBytesPerThread);
+        // --compact_keys: the load builds the compact key map, never the direct one (which --sparse_seeding's statistics read
+        // first: then it is converted after them).
+        if (options.CompactKeys() && !options.SparseSeeding()) map->SetCompactLoad(true);
         map->Load(index_file, load_threads, &layout);
         log << "Index features: " << map->FeatureDescription() << std::endl;
         log << "Index in memory: " << map->MemoryDescription() << std::endl;
         if (options.SparseSeeding()) LogSparseIndex(*map, log);
+        // --compact_keys: the key map of the used cores only (CompactKeys.h), the direct one freed; the same lookups.
+        if (options.CompactKeys() && !map->HasCompactKeys()) {
+            auto const begin = std::chrono::steady_clock::now();
+            bool const compacted = map->CompactKeymap(load_threads);
+            double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+            if (compacted) {
+                log << "Index in memory (compact key map, made in " << std::fixed << std::setprecision(2) << seconds << " s): "
+                    << std::defaultfloat << map->MemoryDescription() << std::endl;
+            } else {
+                log << "Key map not compacted: a group of its starts would span 2^24 slots or more (--compact_keys)" << std::endl;
+            }
+        }
         auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
         auto const reference = fingerprint ? *fingerprint : ReferenceFingerprint::Of(map_file, fna_file);
         if (map->HasReferenceFingerprint() && !(map->GetReferenceFingerprint() == reference)) {

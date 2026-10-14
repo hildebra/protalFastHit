@@ -18,6 +18,7 @@
 #include "Utilities.h"
 #include "Zstd.h"
 #include "IndexCodec.h"
+#include "CompactKeys.h"
 #include "KmerUtils.h"
 #include "ReferenceFingerprint.h"
 #include "sparse_map.h"
@@ -257,6 +258,10 @@ namespace protal {
 //        using KeyMap_t = uint8_t;
         using KeyMap_t = uint16_t; // CHANGE THIS IN LATEST VERSION
         KeyMap_t* m_keymap = nullptr;
+        // --compact_keys (CompactKeymap): the key map of the used cores only, which Locate and the prefetches read; the
+        // direct key map is then freed.
+        std::unique_ptr<CompactKeys> m_compact;
+        bool m_compact_load = false;  // SetCompactLoad: the next packed load builds m_compact, not the direct key map
         uint64_t m_keymask = (uint64_t{1} << m_main_bits) - 1;
         size_t keymap_size = 1u << m_main_bits;
         size_t keymap_max = m_keymask;
@@ -504,11 +509,16 @@ namespace protal {
             } else {
                 s = std::to_string(values_size) + " slots of 8 bytes: " + gb(values_size * sizeof(ValueEntry));
             }
+            if (m_compact) {
+                return s + "; key map " + gb(m_compact->Bytes()) + " (compact: " + std::to_string(m_compact->UsedCores()) + " cores with values of " +
+                       std::to_string(m_compact->Cores()) + ", --compact_keys)";
+            }
             return s + "; key map " + gb(keymap_size_total * sizeof(KeyMap_t));
         }
 
         // The key map's bytes: fixed by the core's length, whatever the index holds.
         uint64_t KeymapBytes() const {
+            if (m_compact) return m_compact->Bytes();
             return keymap_size_total * sizeof(KeyMap_t);
         }
 
@@ -591,6 +601,7 @@ namespace protal {
 
         // The slots of a key's values in the file's layout: the first and how many; false if none.
         inline bool Locate(uint64_t main_key, uint64_t& start, uint64_t& slots) const {
+            if (m_compact) return m_compact->Locate(main_key, start, slots);
             uint64_t const block_start_idx = ControlBlockIndex(main_key);
             uint64_t const block_end_idx = block_start_idx + m_keys_per_ctrl_block + ctrl_block_cell_size;
             uint64_t block_value_start_idx, block_value_end_idx;
@@ -856,20 +867,29 @@ namespace protal {
         // region shared with the neighbouring ranges are OR'd atomically (PutBits). Returns the entries
         // packed, or nullopt with `bad` the first value whose fields do not fit the layout.
         std::optional<uint64_t> PackBlocks(uint64_t first_block, uint64_t end_block, uint64_t const* values, uint64_t values_first_slot,
-                                           uint64_t range_first_slot, uint64_t range_end_slot, uint64_t& bad) {
+                                           uint64_t range_first_slot, uint64_t range_end_slot, uint64_t& bad,
+                                           KeyMap_t const* km = nullptr) {
             uint64_t const first_bit = SlotBit(range_first_slot), end_bit = SlotBit(range_end_slot);
             uint64_t const safe_begin = (first_bit >> 3) + ((first_bit & 7) ? 1 : 0);
             uint64_t const safe_end = end_bit >> 3;
             uint64_t const cpb = m_keys_per_ctrl_block + ctrl_block_cell_size;
+            // The blocks' key map from first_block on: `km` (a chunk's, decoded into a buffer for a compact key map), else
+            // the loaded one's.
+            KeyMap_t const* const blocks = km ? km : m_keymap + first_block * cpb;
+            auto block_start = [&](uint64_t block) {
+                uint64_t v;
+                std::memcpy(&v, blocks + (block - first_block) * cpb, 8);
+                return v;
+            };
             uint64_t entries = 0;
             for (uint64_t block = first_block; block < end_block; block++) {
-                uint64_t const ctrl = block * cpb;
-                uint64_t const begin = BlockStart(block);
-                uint64_t const end = block + 1 == end_block ? range_end_slot : BlockStart(block + 1);
+                uint64_t const ctrl = (block - first_block) * cpb;
+                uint64_t const begin = block_start(block);
+                uint64_t const end = block + 1 == end_block ? range_end_slot : block_start(block + 1);
                 if (begin == end) continue;
                 for (size_t j = 0; j < m_keys_per_ctrl_block; j++) {
-                    uint64_t const start = begin + m_keymap[ctrl + ctrl_block_cell_size + j];
-                    uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + m_keymap[ctrl + ctrl_block_cell_size + j + 1];
+                    uint64_t const start = begin + blocks[ctrl + ctrl_block_cell_size + j];
+                    uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + blocks[ctrl + ctrl_block_cell_size + j + 1];
                     if (stop <= start) continue;
                     uint64_t const S = stop - start;
                     if (!PackKey(start, S, values + (start - values_first_slot), safe_begin, safe_end, bad)) return std::nullopt;
@@ -1129,6 +1149,7 @@ namespace protal {
         // Frees the key map and the values, for --build once the index is written: nothing reads the map after this.
         void FreeMemory() {
             std::free(m_keymap);
+            m_compact.reset();
             std::free(m_map);
             std::free(m_packed);
             m_keymap = nullptr;
@@ -1295,7 +1316,20 @@ namespace protal {
                 LoadColumnsAtLevel(path, name, table, container, threads, *pack);
                 return;
             }
-            AllocateKeymap(keymap_size_total);
+            // SetCompactLoad: a compact key map built as the chunks are decoded (their key maps into the workers' buffers),
+            // never the direct one.
+            bool const compact_load = m_compact_load && pack;
+            std::unique_ptr<CompactKeys> compact;
+            std::vector<std::vector<uint32_t>> used_starts;
+            std::vector<std::vector<KeyMap_t>> buffers;
+            if (compact_load) {
+                compact = std::make_unique<CompactKeys>();
+                compact->Init(keymap_size);
+                used_starts.resize(container.chunks.size());
+                buffers.resize(static_cast<size_t>(std::max(threads, 1)));
+            } else {
+                AllocateKeymap(keymap_size_total);
+            }
             if (!pack) {
                 AllocateValues(values_size);
                 std::string const error = index_codec::Decode(path, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map),
@@ -1311,6 +1345,7 @@ namespace protal {
                 Seedmap* map;
                 index_codec::Chunk const* chunk;
                 uint64_t safe_begin, safe_end;  // the bytes of the chunk's region no other chunk shares (PackBlocks)
+                KeyMap_t const* km;             // the chunk's decoded key map (its blocks)
                 uint64_t entries = 0;
                 uint64_t bad = 0;
             };
@@ -1325,7 +1360,7 @@ namespace protal {
                 auto& p = *static_cast<Packing*>(context);
                 auto const& ch = *p.chunk;
                 auto const n = p.map->PackBlocks(ch.first_block, ch.first_block + ch.blocks, cells, first_slot, ch.first_value,
-                                                 ch.first_value + ch.values, p.bad);
+                                                 ch.first_value + ch.values, p.bad, p.km);
                 if (!n) return false;
                 p.entries += *n;
                 return true;
@@ -1336,22 +1371,43 @@ namespace protal {
             zstd::LoadBudget budget = index_codec::ChunkOutput(container, m_slot_bits_32);
             budget.allowance = m_load_allowance;
             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
-                    [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
+                    [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
                 uint64_t const first_bit = SlotBit(ch.first_value), end_bit = SlotBit(ch.first_value + ch.values);
-                Packing packing{ this, &ch, (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), end_bit >> 3 };
+                KeyMap_t* km = nullptr;
+                if (compact_load) {
+                    auto& buffer = buffers[worker];
+                    size_t const cells = ch.blocks * l.CellsPerBlock();
+                    if (buffer.size() < cells) buffer.resize(cells);
+                    std::fill_n(buffer.data(), cells, KeyMap_t{0});
+                    km = buffer.data();
+                } else {
+                    km = m_keymap + ch.first_block * l.CellsPerBlock();
+                }
+                Packing packing{ this, &ch, (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), end_bit >> 3, km };
                 auto own = sink;
                 own.context = &packing;
-                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, m_keymap + ch.first_block * l.CellsPerBlock(),
-                                                                       nullptr, nullptr, &own);
+                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, km, nullptr, nullptr, &own);
                 if (e == index_codec::detail::kSinkRefused) return BadValueMessage(packing.bad);
                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
+                if (compact_load) CollectUsed(ch, km, *compact, used_starts[frame - 1]);
                 entries += packing.entries;
                 return "";
             }, &budget);
             // A value outside the layout is the index's content (another reference); anything else is the file.
             if (!error.empty()) InvalidIndex(name, error.rfind("holds a value", 0) == 0 ? error : error + " (truncated or corrupt file?)");
-            std::memcpy(m_keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
+            if (compact_load) {
+                std::vector<std::vector<KeyMap_t>>().swap(buffers);
+                std::vector<uint64_t> first(container.chunks.size());
+                for (size_t c = 0; c < first.size(); c++) first[c] = container.chunks[c].first_value;
+                if (!FinishCompact(*compact, used_starts, first, l.values, threads)) {
+                    InvalidIndex(name, "its key map cannot be made compact (a core of more slots than an index holds): run without "
+                                       "--compact_keys");
+                }
+                m_compact = std::move(compact);
+            } else {
+                std::memcpy(m_keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
+            }
             m_packed_entries = entries;
             m_chunks_on_fewer_threads = budget.frames_on_fewer;
         }
@@ -1469,16 +1525,32 @@ namespace protal {
             };
             // A key's slots for its kept entries (BuildValuePointersSecondIteration's demand: its flex cells beside them).
             auto slots_of = [this](uint64_t n) { return n >= m_flex_threshold ? n + DivisionByTwoCeiling(n) : n; };
-            AllocateKeymap(keymap_size_total);
+            // SetCompactLoad: the chunks' key maps decoded into the workers' buffers, and a compact key map of the kept
+            // cores built below, never the direct one.
+            bool const compact_load = m_compact_load;
+            std::vector<std::vector<KeyMap_t>> buffers;
+            if (compact_load) {
+                buffers.resize(static_cast<size_t>(std::max(threads, 1)));
+            } else {
+                AllocateKeymap(keymap_size_total);
+            }
             std::string error = zstd::ForEachFrame(path, table, 1, threads,
-                    [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
+                    [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
                 Kept& k = kept[frame - 1];
-                Cursor cursor{ &ch, m_keymap + ch.first_block * cpb, &k, &keep_key, cpb, kpb, l.ctrl_cells };
+                KeyMap_t* km = nullptr;
+                if (compact_load) {
+                    auto& buffer = buffers[worker];
+                    if (buffer.size() < ch.blocks * cpb) buffer.resize(ch.blocks * cpb);
+                    std::fill_n(buffer.data(), ch.blocks * cpb, KeyMap_t{0});
+                    km = buffer.data();
+                } else {
+                    km = m_keymap + ch.first_block * cpb;
+                }
+                Cursor cursor{ &ch, km, &k, &keep_key, cpb, kpb, l.ctrl_cells };
                 auto own = sink;
                 own.context = &cursor;
-                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, m_keymap + ch.first_block * cpb,
-                                                                       nullptr, nullptr, &own);
+                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, km, nullptr, nullptr, &own);
                 if (e == index_codec::detail::kSinkRefused) return "chunk " + std::to_string(frame) + ": its key map and values disagree";
                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
                 for (auto const n : k.counts) k.slots += slots_of(n);
@@ -1500,7 +1572,30 @@ namespace protal {
                 m_file_keys += kept[c].file_keys;
                 m_kept_keys += kept[c].keys.size();
             }
-            error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+            if (compact_load) {
+                // The kept cores marked, and their starts in key order: each chunk's from its first slot (chunk_slot).
+                std::vector<std::vector<KeyMap_t>>().swap(buffers);
+                auto keys = std::make_unique<CompactKeys>();
+                keys->Init(keymap_size);
+                std::vector<std::vector<uint32_t>> starts(kept.size());
+                error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
+                    Kept const& k = kept[c];
+                    starts[c].reserve(k.keys.size());
+                    uint64_t offset = 0;
+                    for (size_t i = 0; i < k.keys.size(); i++) {
+                        keys->MarkUsed(k.keys[i]);
+                        starts[c].push_back(static_cast<uint32_t>(offset));
+                        offset += slots_of(k.counts[i]);
+                    }
+                    return "";
+                });
+                std::vector<uint64_t> first(chunk_slot.begin(), chunk_slot.end() - 1);
+                if (!error.empty() || !FinishCompact(*keys, starts, first, chunk_slot.back(), threads)) {
+                    InvalidIndex(name, "its sparse key map cannot be made compact: run without --compact_keys");
+                }
+                m_compact = std::move(keys);
+            }
+            if (!compact_load) error = zstd::ParallelFor(kept.size(), threads, [&](size_t c, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[c];
                 Kept const& k = kept[c];
                 uint64_t position = chunk_slot[c];
@@ -1524,7 +1619,7 @@ namespace protal {
             });
             if (!error.empty()) InvalidIndex(name, error);
             values_size = chunk_slot.back();
-            std::memcpy(m_keymap + keymap_size_total - ctrl_block_cell_size, &values_size, 8);
+            if (!compact_load) std::memcpy(m_keymap + keymap_size_total - ctrl_block_cell_size, &values_size, 8);
             SetLayout(pack);
             AllocatePacked();  // zeroed: an all-zero entry is empty
             m_packed_entries = entries;
@@ -1858,9 +1953,131 @@ namespace protal {
         // block's value offset, 32 bytes from the block's start (one or two cache lines). The key map is gigabytes,
         // so a lookup misses the caches; fetched ahead, a read's lookups wait for memory together, not in turn.
         void PrefetchKey(uint64_t key) {
+            if (m_compact) {
+                m_compact->Prefetch(MainKey(key));
+                return;
+            }
             char const* const block = reinterpret_cast<char const*>(m_keymap + ControlBlockIndex(MainKey(key)));
             __builtin_prefetch(block);
             __builtin_prefetch(block + 31);
+        }
+
+        // With a compact key map (CompactKeymap), a lookup's second read: the key's start and the next, fetched once its
+        // presence line (PrefetchKey, earlier) has arrived. Nothing without one.
+        void PrefetchStart(uint64_t key) const {
+            if (m_compact) m_compact->PrefetchStart(MainKey(key));
+        }
+
+        bool HasCompactKeys() const { return m_compact != nullptr; }
+
+        // The next load (packed, whole or sparse) builds a compact key map (CompactKeys) as it decodes, and never the
+        // direct one: each chunk's key map is decoded into a buffer of its worker's, its used cores marked and their
+        // starts kept (CollectUsed), and the starts placed once all are known (FinishCompact). --compact_keys.
+        void SetCompactLoad(bool on) { m_compact_load = on; }
+
+        // A chunk's used cores, from its decoded key map `km` (its blocks): each marked in `compact`, its first slot less the
+        // chunk's first value appended to `starts`, in key order.
+        void CollectUsed(index_codec::Chunk const& ch, KeyMap_t const* km, CompactKeys& compact, std::vector<uint32_t>& starts) const {
+            uint64_t const cpb = m_keys_per_ctrl_block + ctrl_block_cell_size;
+            for (uint64_t b = 0; b < ch.blocks; b++) {
+                uint64_t begin, end;
+                std::memcpy(&begin, km + b * cpb, 8);
+                if (b + 1 < ch.blocks) {
+                    std::memcpy(&end, km + (b + 1) * cpb, 8);
+                } else {
+                    end = ch.first_value + ch.values;
+                }
+                if (begin == end) continue;
+                for (uint64_t j = 0; j < m_keys_per_ctrl_block; j++) {
+                    uint64_t const start = begin + km[b * cpb + ctrl_block_cell_size + j];
+                    uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + km[b * cpb + ctrl_block_cell_size + j + 1];
+                    if (stop <= start) continue;
+                    compact.MarkUsed((ch.first_block + b) * m_keys_per_ctrl_block + j);
+                    starts.push_back(static_cast<uint32_t>(start - ch.first_value));
+                }
+            }
+        }
+
+        // A compact key map whose used cores are all marked, from each chunk's starts in key order (`starts[c]`, slots less
+        // `first[c]`), the values ending at `end`: the ranks counted, then the bases and the offsets placed, the chunks in
+        // parallel. False if the starts are not the used cores, or a group of them spans 2^24 slots.
+        static bool FinishCompact(CompactKeys& compact, std::vector<std::vector<uint32_t>> const& starts,
+                                  std::vector<uint64_t> const& first, uint64_t end, int threads) {
+            uint64_t const used = compact.CountRanks();
+            compact.AllocateStarts();
+            std::vector<uint64_t> rank0(starts.size() + 1, 0);
+            for (size_t c = 0; c < starts.size(); c++) rank0[c + 1] = rank0[c] + starts[c].size();
+            if (rank0.back() != used) return false;
+            for (int pass = 0; pass < 2; pass++) {
+                std::atomic<bool> fits{true};
+#pragma omp parallel for num_threads(std::max(threads, 1)) schedule(dynamic, 1)
+                for (int64_t c = 0; c < static_cast<int64_t>(starts.size()); c++) {
+                    for (size_t i = 0; i < starts[c].size(); i++) {
+                        uint64_t const rank = rank0[c] + i, start = first[c] + starts[c][i];
+                        if (pass == 0) {
+                            if (rank % CompactKeys::kGroup == 0) compact.SetBase(rank, start);
+                        } else if (!compact.SetOffset(rank, start)) {
+                            fits = false;
+                        }
+                    }
+                }
+                if (pass == 0) {
+                    if (used % CompactKeys::kGroup == 0) compact.SetBase(used, end);
+                } else if (!fits || !compact.SetOffset(used, end)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // The loaded key map as CompactKeys (--compact_keys, docs/claude/2026-10-13-compact-key-map.md): presence bits and
+        // the starts of the used cores, from the direct key map, which is then freed; every lookup gives the same slots.
+        // False, and the key map kept, if a group of starts would span 2^24 slots (a core of more slots than an index
+        // holds). Its blocks in parallel on `threads`.
+        bool CompactKeymap(int threads) {
+            if (m_compact || !m_keymap) return false;
+            auto compact = std::make_unique<CompactKeys>();
+            compact->Init(keymap_size);
+            int64_t const blocks = static_cast<int64_t>(keymap_size >> ctrl_block_frequency_bitshift);
+            uint64_t const kpb = m_keys_per_ctrl_block;
+#pragma omp parallel for num_threads(std::max(threads, 1)) schedule(dynamic, 1 << 14)
+            for (int64_t b = 0; b < blocks; b++) {
+                if (BlockStart(b) == BlockStart(b + 1)) continue;
+                for (uint64_t j = 0; j < kpb; j++) {
+                    uint64_t start, slots;
+                    if (Locate(b * kpb + j, start, slots)) compact->MarkUsed(b * kpb + j);
+                }
+            }
+            uint64_t const used = compact->CountRanks();
+            compact->AllocateStarts();
+            uint64_t const end = BlockStart(blocks);  // the values' end: the start of rank `used`
+            // The bases first (the starts of ranks 0, kGroup, 2 kGroup, ...), then every rank's offset from its base.
+            for (int pass = 0; pass < 2; pass++) {
+                std::atomic<bool> fits{true};
+#pragma omp parallel for num_threads(std::max(threads, 1)) schedule(dynamic, 1 << 14)
+                for (int64_t b = 0; b < blocks; b++) {
+                    if (BlockStart(b) == BlockStart(b + 1)) continue;
+                    for (uint64_t j = 0; j < kpb; j++) {
+                        uint64_t start, slots;
+                        if (!Locate(b * kpb + j, start, slots)) continue;
+                        uint64_t const rank = compact->Rank(b * kpb + j);
+                        if (pass == 0) {
+                            if (rank % CompactKeys::kGroup == 0) compact->SetBase(rank, start);
+                        } else if (!compact->SetOffset(rank, start)) {
+                            fits = false;
+                        }
+                    }
+                }
+                if (pass == 0) {
+                    if (used % CompactKeys::kGroup == 0) compact->SetBase(used, end);
+                } else if (!fits || !compact->SetOffset(used, end)) {
+                    return false;
+                }
+            }
+            m_compact = std::move(compact);
+            std::free(m_keymap);
+            m_keymap = nullptr;
+            return true;
         }
 
         uint64_t FlexKey(uint64_t key) const {
@@ -1906,17 +2123,10 @@ namespace protal {
                 exit(8);
             }
 
-            uint64_t const block_start_idx = ControlBlockIndex(main_key);
-            uint64_t const block_end_idx = block_start_idx + m_keys_per_ctrl_block + ctrl_block_cell_size;
-            uint64_t const block_value_start_idx = *((uint64_t*) (m_keymap + block_start_idx));
-            uint64_t const block_value_end_idx = *((uint64_t*) (m_keymap + block_end_idx));
-            if (block_value_end_idx == block_value_start_idx) return false;
-
-            size_t const key_index = block_start_idx + ctrl_block_cell_size + BlockKey(main_key);
-            uint64_t const key_value_start = block_value_start_idx + m_keymap[key_index];
-            uint64_t const key_value_end = (key_index + 1) == block_end_idx ? block_value_end_idx : block_value_start_idx + m_keymap[key_index + 1];
-            uint64_t const key_value_block_size = key_value_end - key_value_start;
-            if (!key_value_block_size) return false;
+            // The key's slots, from the key map (direct or compact: Locate).
+            uint64_t key_value_start = 0, key_value_block_size = 0;
+            if (!Locate(main_key, key_value_start, key_value_block_size)) return false;
+            uint64_t const key_value_end = key_value_start + key_value_block_size;
 
             bool const is_flex = key_value_block_size >= m_flex_threshold;
             uint64_t const flex_block_size = FlexBlockSize(key_value_block_size);
