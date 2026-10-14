@@ -624,7 +624,7 @@ candidate alignments than an ungated run; `--no_single_seed_anchors` anchors on 
 comparison. Because only
 those entries are ever used, a run whose every sample is gated with the grid pick (C 2 or more)
 loads only them (`--sparse_index auto`, the default: the entries of grid level log2 C of its smallest
-gate, about 1/C of the values; the key map keeps its size), and the index line says so ("a sparse
+gate, about 1/C of the values; the compact key map below holds their cores alone), and the index line says so ("a sparse
 index: the entries of grid level 2 or more, N of the file's M, on K of its J cores with entries"). On the whole index (`--sparse_index
 off`, or a run whose samples are not all grid-picked) the grid only gates: the same reads are given up,
 and a read kept is seeded from every core, a gene anchored on two seeds, as in other runs (the run's
@@ -636,18 +636,19 @@ grid levels stops a grid-picked run (exit 2). The models must be trained on runs
 the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
 pick; [report](claude/2026-10-13-gene-grid-index.md)).
 
-`--compact_keys` (since 2026-10-14) keeps the index's key map for the cores with values alone: a
-presence bit for each of the 2^30 cores with ranks (153 MB) and 3 bytes a used core, instead of
-16-bit offsets for all of them (3.2 GB, of which r226 uses 9.2%). The load builds it as it decodes, so
-the direct key map is never held: on the reduced r226 database a run peaks at 0.8 GB instead of 3.4
-GB, and at r226 the key map would take ~0.45 GB (less on a grid's sparse index). The records are the
-same; a lookup reads a second line of the key map. Since 2026-10-14 that line is fetched with the read's
-keys where those come a read ahead, the map is on huge pages and its ranks are counted with the CPU's
-popcount: on the reduced r226 database, one thread, its seeding takes 56 ns a k-mer for paired-end reads
-and 38 for HiFi, against 55 and 47 with the direct key map (before: 86 and 73, against 78 and 58), and
-a grid's sparse index loads faster with it than without (0.65 against 0.96 s for the strain world's at
-C 4; [report](claude/2026-10-14-sparse-load-key-map/README.md),
-[first report](claude/2026-10-13-compact-key-map.md)). Off by default until measured at r226.
+The index's key map is compact (since 2026-10-14; opt-in as `--compact_keys` that day before it became
+the default): it holds the cores with values alone, a presence bit for each of the 2^30 cores with ranks
+(153 MB) and 3 bytes a used core, instead of 16-bit offsets for all of them (3.2 GB, of which r226 uses
+9.2%). The load builds it as it decodes, so the direct key map is never held: on the reduced r226
+database a run peaks at 0.8 GB instead of 3.4 GB, and at r226 the key map takes ~0.45 GB (less on a
+grid's sparse index). The records are the same; a lookup reads a second line of the key map, fetched
+with the read's keys where those come a read ahead, the map is on huge pages and its ranks are counted
+with the CPU's popcount: on the reduced r226 database, one thread, its seeding takes 56 ns a k-mer for
+paired-end reads and 38 for HiFi, against 55 and 47 with the direct key map, and a grid's sparse index
+loads faster with it (0.65 against 0.96 s for the strain world's at C 4;
+[report](claude/2026-10-14-sparse-load-key-map/README.md),
+[first report](claude/2026-10-13-compact-key-map.md)). `--direct_keys` holds the direct key map instead;
+`--compact_keys` is still taken, and both together stop the run. Not yet measured at r226.
 
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
@@ -666,10 +667,10 @@ with the alignment on every core it gained nothing, so it is off by default.
 ## Memory
 
 protal keeps the index and the reference genes in memory: 36.5 GB peak for a run on the full r226
-database, measured on real paired-end and HiFi samples (2026-10-05, `2d809cf`, 32 threads), and about
+database, measured on real paired-end and HiFi samples (2026-10-05, `2d809cf`, 32 threads), about
 34 GB expected since the index load frees its threads' buffers as it ends and the index's values take
-41 bits (26.6 GB;
-its key map, 3.2 GB, ~0.45 GB with `--compact_keys` (above); the genes at two bits per base, the tables and the run's
+41 bits (26.6 GB), and about 31 GB since its key map is compact by default (2026-10-14: ~0.45 GB instead of
+3.2 GB; `--direct_keys` holds the direct one, above; the genes at two bits per base, the tables and the run's
 buffers, the rest;
 [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,

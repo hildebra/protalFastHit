@@ -361,3 +361,15 @@ direct and compact, whole and sparse ([results/implementation_same_records.txt](
 The direct map gains too (one line a lookup, the lookup loop compiled for x86-64-v3). With the fixes the compact key
 map is as fast as the direct one for paired-end reads here and faster for HiFi, so it could become the default once an
 r226 run confirms it (`measure_performance.sh` with `PROTAL_ARGS=--compact_keys` beside a run without).
+
+## Follow-up 2: the compact key map by default (2026-10-14)
+
+The user asked to make it the default after the implementation above. A run now loads the compact key map unless
+given `--direct_keys` (a developer option); `--compact_keys` is still taken and changes nothing, and both together stop
+the run (exit 2). The index line of a compact run names the direct one's size ("compact: N cores with values of
+1073741824; --direct_keys: 3.2 GB"). Builds are unchanged (they count into the direct key map), and so are the tools
+that read or write the index files. Every run-time use of the key map goes through `Locate` or the prefetches, which
+read either map; `--sparse_seeding` still loads the direct one for its statistics and converts it after them. The e2e
+test of the key maps now runs the direct ones with `--direct_keys`. Expected at r226: a run ~2.75 GB smaller (key map
+3.2 → ~0.45 GB), its speed to be measured there (`measure_performance.sh` beside a run with
+`PROTAL_ARGS=--direct_keys`).

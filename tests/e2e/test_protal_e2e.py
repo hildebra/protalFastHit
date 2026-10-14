@@ -4501,13 +4501,14 @@ class SparseFirstGatesTest(WorkDir):
         self.assertIn("--sparse_index on loads the entries of the grid pick's level alone", log)
 
     def test_compact_keys_give_the_same_records(self):
-        """--compact_keys (2026-10-14) keeps the key map of the cores with values alone (CompactKeys.h), built as the index
-        is loaded: the same records as the direct key map, whole and on the grid's sparse index, and for long reads,
-        gated (their lookups streamed, SparseHits and LookupKmers, not fetched a read ahead), a smaller key map on the
-        index line."""
+        """The compact key map (2026-10-14; a run's default since then, CompactKeys.h) keeps the key map of the cores with
+        values alone, built as the index is loaded: the same records as the direct key map (--direct_keys), whole and on
+        the grid's sparse index, and for long reads, gated (their lookups streamed, SparseHits and LookupKmers, not fetched
+        a read ahead), a smaller key map on the index line. --compact_keys is still taken; given with --direct_keys, the
+        run stops."""
         records, logs = {}, {}
-        for name, extra in (("keys_direct", ()), ("keys_compact", ("--compact_keys",)),
-                            ("keys_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid")),
+        for name, extra in (("keys_direct", ("--direct_keys",)), ("keys_compact", ()),
+                            ("keys_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--direct_keys")),
                             ("keys_grid_compact", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--compact_keys"))):
             logs[name] = self.align(name, *extra, db=self.plain_db)
             records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
@@ -4534,7 +4535,7 @@ class SparseFirstGatesTest(WorkDir):
                     pieces += ["".join(rng.choice("ACGT") for _ in range(rng.randint(500, 1500))), g]
                 read = "".join(pieces)
                 out.write(f"@m64001_000000/{r}/ccs\n{read}\n+\n{'I' * len(read)}\n")
-        for name, extra in (("keys_long", ()), ("keys_long_compact", ("--compact_keys",))):
+        for name, extra in (("keys_long", ("--direct_keys",)), ("keys_long_compact", ())):
             rc, log = run(self.work, "--db", self.plain_db, "-1", long_reads, "--read_type", "pb", "--sparse_first", "8",
                           "--prefix", name, "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
             self.assertEqual(rc, 0, log[-3000:])
@@ -4543,7 +4544,10 @@ class SparseFirstGatesTest(WorkDir):
         self.assertEqual(records["keys_long"], records["keys_long_compact"])
         for name in ("keys_compact", "keys_grid_compact"):
             self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 0\.\d GB \(compact: \d+ cores with values of 1073741824")
-        self.assertIn("key map 3.2 GB", logs["keys_direct"])
+        for name in ("keys_direct", "keys_grid"):
+            self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 3\.2 GB\n")
+        log = self.align("keys_both", "--compact_keys", "--direct_keys", db=self.plain_db, rc_expected=2)
+        self.assertIn("--compact_keys and --direct_keys ask for different key maps", log)
 
     def test_seed_tags_and_the_seed_expectation(self):
         """Since 2026-10-14 a record says how many seeds of its anchor its ZU and ZT were counted over (ZS), and the SAM of a

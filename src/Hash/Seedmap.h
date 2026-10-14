@@ -258,8 +258,8 @@ namespace protal {
 //        using KeyMap_t = uint8_t;
         using KeyMap_t = uint16_t; // CHANGE THIS IN LATEST VERSION
         KeyMap_t* m_keymap = nullptr;
-        // --compact_keys (CompactKeymap): the key map of the used cores only, which Locate and the prefetches read; the
-        // direct key map is then freed.
+        // The compact key map (SetCompactLoad, CompactKeymap; a run's default since 2026-10-14): the key map of the used
+        // cores only, which Locate and the prefetches read; the direct key map is then freed or never held.
         std::unique_ptr<CompactKeys> m_compact;
         bool m_compact_load = false;  // SetCompactLoad: the next packed load builds m_compact, not the direct key map
         uint64_t m_keymask = (uint64_t{1} << m_main_bits) - 1;
@@ -511,7 +511,7 @@ namespace protal {
             }
             if (m_compact) {
                 return s + "; key map " + gb(m_compact->Bytes()) + " (compact: " + std::to_string(m_compact->UsedCores()) + " cores with values of " +
-                       std::to_string(m_compact->Cores()) + ", --compact_keys)";
+                       std::to_string(m_compact->Cores()) + "; --direct_keys: " + gb(keymap_size_total * sizeof(KeyMap_t)) + ")";
             }
             return s + "; key map " + gb(keymap_size_total * sizeof(KeyMap_t));
         }
@@ -1470,8 +1470,8 @@ namespace protal {
                 std::vector<uint64_t> first(container.chunks.size());
                 for (size_t c = 0; c < first.size(); c++) first[c] = container.chunks[c].first_value;
                 if (!FinishCompact(*compact, used_starts, first, l.values, threads)) {
-                    InvalidIndex(name, "its key map cannot be made compact (a core of more slots than an index holds): run without "
-                                       "--compact_keys");
+                    InvalidIndex(name, "its key map cannot be made compact (a core of more slots than an index holds): run with "
+                                       "--direct_keys");
                 }
                 m_compact = std::move(compact);
             } else {
@@ -1487,7 +1487,7 @@ namespace protal {
         // level are kept, with their flex cells, in the chunk's order (the keys', then each key's entries'). From the
         // kept counts each chunk's first slot follows (the same slot rules as BuildValuePointers: a key of e >= 2
         // entries takes e + ceil(e/2) slots), then each chunk's thread writes its blocks' pointers (the direct key map:
-        // the runs of empty blocks filled in bulk) or marks its keys (--compact_keys), and packs its entries into their
+        // the runs of empty blocks filled in bulk) or marks its keys (the compact key map), and packs its entries into their
         // slots, as PackKey packs a whole load. A key left without entries has none; its lookups find nothing, as a key
         // the index lacks. The values take about 1/2^level of the full index's; the entries held meanwhile 16 bytes
         // each. The direct key map is of full size whatever the reference (2^30 keys) and written once; the compact one
@@ -1583,7 +1583,7 @@ namespace protal {
                 });
                 std::vector<uint64_t> first(chunk_slot.begin(), chunk_slot.end() - 1);
                 if (!error.empty() || !FinishCompact(*keys, starts, first, chunk_slot.back(), threads)) {
-                    InvalidIndex(name, "its sparse key map cannot be made compact: run without --compact_keys");
+                    InvalidIndex(name, "its sparse key map cannot be made compact: run with --direct_keys");
                 }
                 m_compact = std::move(keys);
             } else {
@@ -1995,7 +1995,7 @@ namespace protal {
 
         // The next load (packed, whole or sparse) builds a compact key map (CompactKeys) as it decodes, and never the
         // direct one: the decoder names each key with values (ValueSink::key_at), which is marked and its start kept, and
-        // the starts are placed once all are known (FinishCompact). --compact_keys.
+        // the starts are placed once all are known (FinishCompact). A run's default (RunProtal::LoadIndex; --direct_keys: not).
         void SetCompactLoad(bool on) { m_compact_load = on; }
 
         // A compact key map whose used cores are all marked, from each chunk's starts in key order (`starts[c]`, slots less
@@ -2030,7 +2030,7 @@ namespace protal {
             return true;
         }
 
-        // The loaded key map as CompactKeys (--compact_keys, docs/claude/2026-10-13-compact-key-map.md): presence bits and
+        // The loaded key map as CompactKeys (docs/claude/2026-10-13-compact-key-map.md): presence bits and
         // the starts of the used cores, from the direct key map, which is then freed; every lookup gives the same slots.
         // False, and the key map kept, if a group of starts would span 2^24 slots (a core of more slots than an index
         // holds). Its blocks in parallel on `threads`.
