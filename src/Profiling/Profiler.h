@@ -268,6 +268,11 @@ namespace protal {
             size_t m_unique_two_mers = 0;
             size_t m_unique_mer_reads = 0;
             size_t m_unique_two_mer_reads = 0;
+            // Of the records with a ZS tag (since 2026-10-14): their anchors' seeds, and the unique and unique-at-distance-two ones
+            // among them (ZU, ZT): the share of a read's seeds that are unique, whatever share of its cores was looked up.
+            size_t m_seeds = 0;
+            size_t m_seed_uniques = 0;
+            size_t m_seed_uniques_two = 0;
             ExactSum m_ani_sum;  // the records' ANIs; exact, so the same in any order of the records (ExactSum.h)
 
             size_t m_gene_length = 0;
@@ -279,6 +284,10 @@ namespace protal {
             // m_read_identities, and the bases weighted by it: for the taxon's allele identities.
             std::vector<float> m_read_allele_identities;
             ExactSum m_allele_identity_bases;
+            // The lower bounds of those identities given each read's aligned bases (IdentityLowerBound), in the same order: a short
+            // read without a difference is weaker evidence of identity than a long one (Taxon::TopIdentityBound).
+            std::vector<float> m_read_identity_bounds;
+            std::vector<float> m_read_allele_bounds;
             size_t m_fragments = 0;       // reads, a pair counting once
             size_t m_last_read = SIZE_MAX;
             // The reference bases of the gene its fragments cover, each base of a fragment once: where a pair's mates
@@ -463,6 +472,8 @@ namespace protal {
                 m_identity_bases += identity * static_cast<double>(length);
                 double const allele_identity = std::min(1.0, identity + allele_gain);
                 m_read_allele_identities.push_back(static_cast<float>(allele_identity));
+                m_read_identity_bounds.push_back(static_cast<float>(IdentityLowerBound(identity, length)));
+                m_read_allele_bounds.push_back(static_cast<float>(IdentityLowerBound(allele_identity, length)));
                 m_allele_identity_bases += allele_identity * static_cast<double>(length);
                 m_fragment_bases += fragment_bases;
 
@@ -477,6 +488,11 @@ namespace protal {
 
                 m_unique_mer_reads += sam.m_uniques > 0;
                 m_unique_two_mer_reads += sam.m_uniques_two > 0;
+                if (sam.m_seeds > 0) {
+                    m_seeds += sam.m_seeds;
+                    m_seed_uniques += sam.m_uniques;
+                    m_seed_uniques_two += sam.m_uniques_two;
+                }
 
                 return true;
             }
@@ -745,6 +761,7 @@ namespace protal {
             size_t kept = 0;      // that the MAPQ and length filters keep
             uint64_t differences = 0;  // X, I and D bases of the records (AlignmentIdentity's differences)
             uint64_t aligned = 0;      // and M, =, X, I and D bases: how far its reads differ from the reference
+            uint64_t aligned_squares = 0;  // the sum of each record's aligned bases squared (the sample's read length SD)
             size_t low_mapq = 0;  // MAPQ below kLowMapq
             size_t congener_fit = 0;  // another species of the genus fits the read within kAlternativeFitEdits (ZA)
             size_t other_genus_fit = 0;  // a species of another genus does
@@ -857,6 +874,7 @@ namespace protal {
                 kept += other.kept;
                 differences += other.differences;
                 aligned += other.aligned;
+                aligned_squares += other.aligned_squares;
                 low_mapq += other.low_mapq;
                 congener_fit += other.congener_fit;
                 other_genus_fit += other.other_genus_fit;
@@ -1139,6 +1157,16 @@ namespace protal {
                                                // on, over those their numbers of hit genes predict ((both + 0.5) / (expected
                                                // + 0.5)): below 1 where one novel species' genes are split between the two
                                                // references; 1 without such a congener (MicrobialProfile::ApplySampleContext)
+            // The sample's reads (since 2026-10-14): the mean and SD of the aligned bases (M, =, X, I, D) of its best records,
+            // all taxa's, a mate or a long read's gene each. A short read carries less evidence than a long one in its MAPQ,
+            // its best identity and the candidates it finds: with these a model trained on several read lengths can weigh
+            // them (docs/claude/2026-10-14-sparse-index-calls).
+            double sample_read_length = 0;
+            double sample_read_length_sd = 0;
+            // The sample's seed expectation (SeedExpectation.h, from its SAM's header): its seed level's unique shares of
+            // values over the whole index's, by which the genes' unique shares are scaled (Taxon::UniqueSeedEnrichment).
+            double seed_unique_factor = 1;
+            double seed_unique_two_factor = 1;
         };
 
         class Taxon {
@@ -1163,6 +1191,8 @@ namespace protal {
             mutable std::optional<double> m_model_score;  // cached by TaxonFilterForest::Score
             mutable std::optional<double> m_top_identity;  // cached by TopIdentity
             mutable std::optional<double> m_allele_top_identity;  // cached by AlleleTopIdentity
+            mutable std::optional<double> m_top_identity_bound;  // cached by TopIdentityBound
+            mutable std::optional<double> m_allele_top_identity_bound;  // cached by AlleleTopIdentityBound
             size_t m_fragments = 0;  // reads with an accepted alignment, a pair counting once
             size_t m_last_read = SIZE_MAX;
             GeneMap m_genes;
@@ -1181,9 +1211,11 @@ namespace protal {
             double m_gene_divergence_dispersion = 1;  // see GeneDivergenceDispersion
             double m_failed_gene_share = 0;  // see FailedGeneShare
             double m_ancestry_sites_per_record = 0;  // see AncestrySitesPerRecord
+            double m_ancestry_sites_per_kb = 0;  // see AncestrySitesPerKb
             double m_ancestry_agreement = ancestry::kUnknown;  // see AncestryAgreement
             double m_ancestry_congener_share = ancestry::kUnknown;  // see AncestryCongenerShare
             double m_ancestry_indel_sites_per_record = 0;  // see AncestryIndelSitesPerRecord
+            double m_ancestry_indel_sites_per_kb = 0;  // see AncestrySitesPerKb
             double m_ancestry_indel_congener_share = ancestry::kUnknown;  // see AncestryIndelCongenerShare
             // BreadthRatio, FixedDifferenceRate and PolymorphicSiteRate, computed together from the genes' coverage and
             // alleles (SiteRates)
@@ -1215,6 +1247,8 @@ namespace protal {
                 m_model_score.reset();
                 m_top_identity.reset();
                 m_allele_top_identity.reset();
+                m_top_identity_bound.reset();
+                m_allele_top_identity_bound.reset();
                 m_site_rates.reset();
                 m_vcov = -1;
             }
@@ -1481,6 +1515,10 @@ namespace protal {
                     : static_cast<double>(records.ancestry_congener) / static_cast<double>(records.ancestry_sites);
                 m_ancestry_indel_sites_per_record = records.records == 0
                     ? 0 : static_cast<double>(records.ancestry_indel_sites) / static_cast<double>(records.records);
+                m_ancestry_sites_per_kb = records.aligned == 0
+                    ? 0 : static_cast<double>(records.ancestry_sites) * 1000.0 / static_cast<double>(records.aligned);
+                m_ancestry_indel_sites_per_kb = records.aligned == 0
+                    ? 0 : static_cast<double>(records.ancestry_indel_sites) * 1000.0 / static_cast<double>(records.aligned);
                 m_ancestry_indel_congener_share = records.ancestry_indel_sites == 0 ? ancestry::kUnknown
                     : static_cast<double>(records.ancestry_indel_congener) / static_cast<double>(records.ancestry_indel_sites);
                 tsl::robin_map<uint32_t, GeneRecords>().swap(m_records.gene_records);
@@ -1732,6 +1770,10 @@ namespace protal {
             // through, per record, and of them the share where the read deletes or inserts what the congeners do
             // (RecordEvidence::ancestry_indel_*); kUnknown (-1) without such a site.
             double AncestryIndelSitesPerRecord() const { return m_ancestry_indel_sites_per_record; }
+            // The same sites per 1000 aligned bases of the records (since 2026-10-14): a record of a shorter read covers fewer
+            // of them, so that per record they halved from 150 to 75 bp reads (docs/claude/2026-10-14-sparse-index-calls).
+            double AncestrySitesPerKb() const { return m_ancestry_sites_per_kb; }
+            double AncestryIndelSitesPerKb() const { return m_ancestry_indel_sites_per_kb; }
             double AncestryIndelCongenerShare() const { return m_ancestry_indel_congener_share; }
 
             // The reference bases its hit genes' kept reads cover over those they would cover if they lay at random
@@ -1914,6 +1956,47 @@ namespace protal {
                 return std::accumulate(m_genes.begin(), m_genes.end(), size_t{0}, [](auto acc, auto const& pair) { return acc + pair.second.LongSuperUniques(); });
             }
 
+            // Of its records with a ZS tag (since 2026-10-14), the share of their anchors' seeds that are unique (ZU; `two`:
+            // unique at distance two, ZT): the same with every core of a read looked up or 1/C of them (a sparse index), and
+            // for short reads and long ones, where a count per kb is not (docs/claude/2026-10-14-sparse-index-calls). -1
+            // without such records (a SAM of an older protal).
+            double UniqueSeedShare(bool two) const {
+                size_t seeds = 0, unique = 0;
+                for (auto const& [_, gene] : m_genes) {
+                    seeds += gene.m_seeds;
+                    unique += two ? gene.m_seed_uniques_two : gene.m_seed_uniques;
+                }
+                return seeds == 0 ? -1.0 : static_cast<double>(unique) / static_cast<double>(seeds);
+            }
+
+            // Those unique seeds over the number a read of the species is expected to find: each gene's seeds times the share
+            // of its index values that are unique (unique_kmers.tsv: the long and short unique values over all; `two`: the
+            // long ones at distance two and the short), times the sample's seed expectation factor (SeedExpectation.h: on a
+            // sparse index the grid level's unique share over the whole index's). About 1 for the species' own reads, below
+            // for a relative's, which seed where the species and its congeners agree. -1 without seeds on a gene with values.
+            double UniqueSeedEnrichment(bool two) const {
+                ExactSum expected;
+                size_t unique = 0;
+                for (auto const& [geneid, gene] : m_genes) {
+                    if (gene.m_seeds == 0) continue;
+                    auto const [su, lu, lsu, total] = m_genome->GetGene(geneid).GetUniqueKmerCounts();
+                    if (total == 0) continue;
+                    expected += static_cast<double>(gene.m_seeds) * static_cast<double>(su + (two ? lsu : lu)) / static_cast<double>(total);
+                    unique += two ? gene.m_seed_uniques_two : gene.m_seed_uniques;
+                }
+                double const scaled = expected.Value() * (two ? m_sample.seed_unique_two_factor : m_sample.seed_unique_factor);
+                return scaled > 0 ? static_cast<double>(unique) / scaled : -1.0;
+            }
+
+            // Its records' mean aligned bases over the sample's (SampleEvidence::sample_read_length): below 1 where its reads
+            // align only in part (a relative's at a gene's end, clipped); -1 without records.
+            double AlignedLengthRatio() const {
+                if (m_records.records == 0 || m_sample.sample_read_length <= 0) return -1.0;
+                return static_cast<double>(m_records.aligned) / static_cast<double>(m_records.records) / m_sample.sample_read_length;
+            }
+
+            RecordEvidence const& RecordEvidenceOf() const { return m_records; }
+
             size_t GenesWithLongUniques(const size_t threshold=0) const {
                 return std::count_if(m_genes.begin(), m_genes.end(), [threshold](auto const& pair) { return pair.second.LongUniques() > threshold; });
             }
@@ -2093,6 +2176,8 @@ namespace protal {
                     }
                     std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
                     std::vector<float>{}.swap(gene.m_read_allele_identities);
+                    std::vector<float>{}.swap(gene.m_read_identity_bounds);
+                    std::vector<float>{}.swap(gene.m_read_allele_bounds);
                 }
                 if (!msa) std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
             }
@@ -2141,6 +2226,29 @@ namespace protal {
                 }
                 m_allele_top_identity = TopOf(reads);
                 return *m_allele_top_identity;
+            }
+
+            // TopIdentity and AlleleTopIdentity of the reads' identity lower bounds given their aligned bases
+            // (IdentityLowerBound): a relative's short read is free of differences more often than a long one (99.3%
+            // identical: 0.59 of 75 bp reads, 0.35 of 150 bp ones), and its best read then reads as identity 1; its bound
+            // says how sure that is (since 2026-10-14, docs/claude/2026-10-14-sparse-index-calls). 0 without reads.
+            double TopIdentityBound() const {
+                if (!m_top_identity_bound) m_top_identity_bound = TopOfBounds(false);
+                return *m_top_identity_bound;
+            }
+            double AlleleTopIdentityBound() const {
+                if (!m_allele_top_identity_bound) m_allele_top_identity_bound = TopOfBounds(true);
+                return *m_allele_top_identity_bound;
+            }
+            double TopOfBounds(bool allele) const {
+                std::vector<std::pair<float, uint32_t>> reads;
+                for (auto const& [id, gene] : m_genes) {
+                    auto const& bounds = allele ? gene.m_read_allele_bounds : gene.m_read_identity_bounds;
+                    for (size_t i = 0; i < bounds.size() && i < gene.m_read_identities.size(); i++) {
+                        reads.emplace_back(bounds[i], gene.m_read_identities[i].second);
+                    }
+                }
+                return TopOf(reads);
             }
             double AlleleBaseIdentity() const {
                 ExactSum weighted;
@@ -2780,6 +2888,22 @@ namespace protal {
             // the representative but near a known genome of its species looks like its species (Taxon::AlleleTopIdentity).
             f.emplace_back("allele_identity", taxon.AlleleBaseIdentity());
             f.emplace_back("allele_top_identity", taxon.AlleleTopIdentity());
+            // Features that do not change with the read length or the share of a read's cores looked up (since 2026-10-14,
+            // docs/claude/2026-10-14-sparse-index-calls): the share of the reads' seeds that are unique and that over the
+            // genes' unique shares (in place of the unique counts per kb and per gene); the ancestry sites per aligned kb (in
+            // place of per record); the best reads' identity bounds given their aligned bases. And the sample's read length,
+            // its mean and SD, with the taxon's own against it, for what does change with it (MAPQ, the candidates a read finds).
+            f.emplace_back("unique_seed_share", taxon.UniqueSeedShare(false));
+            f.emplace_back("unique2_seed_share", taxon.UniqueSeedShare(true));
+            f.emplace_back("unique_seed_enrichment", taxon.UniqueSeedEnrichment(false));
+            f.emplace_back("unique2_seed_enrichment", taxon.UniqueSeedEnrichment(true));
+            f.emplace_back("ancestry_sites_per_kb", taxon.AncestrySitesPerKb());
+            f.emplace_back("ancestry_indel_sites_per_kb", taxon.AncestryIndelSitesPerKb());
+            f.emplace_back("top_identity_bound", taxon.TopIdentityBound());
+            f.emplace_back("allele_top_identity_bound", taxon.AlleleTopIdentityBound());
+            f.emplace_back("sample_read_length", s.sample_read_length);
+            f.emplace_back("sample_read_length_sd", s.sample_read_length_sd);
+            f.emplace_back("aligned_length_ratio", taxon.AlignedLengthRatio());
             return f;
         }
 
@@ -3221,6 +3345,7 @@ namespace protal {
                 auto const [differences, aligned] = DifferencesAndAligned(sam.m_cigar);
                 e.differences += differences;
                 e.aligned += aligned;
+                e.aligned_squares += static_cast<uint64_t>(aligned) * aligned;
                 e.low_mapq += sam.m_mapq < kLowMapq;
                 auto const& conservation = m_genome_loader->GetGeneConservation();
                 double const factor = conservation.Empty() ? 1.0 : conservation.Factor(geneid);
@@ -3754,6 +3879,12 @@ namespace protal {
                 m_soft_fragments = on;
             }
 
+            // The sample's seed expectation (SeedExpectation.h; Profiler::ProfileSam reads it from the SAM's header), which
+            // ApplySampleContext gives every taxon (SampleEvidence::seed_unique_factor).
+            void SetSeedExpectation(SeedExpectation const& expectation) {
+                m_seed_expectation = expectation;
+            }
+
             // The fragments the MAPQ and length filters keep, plus each fragment they drop whose best record is on the
             // taxon (fragments_all - kept) by the share the read EM leaves the taxon of the dropped records: of its best
             // records the EM leaves it em_all, of the kept em_kept, so of the dropped (em_all x records - em_kept x kept)
@@ -3866,6 +3997,17 @@ namespace protal {
                 size_t total_fragments = 0;
                 for (auto const& e : entries) total_fragments += e.n;
                 double const sample_log_fragments = std::log10(static_cast<double>(std::max<size_t>(total_fragments, 1)));
+                // The aligned bases of the sample's best records (all taxa): their mean and SD (SampleEvidence::sample_read_length).
+                uint64_t read_records = 0, read_bases = 0, read_squares = 0;
+                for (auto const& e : entries) {
+                    auto const& r = m_taxa.at(e.id).RecordEvidenceOf();
+                    read_records += r.records;
+                    read_bases += r.aligned;
+                    read_squares += r.aligned_squares;
+                }
+                double const read_length = read_records == 0 ? 0 : static_cast<double>(read_bases) / static_cast<double>(read_records);
+                double const read_length_sd = read_records == 0 ? 0 : std::sqrt(std::max(0.0,
+                    static_cast<double>(read_squares) / static_cast<double>(read_records) - read_length * read_length));
                 std::vector<context::TaxonSummary> summaries;
                 summaries.reserve(entries.size());
                 for (auto const& e : entries) {
@@ -3988,6 +4130,10 @@ namespace protal {
                                (s.em_own_share < context::kSingletonOwnShare ||
                                 m_taxa.at(e.id).BaseIdentity() < context::kSingletonIdentity);
                     s.sample_log_fragments = sample_log_fragments;
+                    s.sample_read_length = read_length;
+                    s.sample_read_length_sd = read_length_sd;
+                    s.seed_unique_factor = m_seed_expectation.unique;
+                    s.seed_unique_two_factor = m_seed_expectation.unique_two;
                     s.sample_log_taxa = complexity.log_taxa;
                     s.sample_low_identity = complexity.low_identity;
                     s.sample_identity = complexity.identity;
@@ -4690,6 +4836,7 @@ namespace protal {
             std::shared_ptr<context::CongenerDistances> m_distances;  // see SetCongenerDistances
             size_t m_singleton_congener = context::kSingletonCongener;  // see SetSingletonCongener
             bool m_soft_fragments = false;  // see SetSoftFragments
+            SeedExpectation m_seed_expectation;  // see SetSeedExpectation
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
 
@@ -4755,6 +4902,7 @@ namespace protal {
             size_t m_reads = 0;
             FailedCandidateCounts m_failed_candidates;  // the last ReadSamGroups' unmapped records' ZF entries per taxon
             std::optional<ScannedReads> m_scanned;  // the last SAM's scanned reads (its header), if it says
+            std::optional<SeedExpectation> m_seed_expectation;  // the last SAM's seed expectation (its header), if it says
             size_t m_rejected_reads = 0;
 
             // Variants are recorded with or without --no_strains: the model's allele features come
@@ -4907,6 +5055,7 @@ namespace protal {
                 size_t primary_without_alternatives = 0;
                 std::map<std::string, size_t> skipped;
                 std::optional<ScannedReads> scanned;  // the header's (in the chunk that holds it)
+                std::optional<SeedExpectation> seed_expectation;  // the header's too
 
                 void Add(SamReader const& reader) {
                     records += reader.Records();
@@ -4915,6 +5064,7 @@ namespace protal {
                     primary_without_alternatives += reader.PrimaryRecordsWithoutAlternatives();
                     for (auto const& [reason, count] : reader.Skipped()) skipped[reason] += count;
                     if (reader.Scanned()) scanned = reader.Scanned();
+                    if (reader.SeedExpectationOf()) seed_expectation = reader.SeedExpectationOf();
                 }
 
                 void Add(SamRecordCounts const& other) {
@@ -4924,6 +5074,7 @@ namespace protal {
                     primary_without_alternatives += other.primary_without_alternatives;
                     for (auto const& [reason, count] : other.skipped) skipped[reason] += count;
                     if (other.scanned) scanned = other.scanned;
+                    if (other.seed_expectation) seed_expectation = other.seed_expectation;
                 }
             };
 
@@ -5001,6 +5152,7 @@ namespace protal {
                 counts.Add(reader);
                 m_failed_candidates = reader.FailedCandidates();  // for the profile (ProfileSam)
                 m_scanned = counts.scanned;
+                m_seed_expectation = counts.seed_expectation;
                 ReportSamRecords(file_path, counts);
                 return {};
             }
@@ -5823,6 +5975,7 @@ namespace protal {
                 if (failed) return input.ReadFailed() ? truncated() : "read error after line " + std::to_string(lines);
                 m_reads = read_offset;
                 m_scanned = counts.scanned;
+                m_seed_expectation = counts.seed_expectation;
                 ReportSamRecords(file_path, counts);
                 return {};
             }
@@ -5840,6 +5993,7 @@ namespace protal {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
                 m_rejected_reads = 0;
                 m_scanned.reset();
+                m_seed_expectation.reset();
                 m_read_detail.clear();
                 if (threads > 1) {
                     std::string rejected;
@@ -5851,6 +6005,7 @@ namespace protal {
                         if (erroneous_sam_out.has_value()) erroneous_sam_out.value().get() << rejected;
                         if (!error.empty()) return error;
                         m_bm_evidence.Start();
+                        profile.SetSeedExpectation(m_seed_expectation.value_or(SeedExpectation{}));
                         profile.ApplyRecordEvidence(threads);
                         m_bm_evidence.Stop();
                         m_post_process_bm.Start();
@@ -5887,6 +6042,7 @@ namespace protal {
 
                 m_reads = read_id;
                 m_bm_evidence.Start();
+                profile.SetSeedExpectation(m_seed_expectation.value_or(SeedExpectation{}));
                 profile.ApplyRecordEvidence(threads);
                 m_bm_evidence.Stop();
                 m_post_process_bm.Start();

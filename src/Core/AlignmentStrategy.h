@@ -782,7 +782,8 @@ namespace protal {
                                      gene.GetLength(), m_alignment_orientation.reference_start, 0, abs_pos);
 
                 info.UpdateScore();
-                alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two);
+                alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two,
+                              anchor.seeds);
 
                 // Safety net: reject an alignment whose CIGAR does not fit the sequences. Its counts must cover the
                 // read and stay inside the gene (every alignment, from the counts alone); one alignment in 64 is also
@@ -854,7 +855,7 @@ namespace protal {
                     break;
                 }
                 taken++;
-                m_attempted.emplace_back(static_cast<uint32_t>(anchor.taxid), static_cast<uint32_t>(anchor.geneid));
+                m_attempted.emplace_back(static_cast<uint32_t>(anchor.taxid), static_cast<uint32_t>(anchor.geneid), false, anchor.lone);
 
                 auto& read = anchor.forward ? fwd : rev;
 
@@ -985,7 +986,7 @@ namespace protal {
                 auto const taxid = static_cast<uint32_t>(anchor.taxid);
                 if (GenusOf(taxid) != genus) continue;
                 if (std::any_of(m_attempted.begin(), m_attempted.end(), [taxid](FailedCandidate const& c) { return c.taxid == taxid; })) continue;
-                m_attempted.emplace_back(taxid, static_cast<uint32_t>(anchor.geneid));
+                m_attempted.emplace_back(taxid, static_cast<uint32_t>(anchor.geneid), false, anchor.lone);
                 m_alignment_result.GetAlignmentInfo().Reset();
                 if (AlignAnchor(anchor, m_alignment_result, fwd, rev, false, header, INT32_MAX, stretch) &&
                     m_alignment_result.GetAlignmentInfo().GetProxyANI() >= m_max_score_ani) {

@@ -912,6 +912,44 @@ namespace protal {
         });
     }
 
+    // The seed expectation of each grid level (SeedExpectation.h; nullopt where the index in memory does not hold the level
+    // whole, below a sparse load's): its values' unique shares by the lookups' rule (Seedmap::UniqueSharesByLevel) over
+    // the whole index's (unique_kmers.tsv, summed over the genes), for ZU and ZT. A read seeded from that level alone finds
+    // about those shares of unique values; the profile scales the genes' shares by them (Taxon::UniqueSeedEnrichment).
+    // Empty without grid levels or without the genes' unique counts.
+    static std::vector<std::optional<SeedExpectation>> SeedExpectations(Seedmap const& map, GenomeLoader& genomes,
+                                                                        int threads, std::ostream& log) {
+        uint64_t whole_unique = 0, whole_two = 0, whole_total = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            auto const [su, lu, lsu, total] = genome.GetUniqueKmerCounts();
+            whole_unique += su + lu;
+            whole_two += su + lsu;
+            whole_total += total;
+        }
+        if (!map.KeepsGridLevels() || whole_total == 0 || whole_unique == 0 || whole_two == 0) return {};
+        auto const begin = std::chrono::steady_clock::now();
+        auto const shares = map.UniqueSharesByLevel(threads);
+        std::vector<std::optional<SeedExpectation>> expectations(shares.size());
+        double const unique_share = static_cast<double>(whole_unique) / static_cast<double>(whole_total);
+        double const two_share = static_cast<double>(whole_two) / static_cast<double>(whole_total);
+        std::ostringstream os;
+        for (size_t level = map.LoadedLevel(); level < shares.size(); level++) {
+            auto const& s = shares[level];
+            if (s.values == 0 || s.unique == 0 || s.unique_two == 0) continue;
+            SeedExpectation e;
+            e.level = static_cast<uint32_t>(level);
+            e.unique = static_cast<double>(s.unique) / static_cast<double>(s.values) / unique_share;
+            e.unique_two = static_cast<double>(s.unique_two) / static_cast<double>(s.values) / two_share;
+            expectations[level] = e;
+            os << (os.tellp() > 0 ? ", " : "") << "level " << level << " (C " << (size_t{1} << level) << ") " << std::fixed
+               << std::setprecision(3) << e.unique << " / " << e.unique_two;
+        }
+        double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+        log << "Seed expectation: the unique share of a grid level's values over the whole index's (ZU / ZT): " << os.str()
+            << std::fixed << std::setprecision(2) << " (" << seconds << " s)" << std::defaultfloat << std::endl;
+        return expectations;
+    }
+
     // The grid level of the sparse index the run loads (--sparse_index; Seedmap::SetLoadLevel): with auto or on, the
     // smallest level of its samples' gates (log2 C) if every sample is gated with the grid pick at C 2 or more, else 0, the
     // whole index; with off and emulate 0. `why`: why it is 0, for on.
@@ -1184,6 +1222,17 @@ namespace protal {
                               << (options.SparseIndex() == "emulate" ? " (--sparse_index emulate: on the whole index, as the sparse index seeds them)" : "");
                 }
                 std::cout << std::endl;
+            }
+            // The seed expectation of the grid levels a sample is seeded from alone (a sparse index, --sparse_index emulate, or
+            // --sparse_seeding with the grid pick), for its SAM's header (SeedExpectations).
+            std::vector<std::optional<SeedExpectation>> seed_expectations;
+            {
+                auto const range = options.GetRange();
+                bool const grid_seeded = std::any_of(range.begin(), range.end(), [&](size_t i) {
+                    return options.GetSparseFirst(i) > 1 && options.GetSparseFirstPick(i) == SparseFirstPick::Grid &&
+                           (!grid_whole || options.SparseSeeding());
+                });
+                if (grid_seeded) seed_expectations = SeedExpectations(map, genomes, static_cast<int>(options.GetThreads()), std::cout);
             }
 
             Benchmark bm_classify("Processing all samples");
@@ -1546,6 +1595,11 @@ namespace protal {
                     os << read_type_line;
                     // The reads read, which the profile's composition compares with the reads the called species explain.
                     os << ScannedReadsLine({ reads_read, single_file ? reads_read : 2 * reads_read, bases_read });
+                    // How its unique seeds compare with the genes' unique values, where it was seeded from a grid level alone.
+                    if (uint8_t const level = anchor_finder.GridSeedLevel(); level > 0 && level < seed_expectations.size() &&
+                                                                           seed_expectations[level]) {
+                        os << SeedExpectationLine(*seed_expectations[level]);
+                    }
                     // The reads that aligned nowhere, counted per taxon they seeded on (--write_unmapped_reads: a record each).
                     if (!options.WriteUnmappedReads(index)) {
                         auto const failed = sam_output.FailedCandidates();

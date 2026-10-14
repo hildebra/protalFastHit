@@ -21,6 +21,7 @@
 #include "LineSplitter.h"
 #include "ReadType.h"
 #include "ScannedReads.h"
+#include "SeedExpectation.h"
 #include <iostream>
 #include <omp.h>
 
@@ -176,6 +177,10 @@ namespace protal {
         TLEN_t m_tlen;
         uint16_t m_uniques;
         uint16_t m_uniques_two;
+        // ZS tag (since 2026-10-14): the seeds of the anchor its ZU and ZT were counted over, so that their share of them is known
+        // whatever share of the read's cores was looked up (a sparse index, a shorter read). 0: not written (a mate rescued on
+        // one seed, an unmapped record, SAMs of older protal versions).
+        uint16_t m_seeds = 0;
         QUAL_t m_qual;
         SEQ_t m_seq;
         CIGAR_t m_cigar;
@@ -219,6 +224,7 @@ namespace protal {
                     + m_qual + '\t'
                     + "ZU:i:" + std::to_string(m_uniques) + '\t'
                     + "ZT:i:" + std::to_string(m_uniques_two)
+                    + (m_seeds == 0 ? std::string() : "\tZS:i:" + std::to_string(m_seeds))
                     + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives)
                     + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed)
                     + (m_untried.empty() ? std::string() : "\tZC:Z:" + m_untried)
@@ -403,6 +409,7 @@ namespace protal {
         sam.m_qual = tokens[10];
         sam.m_uniques = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZU").value_or(0), UINT16_MAX));
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
+        sam.m_seeds = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZS").value_or(0), UINT16_MAX));
         sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
         sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
         sam.m_untried = sam_detail::StringTag(tokens, "ZC").value_or(std::string_view());
@@ -523,6 +530,7 @@ namespace protal {
         FailedCandidateCounts m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
                                                                    // seeded on the taxon and aligned nowhere)
         std::optional<ScannedReads> m_scanned;  // the header's kSamScannedReadsComment line, if it has one
+        std::optional<SeedExpectation> m_seed_expectation;  // the header's kSamSeedExpectationComment line, if it has one
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
         // The next line, without its newline (as getline reads it); false at the end.
@@ -581,6 +589,11 @@ namespace protal {
                         m_scanned = ParseScannedReadsLine(line);
                         if (!m_scanned) throw SamFormatError("line " + std::to_string(m_line_no) + ": the scanned reads' header line is "
                                                              "not 'fragments=F reads=R bases=B': " + std::string(line));
+                    }
+                    if (line.compare(0, kSamSeedExpectationComment.size(), kSamSeedExpectationComment) == 0) {
+                        m_seed_expectation = ParseSeedExpectationLine(line);
+                        if (!m_seed_expectation) throw SamFormatError("line " + std::to_string(m_line_no) + ": the seed expectation's header "
+                                                                      "line is not 'level=L unique=U two=T': " + std::string(line));
                     }
                     if (m_on_header) m_on_header(std::string(line));
                     continue;
@@ -667,6 +680,9 @@ namespace protal {
         // The reads the aligner read (the header's kSamScannedReadsComment line); nullopt for a SAM without the line
         // (an older protal's, --full_sam_header, or a part of a SAM that does not hold the header).
         std::optional<ScannedReads> const& Scanned() const { return m_scanned; }
+        // How the sample's unique seeds compare with its genes' unique values (the header's kSamSeedExpectationComment line);
+        // nullopt without the line (a run seeded from every core, an older protal's SAM, a part without the header).
+        std::optional<SeedExpectation> const& SeedExpectationOf() const { return m_seed_expectation; }
     };
 
     // The reads a SAM stream holds: the kind its header names (kSamReadTypeComment, as protal writes it),

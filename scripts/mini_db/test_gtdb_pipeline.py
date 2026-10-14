@@ -104,11 +104,14 @@ class GtdbBuildTest(unittest.TestCase):
         any level. The runs scan the full references for the foreign rates (--foreign-rates, off by default), so that
         their tables compare; test_f has the default, no scan, and so do test_b and test_i, which do not look at them.
         Only the database gates' models (--model-gates none): test_j trains one at another gate. One kind of models (--model
-        gbm): test_j trains the forests too. On 4 threads (the runs take ~15% less time than on 2, the tables are the same
+        gbm): test_j trains the forests too. The single-end reads are the first reads of the paired-end setup, without the
+        design's Ultima units (the build's defaults since 2026-10-14 add a setup and those units; test_collector.py
+        checks the units they make). On 4 threads (the runs take ~15% less time than on 2, the tables are the same
         on any)."""
         command = [cls.python, BUILD, "--inputs", cls.inputs, "--outdir", os.path.join(cls.tmp.name, out),
                    "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "4",
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
+                   "--se-read-setups", "100:HS20:300:40", "--se-ultima-setup", "",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
                    "--test-read-pairs", "2000", "--model", "gbm", "--ntree", "16", "--rounds", "40", "--evaluation", "basic",
@@ -734,8 +737,13 @@ class GtdbBuildTest(unittest.TestCase):
                                                             "*.fq.zst"))[0]).splitlines()
         lengths = [len(r) for r in lines[1::4]]
         self.assertAlmostEqual(sum(lengths) / len(lengths), 300, delta=15)
-        quality = [ord(c) - 33 for q in lines[3::4] for c in q]
-        self.assertAlmostEqual(sum(quality) / len(quality), 25, delta=1.5)
+        # Cut at 320 bases (a run's flows), their qualities averaging Q25 but over the last 100 bases, which fall to 15
+        # below at the end (since 2026-10-14).
+        self.assertLessEqual(max(lengths), 330)  # 320 and an insertion or few
+        head = [ord(c) - 33 for q in lines[3::4] for c in q[:-100]]
+        tail = [ord(c) - 33 for q in lines[3::4] for c in q[-100:]]
+        self.assertAlmostEqual(sum(head) / len(head), 25, delta=1.5)
+        self.assertAlmostEqual(sum(tail) / len(tail), 25 - 15 * 0.505, delta=2)
         # Its tables: the scenarios' rows beside the design's, in the training data (which the models are fitted on)
         # and in the test set; the training data's design samples as without scenarios (4 pe, 4 se).
         for collection, n in (("training", 2), ("test", 1)):
@@ -798,6 +806,7 @@ class GtdbBuildTest(unittest.TestCase):
                 self.assertFalse(any(line.startswith("@CO\tprotal failed candidates") for line in lines), sam)
         self.assertGreater(unmapped, 0)
         logs = os.path.join(self.tmp.name, "scenarios", "model_logs")
+        error_records = {}  # whether a read type's errors had reads with records (a small world's models may make none)
         for t in ("pe", "se"):
             # The errors are those of the model's calls (the trainer's calls.tsv.gz, copied to model_logs): every sample
             # of both tables.
@@ -850,14 +859,18 @@ class GtdbBuildTest(unittest.TestCase):
                                                 if (x["set"], x["sample"]) == (r["set"], r["sample"]))
                 self.assertEqual((errors_of["FP"], errors_of["FN"], errors_of["unseen"]),
                                  (int(r["FP"]), int(r["FN"]), int(r["unseen"])))
-            self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
+            # The records of the errors' reads, where the models made errors (a small world's models may make none of a read
+            # type).
+            if any(int(r["FP"]) + int(r["FN"]) + int(r["unseen"]) for r in samples):
+                self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
             if any(int(r["FP"]) + int(r["FN"]) for r in samples):
                 self.assertGreater(sum(int(r["sam_records"]) for r in samples), 0, t)
             # Which side the errors' reads take where the species differs from its congeners (ancestry_sites.py, after
             # the error reads, from the training database's genes and its full reference, kept until then): a summary,
             # the AUC table and the counts per taxon and record.
             ancestry = os.path.join(logs, "ancestry_sites", t)
-            if not any(int(r["sam_records"]) for r in samples):
+            error_records[t] = any(int(r["sam_records"]) for r in samples)
+            if not error_records[t]:
                 continue
             summary = self.text("scenarios", "model_logs", "ancestry_sites", f"{t}.summary.txt")
             self.assertRegex(summary, r"^\d+ SAMs of \d+ samples, \d+ counted records", t)
@@ -882,9 +895,11 @@ class GtdbBuildTest(unittest.TestCase):
         import tarfile
         with tarfile.open(os.path.join(self.tmp.name, "scenarios", "scenarios_share.tar.gz")) as tar:
             members = set(tar.getnames())
+            ancestry_of = [f"model_logs/ancestry_sites/{t}.{kind}" for t in ("pe", "se") if error_records.get(t)
+                           for kind in ("summary.txt", "auc.tsv")]
+            self.assertTrue(ancestry_of, "the ancestry sites of some read type's error reads")
             for name in ("console.log", "logs/training_data.log", "model_logs/summary.txt",
-                         "model_logs/error_reads/pe/summary.tsv", "model_logs/error_reads/pe/taxa.tsv.gz",
-                         "model_logs/ancestry_sites/pe.summary.txt", "model_logs/ancestry_sites/pe.auc.tsv",
+                         "model_logs/error_reads/pe/summary.tsv", "model_logs/error_reads/pe/taxa.tsv.gz", *ancestry_of,
                          "protal_db/build_metadata.tsv", "work/internal_taxonomy.dmp", "work/training/training_data.tsv",
                          "work/training/training_data_se.tsv", "work/test/training_data.tsv"):
                 self.assertIn("scenarios/" + name, members)

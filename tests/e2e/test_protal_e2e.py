@@ -4517,6 +4517,34 @@ class SparseFirstGatesTest(WorkDir):
             self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 0\.\d GB \(compact: \d+ cores with values of 1073741824")
         self.assertIn("key map 3.2 GB", logs["keys_direct"])
 
+    def test_seed_tags_and_the_seed_expectation(self):
+        """Since 2026-10-14 a record says how many seeds of its anchor its ZU and ZT were counted over (ZS), and the SAM of a
+        sample seeded from a grid level alone (the sparse index) has that level's seed expectation in its header, which the
+        profile scales the genes' unique shares by; a run seeded from every core has none."""
+        logs, texts = {}, {}
+        for name, extra in (("seeds_plain", ()), ("seeds_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid"))):
+            logs[name] = self.align(name, *extra, db=self.plain_db)
+            texts[name] = sam_text(self.path(name, f"{name}.sam"))
+        for name, text in texts.items():
+            records = [line.split("\t") for line in text.splitlines() if not line.startswith("@")]
+            mapped = [r for r in records if r[2] != "*"]
+            self.assertTrue(mapped, name)
+            seeds = [int(t[5:]) for r in mapped for t in r[11:] if t.startswith("ZS:i:")]
+            self.assertGreater(len(seeds), 0.8 * len(mapped), name)
+            self.assertTrue(all(s >= 1 for s in seeds), name)
+            # ZU counts a share of those seeds.
+            for r in mapped:
+                tags = dict(t.split(":", 2)[0::2] for t in r[11:])
+                if "ZS" in tags:
+                    self.assertLessEqual(int(tags["ZU"]), int(tags["ZS"]), r[:3])
+        self.assertNotIn("@CO\tprotal seed expectation:", texts["seeds_plain"])
+        line = [l for l in texts["seeds_grid"].splitlines() if l.startswith("@CO\tprotal seed expectation: ")]
+        self.assertEqual(len(line), 1)
+        self.assertRegex(line[0], r"level=2 unique=[0-9.e-]+ two=[0-9.e-]+$")
+        self.assertRegex(logs["seeds_grid"], r"Seed expectation: the unique share of a grid level's values over the whole "
+                                             r"index's \(ZU / ZT\): level 2 \(C 4\) [0-9.]+ / [0-9.]+")
+        self.assertNotIn("Seed expectation:", logs["seeds_plain"])
+
     def test_sparse_seeding(self):
         """--sparse_seeding (2026-10-13) seeds the reads a gate keeps from its cores alone, as an index of only those would.
         Where the gate looks up every core (1) that is all of them: the records are those without the option. After the

@@ -39,7 +39,7 @@ databases are in [development.md](development.md).
 | `column_weights.bin`, `strain_alleles.bin` | only in `database.protal` (since 2026-10-11), beside the text tables they are made from: the same tables as a run holds them (the column weights' codes packed, ~1.5 bytes a column), read straight into memory on several threads without parsing. At r226 the column weights' text took 12 s of every run on one thread and ~7.6 GB more while it was read ([report](claude/2026-10-11-performance-audit/README.md)). Each records the size of its text table; one made from another text (`--add_tables` of the text alone, by an older protal) is not used, and the text is read |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
 | `model_pe_c1.xml`, `model_PB_c32.xml`, ... | since 2026-10-13: models trained at other sparse-first gates than the database's (`--add_model --model_gate`, [`--model-gates`](#choosing-the-sparse-first-gates)), which runs gated nearer that gate are profiled with |
-| `model_pe_forest.xml`, `model_pe_c1_forest.xml`, ... | since 2026-10-13: each of those models of the other kind, a random forest beside the default gradient-boosted trees (`..._gbm.xml` where the default is a forest; `--add_model --model_kind`), which runs given `--model_kind forest` are profiled with ([below](#kinds-of-models)) |
+| `model_pe_gbm.xml`, `model_pe_c1_gbm.xml` (or `..._forest.xml`), ... | since 2026-10-13: each of those models of the other kind (`..._gbm.xml` where the default is a forest, as builds make it since 2026-10-14; `..._forest.xml` beside boosted trees, as from 2026-10-13 to 2026-10-14; `--add_model --model_kind`), which runs given `--model_kind` of that kind are profiled with ([below](#kinds-of-models)) |
 | `build_metadata.tsv`, `gene2geneid.tsv`, `genome2tiid.tsv` | optional (since 2026-10-13): notes no run reads, so that `database.protal` holds the whole database: what it was built from and with and its models' scores, the gene ids, the genomes by name ([below](#the-notes-a-database-carries)) |
 
 A database without an optional table works; the features that need it are then fixed values (0, or
@@ -140,8 +140,9 @@ Since 2026-10-13 a database may hold its models in two kinds: gradient-boosted t
 random forest (`forest`). The read types' files (`model_pe.xml`, `model_pe_c1.xml`, ...) hold the
 database's default kind; a model of the other kind sits beside each as `model_pe_forest.xml`,
 `model_pe_c1_forest.xml`, ... (or `..._gbm.xml` where the default is a forest). A GTDB build trains
-both at every gate it trains (`build_gtdb_database.py --model gbm,forest`, the default): boosting is the
-default, the forests go beside it. A run picks the kind with `--model_kind`:
+both at every gate it trains (`build_gtdb_database.py --model forest,gbm`, the default since 2026-10-14): the
+random forest is the default again, the boosted trees go beside it (`gbm,forest`, boosting the default, from
+2026-10-13 to 2026-10-14). A run picks the kind with `--model_kind`:
 
 ```bash
 protal --db DB -1 r1.fq.gz -2 r2.fq.gz -o out --model_kind forest            # every read type
@@ -351,13 +352,14 @@ numbered line when it starts and indented lines when it ends.
    host-dominated; [below](#scenarios-kinds-of-studies)), all against the training database.
 6. **Independent test set** (`test_data.log`): samples of another design, for an honest score, and
    the scenarios' hold-out samples.
-7. **Models** (`classifier_training*.log`): one model of gradient-boosted trees per read type (`--model`;
-   a random forest before 2026-10-06), trained in parallel on the default feature set and evaluated with
+7. **Models** (`classifier_training*.log`): one random forest per read type (`--model`; gradient-boosted
+   trees from 2026-10-06 to 2026-10-14), trained in parallel on the default feature set and evaluated with
    rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
-   Since 2026-10-13 the same models again as random forests once the boosted ones are trained (`--model
-   gbm,forest`, the default; `classifier_training*_forest.log`, `trained_model*_forest.*`), at every gate,
-   for `protal --model_kind forest` ([kinds of models](#kinds-of-models)); `--model gbm` trains one kind.
+   Since 2026-10-13 the same models again in the other kind once the default ones are trained (`--model
+   forest,gbm`, the default since 2026-10-14; `classifier_training*_gbm.log`, `trained_model*_gbm.*`), at
+   every gate, for `protal --model_kind gbm` ([kinds of models](#kinds-of-models)); `--model forest` trains
+   one kind.
 8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does; the read
    types' checks side by side (`protal --profile_only`, no index loaded), those of both kinds.
 9. **Packaging** (`final_package.log`): the models of both kinds go into the finished database, with
@@ -599,8 +601,8 @@ communities:
 
 | read type | how the reads are made |
 |---|---|
-| `pe` | Illumina paired-end reads by `simulate_metagenomes`'s instrument models ([below](#illumina-reads)) |
-| `se` | the same reads' first mates, profiled as single-end |
+| `pe` | Illumina paired-end reads by `simulate_metagenomes`'s instrument models ([below](#illumina-reads)): 75, 100, 150 and 250 bp (`--read-setups`; 100, 150 and 250 before 2026-10-14) |
+| `se` | the first mates of the Illumina setups of `--se-read-setups` (150 and 250 bp), profiled as single-end, and Ultima reads (`--se-ultima-setup`, 300 bp, SD 50, cut at 320 bases; a unit a depth replaying its communities, since 2026-10-14; the scenarios' before) |
 | `pb` | PacBio HiFi reads by `hifi_reads.py`'s model (`--pb-setup`: 15 kb, quality by length, Q50 at 5 kb to Q20 at 50 kb) |
 | `ont` | Nanopore reads by [pbsim3](https://github.com/yukiteruono/pbsim3)'s quality-score model (`--ont-setup`: the high-quality model at 97%, 8 kb) |
 
@@ -781,7 +783,7 @@ the soils', 9,800 and more; [report](claude/2026-10-07-r226-v15/README.md)).
 `abundance`, `strains`, `congeners` (as the build's options), `host_share`, and `reads`, one entry per
 read type with its `depth` (read pairs, reads, or bases for long reads): `pe` with `length`,
 `profile`, `fragment_mean`, `fragment_sd` and `quality` (the mean base quality), `se` with an Ultima
-`setup` (`ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD`, default `ultima:300:40:25:2`), `pb` and `ont` with
+`setup` (`ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX]`, default `ultima:300:40:25:2`, the reads cut at MAX bases, 320 unless given), `pb` and `ont` with
 an optional `setup` (the build's `--pb-setup` and `--ont-setup` by default); and optionally
 `depth_range` (`LOW-HIGH`, default `0.125-2`) or `depth_spread` (S: 1/S to S), not both (below).
 
@@ -819,8 +821,10 @@ How the parts are made:
 - **Illumina reads at a quality.** The instruments' qualities have their own mean (HiSeq X Ten, 150 bp:
   about Q36.5 for first reads, Q35 for second reads); `--mean_quality` shifts each read's qualities to
   the scenario's, and the errors follow them ([Illumina reads](#illumina-reads)).
-- **Ultima reads**: single-end, length from a gamma distribution, errors mostly homopolymer length
-  errors (homopolymers from two bases), base qualities averaging the read's quality, made by
+- **Ultima reads**: single-end, length from a gamma distribution cut at 320 bases (a run's flows end its
+  reads; `ultima:...:MAX` sets another), errors indels, mostly homopolymer length errors (homopolymers from
+  two bases), with substitutions rare at Q35 to Q40 (drawn per read), base qualities averaging the read's
+  quality and falling over its last 100 bases to 15 below it at its end (both since 2026-10-14), made by
   `hifi_reads.py`'s flow model (in `simulate_metagenomes`) from templates drawn like long reads'. They are profiled as
   single-end reads and train the `se` model.
 - **A host.** The host genome (`--host-genome`, by default the download's) is written once as plain
@@ -1031,9 +1035,11 @@ keeps the finished database.
 | `--novel-clades-per-sample` | 1 | species of held-out clades per sample and rank |
 | `--insilico-strains`, `--min-real-strains`, `--insilico-multi`, `--insilico-ani` | `auto`, 0.5, 0.25, | share of one-genome species given an in-silico strain (`auto`: as many as keep the real strains at `--min-real-strains` of the simulated strains or more); share of the species with real strains given one too; or their ANI drawn from `MIN-MAX` |
 | `--weighted-site-shift` | off | the collections' protal runs with the weighted site shift (`protal --weighted_site_shift`), and the database's users should profile with it too (`build_metadata.tsv` says so); the default from 2026-10-11 to 2026-10-12, off again since it lowered r226 v24b's short-read depths by 1-2% without a measurable F1 gain |
-| `--samples` | 12 | samples per design point |
-| `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples |
-| `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD |
+| `--samples` | 9 | samples per design point (12 before 2026-10-14, with three paired-end setups) |
+| `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples (`2000000:4,10000000:2` before 2026-10-14) |
+| `--read-setups` | `75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | the paired-end reads: read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD; 75 bp since 2026-10-14 |
+| `--se-read-setups` | `150:HSXt:350:50,250:MSv3:550:50` | the single-end Illumina reads (the first reads of these setups' simulations; a setup in both lists is simulated once); since 2026-10-14, `--read-setups`' before |
+| `--se-ultima-setup` | `ultima:300:50:25:2` | single-end Ultima reads of the design besides the Illumina ones, a unit a depth of that many reads and the depth's samples, drawn from the depth's communities ([Ultima reads](#scenarios-kinds-of-studies): cut at 320 bases, the last 100 poor, indels); since 2026-10-14; empty for none |
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
 | `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
@@ -1049,8 +1055,8 @@ keeps the finished database.
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), in 0.8.1 the column weights (`weights`), and since 2026-10-13 the identities against the best strain allele (`strain_identity`), which need a protal of 2026-10-13 or later (0.8.1 for `weights`, 0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
-| `--model` | `gbm,forest` | the kinds of models, comma-separated: `gbm`, gradient-boosted trees (the default since 2026-10-06), `forest`, a random forest ([below](#training)); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_forest.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13, `gbm` alone before |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), in 0.8.1 the column weights (`weights`), and since 2026-10-13 the identities against the best strain allele (`strain_identity`), and since 2026-10-14 `length_free` and `read_length` (features that do not change with the read length or a sparse index in place of those that do, and the sample's read length), which need a protal of 2026-10-14 or later (2026-10-13 for `strain_identity`, 0.8.1 for `weights`, 0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--model` | `forest,gbm` | the kinds of models, comma-separated: `forest`, a random forest (the default again since 2026-10-14), `gbm`, gradient-boosted trees (the default from 2026-10-06 to 2026-10-14; [below](#training)); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_gbm.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13 (`gbm,forest` to 2026-10-14), `gbm` alone before |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items; `--maxnodes` for `--model`'s first kind, the others their defaults) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
@@ -1527,6 +1533,7 @@ features.
 | `--db`, `--genome_table`, `-o` | required | the database, the simulator's genome table, the output folder |
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `--samples`, `--read_pairs`, `--read_setups` | 4, `1000,5000,20000,100000,500000`, three setups | samples per point, depths, read length : instrument : fragment mean : SD |
+| `--se_read_setups`, `--se_ultima_setup` | `--read_setups`', none | the single-end units' Illumina setups (a setup of either list simulated once); the design's Ultima reads, a unit a depth (since 2026-10-14) |
 | `--species_per_sample`, `--archaea`, `--strains_per_species`, `--abundance`, `--congeners` | `5-30`, 0, one, sigma 1.3, 0 | the communities |
 | `--read_types`, `--long_read_bases`, `--pb_setup`, `--ont_setup`, `--pbsim`, `--pbsim_models` | `pe` | other read types and how they are made |
 | `--novel_species`, `--novel_clades`, `--taxonomy` | | the species the database lacks (`heldout_species.txt`), held-out clades per sample, and the taxonomy for the `meta_*` ranks |
@@ -1548,10 +1555,10 @@ The trainer needs Python 3 with numpy, pandas, joblib and scikit-learn, no Java:
 itself, so that protal's probabilities equal scikit-learn's bit for bit, and checks this on every
 training row.
 
-**The model.** Gradient-boosted trees (`--model gbm`, the default since 2026-10-06; scikit-learn's
+**The model.** A random forest (`--model forest`, the default before 2026-10-06 and again since 2026-10-14)
+or gradient-boosted trees (`--model gbm`, the default from 2026-10-06 to 2026-10-14; scikit-learn's
 `HistGradientBoostingClassifier`: 250 rounds at a learning rate of 0.1 of trees of up to 63 leaves,
-20 rows a leaf at least, an L2 penalty of 1, balanced classes, no early stopping) or a random forest
-(`--model forest`, the model before). Refitted on the r226 v13 tables, boosting scored higher than the
+20 rows a leaf at least, an L2 penalty of 1, balanced classes, no early stopping). Refitted on the r226 v13 tables, boosting scored higher than the
 forest on every test set of the long reads (soil +0.004 to +0.008, the design's test set +0.003, gut
 +0.008 to +0.013) and of Ultima's (+0.005 in soil), and, with the scenarios' depths varied (rounded in
 the experiment), of paired-end reads (soil +0.004, shallow soil +0.006, the design's test set +0.002;
@@ -1571,7 +1578,7 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
-| `--model` | `gbm` | `gbm`: gradient-boosted trees; `forest`: a random forest |
+| `--model` | `forest` | `forest`: a random forest (the default again since 2026-10-14); `gbm`: gradient-boosted trees |
 | `--rounds`, `--learning-rate`, `--l2` | 250, 0.1, 1 | boosting's rounds, learning rate and L2 penalty (500 and 0.05 before 2026-10-06) |
 | `--fold-jobs` | 0 | folds fitted side by side (0: as many as there are folds, up to `--threads` / 3; 1: one after another) |
 | `--maxnodes`, `--min-samples-leaf` | 63, 20 for boosting; 256, 1 for a forest | leaves per tree at most (0: no limit), rows a leaf at least (the GTDB build gives forests 512 leaves for short reads, 128 for long reads) |

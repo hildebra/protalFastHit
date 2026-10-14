@@ -663,6 +663,7 @@ namespace protal {
         sam.m_qual = hit.qual;
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
+        sam.m_seeds = ar.Seeds();
         sam.m_alternatives.clear();  // set on a segment's best record only
         sam.m_failed.clear();        // set on the read's first record only
         sam.m_untried.clear();

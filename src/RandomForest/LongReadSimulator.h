@@ -34,13 +34,16 @@
 namespace protal::sim {
 
 // A read setup as collect_training_data.parse_long_setup reads it: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD,
-// ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD, or qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL].
+// ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX], or qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL].
 struct LongReadSetup {
     enum class Method { Hifi, Ultima, Qshmm };
     Method method = Method::Hifi;
     std::string model;  // qshmm: the model's name in the setup (the file is given apart: --long_model)
     double length_mean = 15000, length_sd = 3000;
     double q_sd = 3.0, q_mean = 0.0;           // hifi, ultima
+    // ultima: the reads' longest (a run's flows end them: those drawn longer are cut there, since 2026-10-14; an optional
+    // sixth field, default kUltimaMaxLength), 0 for none.
+    std::uint32_t max_length = 0;
     double accuracy = 0.85;                    // qshmm: pbsim3's --accuracy-mean
     long sub_ratio = 6, ins_ratio = 55, del_ratio = 39;  // qshmm: --difference-ratio, pbsim3's defaults
 
@@ -56,6 +59,13 @@ namespace hifi {
     inline constexpr double kQMin = 10.0, kQMax = 60.0, kPMax = 0.5, kConfidenceSigma = 1.0;
     inline constexpr int kHomopolymer = 3, kFlowHomopolymer = 2;
     inline constexpr double kSubstitution = 0.30, kInsertion = 0.35;  // the rest deletions, outside homopolymers
+    // Ultima reads (since 2026-10-14): at most this long by default (a run's flows end them near 320 bp), and their last
+    // kUltimaTail bases worse in quality, falling linearly to kUltimaTailDrop Phred below the read's level at its end.
+    inline constexpr std::uint32_t kUltimaMaxLength = 320, kUltimaTail = 100;
+    inline constexpr double kUltimaTailDrop = 15.0;
+    // Ultima reads' errors are mostly indels, which their qualities give; substitutions are rare, Q35 to Q40 (a rate drawn
+    // per read; since 2026-10-14).
+    inline constexpr double kUltimaSubstitutionQMin = 35.0, kUltimaSubstitutionQMax = 40.0;
 
     // A read's mean quality (Phred) by its length: Q50 to 5 kb, Q30 at 25 kb, Q20 at 50 kb, linear between and on at
     // the last slope beyond (QUALITY_BY_LENGTH).

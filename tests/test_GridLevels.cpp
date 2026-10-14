@@ -429,3 +429,59 @@ TEST(GridIndex, ASparseLoadNeedsGridLevels) {
         sparse.Load(dir / "index.prx.zst", 1, &with_levels);
     }, testing::ExitedWithCode(8), "has no grid levels");
 }
+
+// UniqueSharesByLevel (since 2026-10-14, RunProtal::SeedExpectations): for each grid level, the values of that level or more
+// and those a read seeded from them alone counts unique (flagged so) and unique at distance two (flagged so where the key
+// has two values or more of the level, flagged unique where it has one), counted alike through the compact key map.
+TEST(GridLevels, UniqueSharesCountTheValuesALevelsLookupsCountUnique) {
+    auto const values = GridValues(31, 3000);
+    std::mt19937_64 rng(5);
+    Seedmap map(kCoreBases);
+    map.SetGridLevels();
+    for (auto const& v : values) map.CountUpKey(map.MainKey(v.key));
+    auto const layout = GridLayout(true);
+    map.BuildValuePointers(2, &layout, false);
+    struct Kept { uint64_t level; bool unique, two; };
+    std::map<uint64_t, std::vector<Kept>> by_core;
+    for (auto const& v : values) {
+        ValueEntry entry;
+        entry.Put(v.taxid, v.gene, v.pos);  // flagged unique
+        bool const unique = rng() % 3 != 0, two = unique && rng() % 2 == 0;
+        if (!unique) entry.SetFlagNonUnique();
+        if (two) entry.SetFlagUniqueDistanceMinTwo();
+        entry.value |= v.level << protal::GRID_LEVEL_SHIFT;
+        ASSERT_TRUE(map.PutOwned(v.key, entry.value));
+        by_core[map.MainKey(v.key)].push_back({ v.level, unique, two });
+    }
+    std::vector<Seedmap::UniqueShares> expected(protal::GRID_LEVELS);
+    for (auto const& [core, kept] : by_core) {
+        for (uint64_t level = 0; level < protal::GRID_LEVELS; level++) {
+            uint64_t n = 0, unique = 0, two = 0;
+            for (auto const& k : kept) {
+                if (k.level < level) continue;
+                n++;
+                unique += k.unique;
+                two += k.unique && k.two;
+            }
+            expected[level].values += n;
+            expected[level].unique += unique;
+            expected[level].unique_two += n == 1 ? unique : two;
+        }
+    }
+    auto check = [&](char const* what) {
+        auto const shares = map.UniqueSharesByLevel(3);
+        ASSERT_EQ(shares.size(), protal::GRID_LEVELS) << what;
+        EXPECT_EQ(shares[0].values, values.size()) << what;
+        for (size_t level = 0; level < shares.size(); level++) {
+            EXPECT_EQ(shares[level].values, expected[level].values) << what << ", level " << level;
+            EXPECT_EQ(shares[level].unique, expected[level].unique) << what << ", level " << level;
+            EXPECT_EQ(shares[level].unique_two, expected[level].unique_two) << what << ", level " << level;
+        }
+        // The higher levels hold fewer values, and a key's single value there counts unique at distance two whenever it is
+        // unique: more of them than its own flags give.
+        EXPECT_LT(shares[3].values, shares[1].values) << what;
+    };
+    check("direct key map");
+    ASSERT_TRUE(map.CompactKeymap(2));
+    check("compact key map");
+}

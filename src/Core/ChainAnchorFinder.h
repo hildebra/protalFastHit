@@ -517,12 +517,18 @@ namespace protal {
         std::pair<uint16_t, uint16_t> CountUniques(SeedList const& seeds, bool forward) {
             uint16_t uniques = 0, uniques_two = 0;
             for (auto const& seed : seeds) {
-                if (!seed.unique && !seed.unique_dist_two) continue;
-                if (seed.single && !WholeKmerMatches(seed, forward)) continue;
-                uniques += seed.unique;
-                uniques_two += seed.unique_dist_two;
+                auto const [unique, unique_two] = SeedUniques(seed, forward);
+                uniques += unique;
+                uniques_two += unique_two;
             }
             return { uniques, uniques_two };
+        }
+
+        // Whether one seed counts as unique and unique at distance two (CountUniques).
+        std::pair<bool, bool> SeedUniques(Seed const& seed, bool forward) {
+            if (!seed.unique && !seed.unique_dist_two) return { false, false };
+            if (seed.single && !WholeKmerMatches(seed, forward)) return { false, false };
+            return { seed.unique, seed.unique_dist_two };
         }
 
         Anchor ExtractAnchor(SeedList &seeds, size_t read_length) {
@@ -545,6 +551,7 @@ namespace protal {
             auto const [uniques, uniques_two] = CountUniques(seeds, forward);
 
             Anchor anchor(seeds.front().taxid, seeds.front().geneid, forward, uniques, uniques_two);
+            anchor.seeds = static_cast<uint16_t>(std::min<size_t>(seeds.size(), UINT16_MAX));
             bool stop = false;
             bool is_first = true;
             auto& first = seeds.front();
@@ -651,7 +658,13 @@ namespace protal {
             for (auto const& found : seeds) {
                 if (!m_anchored.insert(key(found.taxid, found.geneid)).second) continue;
                 Seed seed = found;  // ExtractAndExtendAnchorFromSeed turns it to the reverse strand
-                anchors.emplace_back(ExtractAndExtendAnchorFromSeed(seed, *m_fwd, m_rev));
+                auto& anchor = anchors.emplace_back(ExtractAndExtendAnchorFromSeed(seed, *m_fwd, m_rev));
+                // Its one seed counts towards ZU, ZT and ZS as an anchor's seeds do, in the anchor's orientation.
+                auto const [unique, unique_two] = SeedUniques(anchor.forward ? found : seed, anchor.forward);
+                anchor.unique = unique;
+                anchor.unique_best_two = unique_two;
+                anchor.seeds = 1;
+                anchor.lone = true;
                 m_seeding.anchors++;
                 m_seeding.single_anchors++;
             }
@@ -1054,6 +1067,10 @@ namespace protal {
 
         // The grid level a gate lookup counts entries of: the gate's with the grid pick, else every entry (0).
         uint8_t GateLevel() const { return m_sparse_grid ? m_sparse_level : 0; }
+        // The grid level a kept read is seeded from (its entries of that level or more alone: a sparse index, --sparse_index
+        // emulate, or --sparse_seeding with the grid pick); 0: every entry. A read seeded so finds the index's unique
+        // values of that level, whose share of its values the grid's choice of cores shifts (RunProtal::SeedExpectations).
+        uint8_t GridSeedLevel() const { return m_sparse_grid ? m_seed_level : 0; }
 
         // The key map blocks of a read's sampled k-mers, fetched ahead as PrefetchKeys fetches all (--sparse_first).
         void PrefetchSparseKeys(KmerList const& kmer_list) {

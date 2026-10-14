@@ -87,6 +87,30 @@ for this page.
   pick beside the database's, and `--sparse-first-pick grid` builds a grid-picked database. A database built before
   2026-10-13 has no grid levels: the grid pick stops on it (exit 2); the other picks are unchanged.
 
+- **Presence features that do not change with the read length or a sparse index; training on several read lengths;
+  random forests again** (2026-10-14). On a grid's sparse index the reads align as on the whole index, but a read
+  seeded from 1/C of its cores counts 1/C of its unique k-mers, and a model trained on fully seeded runs called fewer
+  strains (0.867 against 0.900 on the strain world); the same reads cut to 75 bp made a 150 bp model call six times the
+  false positives (MAPQ, and relatives' short reads without a difference) ([report](claude/2026-10-14-sparse-index-calls/README.md)).
+  Now:
+  - A record's new `ZS` tag gives the seeds of its anchor that `ZU` and `ZT` were counted over (a single-seed anchor's
+    seed counts too); a sample seeded from a grid level alone has that level's seed expectation in its SAM header
+    (`@CO protal seed expectation: level=L unique=U two=T`, also logged).
+  - The feature groups `length_free` (the reads' unique seeds over those their genes lead to expect, in place of the
+    unique k-mer rates; the best reads' identity bounds by their aligned bases, in place of `top_identity` and
+    `allele_top_identity`; the ancestry sites per kb) and `read_length` (the sample's mean and SD of aligned bases,
+    and the taxon's against them) are in the default set ([features.md](features.md)). Their columns are in every
+    training dump; a table of an older protal trains with the previous set.
+  - A single-seed anchor's failure is no failed candidate (`ZF`) any more: it tripled `failed_candidate_rate` on the
+    sparse index.
+  - `build_gtdb_database.py` trains paired-end reads of 75, 100, 150 and 250 bp (`--read-setups`; 9 samples a point,
+    the deep points rebalanced), single-end Illumina reads of 150 and 250 bp (`--se-read-setups`) and Ultima reads
+    (`--se-ultima-setup`, `ultima:300:50:25:2`), and trains random forests as the databases' default models again
+    (`--model forest,gbm`; `machine_learning_cmdline.py --model forest`); protal's `--model_kind auto` takes the
+    database's default.
+  - Simulated Ultima reads are cut at 320 bases (`ultima:...:MAX`), fall in quality over their last 100 bases, and
+    their errors are indels with rare substitutions (Q35 to Q40), for scenarios and the design alike.
+
 - **A compact key map** (2026-10-14; opt-in, `--compact_keys`). The key map gives every one of the 2^30 cores a
   16-bit offset (3.2 GB), of which r226 uses 9.2%. With the option it holds a presence bit per core with ranks (153
   MB) and 3 bytes a used core (~0.45 GB at r226), built as the index loads, so the direct key map is never held. On

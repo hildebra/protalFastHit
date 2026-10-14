@@ -222,6 +222,18 @@ namespace protal {
         return { columns > 0 ? matches / columns : 0.0, ref_length };
     }
 
+    // The lower end of the 95% Wilson score interval (z = 1.96) of an alignment's identity over `length` bases: how
+    // identical the read can be said to be, which a short read without a difference says less surely than a long one
+    // (since 2026-10-14): 150 bases without a difference 0.975, 75 bases 0.951, 150 bases with one difference 0.963.
+    // 0 for no bases.
+    static double IdentityLowerBound(double identity, size_t length) {
+        if (length == 0) return 0;
+        double const n = static_cast<double>(length), z = 1.96, p = std::clamp(identity, 0.0, 1.0);
+        double const centre = p + z * z / (2 * n);
+        double const spread = z * std::sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+        return std::max(0.0, (centre - spread) / (1 + z * z / n));
+    }
+
     class StrainLevelContainer {
         friend SharedAlignmentRegion;
         // Needs two things, variant handler which stores and handles SNPs and INDELS

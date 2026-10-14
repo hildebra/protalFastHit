@@ -37,6 +37,8 @@ namespace fs = std::filesystem;
 
 namespace protal::sim {
 
+constexpr std::uint32_t kMinLength = 100, kMaxLength = 1000000;  // pbsim3's --length-min and --length-max
+
 // Gamma(shape, scale) by Marsaglia and Tsang, on LongRng alone (no library distribution: the same draws everywhere).
 static double Gamma(LongRng& rng, double shape, double scale) {
     if (shape < 1.0) {
@@ -83,12 +85,18 @@ LongReadSetup LongReadSetup::Parse(std::string const& text) {
     LongReadSetup setup;
     if (parts.empty()) throw std::invalid_argument("an empty read setup");
     if (parts[0] == "ultima") {
-        if (parts.size() != 5) throw std::invalid_argument("read setup " + text + ": expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD");
+        if (parts.size() != 5 && parts.size() != 6) {
+            throw std::invalid_argument("read setup " + text + ": expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX]");
+        }
         setup.method = Method::Ultima;
         setup.length_mean = static_cast<int>(Number(parts[1], text));
         setup.length_sd = static_cast<int>(Number(parts[2], text));
         setup.q_mean = Number(parts[3], text);
         setup.q_sd = Number(parts[4], text);
+        setup.max_length = parts.size() == 6 ? static_cast<std::uint32_t>(Number(parts[5], text)) : hifi::kUltimaMaxLength;
+        if (setup.max_length != 0 && setup.max_length < kMinLength) {
+            throw std::invalid_argument("read setup " + text + ": the longest read (MAX) is below " + std::to_string(kMinLength));
+        }
     } else if (parts[0] == "hifi") {
         if (parts.size() != 4) throw std::invalid_argument("read setup " + text + ": expected hifi:LENGTH_MEAN:LENGTH_SD:Q_SD");
         setup.method = Method::Hifi;
@@ -184,8 +192,12 @@ namespace hifi {
         if (flow) {
             double const q_read = std::clamp(setup.q_mean + setup.q_sd * rng.Normal(), kQMin, kQMax);
             double const mean_log = log_sum / static_cast<double>(n);
+            // The read's last kUltimaTail bases fall in quality, linearly to kUltimaTailDrop below its level at its end.
+            std::size_t const tail = n > kUltimaTail ? n - kUltimaTail : 0;
+            double const tail_bases = static_cast<double>(n - tail);
             for (std::size_t i = 0; i < n; ++i) {
-                double const phred = q_read - 10.0 * (std::log10(weight[i]) - mean_log);
+                double const drop = i < tail ? 0.0 : kUltimaTailDrop * static_cast<double>(i - tail + 1) / tail_bases;
+                double const phred = q_read - drop - 10.0 * (std::log10(weight[i]) - mean_log);
                 weight[i] = std::min(std::pow(10.0, -phred / 10.0), kPMax);
             }
         } else {
@@ -195,20 +207,37 @@ namespace hifi {
         }
         out.seq.reserve(n + n / 8 + 16);
         out.qual.reserve(n + n / 8 + 16);
+        // Ultima reads: their qualities give their indels; substitutions come apart, at a rate of Q35 to Q40 drawn per read.
+        double const p_substitution = flow ? std::pow(10.0, -(kUltimaSubstitutionQMin + (kUltimaSubstitutionQMax -
+                                                             kUltimaSubstitutionQMin) * rng.Uniform()) / 10.0) : 0.0;
         std::uint64_t made = 0;
         for (std::size_t i = 0; i < n; ++i) {
             double const p = weight[i];
             char const a = templ[i];
             char const q = static_cast<char>(33 + std::clamp(std::nearbyint(-10.0 * std::log10(p)), 1.0, 93.0));
+            int const code = BaseCode(a);
             if (!(rng.Uniform() < p)) {
-                out.seq += a;
+                if (flow && code < 4 && rng.Uniform() < p_substitution) {
+                    ++made;
+                    out.seq += kBases[(code + 1 + static_cast<int>(rng.Below(3))) % 4];
+                } else {
+                    out.seq += a;
+                }
                 out.qual += q;
                 continue;
             }
             ++made;
             bool const hp = run[i] >= homopolymer;
             double const kind = rng.Uniform();
-            int const code = BaseCode(a);
+            if (flow) {  // an indel: in a homopolymer one more or one less of the run, elsewhere a base inserted or deleted
+                if (kind < 0.5) {
+                    out.seq += a;
+                    out.qual += q;
+                    out.seq += hp ? a : kBases[rng.Below(4)];
+                    out.qual += q;
+                }
+                continue;
+            }
             if (!hp && kind < kSubstitution && code < 4) {  // a substitution
                 out.seq += kBases[(code + 1 + static_cast<int>(rng.Below(3))) % 4];
                 out.qual += q;
@@ -443,8 +472,6 @@ void QshmmModel::Mutate(std::string_view templ, LongRng& rng, MadeRead& out, std
 
 // ---- templates ---------------------------------------------------------------------------------------------------
 
-constexpr std::uint32_t kMinLength = 100, kMaxLength = 1000000;  // pbsim3's --length-min and --length-max
-
 std::uint32_t DrawReadLength(LongRng& rng, double mean, double sd) {
     if (sd <= 0) {
         return static_cast<std::uint32_t>(std::clamp<long long>(static_cast<long long>(mean), kMinLength, kMaxLength));
@@ -511,7 +538,8 @@ public:
             auto g = static_cast<int>(std::upper_bound(cumulative.begin(), cumulative.end(), rng.Uniform() * total) -
                                       cumulative.begin());
             g = std::min(g, static_cast<int>(cumulative.size()) - 1);
-            std::uint32_t const length = DrawReadLength(rng, m_options.setup.length_mean, m_options.setup.length_sd);
+            std::uint32_t length = DrawReadLength(rng, m_options.setup.length_mean, m_options.setup.length_sd);
+            if (m_options.setup.max_length != 0) length = std::min(length, m_options.setup.max_length);
             planned[g].push_back(length);
             need -= length;
         }

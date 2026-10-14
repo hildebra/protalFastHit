@@ -38,11 +38,13 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `polymorphic` | 0.8.0 (2026-10-09) | how its reads stand at its species' polymorphic sites, and at the ancestry sites the species does not vary at (`strain_alleles.tsv`) | yes, untested at r226 |
 | `weights` | 0.8.1 (2026-10-10) | its mismatches against how conserved each column is in the species' family (`column_weights.tsv`): errors and reads from afar hit conserved columns, a relative's mutations avoid them; the amino-acid changes | yes, untested at r226 |
 | `strain_identity` | 2026-10-13 | `identity` and `top_identity` with each read against its species' best strain allele | yes, untested at r226 |
+| `length_free` | 2026-10-14 | in place of the features that change with the read length or the share of a read's cores looked up (the unique k-mer rates, the best reads' identities, the ancestry sites per record): the reads' unique seeds over those their genes lead one to expect, the best reads' identity bounds, the ancestry sites per kb | yes, untested at r226 |
+| `read_length` | 2026-10-14 | the sample's read length (mean and SD of its records' aligned bases) and the taxon's against it | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
-`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity`
-(93 features since 2026-10-13; without `strain_identity` 91, in 0.8.1 to 0.8.3, since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening; 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length`
+(90 features since 2026-10-14: `length_free` puts 6 in place of 12, `read_length` adds 3; without them 93, since 2026-10-13; without `strain_identity` 91, in 0.8.1 to 0.8.3, since the column weights of 2026-10-10; without `weights` 86, since the fixed-site agreement of 2026-10-09 evening; 85 in 0.8.0, since the polymorphic sites of 2026-10-09; without `polymorphic` 82, since the strain alleles of 2026-10-08; without `alleles` 80, since the ancestry indel sites of 2026-10-08, 78 before; with `foreign` 81, from the congener-gaps merge to 2026-10-08; without `gaps` and `untried` 73, in
 0.7.9 before the congener-gaps merge: train such a table with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`;
 without `ancestry` 70 and without the three groups against false positives 55, both before 2026-10-07; without `ref`
@@ -606,6 +608,40 @@ Both are `identity` and `top_identity` themselves for a species without alleles 
 trained without them scores as before. The depth (the reads within the margin of `top_identity`) and the strain MSAs
 keep the identities against the representative.
 
+## Independent of the read length and the seeding (`length_free`, `read_length`, 2026-10-14)
+
+Several features changed with things other than the species' presence. On the strain world
+([report](claude/2026-10-14-sparse-index-calls/README.md)) a grid's sparse index at C 4 aligned the same reads as the
+whole index, but a read seeded from a quarter of its cores counts a quarter of its unique k-mers: `lu_per_kb` and
+`lsu_per_kb` fell to 0.26 and 0.31, the gene rates by up to a quarter, and a model trained on fully seeded runs called
+0.867 of the strains instead of 0.900. The same reads cut from 150 to 75 bases made the 150 bp model call six times the
+false positives: a short read finds fewer candidates on congeners, so its MAPQ is higher, and a relative's short read is
+free of differences more often (at 99.3% identity 0.59 of 75 bp reads, 0.35 of 150 bp ones), its best read then
+reading as identity 1. `length_free` replaces the features that change so; where a set has the old ones, the new go in
+their place (the old stay in the dump):
+
+| feature | in place of | what it measures |
+|---|---|---|
+| `unique_seed_enrichment`, `unique2_seed_enrichment` | `lu_per_kb`, `lsu_per_kb`, `lu_gene_rate`, `lsu_gene_rate`, `lu_gene_rate2`, `lsu_gene_rate2`, `lu_gene_rate3`, `lsu_gene_rate3` | the unique seeds of the reads' anchors (`ZU`; unique at distance two, `ZT`) over those a read of the species is expected to find: each gene's seeds (`ZS`, the seeds `ZU` and `ZT` were counted over) times the share of its index values that are unique (`unique_kmers.tsv`), times the sample's seed expectation (on a sparse index the grid level's unique share over the whole index's, from the SAM's header). About 1 for the species' own reads, below for a relative's, which seed where species agree; -1 without seeds (a SAM before 2026-10-14) |
+| `top_identity_bound`, `allele_top_identity_bound` | `top_identity`, `allele_top_identity` | the same 98th percentile of the reads' identities, each the lower end of its 95% Wilson interval given the read's aligned bases: a 150 bp read without a difference 0.975, a 75 bp one 0.951, a 150 bp read with one difference 0.963 |
+| `ancestry_sites_per_kb`, `ancestry_indel_sites_per_kb` | `ancestry_sites_per_record`, `ancestry_indel_sites_per_record` | the ancestry sites the records cover per 1000 aligned bases (per record they halved from 150 to 75 bp reads) |
+
+`read_length` gives the model what does change with the read length and cannot be made not to (the MAPQ, the
+candidates a read finds, its ties with congeners, split pairs), so that a model trained on several read lengths
+(`build_gtdb_database.py` trains paired-end reads of 75, 100, 150 and 250 bp and single-end ones of 150 and 250 bp and
+Ultima reads since 2026-10-14) can weigh them by it:
+
+| feature | what it measures |
+|---|---|
+| `sample_read_length` | the mean aligned bases (M, =, X, I, D) of the sample's best records, all taxa's, a mate or a long read's gene each |
+| `sample_read_length_sd` | their SD |
+| `aligned_length_ratio` | the taxon's records' mean aligned bases over the sample's: below 1 where its reads align in part (a relative's at a gene's end, clipped); -1 without records |
+
+The unique shares themselves (`unique_seed_share`, `unique2_seed_share`, of the anchors' seeds) are columns of the dump
+in no group: on a grid's sparse index they are 0.79 of the whole index's (the grid keeps conserved cores, less often
+unique), which the enrichments' seed expectation corrects. The single-seed anchors of a grid's sparse index no longer
+count as failed candidates (`ZF`): they tripled `failed_candidate_rate` there.
+
 ## The species' priors (`priors`, 0.7.5, opt-in)
 
 Per-species constants from GTDB, written by the converter into `species_priors.tsv` (−1 unknown).
@@ -709,6 +745,10 @@ The training dump also holds columns that no 0.7 set uses:
   genes of a long read); it lowered the paired-end F1 on the tuning world and gained 0.001 at r226.
 - `genus_top_fragments` (0.7.4): the fragments of the genus's most abundant other species, an input
   of the singleton rule (`--singleton_congener`), not a feature.
+- `unique_seed_share`, `unique2_seed_share` (2026-10-14): the share of the reads' anchors' seeds that are unique, which
+  `unique_seed_enrichment` divides by its expectation ([above](#independent-of-the-read-length-and-the-seeding-length_free-read_length-2026-10-14)).
+- The features `length_free` replaces (the unique k-mer rates, `top_identity`, `allele_top_identity`, the ancestry
+  sites per record): in the sets without it, the default before 2026-10-14.
 
 ## Situations and the features that address them
 

@@ -159,6 +159,32 @@ class CollectorTest(unittest.TestCase):
                 collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs, samples=1))
         with self.assertRaises(SystemExit):
             collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_bases": "1e6,1e6"}))
+        # Single-end setups of their own (--se_read_setups, since 2026-10-14): every setup of either list simulated once, the
+        # paired-end units on --read_setups' points, the single-end ones on these; and the design's Ultima units
+        # (--se_ultima_setup), one a depth, drawn from the communities of the depth's points.
+        split = argparse.Namespace(**{**vars(opts), "read_setups": "75:HS25:250:40,150:HSXt:350:50",
+                                      "se_read_setups": "150:HSXt:350:50,250:MSv3:550:50", "read_types": ["pe", "se"],
+                                      "se_ultima_setup": "ultima:300:50:25:2", "scenarios": ""})
+        points = collect.design_points(split)
+        self.assertEqual([p["name"] for p in points], ["rl75_p1000", "rl75_p5000", "rl150_p1000", "rl150_p5000", "rl250_p1000",
+                                                       "rl250_p5000"])
+        self.assertEqual([(p["for_pe"], p["for_se"]) for p in points],
+                         [(True, False)] * 2 + [(True, True)] * 2 + [(False, True)] * 2)
+        _, units = collect.units_of(split)
+        self.assertEqual([u["name"] for u in units if u["type"] == "pe"], ["rl75_p1000", "rl75_p5000", "rl150_p1000", "rl150_p5000"])
+        self.assertEqual([u["name"] for u in units if u["type"] == "se"],
+                         ["rl150_p1000_se", "rl150_p5000_se", "rl250_p1000_se", "rl250_p5000_se", "se_ultima_r1000",
+                          "se_ultima_r5000"])
+        ultima = [u for u in units if u["name"] == "se_ultima_r5000"][0]
+        self.assertTrue(collect.drawn(ultima) and collect.is_ultima(ultima))
+        self.assertEqual((ultima["samples"], ultima["bases"], ultima["setup"]["max_length"], ultima["point"]["read_length"]),
+                         (2, 5000 * 300, collect.ULTIMA_MAX_LENGTH, "300"))
+        self.assertEqual([p["name"] for p in ultima["communities"]], ["rl75_p5000", "rl150_p5000", "rl250_p5000"])
+        self.assertEqual(collect.profile_dir(ultima, argparse.Namespace(out="/o")), "/o/points/se_ultima_r5000/protal")
+        # Without --se_read_setups the single-end units take --read_setups' points, as before.
+        self.assertTrue(all(p["for_pe"] and p["for_se"] for p in collect.design_points(opts)))
+        with self.assertRaises(SystemExit):
+            collect.units_of(argparse.Namespace(**{**vars(split), "se_ultima_setup": "hifi:15000:3000:3"}))
         with self.assertRaises(SystemExit):
             collect.illumina_args("file=/nonexistent_r1.txt")
         self.assertEqual(collect.illumina_args("HSXt"), ["--sequencer", "HSXt"])
@@ -1138,7 +1164,8 @@ class CollectorTest(unittest.TestCase):
         self.assertFalse(collect.drawn(units[1]))  # the design's se: the first reads of its paired-end point
         self.assertEqual(collect.parse_long_setup("ultima:300:40:25:2"),
                          {"method": "ultima", "model": None, "length_mean": 300, "length_sd": 40, "q_mean": 25.0,
-                          "q_sd": 2.0, "ratio": "", "text": "ultima:300:40:25:2"})
+                          "q_sd": 2.0, "max_length": collect.ULTIMA_MAX_LENGTH, "ratio": "", "text": "ultima:300:40:25:2"})
+        self.assertEqual(collect.parse_long_setup("ultima:300:40:25:2:280")["max_length"], 280)
         # Without paired-end reads collected, a scenario's communities come from a point without reads.
         _, units = collect.units_of(argparse.Namespace(**{**vars(opts), "read_types": ["pb"], "scenarios": "gut"}))
         community = [u for u in units if u.get("scenario")][0]["communities"][0]

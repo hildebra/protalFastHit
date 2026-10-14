@@ -331,7 +331,7 @@ class FeatureSetsTest(unittest.TestCase):
                    mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES +
                    mf.NEIGHBOURHOOD_FEATURES + mf.ANCESTRY_FEATURES + mf.GAP_FEATURES + mf.FOREIGN_FEATURES + mf.UNTRIED_FEATURES +
                    mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES + mf.WEIGHT_FEATURES + mf.STRAIN_IDENTITY_FEATURES + mf.PRIORS_FEATURES +
-                   ["genus_top_fragments", "other"])
+                   mf.LENGTH_FREE_FEATURES + mf.READ_LENGTH_FEATURES + ["genus_top_fragments", "other"])
         # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
         # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06, the groups against
         # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07, the ancestry
@@ -341,9 +341,12 @@ class FeatureSetsTest(unittest.TestCase):
         # rates are not in the default set: their first scan read the genomes
         # the samples are drawn from, which they told the models (r226 v17, 2026-10-08); the scan of the full
         # reference since then is offered to --features auto by one named set.
-        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
-                                                 "consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+"
-                                                 "strain_identity")
+        # The default of 2026-10-13, and since 2026-10-14 with the features that do not change with the read length
+        # (length_free, in place of those that do) and the sample's read length.
+        previous = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+"
+                    "ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity")
+        self.assertEqual(mf.DEFAULT_FEATURE_SET, previous + "+length_free+read_length")
+        self.assertIn(previous, mf.AUTO_CANDIDATES)
         self.assertEqual([named for named in mf.FEATURE_SETS if "foreign" in named.split("+")],
                          [mf.DEFAULT_FEATURE_SET + "+foreign"])
         self.assertIn(mf.DEFAULT_FEATURE_SET + "+foreign", mf.AUTO_CANDIDATES)
@@ -374,17 +377,38 @@ class FeatureSetsTest(unittest.TestCase):
         new = mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES + mf.NEIGHBOURHOOD_FEATURES + mf.ANCESTRY_FEATURES
         self.assertEqual(len(new), 20)
         self.assertEqual(len(set(new)), 20)
-        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
-                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new + copies)
-        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET + "+priors"),
+        old_columns = (mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
+                       mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new + copies)
+        self.assertEqual(mf.feature_columns(columns, previous), old_columns)
+        # length_free puts its features where the first of those it replaces were, and drops those; read_length adds its three.
+        replaced = {"lu_per_kb": ["unique_seed_enrichment", "unique2_seed_enrichment"], "top_identity": ["top_identity_bound"],
+                    "allele_top_identity": ["allele_top_identity_bound"],
+                    "ancestry_sites_per_record": ["ancestry_sites_per_kb", "ancestry_indel_sites_per_kb"]}
+        gone = {c for olds, _ in mf.LENGTH_FREE_REPLACEMENTS for c in olds}
+        expected = [n for c in old_columns for n in (replaced.get(c, []) if c in gone else [c])] + mf.READ_LENGTH_FEATURES
+        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET), expected)
+        self.assertEqual(len(gone), 12)
+        for column in ("lu_gene_rate3", "lsu_per_kb", "top_identity", "ancestry_indel_sites_per_record", "allele_top_identity"):
+            self.assertNotIn(column, expected)
+        # The shares of the anchors' seeds that are unique are columns of the dump in no group.
+        for column in ("unique_seed_share", "unique2_seed_share"):
+            self.assertNotIn(column, [c for group in mf.FEATURE_GROUPS.values() for c in group])
+        # length_free alone adds nothing the set lacks the old features of.
+        self.assertEqual(mf.feature_columns(columns, "normalized+length_free"),
+                         [n for c in mf.NORMALIZED_FEATURES for n in (replaced.get(c, []) if c in gone else [c])])
+        # A table of a protal before 2026-10-14: a clear error with the default, the previous one works.
+        before_length_free = [c for c in columns if c not in mf.LENGTH_FREE_FEATURES + mf.READ_LENGTH_FEATURES]
+        with self.assertRaisesRegex(RuntimeError, "unique_seed_enrichment"):
+            mf.feature_columns(before_length_free, mf.DEFAULT_FEATURE_SET)
+        self.assertEqual(mf.feature_columns(before_length_free, previous), old_columns)
+        self.assertEqual(mf.feature_columns(columns, previous + "+priors"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
                          mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES +
                          new + copies + mf.PRIORS_FEATURES)
         # A table of a protal before the per-copy tables: a clear error with the default, the set without them works.
         before = [c for c in columns if c not in copies]
         with self.assertRaisesRegex(RuntimeError, "gap_informative_share"):
-            mf.feature_columns(before, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(before, previous)
         self.assertEqual(mf.feature_columns(before, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
                                                     "consistency+shape+neighbourhood+ancestry"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
@@ -392,29 +416,29 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # an old default
         # A table of a protal of 2026-10-08 (the strain alleles, before the polymorphic sites): a clear error with the default,
         # the set without them works.
-        without_strain_identity = mf.DEFAULT_FEATURE_SET.removesuffix("+strain_identity")
+        without_strain_identity = previous.removesuffix("+strain_identity")
         alleles_only = [c for c in columns if c not in mf.POLYMORPHIC_FEATURES + mf.WEIGHT_FEATURES + mf.STRAIN_IDENTITY_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "polymorphic_known_share"):
-            mf.feature_columns(alleles_only, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(alleles_only, previous)
         self.assertIn(without_strain_identity.removesuffix("+weights").removesuffix("+polymorphic"), mf.AUTO_CANDIDATES)
         # A table of a protal before the column weights (2026-10-10): the set without them is named too.
         before_weights = [c for c in columns if c not in mf.WEIGHT_FEATURES + mf.STRAIN_IDENTITY_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "conserved_mismatch_ratio"):
-            mf.feature_columns(before_weights, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(before_weights, previous)
         self.assertIn(without_strain_identity.removesuffix("+weights"), mf.AUTO_CANDIDATES)
         # A table of a protal before the identities against the best strain allele (2026-10-13, the r226 builds up to v27):
         # a clear error with the default, the set without them works.
         before_strain_identity = [c for c in columns if c not in mf.STRAIN_IDENTITY_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "allele_top_identity"):
-            mf.feature_columns(before_strain_identity, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(before_strain_identity, previous)
         self.assertIn(without_strain_identity, mf.AUTO_CANDIDATES)
         self.assertEqual(mf.feature_columns(before_strain_identity, without_strain_identity),
-                         mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET)[:-len(mf.STRAIN_IDENTITY_FEATURES)])
+                         mf.feature_columns(columns, previous)[:-len(mf.STRAIN_IDENTITY_FEATURES)])
         # A table of the r226 v18 build (before the strain alleles): a clear error with the default, the set without them works.
         v18 = [c for c in columns if c not in mf.ALLELE_FEATURES + mf.POLYMORPHIC_FEATURES + mf.WEIGHT_FEATURES +
                mf.STRAIN_IDENTITY_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "allele_explained_share"):
-            mf.feature_columns(v18, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(v18, previous)
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+"
                       "ancestry+gaps+untried", mf.AUTO_CANDIDATES)
         self.assertEqual(mf.feature_columns(v18, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
@@ -425,7 +449,7 @@ class FeatureSetsTest(unittest.TestCase):
         # A table of the r226 v15 build (before the false-positive groups): a clear error with the default, its old set works.
         v15 = [c for c in columns if c not in new and c not in copies]
         with self.assertRaisesRegex(RuntimeError, "read_consensus_share"):
-            mf.feature_columns(v15, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(v15, previous)
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity", mf.AUTO_CANDIDATES)
         self.assertEqual(mf.feature_columns(v15, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
@@ -1006,10 +1030,13 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertIn("holds the scenarios' hold-out samples only", stdout)
         self.assertIn(("host", "hold-out"), {(r["scenario"], r["set"]) for r in metrics["scenarios"]})
 
-    def test_boosting_by_default_and_the_forest_on_request(self):
-        # The default model is gradient-boosted trees (--model gbm), written as a chain; --model forest the forest,
-        # averaged; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
-        prefix, metrics, stdout = self.train("normalized", "normalized")
+    def test_the_forest_by_default_and_boosting_on_request(self):
+        # The default model is a random forest again since 2026-10-14 (--model forest), averaged; --model gbm gradient-boosted
+        # trees, written as a chain; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
+        prefix, metrics, stdout = self.train("forest_default", "normalized")
+        self.assertEqual((metrics["model"]["kind"], metrics["model"]["trees"]), ("forest", 16))
+        self.assertIsInstance(load_model(prefix + ".xml"), PmmlForest)
+        prefix, metrics, stdout = self.train("boosted", "normalized", None, "--model", "gbm")
         self.assertEqual(metrics["model"]["kind"], "gbm")
         self.assertEqual(metrics["model"]["trees"], 30)
         self.assertEqual((metrics["model"]["pmml_vs_sklearn_max_diff"], metrics["model"]["pmml_vs_sklearn_call_differences"]),
@@ -1022,7 +1049,7 @@ class TrainerScenariosTest(unittest.TestCase):
         importance = pd.read_csv(prefix + ".varimp.tsv", sep="\t")
         self.assertAlmostEqual(importance["importance"].sum(), 1.0, places=4)  # written with 6 decimals
         # The folds side by side in worker processes (--fold-jobs): the same scores as one after another.
-        side, side_metrics, side_stdout = self.train("boosted_side_by_side", "normalized", None, "--fold-jobs", "2")
+        side, side_metrics, side_stdout = self.train("boosted_side_by_side", "normalized", None, "--fold-jobs", "2", "--model", "gbm")
         self.assertIn("cross-validation folds fitted 2 at a time, on 1 threads each", side_stdout)
         self.assertEqual(side_metrics["evaluation"], metrics["evaluation"])
         pd.testing.assert_frame_equal(pd.read_csv(side + ".predictions.tsv.gz", sep="\t"),

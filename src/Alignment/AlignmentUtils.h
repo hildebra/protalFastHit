@@ -189,6 +189,7 @@ namespace protal {
         int32_t m_genepos = INT32_MAX;
         uint16_t m_uniques = 0;
         uint16_t m_uniques_two = 0;
+        uint16_t m_seeds = 0;  // the anchor's seeds m_uniques and m_uniques_two were counted over (ZS)
 
         bool m_forward = false;
 
@@ -215,6 +216,10 @@ namespace protal {
 
         uint16_t UniquesTwo() const {
             return m_uniques_two;
+        }
+
+        uint16_t Seeds() const {
+            return m_seeds;
         }
 
         std::string const& Cigar() const {
@@ -249,13 +254,15 @@ namespace protal {
             return m_info;
         }
 
-        void Set(size_t taxid, size_t geneid, int32_t abs_pos, bool forward, uint16_t uniques = 0, uint16_t uniques_two = 0) {
+        void Set(size_t taxid, size_t geneid, int32_t abs_pos, bool forward, uint16_t uniques = 0, uint16_t uniques_two = 0,
+                 uint16_t seeds = 0) {
             m_taxid = taxid;
             m_geneid = geneid;
             m_genepos = abs_pos;
             m_forward = forward;
             m_uniques = uniques;
             m_uniques_two = uniques_two;
+            m_seeds = seeds;
         }
 
         bool IsSet() const {
@@ -371,11 +378,15 @@ namespace protal {
     // A taxon a read was aligned against, with the gene of its longest anchor there (0: not known). `untried`: a taxon the
     // read's seeds fit as well as those it was aligned against (ZN's crowd) but that it never was aligned against (beyond
     // --align_top), for its ZC tag rather than ZF (AddUntriedCandidates).
+    // `lone`: tried on an anchor of a single grid seed (ChainAlignmentAnchor::lone), a candidate only a grid-seeded read has,
+    // which FailedCandidates leaves out of ZF.
     struct FailedCandidate {
         uint32_t taxid = 0;
         uint32_t gene = 0;
         bool untried = false;
-        FailedCandidate(uint32_t taxid = 0, uint32_t gene = 0, bool untried = false) : taxid(taxid), gene(gene), untried(untried) {}
+        bool lone = false;
+        FailedCandidate(uint32_t taxid = 0, uint32_t gene = 0, bool untried = false, bool lone = false) :
+                taxid(taxid), gene(gene), untried(untried), lone(lone) {}
         bool operator==(FailedCandidate const&) const = default;
     };
 
@@ -414,17 +425,21 @@ namespace protal {
     // The taxa a read seeded on strongly enough to be aligned against (the handler's Attempted(), its anchors in the
     // order they were tried, the longest first) but has no alignment to: sorted by taxon, each once, with the gene of
     // its first anchor. Written as the read's ZF tag (SamEntry::m_failed): a read of a relative the database lacks seeds
-    // on its nearest species and fails there, mostly on the genes where the two differ most.
+    // on its nearest species and fails there, mostly on the genes where the two differ most. A taxon tried only on anchors
+    // of a single grid seed (FailedCandidate::lone) is left out (since 2026-10-14): a read seeded from every core makes no
+    // such candidate, and with them a grid-seeded run's failed_candidate_rate tripled (docs/claude/2026-10-14-sparse-index-calls).
     inline std::vector<FailedCandidate> FailedCandidates(std::vector<FailedCandidate> attempted, std::vector<uint32_t> aligned) {
-        std::stable_sort(attempted.begin(), attempted.end(),
-                         [](FailedCandidate const& a, FailedCandidate const& b) { return a.taxid < b.taxid; });
+        // By taxon, a taxon's attempts on two-seed anchors first, each kind in the order they were tried.
+        std::stable_sort(attempted.begin(), attempted.end(), [](FailedCandidate const& a, FailedCandidate const& b) {
+            return a.taxid != b.taxid ? a.taxid < b.taxid : !a.lone && b.lone;
+        });
         attempted.erase(std::unique(attempted.begin(), attempted.end(),
                                     [](FailedCandidate const& a, FailedCandidate const& b) { return a.taxid == b.taxid; }),
                         attempted.end());
         std::sort(aligned.begin(), aligned.end());
         std::vector<FailedCandidate> failed;
         for (auto const& candidate : attempted) {
-            if (!std::binary_search(aligned.begin(), aligned.end(), candidate.taxid)) failed.push_back(candidate);
+            if (!candidate.lone && !std::binary_search(aligned.begin(), aligned.end(), candidate.taxid)) failed.push_back(candidate);
         }
         return failed;
     }

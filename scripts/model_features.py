@@ -189,14 +189,30 @@ without the table or alleles): allele_identity, allele_top_identity. A strain fa
 known genome of its species reaches the top identity of a representative's reads, which top_identity, against the
 representative alone, never gives it: HiFi reads of E. coli K-12, 1.6% from the type strain, had top_identity 0.9957 where
 every present species of the sample had 1.0, and the HiFi model rejected it (docs/claude/2026-10-13-ecoli-hifi).
+LENGTH_FREE_FEATURES ("length_free", since 2026-10-14), features that do not change with the read length or with the
+share of a read's cores looked up (a grid's sparse index seeds a read from 1/C of them), each in place of the features
+it replaces (LENGTH_FREE_REPLACEMENTS; the group only replaces, where the set has the old ones): the unique seeds of the
+reads' anchors over the unique seeds expected from their genes' unique shares (unique_seed_enrichment, ZU, and
+unique2_seed_enrichment, ZT; in place of lu_per_kb, lsu_per_kb and the six lu/lsu gene rates, which fell to 0.26-0.75 on a
+C 4 sparse index and by 0.79 for 75 bp reads); the best reads' identity as the lower bound of its 95% interval given
+their aligned bases (top_identity_bound, allele_top_identity_bound; in place of top_identity and allele_top_identity: a
+relative's 75 bp read has no difference more often than a 150 bp one); and the ancestry sites per aligned kb (in place of
+per record). On the strain world the sparse index's lost calls were the unique counts alone, and the extra false positives
+of 75 bp reads under a 150 bp model half MAPQ, half the perfect short reads (docs/claude/2026-10-14-sparse-index-calls).
+The shares unique_seed_share and unique2_seed_share (of the anchors' seeds) are columns of the dump in no group: on a
+grid's sparse index they are 0.79 of the whole index's, the grid keeping conserved cores, which the enrichments correct.
+READ_LENGTH_FEATURES ("read_length", since 2026-10-14): the mean and SD of the aligned bases of the sample's best
+records (sample_read_length, sample_read_length_sd) and the taxon's records' mean over the sample's (aligned_length_ratio):
+what MAPQ, the candidates a read finds and its ties with congeners are worth depends on the read length, which a model
+trained on several read lengths (build_gtdb_database.py's defaults since 2026-10-14) can learn from these.
 
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
 unfiltered, ref, complexity, consistency, shape, neighbourhood, ancestry, gaps, foreign, untried, alleles, polymorphic, weights,
-strain_identity, priors; "all" is every
+strain_identity, length_free, read_length, priors; "all" is every
 feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance+depth+
 divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+
-strain_identity"
-(without strain_identity before 2026-10-13, without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
+strain_identity+length_free+read_length"
+(without length_free and read_length before 2026-10-14, without strain_identity before 2026-10-13, without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
 foreign and untried in 0.7.9 before the congener-gaps merge; without ancestry before 0.7.9; without consistency, shape
 and neighbourhood before 2026-10-07, when the false-positive groups were merged; without ref and complexity before
 2026-10-06; the set without them is the one every model of the r226 v12 and v13
@@ -308,6 +324,18 @@ WEIGHT_FEATURES = ["conserved_mismatch_ratio", "conserved_mismatch_rate", "ances
 # identity and top_identity against each read's best strain allele: see above. In the default set since 2026-10-13,
 # untested at r226.
 STRAIN_IDENTITY_FEATURES = ["allele_identity", "allele_top_identity"]
+# Features that do not change with the read length or the share of a read's cores looked up (since 2026-10-14, see
+# above): a set naming "length_free" has each tuple's new columns in place of its old ones, where it has the old ones.
+LENGTH_FREE_REPLACEMENTS = (
+    (("lu_per_kb", "lsu_per_kb", "lu_gene_rate", "lsu_gene_rate", "lu_gene_rate2", "lsu_gene_rate2", "lu_gene_rate3",
+      "lsu_gene_rate3"), ("unique_seed_enrichment", "unique2_seed_enrichment")),
+    (("top_identity",), ("top_identity_bound",)),
+    (("allele_top_identity",), ("allele_top_identity_bound",)),
+    (("ancestry_sites_per_record", "ancestry_indel_sites_per_record"), ("ancestry_sites_per_kb", "ancestry_indel_sites_per_kb")),
+)
+LENGTH_FREE_FEATURES = [new for _, news in LENGTH_FREE_REPLACEMENTS for new in news]
+# The sample's read length and the taxon's own against it (since 2026-10-14, see above).
+READ_LENGTH_FEATURES = ["sample_read_length", "sample_read_length_sd", "aligned_length_ratio"]
 
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
@@ -316,7 +344,8 @@ FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEAT
                   "consistency": CONSISTENCY_FEATURES, "shape": SHAPE_FEATURES, "neighbourhood": NEIGHBOURHOOD_FEATURES,
                   "ancestry": ANCESTRY_FEATURES, "gaps": GAP_FEATURES, "foreign": FOREIGN_FEATURES, "untried": UNTRIED_FEATURES,
                   "alleles": ALLELE_FEATURES, "polymorphic": POLYMORPHIC_FEATURES, "weights": WEIGHT_FEATURES,
-                  "strain_identity": STRAIN_IDENTITY_FEATURES, "priors": PRIORS_FEATURES}
+                  "strain_identity": STRAIN_IDENTITY_FEATURES, "length_free": LENGTH_FREE_FEATURES,
+                  "read_length": READ_LENGTH_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
@@ -339,7 +368,11 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
                 "gaps+untried+alleles+polymorphic+weights+strain_identity",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
-                "gaps+untried+alleles+polymorphic+weights+strain_identity+foreign",
+                "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
+                "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
+                "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length+foreign",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -353,9 +386,10 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # could draw (same report, "The foreign features leak"); the scan reads every species' marker genes alike since
 # 2026-10-08, and the named set with foreign lets --features auto say whether that scan earns anything.
 # alleles (since 2026-10-08) and polymorphic (since 2026-10-09) are in it untested at r226 too: the next build says what
-# the strain alleles are worth; strain_identity (since 2026-10-13) as well.
+# the strain alleles are worth; strain_identity (since 2026-10-13) as well, and length_free and read_length (since
+# 2026-10-14), with which the builds train on several read lengths.
 DEFAULT_FEATURE_SET = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+"
-                       "neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity")
+                       "neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length")
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
 # another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.
@@ -380,8 +414,18 @@ def feature_set_columns(feature_set):
                          " (normalized among them), or all")
     chosen = []
     for group in FEATURE_GROUPS:
-        if group in groups:
+        if group in groups and group != "length_free":
             chosen += [c for c in FEATURE_GROUPS[group] if c not in chosen]
+    # length_free: each replacement's new columns where the first of its old ones was, those gone.
+    if "length_free" in groups:
+        for olds, news in LENGTH_FREE_REPLACEMENTS:
+            places = [chosen.index(c) for c in olds if c in chosen]
+            if not places:
+                continue
+            first = min(places)
+            kept = [c for c in chosen if c not in olds and c not in news]
+            at = sum(1 for i, c in enumerate(chosen) if i < first and c not in olds and c not in news)
+            chosen = kept[:at] + list(news) + kept[at:]
     return chosen
 
 

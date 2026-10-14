@@ -105,6 +105,15 @@ def parse_args(argv=None):
                    help="comma-separated LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point each; "
                         "INSTRUMENT: HS20 (HiSeq 2000), HS25 (HiSeq 2500), HSXt (HiSeq X Ten), NovaSeq or MSv3 "
                         "(MiSeq v3), simulate_metagenomes's models of them (docs/databases.md#illumina-reads)")
+    p.add_argument("--se_read_setups", default="",
+                   help="the single-end units' Illumina setups (their first reads), as --read_setups; empty (default): those "
+                        "of --read_setups. The paired-end units take --read_setups' points, the single-end ones these; a "
+                        "setup of either list is simulated once, a point each (since 2026-10-14)")
+    p.add_argument("--se_ultima_setup", default="",
+                   help="single-end Ultima reads of the design, ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX] (as the "
+                        "scenarios'): with se among --read_types, a unit se_ultima_r<reads> per --read_pairs depth, of that "
+                        "many reads a sample and that depth's samples, drawn from the communities of its paired-end points; "
+                        "empty (default): none (since 2026-10-14)")
     p.add_argument("--species_per_sample", default="5-30", help="species per sample, N or MIN-MAX")
     p.add_argument("--strains_per_species", default="",
                    help="probabilities of a second, third, ... strain of a species in a sample, e.g. 0.3,0.1 "
@@ -878,16 +887,24 @@ INSTRUMENTS = ("HS20", "HS25", "HSXt", "NovaSeq", "MSv3")
 
 def design_points(opts):
     """Paired-end design points: read setups x depths, each depth with its samples (--read_pairs DEPTH[:SAMPLES],
-    --samples by default). A setup's instrument is one of INSTRUMENTS, simulate_metagenomes's models (--sequencer)."""
-    setups = [s.split(":") for s in opts.read_setups.split(",")]
-    if any(len(s) != 4 for s in setups):
-        sys.exit(f"--read_setups {opts.read_setups!r}: expected LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
+    --samples by default). A setup's instrument is one of INSTRUMENTS, simulate_metagenomes's models (--sequencer).
+    The setups are --read_setups' and then --se_read_setups' not among them; a point says whether its paired-end
+    (for_pe) and its single-end unit (for_se) are collected."""
+    def parse(text, what):
+        setups = [s.split(":") for s in text.split(",")]
+        if any(len(s) != 4 for s in setups):
+            sys.exit(f"{what} {text!r}: expected LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
+        return setups
+    pe_setups = parse(opts.read_setups, "--read_setups")
+    se_setups = parse(opts.se_read_setups, "--se_read_setups") if getattr(opts, "se_read_setups", "") else pe_setups
     depth_samples = [(d, n or opts.samples) for d, n in depths_and_samples(opts.read_pairs, "--read_pairs")]
     depths = [d for d, _ in depth_samples]
-    for what, values in (("--read_setups", [":".join(s) for s in setups]), ("--read_pairs", depths)):
+    for what, values in (("--read_setups", [":".join(s) for s in pe_setups]), ("--se_read_setups", [":".join(s) for s in se_setups]),
+                         ("--read_pairs", depths)):
         twice = sorted(v for v, n in collections.Counter(values).items() if n > 1)
         if twice:  # their points would share a folder
             sys.exit(f"{what} lists {', '.join(twice)} more than once")
+    setups = pe_setups + [s for s in se_setups if s not in pe_setups]
     unknown = sorted({s[1] for s in setups} - set(INSTRUMENTS))
     if unknown:  # ART's file= profiles among them: gone with ART
         sys.exit(f"--read_setups: unknown instrument {', '.join(unknown)}; simulate_metagenomes models "
@@ -903,7 +920,9 @@ def design_points(opts):
         for depth_index, (pairs, samples) in enumerate(depth_samples):
             points.append({"name": f"rl{length}{tag}_p{pairs}", "read_length": length, "sequencer": profile,
                            "fragment_mean": fragment_mean, "fragment_sd": fragment_sd, "read_pairs": pairs,
-                           "samples": samples, "depth_index": depth_index})
+                           "samples": samples, "depth_index": depth_index,
+                           "for_pe": [length, profile, fragment_mean, fragment_sd] in pe_setups,
+                           "for_se": [length, profile, fragment_mean, fragment_sd] in se_setups})
     return points
 
 
@@ -952,26 +971,31 @@ def reads_compression_args(opts):
 
 
 PBSIM_METHODS = ("qshmm",)  # setups whose reads follow a pbsim3 model (its .model file is part of the key)
+# Ultima reads at most this long unless the setup gives MAX (LongReadSimulator.h kUltimaMaxLength: a run's flows end them
+# near 320 bp, since 2026-10-14; their last 100 bases fall in quality, kUltimaTail and kUltimaTailDrop there).
+ULTIMA_MAX_LENGTH = 320
 
 
 def parse_long_setup(text):
     """A read setup of simulate_metagenomes --long_samples (LongReadSimulator.cpp), which also checks it:
     hifi:LENGTH_MEAN:LENGTH_SD:Q_SD (hifi_reads.py's HiFi model: the SD of the reads' quality around their length's,
-    Phred); ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD, the Ultima Genomics single-end reads of scenarios (hifi_reads.py's
-    flow model: a mean base quality of Q_MEAN per read, SD Q_SD); or qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN
+    Phred); ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX], the Ultima Genomics single-end reads (hifi_reads.py's
+    flow model: a mean base quality of Q_MEAN per read, SD Q_SD, falling over its last 100 bases; reads cut at MAX,
+    default ULTIMA_MAX_LENGTH); or qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN
     [:SUB/INS/DEL], pbsim3's quality-score model (MODEL: its .model file, found as pbsim_model finds it) with its
     --difference-ratio (it recommends 39/24/36 for ONT). pbsim3's errhmm is not made in process (its one-pass reads
     have every quality at Q0). The dict keeps the text (simulate_metagenomes reads it)."""
     parts = text.split(":")
     if parts[0] == "ultima":
         try:
-            if len(parts) != 5:
+            if len(parts) not in (5, 6):
                 raise ValueError
-            length_mean, length_sd, q_mean, q_sd = (float(v) for v in parts[1:])
+            length_mean, length_sd, q_mean, q_sd = (float(v) for v in parts[1:5])
+            longest = int(float(parts[5])) if len(parts) == 6 else ULTIMA_MAX_LENGTH
         except ValueError:
-            sys.exit(f"read setup {text!r}: expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD")
+            sys.exit(f"read setup {text!r}: expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX]")
         return {"method": "ultima", "model": None, "length_mean": int(length_mean), "length_sd": int(length_sd),
-                "q_mean": q_mean, "q_sd": q_sd, "ratio": "", "text": text}
+                "q_mean": q_mean, "q_sd": q_sd, "max_length": longest, "ratio": "", "text": text}
     if parts[0] == "hifi":
         try:
             if len(parts) != 4:
@@ -1061,6 +1085,24 @@ def scenario_units(opts):
     return points, units
 
 
+def ultima_design_units(opts, pe_points):
+    """--se_ultima_setup: the design's single-end Ultima units, one per --read_pairs depth (in its order), se_ultima_r<reads>:
+    that many reads a sample (drawn as bases of the setup's mean length), the depth's samples, drawn from the communities
+    of the depth's paired-end points as a long-read unit draws them (since 2026-10-14)."""
+    setup = parse_long_setup(opts.se_ultima_setup)
+    if setup["method"] != "ultima":
+        sys.exit(f"--se_ultima_setup {opts.se_ultima_setup!r}: expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX]")
+    units = []
+    for depth_index in sorted({p["depth_index"] for p in pe_points}):
+        communities = [p for p in pe_points if p["depth_index"] == depth_index]
+        reads, samples = communities[0]["read_pairs"], communities[0]["samples"]
+        name = f"se_ultima_r{reads}"
+        units.append({"type": "se", "name": name, "setup": setup, "bases": int(float(reads)) * setup["length_mean"],
+                      "samples": samples, "communities": communities,
+                      "point": {"name": name, "read_length": str(setup["length_mean"]), "read_pairs": reads}})
+    return units
+
+
 def units_of(opts):
     """The units to collect, in table order. A unit has its samples (a paired-end point's for pe and se); a long-read
     point replays communities of the paired-end points of the depth at its own place in the lists (modulo their
@@ -1072,7 +1114,9 @@ def units_of(opts):
     for read_type in opts.read_types if pe_points else ():
         if read_type in ("pe", "se"):
             units += [{"type": read_type, "point": p, "name": p["name"] + ("_se" if read_type == "se" else ""),
-                       "samples": p["samples"]} for p in pe_points]
+                       "samples": p["samples"]} for p in pe_points if p.get("for_" + read_type, True)]
+            if read_type == "se" and getattr(opts, "se_ultima_setup", ""):
+                units += ultima_design_units(opts, pe_points)
         else:
             setup = parse_long_setup(opts.pb_setup if read_type == "pb" else opts.ont_setup)
             long_depths = depths_and_samples(opts.long_read_bases, "--long_read_bases")
@@ -1468,7 +1512,7 @@ def pbsim_model(opts, name):
 # drawn by the collector, reads by hifi_reads.py or one pbsim3 run per sample) are simulated again.
 LONG_READS = "simulate_metagenomes --long_samples: templates drawn and reads made in process, one run per point"
 # The read models of simulate_metagenomes --long_samples (LongReadSimulator.cpp), part of a point's key.
-LONG_MODELS = {"hifi": "hifi_reads.py v2's HiFi model, in C++", "ultima": "hifi_reads.py flow v1's model, in C++",
+LONG_MODELS = {"hifi": "hifi_reads.py v2's HiFi model, in C++", "ultima": "hifi_reads.py flow v1's model, in C++, cut at MAX and the last 100 bases falling (2026-10-14)",
                "qshmm": "pbsim3 3.0.x qshmm, --strategy templ, in C++, only accuracy levels with an HMM (no Q93 reads)"}
 
 

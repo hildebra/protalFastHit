@@ -134,22 +134,51 @@ TEST(LongReadSimulation, HifiAndFlowModels) {
     EXPECT_NEAR(errors / 300.0 / 25000, 1.27e-3, 2e-4);
     EXPECT_NEAR(length_sum / 300, 25000, 25);
 
-    // The flow model: a read's bases average its quality (Q_MEAN, SD Q_SD), whatever its length.
+    // The flow model: a read's bases before its last 100 average its quality (Q_MEAN, SD Q_SD), whatever its length; its
+    // last 100 fall linearly to 15 below it at its end (since 2026-10-14: 25 - 15 x 0.505 on average).
     auto const flow = LongReadSetup::Parse("ultima:300:40:25:2");
-    double phred_sum = 0, bases = 0;
+    EXPECT_EQ(flow.max_length, hifi::kUltimaMaxLength);
+    EXPECT_EQ(LongReadSetup::Parse("ultima:300:40:25:2:280").max_length, 280u);
+    EXPECT_THROW(LongReadSetup::Parse("ultima:300:40:25:2:50"), std::invalid_argument);
+    double head_sum = 0, head = 0, tail_sum = 0, tail = 0;
     errors = 0;
     expected = 0;
     for (int i = 0; i < 3000; ++i) {
         std::string const templ = protal::test::RandomSequence(300, gen);
         hifi::Mutate(templ, rng, flow, read, &errors);
-        for (char c : read.qual) {
-            phred_sum += Phred(c);
-            expected += std::pow(10.0, -Phred(c) / 10.0);
+        for (size_t b = 0; b < read.qual.size(); ++b) {
+            double const phred = Phred(read.qual[b]);
+            bool const in_tail = b + hifi::kUltimaTail >= read.qual.size();
+            (in_tail ? tail_sum : head_sum) += phred;
+            (in_tail ? tail : head) += 1;
+            expected += std::pow(10.0, -phred / 10.0);
         }
-        bases += read.qual.size();
     }
-    EXPECT_NEAR(phred_sum / bases, 25.0, 0.6);
+    EXPECT_NEAR(head_sum / head, 25.0, 0.6);
+    EXPECT_NEAR(tail_sum / tail, 25.0 - hifi::kUltimaTailDrop * 0.505, 0.8);
     EXPECT_NEAR(errors / expected, 1.0, 0.15);
+    // Ultima errors are indels (by the qualities) and rare substitutions (Q35 to Q40 a read, since 2026-10-14): reads of
+    // perfect qualities keep their template's length and differ from it at ~1.9e-4 of their bases.
+    auto const clean = LongReadSetup::Parse("ultima:300:0:60:0");
+    double substitutions = 0, clean_bases = 0, same_length = 0;
+    for (int i = 0; i < 3000; ++i) {
+        std::string const templ = protal::test::RandomSequence(300, gen);
+        hifi::Mutate(templ, rng, clean, read);
+        if (read.seq.size() != templ.size()) continue;
+        same_length++;
+        for (size_t b = 0; b < templ.size(); ++b) substitutions += read.seq[b] != templ[b];
+        clean_bases += templ.size();
+    }
+    EXPECT_GT(same_length, 2900);
+    EXPECT_NEAR(substitutions / clean_bases, 1.88e-4, 0.4e-4);
+    // At Q25 most reads gain or lose bases.
+    size_t changed = 0;
+    for (int i = 0; i < 1000; ++i) {
+        std::string const templ = protal::test::RandomSequence(300, gen);
+        hifi::Mutate(templ, rng, flow, read);
+        changed += read.seq.size() != templ.size();
+    }
+    EXPECT_GT(changed, 500u);
 
     // The same stream, the same read.
     LongRng r1(9), r2(9);

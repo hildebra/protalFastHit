@@ -2,9 +2,9 @@
 """Train protal's presence model and report how well it does on samples and species it has not seen.
 
 The model gives each taxon with reads the probability that it is present; protal reports taxa whose
-probability is at least --knob. It is gradient-boosted trees (--model gbm, the default since 2026-10-06:
-scikit-learn's HistGradientBoostingClassifier, MODEL_DEFAULTS) or a random forest (--model forest, the
-model before). On the r226 v13 tables boosting scored higher than the forest on every test set of the
+probability is at least --knob. It is a random forest (--model forest, the default before 2026-10-06 and again since
+2026-10-14, at the user's choice) or gradient-boosted trees (--model gbm, scikit-learn's HistGradientBoostingClassifier,
+MODEL_DEFAULTS; the default from 2026-10-06 to 2026-10-14). On the r226 v13 tables boosting scored higher than the forest on every test set of the
 long reads (soil +0.004 to +0.008, the design's test set +0.003, gut +0.008 to +0.013) and Ultima's (+0.005 in
 soil), and, with the scenarios' depths varied, paired-end reads' (docs/claude/2026-10-06-r226-v13-soil).
 Training needs no Java: the model is written as PMML by model_pmml.py, and protal scores exactly what
@@ -111,7 +111,7 @@ from model_features import (AUTO_FEATURE_SETS, AUTO_MIN_GAIN, DEFAULT_FEATURE_SE
 from model_pmml import (format_depth_knob_curve, load_model, read_depth_knob_curve, read_false_calls,  # noqa: E402
                         write_model)
 
-# --model: gradient-boosted trees (gbm, the default) or a random forest, and each one's defaults of the options that
+# --model: a random forest (forest, the default) or gradient-boosted trees (gbm), and each one's defaults of the options that
 # shape it (--maxnodes, --min-samples-leaf; --ntree and --max-features are the forest's, --rounds, --learning-rate and
 # --l2 boosting's). Boosting's: trees of up to 63 leaves, 20 rows a leaf at least, an L2 penalty of 1 on the leaf values,
 # balanced classes and no early stopping (it would hold out random rows, which share samples and species with the rest),
@@ -222,9 +222,10 @@ def parse_args(argv=None):
                         "the sets with the priors too); see choose_feature_set")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features (which it "
                                             "overrides, auto included)")
-    p.add_argument("--model", choices=MODELS, default="gbm",
-                   help="gbm (default): gradient-boosted trees (HistGradientBoostingClassifier); forest: a random forest, "
-                        "the model before 2026-10-06 (see above)")
+    p.add_argument("--model", choices=MODELS, default="forest",
+                   help="forest (default, again since 2026-10-14): a random forest, the model before 2026-10-06; gbm: "
+                        "gradient-boosted trees (HistGradientBoostingClassifier), the default from 2026-10-06 to 2026-10-14 "
+                        "(see above)")
     p.add_argument("--ntree", type=int, default=64, help="the forest's trees (default 64)")
     p.add_argument("--rounds", type=int, default=GBM_ROUNDS, help=f"boosting's rounds, a tree each (default {GBM_ROUNDS})")
     p.add_argument("--learning-rate", type=float, default=GBM_LEARNING_RATE,

@@ -1966,6 +1966,7 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
     rows += [("classifier_training_holdout_clouds", getattr(args, "holdout_clouds_note", "none"))]
     rows += [("classifier_training_samples", f"{args.samples} per design point"),
              ("classifier_training_design", f"read pairs {args.read_pairs}; read setups {args.read_setups}; "
+                                            f"single-end setups {args.se_read_setups}, Ultima {args.se_ultima_setup or 'none'}; "
                                             f"species per sample {args.species_per_sample}; strains "
                                             f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}; "
                                             f"congeners {congener_text(args.congeners)}"),
@@ -3065,12 +3066,14 @@ def main():
                         "at (another version, or a commit whose source has changed since): the check at the start "
                         "then only notes it")
     p.add_argument("-t", "--threads", type=int, default=8)
-    p.add_argument("--samples", type=int, default=12,
-                   help="samples per design point (default 12; on a GTDB-like world the model still improved "
-                        "from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1",
+    p.add_argument("--samples", type=int, default=9,
+                   help="samples per design point (default 9 since 2026-10-14, when the paired-end setups went from three "
+                        "to four: 36 paired-end samples a depth as before; 12 before; on a GTDB-like world the model "
+                        "still improved from 60 to 120 samples)")
+    p.add_argument("--read-pairs", default="1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1",
                    help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples "
-                        "(default 1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1: the "
+                        "(default 1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1, a "
+                        "sample per setup: four paired-end setups since 2026-10-14, 2000000:4,10000000:2 with three before; the "
                         "deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest "
                         "sample it saw, and real metagenomes reach it; without the shallowest, a model "
                         "missed 8%% of the present taxa of samples of 1000 read pairs; at GTDB r226 the absent taxa per "
@@ -3078,10 +3081,20 @@ def main():
                         "200000 since r226 v10, whose test set had 42%% of its paired-end false positives at 50,000 "
                         "read pairs and called 15%% of the absent taxa at 2000, depths between the points the model "
                         "was trained at, docs/claude/2026-10-04-r226-v10-evaluation)")
-    p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
-                   help="LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point each; INSTRUMENT: HS20, "
-                        "HS25, HSXt (HiSeq X Ten), NovaSeq or MSv3 (MiSeq v3), simulate_metagenomes's models of them "
-                        "(docs/databases.md#illumina-reads)")
+    p.add_argument("--read-setups", default="75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
+                   help="the paired-end reads' setups, LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point "
+                        "each; INSTRUMENT: HS20, HS25, HSXt (HiSeq X Ten), NovaSeq or MSv3 (MiSeq v3), simulate_metagenomes's "
+                        "models of them (docs/databases.md#illumina-reads). Default 75 (HiSeq 2500), 100, 150 and 250 (MiSeq) "
+                        "bp since 2026-10-14 (100, 150, 250 before), so that a model sees the read lengths it is used on "
+                        "with the features of the sample's read length (docs/claude/2026-10-14-sparse-index-calls)")
+    p.add_argument("--se-read-setups", default="150:HSXt:350:50,250:MSv3:550:50",
+                   help="the single-end Illumina reads' setups, as --read-setups (their first reads; a setup of both lists "
+                        "is simulated once); default 150 and 250 (MiSeq) bp since 2026-10-14 (before: --read-setups')")
+    p.add_argument("--se-ultima-setup", default="ultima:300:50:25:2",
+                   help="single-end Ultima reads of the design beside the Illumina ones, "
+                        "ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX] (collect_training_data.py --se_ultima_setup: a unit a "
+                        "depth, of that many reads and the depth's samples; reads cut at MAX, default 320, their last 100 "
+                        "bases poor). Default ultima:300:50:25:2 since 2026-10-14; empty: none (the scenarios' Ultima reads alone)")
     p.add_argument("--archaea", type=int, default=2)
     p.add_argument("--species-per-sample", default="20-200",
                    help="species per sample, drawn per sample (default 20-200: real gut samples hold 100-300 GTDB "
@@ -3232,13 +3245,14 @@ def main():
                         "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
                         "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("gbm,forest"),
+    p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("forest,gbm"),
                    help="the kinds of presence models to train (machine_learning_cmdline.py --model), comma-separated: "
-                        "gbm, gradient-boosted trees, which beat the forest on the r226 v13 tables "
-                        "(docs/claude/2026-10-06-r226-v13-soil); forest, a random forest, the default before 2026-10-06. "
+                        "forest, a random forest (the database's default before 2026-10-06 and again since 2026-10-14); gbm, "
+                        "gradient-boosted trees, which beat the forest on the r226 v13 tables "
+                        "(docs/claude/2026-10-06-r226-v13-soil). "
                         "The first is the database's default (model_pe.xml, model_pe_c1.xml, ...), each other one is stored "
                         "beside it (model_pe_forest.xml, model_pe_c1_forest.xml, ...: protal --model_kind forest) and trained "
-                        "after it, at the same gates. Default gbm,forest (since 2026-10-13; gbm alone before)")
+                        "after it, at the same gates. Default forest,gbm since 2026-10-14 (gbm,forest from 2026-10-13, gbm alone before)")
     p.add_argument("--ntree", type=int, default=64, help="a forest's trees (default 64)")
     p.add_argument("--rounds", type=int,
                    help=f"boosting's rounds (machine_learning_cmdline.py --rounds; default {TRAINER_ROUNDS})")
@@ -4140,7 +4154,8 @@ def main():
         command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", sim_table, "-o", out,
                    "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
                    "--long_read_samples", str(long_samples),
-                   "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--archaea", str(args.archaea),
+                   "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--se_read_setups", args.se_read_setups,
+                   "--se_ultima_setup", args.se_ultima_setup, "--archaea", str(args.archaea),
                    "--species_per_sample", species, "--seed", str(seed), "-t", str(args.threads),
                    "--taxonomy", taxonomy, "--congeners", congener_text(args.congeners), "--read_types", ",".join(read_types),
                    "--long_read_bases", long_bases, "--pb_setup", args.pb_setup, "--ont_setup", args.ont_setup,

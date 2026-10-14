@@ -554,6 +554,64 @@ namespace protal {
             return counts;
         }
 
+        // The values in memory of each grid level or more (GridLevels.h; one level, 0, without grid levels), and of them those
+        // a read seeded from that level alone counts unique (ZU) and unique at distance two (ZT) where it matches them, by
+        // the lookups' rule (KmerLookupSM::GetFromLookup): a value flagged unique; at distance two, a value flagged so where
+        // its key has two values or more of the level, and a value flagged unique where it has one (which no other value of
+        // the key is near). Level 0 is the whole index, whose unique shares unique_kmers.tsv gives gene by gene; a grid
+        // level's differ, as the grid keeps conserved cores (RunProtal::SeedExpectations). A sparse load holds its level
+        // and those above alone (LoadedLevel): the levels below are incomplete. One pass over every key, on `threads`
+        // threads, through Locate (the direct or the compact key map). Packed values only; empty otherwise.
+        struct UniqueShares {
+            uint64_t values = 0, unique = 0, unique_two = 0;
+        };
+        std::vector<UniqueShares> UniqueSharesByLevel(int threads) const {
+            if (!IsPacked()) return {};
+            size_t const levels = KeepsGridLevels() ? GRID_LEVELS : 1;
+            std::vector<UniqueShares> total(levels);
+            int64_t const keys = static_cast<int64_t>(keymap_size);
+#pragma omp parallel num_threads(std::max(threads, 1))
+            {
+                std::vector<UniqueShares> local(levels);
+                PackedBlock block;
+#pragma omp for schedule(dynamic, 1 << 16)
+                for (int64_t key = 0; key < keys; key++) {
+                    uint64_t start, slots;
+                    if (!Locate(static_cast<uint64_t>(key), start, slots)) continue;
+                    BlockOfSlots(start, slots, block);
+                    // By the level of each value: how many, flagged unique, and flagged unique at distance two.
+                    uint32_t n[GRID_LEVELS] = {}, u[GRID_LEVELS] = {}, t[GRID_LEVELS] = {};
+                    for (uint32_t i = 0; i < block.size; i++) {
+                        size_t const level = std::min<size_t>(EntryLevel(block, i), levels - 1);
+                        ValueEntry entry;
+                        entry.value = EntryValue(block, i);
+                        bool const unique = entry.IsFlagUnique();
+                        n[level]++;
+                        u[level] += unique;
+                        t[level] += unique && entry.IsFlagUniqueDistanceMinTwo();
+                    }
+                    // Each level or more, from the top down.
+                    uint32_t values = 0, unique = 0, two = 0;
+                    for (size_t level = levels; level-- > 0;) {
+                        values += n[level];
+                        unique += u[level];
+                        two += t[level];
+                        if (values == 0) continue;
+                        local[level].values += values;
+                        local[level].unique += unique;
+                        local[level].unique_two += values == 1 ? unique : two;
+                    }
+                }
+#pragma omp critical(unique_shares_by_level)
+                for (size_t level = 0; level < levels; level++) {
+                    total[level].values += local[level].values;
+                    total[level].unique += local[level].unique;
+                    total[level].unique_two += local[level].unique_two;
+                }
+            }
+            return total;
+        }
+
         // Flex cell i of a key's values.
         static inline uint32_t FlexCell(PackedBlock const& block, uint32_t i) {
             uint64_t x;

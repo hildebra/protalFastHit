@@ -74,6 +74,13 @@ namespace protal {
         uint16_t unique = 0;
         uint16_t unique_best_two = 0;
         uint16_t total_seeds = 1;
+        // The seeds `unique` and `unique_best_two` were counted over (ChainAnchorFinder::CountUniques; the record's ZS tag):
+        // the share of them that are unique is the same with a read's every core or 1/C of them looked up. 0: none counted
+        // (a mate rescued on one seed, RecoverAnchors).
+        uint16_t seeds = 0;
+        // Made on a single grid seed of a gene without an anchor (ChainAnchorFinder::AnchorLoneSeeds): a candidate only
+        // a grid-seeded read has; its failure is not one of the read's failed candidates (ZF, FailedCandidates).
+        bool lone = false;
         bool forward = true;
         ChainList chain;
 
