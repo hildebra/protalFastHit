@@ -86,12 +86,24 @@ target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic -ffp-
 
 include_directories(src/ lib/)
 
+# protal::Run's stages (src/Run/RunStages.h), each a translation unit of its own that includes only the headers it uses:
+# they compile in parallel, and an edit recompiles the stages it touches (docs/claude/2026-10-14-compile-time).
+set(PROTAL_RUN_SOURCES
+        src/Run/Run.cpp
+        src/Run/Load.cpp
+        src/Run/Align.cpp
+        src/Run/BuildStage.cpp
+        src/Run/Profile.cpp
+        src/Run/Strains.cpp)
+
 add_executable(protal
-        src/main.cpp)
+        src/main.cpp
+        ${PROTAL_RUN_SOURCES})
 target_compile_options(protal PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 
 add_executable(protal_static
-        src/main.cpp)
+        src/main.cpp
+        ${PROTAL_RUN_SOURCES})
 target_compile_options(protal_static PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 target_link_options(protal_static PRIVATE -static -static-libgcc -static-libstdc++)
 set_target_properties(protal_static PROPERTIES OUTPUT_NAME "protal_${PROJECT_VERSION}_static")

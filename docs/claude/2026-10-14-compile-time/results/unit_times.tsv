@@ -1,0 +1,19 @@
+unit	wall_s	user_s	front_end_user_s	opt_user_s	ggc	text_bytes
+before: main.cpp	125.10	109.29	15.17	93.20	5883M	4074536
+after: Run/Run.cpp	28.52	23.97	8.48	15.38	2155M	761633
+after: Run/Load.cpp	16.12	13.36	5.06	8.23	1484M	433822
+after: Run/Align.cpp	29.55	26.03	6.24	19.64	2304M	1085995
+after: Run/BuildStage.cpp	36.69	32.43	6.21	26.01	2647M	1385965
+after: Run/Profile.cpp	28.03	24.29	6.39	17.77	2314M	916686
+after: Run/Strains.cpp	19.98	16.77	6.48	10.22	1863M	479619
+after: Options.cpp	17.75	15.67	3.56	11.99	1355M	783076
+after: main.cpp	0.33	0.17	0.16	0.01	53M	156
+before: main.cpp	96.76	87.38	11.37	75.36	5883M	4074536
+after: Run/Run.cpp	24.88	21.14	6.84	14.18	2155M	761633
+after: Run/Load.cpp	15.44	12.96	4.63	8.27	1484M	433822
+after: Run/Align.cpp	28.26	24.66	6.03	18.46	2304M	1085995
+after: Run/BuildStage.cpp	36.24	32.08	6.27	25.57	2647M	1385965
+after: Run/Profile.cpp	28.07	24.50	6.79	17.58	2314M	916686
+after: Run/Strains.cpp	25.68	21.96	6.73	15.15	1863M	479619
+after: Options.cpp	20.68	18.04	4.14	13.77	1355M	783076
+after: main.cpp	0.37	0.20	0.19	0.01	53M	156

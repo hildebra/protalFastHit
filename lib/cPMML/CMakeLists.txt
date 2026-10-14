@@ -15,7 +15,9 @@ project(${PROJECT_NAME} VERSION ${PROJECT_VERSION} LANGUAGES CXX)
 if(NOT DEFINED BUILD_TYPE)
     set(BUILD_TYPE Release)
 endif()
-set(RELEASE_FLAGS "-std=c++11 -Wall -Ofast -flto")
+# protal: without -flto, which made every link of protal, simulate_metagenomes and protal_tests optimise cPMML's code again,
+# serially (4.4-5.2 s a link; docs/claude/2026-10-14-compile-time).
+set(RELEASE_FLAGS "-std=c++11 -Wall -Ofast")
 set(DEBUG_FLAGS "-std=c++11 -Wall -g -Og")
 set(VERBOSE OFF)
 

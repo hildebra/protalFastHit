@@ -55,6 +55,14 @@ for this page.
   - **Grid's sparse index at C 4:** an absent species' mean rate on the strain world rises only from 0.155 to 0.163
     (0.340 on the whole index), and its calls do not change. The rest of the fall is in the failures themselves: a
     relative's read meets the taxon there on a single grid seed.
+- **protal compiles in parallel** (2026-10-14; building from source only: protal runs the same). `main.cpp` was all of
+  protal in one translation unit, 97-125 s on one core and compiled again whole after any edit. A run's stages are now
+  units of their own in `src/Run/`, and the options' parsing is in `src/Options.cpp`
+  ([development.md](development.md#source-layout)); cPMML is built without `-flto`, which cost every link 4.4-5.2 s.
+  - **Rebuilds on 4 cores:** an edit within one stage 24-36 s (was 103-187 s), an edit every unit sees (`Options.h`)
+    53-111 s (96-149 s), from scratch 86-90 s (105-157 s) ([report](claude/2026-10-14-compile-time/README.md#implementation)).
+  - **Cost:** the units together do 1.6 times the old compile's work, and the binary's code is 12% larger. The
+    outputs and the alignment's and profiling's instructions are the same (within 1%).
 
 ## What 0.8.4 adds
 

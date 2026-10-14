@@ -376,6 +376,31 @@ and build an HTML report. Set the database (`PROTAL_DB_PATH` or `strain_db=...`)
 | `scripts/recurrent_calls.py`, `scripts/prevalence_calls.py` | a run's thin recurring calls, and calls adjusted by prevalence across samples ([running.md](running.md#where-the-outputs-go)) |
 | `scripts/plot_abundances.R` | abundance plots for `simulate_metagenomes --plot_png` |
 
+## Source layout
+
+Most of protal is in headers. A run's stages are translation units of their own in `src/Run/`, each
+including only the headers it uses, so that they compile in parallel and an edit recompiles only the
+units that include what it touched ([report](claude/2026-10-14-compile-time/README.md)):
+
+| unit | holds | heavy headers it includes |
+|---|---|---|
+| `src/main.cpp` | `main` (and the version history) | none (`RunProtal.h` declares `protal::Run`) |
+| `src/Run/Run.cpp` | `protal::Run`: the start-up, the build settings a run follows, the models | `Profiler.h` |
+| `src/Run/Load.cpp` | the database's tables and index | `Seedmap.h` |
+| `src/Run/Align.cpp` | aligning the samples (`RunWrapper`) | `Classify.h`, `Seedmap.h` |
+| `src/Run/BuildStage.cpp` | `--build`'s index, `--add_model`, `--compress_db` and the other database modes | `Build.h` |
+| `src/Run/Profile.cpp` | profiling the samples (`ProfileSample`, `--profile_ahead`) | `Profiler.h` |
+| `src/Run/Strains.cpp` | the strain-level MSAs | `Profiler.h` |
+| `src/Options.cpp` | the options' definitions (`CxxOptions`), the map file, the parsing and the checks | `Options.h`, cxxopts |
+
+`src/Run/RunStages.h` declares what the units call of each other; `src/Run/ProfileStage.h` what
+`Run.cpp`, `Profile.cpp` and `Strains.cpp` share of profiling. New code goes into the unit of its
+stage; a header that only one stage needs is included there only. A unit that includes `Seedmap.h`
+or `Build.h` without using them compiles their index loading and build code again (with their
+x86-64-v3 clones), which is what makes a unit slow. Everything else (`src/IO`, `src/Hash`, ...) is
+headers, compiled into the units that use them, apart from the library's own `.cpp` files
+(`protal_lib`, `src/CMakeLists.txt`).
+
 ## Conventions
 
 - Helper scripts and tests are Python 3 (argparse, a module docstring saying what the script does and

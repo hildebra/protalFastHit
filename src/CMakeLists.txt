@@ -31,6 +31,7 @@ message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 set(PROTAL_LIB_SOURCES
         RunProtal.h
         Options.h
+        Options.cpp
         Build.h
         Classify.h
         Utilities/Benchmark.h
