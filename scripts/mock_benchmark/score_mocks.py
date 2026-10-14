@@ -5,6 +5,7 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
   run    runs a profiler on each set (or each chunk of a set: --chunks N, the chunk from --chunk or SLURM's
          $SLURM_ARRAY_TASK_ID) into a run folder of its own, OUT/<run>/<set>[/chunk_<i>]/, with the profiles in
          profiles/<sample>.profile. A sample whose profile the run folder has is not run again (--rerun: all).
+         OUT/<run>/versions.tsv notes per sample profiled the tool, its version, the database, when and where.
            --tool protal  (default) a protal map per set (map.tsv) and one protal run on it (protal.log, misc/), with
                           --no_strains unless --strains; --protal-args adds options (quoted). The run folder is
                           <version>_<commit> of the binary's --version (e.g. 0.8.3_1dcc325, "-modified" when built
@@ -16,8 +17,14 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
                           the database's release for the genomes the truth's lacks; a genome neither has is kept
                           under its accession), and its Taxonomic_abundance (a share of cells) is summed per species
                           into a profile in protal's format, without "?".
-                          The run folder is sylph_<version>_<database name>, unless --run-name names it
-  score  scores the profiles of each run folder (--runs, default all of them) and writes OUT/<run>/scores/:
+                          sylph runs once per sample and database (since 2026-10-14): the run folder is the one OUT
+                          has for the database, whatever sylph is installed now (or none, if every sample has its
+                          profile), so that its profiles are the comparison of every later protal run; only samples
+                          without a profile there are run, with the version installed (versions.tsv says which).
+                          Without one, and with --rerun (all samples again), it is sylph_<version>_<database name>
+                          of the sylph installed; --run-name names another
+  score  scores the profiles of each run folder (--runs, default all of them; the sylph run folders are scored with
+         the runs named, for comparison, unless --no-sylph) and writes OUT/<run>/scores/:
            samples.tsv     per sample: the species called, the profile's unknown share ("?") and the one the truth
                            expects, and by the truth's kind
                              abundance  true and false positives and negatives, precision, recall, F1, recall of the
@@ -31,7 +38,9 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
            replicates.tsv  per pair of samples of a group: Bray-Curtis of their profiles, Jaccard of their calls
            groups.tsv      per group: samples, mean and largest Bray-Curtis, mean and smallest Jaccard
            summary.tsv     per set, read type and truth kind: medians of the above
-         and OUT/scores/summary_by_run.tsv and samples_by_run.tsv, all runs' rows with a run column (printed too).
+         and OUT/scores/summary_by_run.tsv and samples_by_run.tsv, all runs' rows with columns run, tool and version
+         (from versions.tsv, else from the run folder's default name; "-" for neither), each set's rows of all runs
+         together (printed too).
          Shares compare cells: protal's abundances are shares of genomes, the truth's genome copies (prepare_tables.py).
 
 Usage on a SLURM cluster (protal at r226 needs ~40 GB of memory):
@@ -52,6 +61,7 @@ import glob
 import gzip
 import itertools
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -118,28 +128,93 @@ def version_lines(command):
     try:
         result = subprocess.run([command, "--version"], capture_output=True, text=True, timeout=300)
     except OSError as err:
-        sys.exit(f"{command} --version failed ({err}); give --run-name")
+        sys.exit(f"{command} --version failed ({err})")
     return (result.stdout + result.stderr).strip().splitlines()
 
 
-def protal_run_name(protal):
+def protal_version(protal):
     """<version>_<commit> from protal's --version ("protal v0.8.3 (commit <40 hex>[, with uncommitted changes])")."""
     lines = version_lines(protal)
     found = re.fullmatch(r"\S+ v([0-9.]+)(?: \(commit ([0-9a-f]{40})(, with uncommitted changes)?\))?",
                          lines[-1] if lines else "")
     if not found:
-        sys.exit(f"{protal} --version says {lines[-1] if lines else 'nothing'!r}, no version; give --run-name")
+        sys.exit(f"{protal} --version says {lines[-1] if lines else 'nothing'!r}, no version")
     version, commit, modified = found.groups()
     return f"{version}_{commit[:7] if commit else 'nocommit'}{'-modified' if modified else ''}"
 
 
-def sylph_run_name(sylph, database):
+def sylph_version(sylph):
+    """The version sylph --version names ("sylph 0.8.1": 0.8.1)."""
     lines = version_lines(sylph)
     found = re.search(r"(\d+\.\d+[\w.-]*)", lines[-1] if lines else "")
     if not found:
-        sys.exit(f"{sylph} --version says {lines[-1] if lines else 'nothing'!r}, no version; give --run-name")
-    name = re.sub(r"\.(syldb|syl2db|sylsp)$", "", os.path.basename(database.rstrip("/")))
-    return f"sylph_{found.group(1)}_{name}"
+        sys.exit(f"{sylph} --version says {lines[-1] if lines else 'nothing'!r}, no version")
+    return found.group(1)
+
+
+def database_name(database):
+    """A sylph database's name: its file name without .syldb, .syl2db or .sylsp."""
+    return re.sub(r"\.(syldb|syl2db|sylsp)$", "", os.path.basename(database.rstrip("/")))
+
+
+# Each run folder's versions.tsv: per sample profiled, the tool and its version (protal: <version>_<commit>, as the run
+# folder's default name; sylph: its version), the database, when and where. Appended by every run that writes profiles.
+VERSION_COLUMNS = ["sample", "set", "tool", "version", "database", "date", "host"]
+
+
+def read_versions(folder):
+    """{sample: its last row of the run folder's versions.tsv}; empty without the file (a run of an older script)."""
+    path = os.path.join(folder, "versions.tsv")
+    # (a header written twice, by chunks of a SLURM array starting together, is no sample)
+    return {r["sample"]: r for r in read_tsv(path) if r["sample"] != "sample"} if os.path.exists(path) else {}
+
+
+def note_versions(folder, rows):
+    path = os.path.join(folder, "versions.tsv")
+    new = not os.path.exists(path)
+    with open(path, "a", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=VERSION_COLUMNS, delimiter="\t", lineterminator="\n")
+        if new:
+            w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+
+def tool_and_version(name, versions):
+    """(tool, versions joined by ",") of a run folder from its versions.tsv rows, else from its default name
+    (<version>_<commit> for protal, sylph_<version>_<database> for sylph); "-" where neither says."""
+    if versions:
+        tools = sorted({r["tool"] for r in versions.values()})
+        found = sorted({r["version"] for r in versions.values()})
+        return ",".join(tools), ",".join(found)
+    found = re.fullmatch(r"sylph_([^_]+)_.+", name)
+    if found:
+        return "sylph", found.group(1)
+    if re.fullmatch(r"[0-9.]+_[0-9a-f]{7}(-modified)?|[0-9.]+_nocommit(-modified)?", name):
+        return "protal", name
+    return "-", "-"
+
+
+def sylph_folders(out, database=None):
+    """The sylph run folders of OUT (by their versions.tsv, else by the default name sylph_<version>_<database>), those of
+    `database` alone if given."""
+    found = []
+    if not os.path.isdir(out):
+        return found
+    for name in sorted(os.listdir(out)):
+        folder = os.path.join(out, name)
+        if name in NOT_RUNS or not os.path.isdir(folder):
+            continue
+        versions = read_versions(folder)
+        if versions:
+            rows = [r for r in versions.values() if r["tool"] == "sylph"]
+            if rows and (database is None or any(r["database"] == database for r in rows)):
+                found.append(folder)
+            continue
+        named = re.fullmatch(r"sylph_[^_]+_(.+)", name)
+        if named and (database is None or named.group(1) == database):
+            found.append(folder)
+    return found
 
 
 def run_command(command, folder, log_name):
@@ -289,6 +364,22 @@ def run_sylph(args, folder, todo, lineages):
     return code
 
 
+def sylph_run_name(args, out):
+    """sylph's run folder for --sylph-db: the one OUT already has for that database (the most profiles), whatever sylph
+    is installed now, so that each sample is profiled once and its profile reused by every later run and score; else,
+    and with --rerun, sylph_<installed version>_<database>."""
+    database = database_name(args.sylph_db)
+    existing = [] if args.rerun else sylph_folders(out, database)
+    if existing:
+        folder = max(existing, key=lambda f: (len(profiles_of(f)), os.path.getmtime(f)))
+        name = os.path.basename(folder)
+        print(f"sylph on {database}: the run folder {name} (sylph {tool_and_version(name, read_versions(folder))[1]}, "
+              f"{len(profiles_of(folder))} profiles) is reused; only samples without a profile there are run",
+              file=sys.stderr)
+        return name
+    return f"sylph_{sylph_version(args.sylph)}_{database}"
+
+
 def run(args):
     downloaded_path = os.path.join(args.reads, "reads", "downloaded.tsv")
     if not os.path.exists(downloaded_path):
@@ -301,14 +392,21 @@ def run(args):
         if not args.sylph_db or not args.gtdb:
             sys.exit("--tool sylph needs --sylph-db and --gtdb (the folder of the truth's GTDB taxonomy)")
         lineages = load_taxonomy([os.path.expanduser(f) for f in args.gtdb.split(",") if f])
-    name = args.run_name or (protal_run_name(args.protal) if args.tool == "protal"
-                             else sylph_run_name(args.sylph, args.sylph_db))
+    out = os.path.abspath(args.out or args.reads)
+    version = None  # the installed tool's, asked for once a sample is to be run
+    if args.run_name:
+        name = args.run_name
+    elif args.tool == "protal":
+        version = protal_version(args.protal)
+        name = version
+    else:
+        name = sylph_run_name(args, out)
     if name in NOT_RUNS or "/" in name:
         sys.exit(f"--run-name {name!r} is not a folder name a run can have")
-    out = os.path.abspath(args.out or args.reads)
     run_folder = os.path.join(out, name)
     print(f"run folder {run_folder}", file=sys.stderr)
     done = profiles_of(run_folder)
+    held = read_versions(run_folder)
     chunk = args.chunk if args.chunk is not None else int(os.environ.get("SLURM_ARRAY_TASK_ID", "0"))
     if args.chunks > 1 and not 0 <= chunk < args.chunks:
         sys.exit(f"--chunk {chunk} is not in 0..{args.chunks - 1}")
@@ -326,13 +424,22 @@ def run(args):
             folder = os.path.join(folder, f"chunk_{chunk}")
         os.makedirs(folder, exist_ok=True)
         print(f"{set_name}: {len(todo)} samples", file=sys.stderr)
+        if version is None and not args.dry_run:
+            version = protal_version(args.protal) if args.tool == "protal" else sylph_version(args.sylph)
+            before = sorted({r["version"] for r in held.values() if r["tool"] == args.tool} - {version})
+            if before:
+                print(f"note: {args.tool} {version} profiles the new samples; the run folder's others are of "
+                      f"{', '.join(before)} (versions.tsv says which; --rerun runs them all again)", file=sys.stderr)
         code = run_protal(args, folder, todo) if args.tool == "protal" else run_sylph(args, folder, todo, lineages)
         if args.dry_run:
             continue
-        missing = [s["sample"] for s in todo
-                   if not os.path.exists(os.path.join(folder, "profiles", s["sample"] + ".profile"))]
-        print(f"{set_name}: {len(todo) - len(missing)} of {len(todo)} profiles written", file=sys.stderr)
-        if code or missing:
+        written = [s for s in todo if os.path.exists(os.path.join(folder, "profiles", s["sample"] + ".profile"))]
+        database = os.path.abspath(args.db) if args.tool == "protal" else database_name(args.sylph_db)
+        note_versions(run_folder, [{"sample": s["sample"], "set": set_name, "tool": args.tool, "version": version,
+                                    "database": database, "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "host": platform.node()} for s in written])
+        print(f"{set_name}: {len(written)} of {len(todo)} profiles written", file=sys.stderr)
+        if code or len(written) < len(todo):
             failed.append(set_name)
     if failed:
         sys.exit(f"failed or incomplete: {', '.join(failed)}")
@@ -554,23 +661,42 @@ def score(args):
     path = os.path.join(args.reads, "reads", "downloaded.tsv")
     if os.path.exists(path):
         downloaded = {r["sample"]: r for r in read_tsv(path)}
-    folders = run_folders(out, [n for n in args.runs.split(",") if n])
+    names = [n for n in args.runs.split(",") if n]
+    folders = run_folders(out, names)
+    if names and not args.no_sylph:
+        # sylph's runs, made once (run --tool sylph), are the comparison of every later run
+        folders += [f for f in sylph_folders(out) if f not in folders and profiles_of(f)]
     truths = {}
     all_samples, all_summary = [], []
     for folder in folders:
         name = os.path.basename(folder)
+        versions = read_versions(folder)
+        tool, version = tool_and_version(name, versions)
         sample_rows, summary = score_run(folder, samples, downloaded, args.truth, truths)
-        all_samples += [{"run": name, **r} for r in sample_rows]
-        all_summary += [{"run": name, **r} for r in summary]
+        for r in sample_rows:
+            own = versions.get(r["sample"])
+            all_samples.append({"run": name, "tool": own["tool"] if own else tool,
+                                "version": own["version"] if own else version, **r})
+        for r in summary:
+            found = sorted({versions[s["sample"]]["version"] for s in sample_rows
+                            if s["sample"] in versions and (s["set"], s["read_type"], s["kind"]) ==
+                            (r["set"], r["read_type"], r["kind"])})
+            all_summary.append({"run": name, "tool": tool, "version": ",".join(found) or version, **r})
     if not all_samples:
         sys.exit(f"no profiles of the chosen samples in the run folders of {out}")
+    # Side by side: each set's rows of all runs together, the runs in the order scored.
+    order = {os.path.basename(f): i for i, f in enumerate(folders)}
+    first = {}
+    for i, r in enumerate(all_summary):
+        first.setdefault((r["set"], r["read_type"], r["kind"]), i)
+    all_summary.sort(key=lambda r: (first[(r["set"], r["read_type"], r["kind"])], order[r["run"]]))
     scores = os.path.join(out, "scores")
     os.makedirs(scores, exist_ok=True)
-    write_tsv(os.path.join(scores, "samples_by_run.tsv"), ["run"] + SAMPLE_COLUMNS, all_samples)
-    write_tsv(os.path.join(scores, "summary_by_run.tsv"), ["run"] + SUMMARY_COLUMNS, all_summary)
-    print("\t".join(["run"] + SUMMARY_COLUMNS))
+    write_tsv(os.path.join(scores, "samples_by_run.tsv"), ["run", "tool", "version"] + SAMPLE_COLUMNS, all_samples)
+    write_tsv(os.path.join(scores, "summary_by_run.tsv"), ["run", "tool", "version"] + SUMMARY_COLUMNS, all_summary)
+    print("\t".join(["run", "tool", "version"] + SUMMARY_COLUMNS))
     for r in all_summary:
-        print("\t".join(str(fmt(r[c])) for c in ["run"] + SUMMARY_COLUMNS))
+        print("\t".join(str(fmt(r[c])) for c in ["run", "tool", "version"] + SUMMARY_COLUMNS))
 
 
 def main():
@@ -585,11 +711,13 @@ def main():
         if name == "run":
             p.add_argument("--tool", choices=("protal", "sylph"), default="protal")
             p.add_argument("--run-name", default="", help="the run folder's name (default: from the tool's "
-                           "--version: <version>_<commit> for protal, sylph_<version>_<database> for sylph)")
+                           "--version: <version>_<commit> for protal; for sylph the run folder of --sylph-db that OUT "
+                           "has, else sylph_<version>_<database>)")
             p.add_argument("-t", "--threads", type=int, default=int(os.environ.get("SLURM_CPUS_PER_TASK", "8")))
             p.add_argument("--chunks", type=int, default=1, help="split each set into N chunks (SLURM arrays)")
             p.add_argument("--chunk", type=int, default=None, help="the chunk to run (default $SLURM_ARRAY_TASK_ID)")
-            p.add_argument("--rerun", action="store_true", help="run samples that have profiles again")
+            p.add_argument("--rerun", action="store_true", help="run samples that have profiles again (sylph: into "
+                           "sylph_<installed version>_<database>, not the run folder it has)")
             p.add_argument("--dry-run", "--map-only", dest="dry_run", action="store_true",
                            help="write protal's maps and print the commands, run nothing")
             g = p.add_argument_group("protal")
@@ -605,7 +733,9 @@ def main():
                            "name the genomes the earlier ones lack (e.g. r226,r232 for an r232 database)")
             g.add_argument("--sylph-args", default="", help="more sylph profile options, quoted")
         else:
-            p.add_argument("--runs", default="", help="comma-separated run folders (default: all with profiles)")
+            p.add_argument("--runs", default="", help="comma-separated run folders (default: all with profiles); "
+                           "sylph's run folders are scored with them, for comparison (--no-sylph: not)")
+            p.add_argument("--no-sylph", action="store_true", help="with --runs: the runs named alone")
             p.add_argument("--truth", default=os.path.join(HERE, "truth"), help="folder of the truth tables")
     args = ap.parse_args()
     if args.command == "run":

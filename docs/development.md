@@ -291,20 +291,29 @@ The shares add up to 1 together with a `?` row: the members protal cannot place,
 - With these limits all sets take about 1.6 TB; `--dry-run` prints what each set would take.
 
 **Running.** `score_mocks.py run` puts each run in a folder of its own, `$MOCKS/<run>/<set>/`, and skips samples that
-already have a profile there.
+already have a profile there. Each run folder's `versions.tsv` notes, per sample profiled, the tool, its version, the
+database, and when and where it ran.
 - **protal** (the default): a map per set, run with `--no_strains`. The run folder is named from the binary's
   `--version`, `<version>_<commit>`, e.g. `0.8.3_1dcc325`, with `-modified` appended when it was built with uncommitted
   changes. Another build or commit therefore gets its own folder. `--run-name` names one, e.g. for `--protal-args`
   variants.
 - **sylph** (`--tool sylph --sylph-db DB --gtdb DIR[,DIR]`): `sylph profile` per set, of the paired samples and of the
   single-read ones; a sample of several files is joined for it. Its run folder is `sylph_<version>_<database>`.
+  - **Run once** (since 2026-10-14): sylph is the fixed comparison, so each sample is profiled once per database.
+    - **The run folder is reused:** a later `run --tool sylph` uses the database's existing sylph run folder, whatever
+      sylph is installed then, and runs only the samples without a profile there. With every sample profiled it
+      needs no sylph at all.
+    - **A newer sylph:** new samples are run with it, and a note says that the folder's other samples are of the
+      older version (`versions.tsv` records each sample's).
+    - **`--rerun`:** profiles every sample again, into a new `sylph_<version>_<database>` of the installed sylph.
   - **Genomes to species:** each genome of its output gets its GTDB species by accession: first from the truth's
     release (`--gtdb` r226), then from later folders (e.g. r232 for a database of that release). A genome found in
     none of them is kept under its accession.
   - **Abundances:** each genome's `Taxonomic_abundance` (a share of cells) is summed per species into a profile in
     protal's format, without `?`.
 
-**Scoring.** `score_mocks.py score` scores every run folder, or those given with `--runs`, into `$MOCKS/<run>/scores/`:
+**Scoring.** `score_mocks.py score` scores every run folder, or those given with `--runs` together with the sylph run
+folders (the comparison; `--no-sylph`: the runs given alone), into `$MOCKS/<run>/scores/`:
 - `samples.tsv`: true and false positives, precision, recall and F1, the L1 distance and Bray-Curtis dissimilarity to
   the truth, and the profile's `?` against the expected share.
 - `species.tsv`: each species of the truth or the profile, with both shares and its status.
@@ -312,8 +321,11 @@ already have a profile there.
   one ONT flow cell basecalled several ways, or one library sequenced on several platforms.
 - `summary.tsv`: medians per set, read type and truth kind.
 
-All runs' rows also go into `$MOCKS/scores/summary_by_run.tsv` and `samples_by_run.tsv`, with a `run` column, so the
-runs can be compared side by side.
+All runs' rows also go into `$MOCKS/scores/summary_by_run.tsv` and `samples_by_run.tsv`, so the runs can be compared
+side by side:
+- **Columns:** `run`, `tool` and `version`. The version comes from `versions.tsv`; for a run folder made before
+  `versions.tsv` existed, from the folder's default name.
+- **Order:** each set's rows of all runs come together.
 
 ```bash
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --dry-run

@@ -286,6 +286,37 @@ class ScoreTest(unittest.TestCase):
         self.assertEqual({r["run"] for r in read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))},
                          {"other_run"})
         self.assertNotEqual(self.score("--runs", "missing").returncode, 0)
+        # The tool and its version: from the default name here (no versions.tsv), "-" for a name that says neither.
+        tools = {(r["run"], r["tool"], r["version"]) for r in by_run}
+        self.assertEqual(tools, {("0.8.3_1dcc325", "protal", "0.8.3_1dcc325"), ("other_run", "-", "-")})
+
+    def test_sylph_runs_are_the_comparison(self):
+        """A sylph run folder (made once by run --tool sylph) is scored with the runs --runs names, its version from
+        versions.tsv; --no-sylph leaves it out. Each set's rows of all runs come together."""
+        sylph = os.path.join(self.out, "sylph_0.8.1_gtdb-r226")
+        write_profile(os.path.join(sylph, "set1", "profiles", "s1.profile"), [("A", 0.7), ("B", 0.3)], 0.0)
+        with open(os.path.join(sylph, "versions.tsv"), "w") as fh:
+            fh.write("\t".join(sc.VERSION_COLUMNS) + "\n")
+            fh.write("s1\tset1\tsylph\t0.8.1\tgtdb-r226\t2026-10-14 09:00:00\tnode1\n")
+        result = self.score("--runs", "other_run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        by_run = read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))
+        self.assertEqual([(r["run"], r["tool"], r["version"]) for r in by_run if r["kind"] == "abundance"],
+                         [("other_run", "-", "-"), ("sylph_0.8.1_gtdb-r226", "sylph", "0.8.1")])
+        samples = read_tsv(os.path.join(self.out, "scores", "samples_by_run.tsv"))
+        self.assertEqual({(r["run"], r["version"]) for r in samples if r["sample"] == "s1"},
+                         {("other_run", "-"), ("sylph_0.8.1_gtdb-r226", "0.8.1")})
+        alone = self.score("--runs", "other_run", "--no-sylph")
+        self.assertEqual(alone.returncode, 0, alone.stderr)
+        self.assertEqual({r["run"] for r in read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))},
+                         {"other_run"})
+        # every run folder: the rows of a set and kind together, runs in name order
+        self.assertEqual(self.score().returncode, 0)
+        rows = read_tsv(os.path.join(self.out, "scores", "summary_by_run.tsv"))
+        self.assertEqual([r["run"] for r in rows if r["kind"] == "abundance"],
+                         ["0.8.3_1dcc325", "other_run", "sylph_0.8.1_gtdb-r226"])
+        kinds = [r["kind"] for r in rows]
+        self.assertEqual(kinds, sorted(kinds, key=kinds.index))  # each kind's rows next to each other
 
     def test_run_with_a_stand_in_protal(self):
         reads = os.path.join(self.tmp.name, "mocks")
@@ -323,6 +354,9 @@ for line in lines[2:]:
         self.assertIn("--db /db", called[0])
         self.assertIn("-t 3 --no_strains --force", called[0])
         self.assertTrue(os.path.exists(os.path.join(run_folder, "a", "profiles", "a_2.profile")))
+        self.assertEqual(sorted((r["sample"], r["set"], r["tool"], r["version"], r["database"])
+                                for r in read_tsv(os.path.join(run_folder, "versions.tsv"))),
+                         [("a_1", "a", "protal", "0.8.3_1dcc325", "/db"), ("a_2", "a", "protal", "0.8.3_1dcc325", "/db")])
         result = subprocess.run(command, capture_output=True, text=True)  # profiles there: protal is not run again
         self.assertEqual(result.returncode, 0, result.stderr)
         with open(calls) as fh:
@@ -364,11 +398,14 @@ for line in lines[2:]:
             fh.write("GB_GCA_000008865.2\td__Bacteria;p__Pseudomonadota;c__G;o__E;f__E;g__Escherichia;"
                      "s__Escherichia coli\n")
         seen = os.path.join(self.tmp.name, "sylph_inputs.txt")
-        fake = stand_in(os.path.join(self.tmp.name, "fake_sylph"), f"""import gzip, sys
+        calls = os.path.join(self.tmp.name, "sylph_calls.txt")
+        fake = stand_in(os.path.join(self.tmp.name, "fake_sylph"), f"""import gzip, os, sys
 args = sys.argv[1:]
 if args == ["--version"]:
-    print("sylph 0.8.1")
+    print("sylph " + os.environ.get("FAKE_SYLPH_VERSION", "0.8.1"))
     sys.exit(0)
+with open({calls!r}, "a") as log:
+    log.write(" ".join(args) + "\\n")
 out = args[args.index("-o") + 1]
 head = "Sample_file\\tGenome_file\\tTaxonomic_abundance\\tSequence_abundance\\tAdjusted_ANI\\n"
 with open(out, "w") as fh, open({seen!r}, "a") as log:
@@ -399,6 +436,42 @@ with open(out, "w") as fh, open({seen!r}, "a") as log:
         self.assertIn("1 genome(s) of sylph's database not in the --gtdb taxonomy", result.stderr)
         missing = subprocess.run(command[:-4] + ["-t", "2"], capture_output=True, text=True)  # without --gtdb
         self.assertNotEqual(missing.returncode, 0)
+        # The version is noted per sample.
+        run_folder = os.path.dirname(folder)
+        versions = read_tsv(os.path.join(run_folder, "versions.tsv"))
+        self.assertEqual(sorted((r["sample"], r["tool"], r["version"], r["database"]) for r in versions),
+                         [("l", "sylph", "0.8.1", "gtdb-r226-c200-dbv1"), ("p", "sylph", "0.8.1", "gtdb-r226-c200-dbv1")])
+
+        def calls_made():
+            with open(calls) as fh:
+                return len(fh.read().splitlines())
+        self.assertEqual(calls_made(), 2)  # the paired and the single samples
+        # sylph runs once (2026-10-14): a newer sylph reuses the database's run folder and runs nothing ...
+        newer = dict(os.environ, FAKE_SYLPH_VERSION="0.9.0")
+        again = subprocess.run(command, capture_output=True, text=True, env=newer)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("the run folder sylph_0.8.1_gtdb-r226-c200-dbv1 (sylph 0.8.1, 2 profiles) is reused", again.stderr)
+        self.assertEqual(calls_made(), 2)
+        self.assertFalse(os.path.exists(os.path.join(reads, "sylph_0.9.0_gtdb-r226-c200-dbv1")))
+        # ... nor does it need a sylph at all ...
+        none = subprocess.run(command[:command.index("--sylph") + 1] + [os.path.join(self.tmp.name, "no_sylph")] +
+                              command[command.index("--sylph") + 2:], capture_output=True, text=True)
+        self.assertEqual(none.returncode, 0, none.stderr)
+        # ... but a new sample is profiled there, with the sylph installed, and noted so.
+        with open(os.path.join(reads, "reads", "downloaded.tsv"), "a") as fh:
+            fh.write("\t".join(("b", "n", "ont", lane("l.fq.gz"), "-", "1", "4", "0")) + "\n")
+        added = subprocess.run(command, capture_output=True, text=True, env=newer)
+        self.assertEqual(added.returncode, 0, added.stderr)
+        self.assertEqual(calls_made(), 3)
+        self.assertIn("note: sylph 0.9.0 profiles the new samples; the run folder's others are of 0.8.1", added.stderr)
+        self.assertTrue(os.path.exists(os.path.join(run_folder, "b", "profiles", "n.profile")))
+        self.assertEqual({r["sample"]: r["version"] for r in sc.read_versions(run_folder).values()},
+                         {"p": "0.8.1", "l": "0.8.1", "n": "0.9.0"})
+        # --rerun: every sample again, into the installed version's folder
+        rerun = subprocess.run(command + ["--rerun"], capture_output=True, text=True, env=newer)
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        self.assertEqual(calls_made(), 6)  # set a's paired and single samples, set b's single one
+        self.assertEqual(len(sc.profiles_of(os.path.join(reads, "sylph_0.9.0_gtdb-r226-c200-dbv1"))), 3)
 
 
 class PrepareTest(unittest.TestCase):

@@ -389,6 +389,19 @@ is in [development.md](../../development.md#benchmark-on-public-mock-communities
 - **Tests:** 11, including stand-ins of both profilers' binaries. The second profiler is not installed locally, so its
   real command line is checked only against its documentation.
 
+**Third follow-up (2026-10-14): versions noted, the second profiler run once.**
+- **Versions:** each run folder's `versions.tsv` notes, per sample profiled, the tool, its version, the database, and
+  when and where it ran. `summary_by_run.tsv` and `samples_by_run.tsv` gain `tool` and `version` columns, with each
+  set's rows of all runs together.
+- **Run once:** the second profiler is the fixed comparison.
+  - A later run reuses the database's existing run folder of it, whatever version is installed then. Only samples
+    without a profile there are run, so with all profiled the profiler is not needed at all.
+  - `--rerun` profiles every sample again, into the installed version's folder.
+- **Scoring:** `score --runs` scores the second profiler's run folders with the runs it names (an option leaves them
+  out).
+- **The performance script** (`measure_performance.sh`) still runs it live every time, on the user's instruction.
+- **Tests:** 12.
+
 ## Next steps
 
 Step 1 is done; steps 2 and 3 have scripts (see the follow-up above) and wait for the cluster.
