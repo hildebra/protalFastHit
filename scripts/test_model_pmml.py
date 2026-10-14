@@ -342,7 +342,7 @@ class FeatureSetsTest(unittest.TestCase):
         # the samples are drawn from, which they told the models (r226 v17, 2026-10-08); the scan of the full
         # reference since then is offered to --features auto by one named set.
         # The default of 2026-10-13, and since 2026-10-14 with the features that do not change with the read length
-        # (length_free, in place of those that do) and the sample's read length.
+        # (length_free, beside or in place of those that do) and the sample's read length.
         previous = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+"
                     "ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity")
         self.assertEqual(mf.DEFAULT_FEATURE_SET, previous + "+length_free+read_length")
@@ -380,22 +380,34 @@ class FeatureSetsTest(unittest.TestCase):
         old_columns = (mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
                        mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new + copies)
         self.assertEqual(mf.feature_columns(columns, previous), old_columns)
-        # length_free puts its features where the first of those it replaces were, and drops those; read_length adds its three.
-        replaced = {"lu_per_kb": ["unique_seed_enrichment", "unique2_seed_enrichment"], "top_identity": ["top_identity_bound"],
-                    "allele_top_identity": ["allele_top_identity_bound"],
+        # length_free puts the unique seed enrichments after the last of the eight unique k-mer rates, which stay (since
+        # the counts come from the alignment, 2026-10-14), and its other features where the first of those they replace
+        # were, those gone; read_length adds its three.
+        replaced = {"top_identity": ["top_identity_bound"], "allele_top_identity": ["allele_top_identity_bound"],
                     "ancestry_sites_per_record": ["ancestry_sites_per_kb", "ancestry_indel_sites_per_kb"]}
         gone = {c for olds, _ in mf.LENGTH_FREE_REPLACEMENTS for c in olds}
-        expected = [n for c in old_columns for n in (replaced.get(c, []) if c in gone else [c])] + mf.READ_LENGTH_FEATURES
+        rates, enrichments = mf.LENGTH_FREE_ADDITIONS[0]
+        self.assertEqual(enrichments, ("unique_seed_enrichment", "unique2_seed_enrichment"))
+
+        def with_length_free(base):
+            last = max((i for i, c in enumerate(base) if c in rates), default=None)
+            return [n for i, c in enumerate(base)
+                    for n in (replaced.get(c, []) if c in gone else [c] + (list(enrichments) if i == last else []))]
+
+        expected = with_length_free(old_columns) + mf.READ_LENGTH_FEATURES
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET), expected)
-        self.assertEqual(len(gone), 12)
-        for column in ("lu_gene_rate3", "lsu_per_kb", "top_identity", "ancestry_indel_sites_per_record", "allele_top_identity"):
+        self.assertEqual(len(gone), 4)
+        self.assertEqual(len(expected), 98)
+        self.assertEqual(expected.index("unique_seed_enrichment"), expected.index("lsu_gene_rate3") + 1)
+        for column in ("top_identity", "ancestry_indel_sites_per_record", "allele_top_identity"):
             self.assertNotIn(column, expected)
+        for column in ("lu_gene_rate3", "lsu_per_kb", "unique2_seed_enrichment", "top_identity_bound"):
+            self.assertIn(column, expected)
         # The shares of the anchors' seeds that are unique are columns of the dump in no group.
         for column in ("unique_seed_share", "unique2_seed_share"):
             self.assertNotIn(column, [c for group in mf.FEATURE_GROUPS.values() for c in group])
         # length_free alone adds nothing the set lacks the old features of.
-        self.assertEqual(mf.feature_columns(columns, "normalized+length_free"),
-                         [n for c in mf.NORMALIZED_FEATURES for n in (replaced.get(c, []) if c in gone else [c])])
+        self.assertEqual(mf.feature_columns(columns, "normalized+length_free"), with_length_free(mf.NORMALIZED_FEATURES))
         # A table of a protal before 2026-10-14: a clear error with the default, the previous one works.
         before_length_free = [c for c in columns if c not in mf.LENGTH_FREE_FEATURES + mf.READ_LENGTH_FEATURES]
         with self.assertRaisesRegex(RuntimeError, "unique_seed_enrichment"):

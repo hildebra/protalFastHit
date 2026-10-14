@@ -37,6 +37,13 @@ for this page.
   unique-seed feature is the same there and no seed expectation is written. A database without the table, or
   `--no_unique_cores`, counts the anchors' seeds as 0.8.4 did. The anchor moves to a new tag, `ZL` (1 a single seed, 0 a
   rescued mate). Models trained on 0.8.4's counts should be retrained.
+- **The unique k-mer rates back in the default features** (2026-10-14). With the counts from the alignment the eight
+  rates (`lu_per_kb`, `lsu_per_kb`, the six gene rates) no longer change with the seeding. `length_free` now puts the
+  two unique seed enrichments beside them instead of in their place: 98 default features (90 before).
+  - **Why:** on the strain world, models with both were best at equal false positives and called the fewest false
+    positives at the knob. Their sparse index calls as the whole index does: 0.903 against 0.847 for the previous set
+    with the anchors' counts ([report](claude/2026-10-14-length-free-features/README.md)).
+  - **Cost:** the rates still fall with 75 bp reads (×0.79: fewer whole k-mers fit a short read).
 - **Ancestry sites in ~0.65 of the memory** (2026-10-14). `ancestry_sites.bin` was 1.13 GB at r226 v27, held whole
   beside the alignment. Version 2 stores the positions as Rice-coded gaps, the index in 4-byte keys and offsets and the
   identity in 16 bits; on the reduced r226 database's table that is 0.65 of the bytes (0.69 on the small real world; ~0.73 GB at r226), with the same sites. A run reads

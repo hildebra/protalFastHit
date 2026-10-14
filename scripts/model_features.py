@@ -190,17 +190,20 @@ known genome of its species reaches the top identity of a representative's reads
 representative alone, never gives it: HiFi reads of E. coli K-12, 1.6% from the type strain, had top_identity 0.9957 where
 every present species of the sample had 1.0, and the HiFi model rejected it (docs/claude/2026-10-13-ecoli-hifi).
 LENGTH_FREE_FEATURES ("length_free", since 2026-10-14), features that do not change with the read length or with the
-share of a read's cores looked up (a grid's sparse index seeds a read from 1/C of them), each in place of the features
-it replaces (LENGTH_FREE_REPLACEMENTS; the group only replaces, where the set has the old ones): the unique seeds of the
-reads' anchors over the unique seeds expected from their genes' unique shares (unique_seed_enrichment, ZU, and
-unique2_seed_enrichment, ZT; in place of lu_per_kb, lsu_per_kb and the six lu/lsu gene rates, which fell to 0.26-0.75 on a
-C 4 sparse index and by 0.79 for 75 bp reads); the best reads' identity as the lower bound of its 95% interval given
-their aligned bases (top_identity_bound, allele_top_identity_bound; in place of top_identity and allele_top_identity: a
-relative's 75 bp read has no difference more often than a 150 bp one); and the ancestry sites per aligned kb (in place of
-per record). On the strain world the sparse index's lost calls were the unique counts alone, and the extra false positives
-of 75 bp reads under a 150 bp model half MAPQ, half the perfect short reads (docs/claude/2026-10-14-sparse-index-calls).
-The shares unique_seed_share and unique2_seed_share (of the anchors' seeds) are columns of the dump in no group: on a
-grid's sparse index they are 0.79 of the whole index's, the grid keeping conserved cores, which the enrichments correct.
+share of a read's cores looked up (a grid's sparse index seeds a read from 1/C of them), where the set has the features
+they go with (the group adds nothing else): the reads' unique seeds over those expected from their genes' unique shares
+(unique_seed_enrichment, ZU, and unique2_seed_enrichment, ZT), beside lu_per_kb, lsu_per_kb and the six lu/lsu gene
+rates (LENGTH_FREE_ADDITIONS). Those fell to 0.26-0.75 on a C 4 sparse index while ZU and ZT counted the anchors' seeds,
+and the enrichments first took their place; with the counts from each record's alignment (a database's
+unique_cores.bin, 2026-10-14) every one of them is the same on a sparse index, and a model with both called the fewest
+false positives at equal calls (docs/claude/2026-10-14-length-free-features), so the rates stay (they still fall by 0.79
+for 75 bp reads, which fit fewer whole k-mers). In place of the features they replace (LENGTH_FREE_REPLACEMENTS): the
+best reads' identity as the lower bound of its 95% interval given their aligned bases (top_identity_bound,
+allele_top_identity_bound; in place of top_identity and allele_top_identity: a relative's 75 bp read has no difference
+more often than a 150 bp one); and the ancestry sites per aligned kb (in place of per record). On the strain world the
+sparse index's lost calls were the unique counts alone, and the extra false positives of 75 bp reads under a 150 bp model
+half MAPQ, half the perfect short reads (docs/claude/2026-10-14-sparse-index-calls). The shares unique_seed_share and
+unique2_seed_share are columns of the dump in no group.
 READ_LENGTH_FEATURES ("read_length", since 2026-10-14): the mean and SD of the aligned bases of the sample's best
 records (sample_read_length, sample_read_length_sd) and the taxon's records' mean over the sample's (aligned_length_ratio):
 what MAPQ, the candidates a read finds and its ties with congeners are worth depends on the read length, which a model
@@ -212,7 +215,7 @@ strain_identity, length_free, read_length, priors; "all" is every
 feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance+depth+
 divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+
 strain_identity+length_free+read_length"
-(without length_free and read_length before 2026-10-14, without strain_identity before 2026-10-13, without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
+(98 features; on 2026-10-14 before the counts from the alignment length_free put the enrichments in place of the eight unique k-mer rates, 90 features; without length_free and read_length before 2026-10-14, without strain_identity before 2026-10-13, without weights before 2026-10-10, without polymorphic before 2026-10-09, without alleles before 2026-10-08; with foreign from the congener-gaps merge to 2026-10-08, when the r226 v17 build showed its leak; without gaps,
 foreign and untried in 0.7.9 before the congener-gaps merge; without ancestry before 0.7.9; without consistency, shape
 and neighbourhood before 2026-10-07, when the false-positive groups were merged; without ref and complexity before
 2026-10-06; the set without them is the one every model of the r226 v12 and v13
@@ -325,15 +328,21 @@ WEIGHT_FEATURES = ["conserved_mismatch_ratio", "conserved_mismatch_rate", "ances
 # untested at r226.
 STRAIN_IDENTITY_FEATURES = ["allele_identity", "allele_top_identity"]
 # Features that do not change with the read length or the share of a read's cores looked up (since 2026-10-14, see
-# above): a set naming "length_free" has each tuple's new columns in place of its old ones, where it has the old ones.
-LENGTH_FREE_REPLACEMENTS = (
+# above): a set naming "length_free" has each LENGTH_FREE_REPLACEMENTS tuple's new columns in place of its old ones, and
+# each LENGTH_FREE_ADDITIONS tuple's new columns after the last of its old ones, which stay; both where the set has the
+# old ones. The unique seed enrichments replaced the eight unique k-mer rates at first; since the counts come from the
+# alignment (unique_cores.bin, 2026-10-14) the rates no longer change with the seeding, and models with both called the
+# fewest false positives at equal calls (docs/claude/2026-10-14-length-free-features), so the rates stay beside them.
+LENGTH_FREE_ADDITIONS = (
     (("lu_per_kb", "lsu_per_kb", "lu_gene_rate", "lsu_gene_rate", "lu_gene_rate2", "lsu_gene_rate2", "lu_gene_rate3",
       "lsu_gene_rate3"), ("unique_seed_enrichment", "unique2_seed_enrichment")),
+)
+LENGTH_FREE_REPLACEMENTS = (
     (("top_identity",), ("top_identity_bound",)),
     (("allele_top_identity",), ("allele_top_identity_bound",)),
     (("ancestry_sites_per_record", "ancestry_indel_sites_per_record"), ("ancestry_sites_per_kb", "ancestry_indel_sites_per_kb")),
 )
-LENGTH_FREE_FEATURES = [new for _, news in LENGTH_FREE_REPLACEMENTS for new in news]
+LENGTH_FREE_FEATURES = [new for _, news in LENGTH_FREE_ADDITIONS + LENGTH_FREE_REPLACEMENTS for new in news]
 # The sample's read length and the taxon's own against it (since 2026-10-14, see above).
 READ_LENGTH_FEATURES = ["sample_read_length", "sample_read_length_sd", "aligned_length_ratio"]
 
@@ -416,8 +425,15 @@ def feature_set_columns(feature_set):
     for group in FEATURE_GROUPS:
         if group in groups and group != "length_free":
             chosen += [c for c in FEATURE_GROUPS[group] if c not in chosen]
-    # length_free: each replacement's new columns where the first of its old ones was, those gone.
+    # length_free: each addition's new columns after the last of its old ones; each replacement's where the first of its
+    # old ones was, those gone.
     if "length_free" in groups:
+        for olds, news in LENGTH_FREE_ADDITIONS:
+            places = [chosen.index(c) for c in olds if c in chosen]
+            if not places:
+                continue
+            at = max(places) + 1
+            chosen = chosen[:at] + [c for c in news if c not in chosen] + chosen[at:]
         for olds, news in LENGTH_FREE_REPLACEMENTS:
             places = [chosen.index(c) for c in olds if c in chosen]
             if not places:

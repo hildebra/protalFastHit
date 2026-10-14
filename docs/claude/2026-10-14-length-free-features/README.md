@@ -307,7 +307,50 @@ index does not matter. Built on `ab6bf25`, uncommitted, with the two-seed failed
 At 75 bp a record covers fewer whole k-mers (mean `ZS` 7.16 against 18.22), and the unique share holds (0.651 against
 0.660).
 
-**Models trained on the new counts:** (running: `uc_models.sh`.)
+**Models trained on the new counts** (`uc_models.sh`):
+- **Builds:** the small real world built again by the new protal (`~/lfv2`, `mix` and `b150` as before).
+- **Models:** each build's ungated model (`new`), and its table trained again with the previous set (`prev`, the
+  eight unique k-mer rates) and with `both` (the new set and the eight rates).
+- **Test:** the strain world's `run_u_*` alignments, profiled against `db_cores`.
+
+The unique features hold exactly on the sparse index now, the old rates included (`feature_shift.pl`: `lu_per_kb`,
+`lsu_per_kb`, the gene rates and the enrichments at 1.000 of `l150`'s). At 75 bp the rates still fall (`lu_per_kb`
+0.79: fewer whole k-mers fit a short read), the shares and enrichments do not (1.00).
+
+At the knob (`evaluate.py`): strains called (shallow samples), then false positives in the 20 shallow / 20 deep samples.
+
+| model | `l150` | `l75` | `g4` |
+|---|---|---|---|
+| `mix_new` | 0.902 4 / 15 | 0.920 12 / 32 | 0.903 5 / 19 |
+| `mix_prev` | 0.900 2 / 9 | 0.917 12 / 10 | 0.903 3 / 10 |
+| `mix_both` | 0.898 2 / 10 | 0.900 5 / 10 | 0.903 2 / 10 |
+| `b150_new` | 0.917 9 / 31 | 0.890 4 / 18 | 0.920 12 / 39 |
+| `b150_prev` | 0.902 2 / 8 | 0.903 7 / 10 | 0.902 1 / 9 |
+| `b150_both` | 0.913 2 / 9 | 0.895 1 / 4 | 0.918 2 / 9 |
+
+At equal false positives (`matched_fp.pl`): strains called with at most 2 / 5 shallow and 10 deep false positives.
+
+| model | `l150` | `l75` | `g4` |
+|---|---|---|---|
+| `mix_new` | 0.868 / 0.920 / 0.958 | 0.843 / 0.905 / 0.968 | 0.877 / 0.912 / 0.958 |
+| `mix_prev` | 0.905 / 0.930 / 0.985 | 0.783 / 0.873 / 0.973 | 0.897 / 0.930 / 0.978 |
+| `mix_both` | 0.920 / 0.927 / 0.993 | 0.845 / 0.900 / 0.975 | 0.918 / 0.933 / 0.992 |
+| `b150_new` | 0.870 / 0.903 / 0.970 | 0.857 / 0.893 / 0.962 | 0.887 / 0.907 / 0.957 |
+| `b150_prev` | 0.918 / 0.933 / 0.982 | 0.842 / 0.888 / 0.968 | 0.923 / 0.927 / 0.977 |
+| `b150_both` | 0.927 / 0.930 / 0.985 | 0.915 / 0.943 / 0.980 | 0.918 / 0.932 / 0.983 |
+
+- **The sparse index costs nothing any more,** whatever the feature set. `prev` calls 0.903 (`mix`) and 0.902 (`b150`)
+  on `g4` at the knob, as on `l150`, where it called 0.847 and 0.862 with the anchors' counts.
+- **`both` is the best set:**
+  - at equal false positives it is best or within noise of the best in every column;
+  - at the knob it has the fewest false positives (2 / 9-10 at 150 bp and on the grid);
+  - at 75 bp it stays near its 150 bp level (`b150_both` 1 / 4, `mix_both` 5 / 10).
+
+  The old rates gave the deep false positives' signal (taxa of a few reads without a unique seed), and with counts
+  from the alignment they no longer depend on the seeding.
+- **`new` alone** (the enrichments in place of the rates) is last at the strict end and calls the most deep false
+  positives (`b150_new` 31-39), as in the first validation.
+- Noise as before: one strain 0.0017 of a column, single-digit false-positive counts.
 
 ### Ancestry sites in less memory
 
@@ -346,10 +389,11 @@ nothing is thinned.
 
 ## Not done, and the website
 
-- **The deep false positives without a unique seed.** One option is `both` as the default. It keeps the old rates and
-  their seeding dependence, against the aim of no counts. Another is a fraction that tells "no unique seed in many
-  reads" from "one read", for example the enrichment's lower bound by the seeds counted, as the identity bound does.
-  Neither is tested.
+- **The deep false positives without a unique seed.** With the counts from the alignment, `both` (the enrichments and
+  the eight rates) has the fewest of them and loses nothing on the sparse index. At the user's request it is now the
+  default (`model_features.py`: `length_free` puts the enrichments beside the rates, 98 features). The rates are
+  counts per kb and fall at 75 bp (×0.79), against the aim of no counts, though `both` held at 75 bp here. The
+  alternative, a fraction that tells "no unique seed in many reads" from "one read", is not tested.
 - **The failed candidates on a sparse index.** The denominator is now over two-seed anchors too (above); the failures
   still fall. A single-seed failure whose anchor extends as far as several seeds would could count.
 - **The ancestry table:** a dense index by gene row (4 bytes a row instead of 8 a copy) would save ~45 MB more at
