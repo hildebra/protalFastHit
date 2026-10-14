@@ -111,6 +111,15 @@ for this page.
   - Simulated Ultima reads are cut at 320 bases (`ultima:...:MAX`), fall in quality over their last 100 bases, and
     their errors are indels with rare substitutions (Q35 to Q40), for scenarios and the design alike.
 
+  **Effect** on the small real world and the strain world ([report](claude/2026-10-14-length-free-features/README.md)):
+  - **The features hold:** they do not move with the read length or on the sparse index. A model trained on fully
+    seeded runs calls on the sparse index at C 4 as it calls ungated (0.915 against 0.918 at the knob; the previous
+    set 0.847). At equal false positives the previous set ranked as well there: the gain is calibration.
+  - **Short reads still call more false positives:** 75 bp reads call 2 to 6 times those of 150 bp under most models,
+    also those trained on 75 bp reads.
+  - **New false positives:** the new set adds deep-sample false positives of taxa with a few fragments and no unique
+    seed.
+
 - **A compact key map** (2026-10-14; opt-in, `--compact_keys`). The key map gives every one of the 2^30 cores a
   16-bit offset (3.2 GB), of which r226 uses 9.2%. With the option it holds a presence bit per core with ranks (153
   MB) and 3 bytes a used core (~0.45 GB at r226), built as the index loads, so the direct key map is never held. On
