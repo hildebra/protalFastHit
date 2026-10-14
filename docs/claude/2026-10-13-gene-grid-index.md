@@ -312,3 +312,6 @@ its `evaluate.py` into `~/strainfn/eval_grid*`.
   evidence against. A grid-picked database needs models trained on grid-picked runs, as `build_gtdb_database.py
   --sparse-first-pick grid` trains them (the collections seed as the sparse index, follow-up 4), and the r226 test
   rows (`--test-grid`) are scored by models trained otherwise, which will understate the grid's F1.
+- **Why** (2026-10-14, [2026-10-14-sparse-index-calls](2026-10-14-sparse-index-calls/README.md)): the reads' unique
+  k-mer counts (`ZU`, `ZT`) are at a quarter on the sparse index; with the ungated run's counts, or its own × 4, the
+  sparse run calls as the ungated one. The extra failed candidates change no call of this model.
