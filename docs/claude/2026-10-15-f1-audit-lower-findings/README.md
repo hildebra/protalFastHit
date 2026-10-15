@@ -181,7 +181,8 @@ warned).
 so `-march=native` turned on its AVX2 extend kernels (`wavefront_extend_kernels.c:106, 130, 160`), which choose
 otherwise among ends-free alignments of the same score ([wfa-avx2](../2026-10-02-wfa-avx2/README.md)). WFA2 now takes
 `isa_baseline` (`-march=x86-64` after the flags); its cloned loops still take x86-64-v3 at run time. Default builds
-are unchanged.
+are unchanged. Checked: configured with `-march=native` in both flag sets, the kernels' compile line ends
+`-march=native -march=x86-64 -mtune=generic`, and `__AVX2__` is not defined there.
 
 **L13: `--depth_identity_margin`'s help.** True: it said the reads below the margin still count "for detection", but
 the margin sets two of the model's features (`depth`, `low_identity_share`). The help and running.md now say the
