@@ -218,6 +218,7 @@ namespace protal {
         size_t threads = DEFAULT_THREADS;
         size_t align_top = DEFAULT_ALIGN_TOP;
         size_t adaptive_candidates = DEFAULT_ADAPTIVE_CANDIDATES;
+        bool gene_end_clips = false;  // --gene_end_clips credit
         bool no_allele_scores = false;
         double max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool max_score_ani_given = false;  // -a given: it applies to all read types
@@ -407,6 +408,7 @@ namespace protal {
 
         size_t m_align_top = DEFAULT_ALIGN_TOP;
         size_t m_adaptive_candidates = DEFAULT_ADAPTIVE_CANDIDATES;
+        bool m_gene_end_clips = false;  // --gene_end_clips credit (given, else the database's, else off)
         bool m_no_allele_scores = false;  // --no_allele_scores
         double m_max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool m_max_score_ani_given = false;
@@ -623,6 +625,7 @@ namespace protal {
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_adaptive_candidates(d.adaptive_candidates),
+                m_gene_end_clips(d.gene_end_clips),
                 m_no_allele_scores(d.no_allele_scores),
                 m_max_score_ani(d.max_score_ani),
                 m_max_score_ani_given(d.max_score_ani_given),
@@ -959,6 +962,13 @@ namespace protal {
         // candidate's differences at variable columns (StrainAlleles.h).
         bool WeightedSiteShift() const {
             return m_weighted_site_shift;
+        }
+
+        // --gene_end_clips credit (off by default): short reads' clips past their genes' ends beyond their least clipped
+        // candidate's earn the identity floor's score per base in the ranking and MAPQ (SimpleAlignmentHandler::
+        // SetGeneEndClips).
+        bool GeneEndClips() const {
+            return m_gene_end_clips;
         }
 
         // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).

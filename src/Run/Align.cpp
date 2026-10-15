@@ -51,6 +51,7 @@ namespace protal {
         if (type == ReadType::Paired) add(s::kMateGuidance, *run.mate_guidance);
         add(s::kAlignTop, std::to_string(options.GetAlignTop()));
         if (short_reads) add(s::kAdaptiveCandidates, std::to_string(options.GetAdaptiveCandidates()));
+        if (short_reads) add(s::kGeneEndClips, build_settings::GeneEndClipsName(options.GeneEndClips()));
         add(s::kMaxScoreAni, build_settings::Decimal(options.GetMaxScoreAni(type)));
         return fields;
     }
@@ -405,6 +406,9 @@ namespace protal {
                 if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
                 if (!IsLongReadType(read_type)) alignment_handler.SetAlleleScores(!options.NoAlleleScores());
                 if (!IsLongReadType(read_type)) alignment_handler.SetWeightedShift(options.WeightedSiteShift());
+                // --gene_end_clips credit: short reads' clips past their genes' ends earn the identity floor's score per
+                // base beyond their least clipped candidate's (long reads' segments are clipped to their windows).
+                if (!IsLongReadType(read_type)) alignment_handler.SetGeneEndClips(options.GeneEndClips());
                 // --flex_indels: the sample's lookups (the gate's too) score their flex cells with an indel per flank allowed.
                 anchor_finder.SetFlexIndels(options.FlexIndels(index));
 

@@ -182,10 +182,12 @@ namespace protal {
 
     // The edits of an alignment: mismatches, inserted and deleted bases and soft-clipped read bases, from the counts
     // that GetInstructionCountsAndCompress took of its CIGAR (the only way AlignmentInfo::compressed_cigar is made): no
-    // pass over the CIGAR.
+    // pass over the CIGAR. With --gene_end_clips credit (end_clips_credited), the bases clipped past the gene's ends
+    // are no edits: the read runs on where the reference stops, and counted as edits they made a taxon's own reads at
+    // its genes' ends fit a congener whose gene covers them better (congener_fit_share).
     static int AlignmentEdits(AlignmentInfo const& info) {
-        return static_cast<int>(info.mismatches) + static_cast<int>(info.insertions) + static_cast<int>(info.deletions) +
-               static_cast<int>(info.softclips);
+        int const clips = static_cast<int>(info.softclips) - (info.end_clips_credited ? static_cast<int>(info.boundary_clips) : 0);
+        return static_cast<int>(info.mismatches) + static_cast<int>(info.insertions) + static_cast<int>(info.deletions) + clips;
     }
 
     inline constexpr int kAlternativeMaxEdits = 5;  // alternatives with more edits than the best are not listed
@@ -439,9 +441,9 @@ namespace protal {
             Flush();
         }
 
-        // The score candidates are ranked and MAPQ is computed with, as for pairs (Bitscore).
+        // The score candidates are ranked and MAPQ is computed with, as for pairs (Bitscore): AlignmentInfo::RankScore.
         static int Bitscore(AlignmentResult const& ar) {
-            return ar.GetAlignmentInfo().Score(2, 3, 1, 2);
+            return ar.GetAlignmentInfo().RankScore();
         }
 
         // A read's candidates best first, each alignment once: anchors that lead to the same
@@ -626,7 +628,7 @@ namespace protal {
                 auto key = std::make_tuple(ar.Taxid(), ar.GeneId(), ar.GetAlignmentInfo().gene_alignment_start, ar.Forward());
                 if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
                 seen.push_back(key);
-                scored.emplace_back(ar.GetAlignmentInfo().Score(2, 3, 1, 2), i);
+                scored.emplace_back(ar.GetAlignmentInfo().RankScore(), i);
             }
             if (scored.empty()) return {};
             std::stable_sort(scored.begin(), scored.end(), [](auto const& a, auto const& b) { return a.first > b.first; });
@@ -642,7 +644,7 @@ namespace protal {
             for (size_t i = 0; i < results.size(); i++) {
                 auto const& ar = mate1 ? results[i].first : results[i].second;
                 if (!ar.IsSet() || ar.Taxid() != taxid) continue;
-                int const score = ar.GetAlignmentInfo().Score(2, 3, 1, 2);
+                int const score = ar.GetAlignmentInfo().RankScore();
                 if (index == SIZE_MAX || score > best) {
                     index = i;
                     best = score;
@@ -660,8 +662,8 @@ namespace protal {
         static void SettleMatesByPair(PairedAlignmentResultList const& results, MateBest& best1, MateBest& best2) {
             std::vector<std::vector<PartCandidate>> parts(2);
             for (auto const& [a1, a2] : results) {
-                if (a1.IsSet()) parts[0].push_back({ a1.Taxid(), a1.GetAlignmentInfo().Score(2, 3, 1, 2) });
-                if (a2.IsSet()) parts[1].push_back({ a2.Taxid(), a2.GetAlignmentInfo().Score(2, 3, 1, 2) });
+                if (a1.IsSet()) parts[0].push_back({ a1.Taxid(), a1.GetAlignmentInfo().RankScore() });
+                if (a2.IsSet()) parts[1].push_back({ a2.Taxid(), a2.GetAlignmentInfo().RankScore() });
             }
             auto const consensus = ConsensusOfRead(parts);
             if (!consensus) return;

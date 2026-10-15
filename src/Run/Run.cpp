@@ -241,14 +241,17 @@ namespace protal {
     // Whether run setting `name` changes anything for this run's samples: the profiling's unless --no_profile; the
     // alignment's unless the run profiles SAMs it does not align (`sams_given`: --profile_only or reused SAMs, whose own
     // are checked, CheckSamSettings), each for the read types it acts on
-    // (the allele scores, the site shift and the adaptive candidates short reads, mate guidance paired-end reads, a read
-    // type's identity floor its reads).
+    // (the allele scores, the site shift, the adaptive candidates and the gene end clips short reads, mate guidance
+    // paired-end reads, a read type's identity floor its reads).
     static bool SettingApplies(Options const& options, std::string const& name, bool sams_given) {
         namespace b = build_settings;
         if (ProfilingSetting(name)) return !options.NoProfile();
         if (sams_given) return false;
         bool const short_reads = options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single);
-        if (name == b::kAlleleScores || name == b::kWeightedSiteShift || name == b::kAdaptiveCandidates) return short_reads;
+        if (name == b::kAlleleScores || name == b::kWeightedSiteShift || name == b::kAdaptiveCandidates ||
+            name == b::kGeneEndClips) {
+            return short_reads;
+        }
         if (name == b::kMateGuidance) return options.AnySample(ReadType::Paired);
         if (name.starts_with(b::kMaxScoreAni)) {
             auto const type = ReadTypeFromToken(name.substr(b::kMaxScoreAni.size()));
@@ -282,6 +285,12 @@ namespace protal {
                       << "default (" << MateGuidanceName(kDefaultMateGuidance) << "), which the database's models may not have been trained with. "
                       << "Profile them with the protal that built the database." << std::endl;
         }
+        if (recorded.gene_end_clips && !b::KnownGeneEndClips(*recorded.gene_end_clips)) {
+            std::cerr << "Warning: the database records gene_end_clips '" << *recorded.gene_end_clips << "' (" << b::kFileName
+                      << "), a value this protal does not know (a later protal's?): short reads are ranked with "
+                      << "--gene_end_clips off, which the database's models may not have been trained with. Profile them "
+                      << "with the protal that built the database." << std::endl;
+        }
         if (recorded.unique_kmers && *recorded.unique_kmers != b::kUniqueCores && *recorded.unique_kmers != b::kUniqueAnchors) {
             std::cerr << "Warning: the database records unique_kmers '" << *recorded.unique_kmers << "' (" << b::kFileName
                       << "), which this protal does not know: it counts ZS, ZU and ZT "
@@ -294,6 +303,9 @@ namespace protal {
         used.unique_kmers = std::string(options.UniqueCoresDbFile().Exists() && !options.NoUniqueCores() ? b::kUniqueCores : b::kUniqueAnchors);
         auto database = recorded;
         database.unique_kmers = DatabaseUniqueKmers(options, settings);
+        // A database that records no gene_end_clips was trained with off (every protal before ranked so): no note, and a
+        // run given credit is warned.
+        database.gene_end_clips = b::DatabaseGeneEndClips(recorded);
         auto const used_fields = b::RunFields(used);
         auto const database_fields = b::RunFields(database);
         auto const given = b::RunFields(options.RunSettingsGiven());
@@ -332,8 +344,10 @@ namespace protal {
                       << "...) differ from those of training, and so do their calls. Leave out --no_unique_cores." << std::endl;
         }
         bool const mode_unknown = recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance);  // warned above
+        bool const clips_unknown = recorded.gene_end_clips && !b::KnownGeneEndClips(*recorded.gene_end_clips);  // warned above
         auto const differences = b::Differences(database_fields, used_fields, [&](std::string const& name) {
-            return name != b::kUniqueKmers && !(name == b::kMateGuidance && mode_unknown) && SettingApplies(options, name, sams_given);
+            return name != b::kUniqueKmers && !(name == b::kMateGuidance && mode_unknown) &&
+                   !(name == b::kGeneEndClips && clips_unknown) && SettingApplies(options, name, sams_given);
         });
         if (!differences.empty()) {
             std::string list;
@@ -348,8 +362,8 @@ namespace protal {
     // SPARSE_FIRST would (Options::SetSampleGate), unless --sparse_first (of its read type) or the map's SPARSE_FIRST gives
     // the sample's own; and `sam_gates` gets them for ApplySparseFirst's warning. One warning for the SAMs aligned
     // otherwise than the database's models were trained (the traceback, the gates' score and hits, the unique k-mers'
-    // scheme, the allele scores, the site shift, mate guidance, --align_top, --adaptive_candidates, the identity floor),
-    // with the first one's differences. A SAM without the line (an older protal's) is profiled as before.
+    // scheme, the allele scores, the site shift, mate guidance, --align_top, --adaptive_candidates, --gene_end_clips, the
+    // identity floor), with the first one's differences. A SAM without the line (an older protal's) is profiled as before.
     static SamGates CheckSamSettings(Options& options, build_settings::Settings const& settings, std::ostream& out) {
         namespace b = build_settings;
         namespace s = sam_settings;
@@ -369,6 +383,8 @@ namespace protal {
             copy(s::kMateGuidance, std::string(b::kMateGuidance));
             copy(s::kAlignTop, std::string(b::kAlignTop));
             copy(s::kAdaptiveCandidates, std::string(b::kAdaptiveCandidates));
+            // (only short reads' SAMs say it; a database that records none was trained with off)
+            fields.emplace_back(s::kGeneEndClips, b::DatabaseGeneEndClips(settings.run));
             copy(s::kMaxScoreAni, std::string(b::kMaxScoreAni) + Info(type).token);
             return fields;
         };

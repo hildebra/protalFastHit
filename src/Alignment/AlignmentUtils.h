@@ -36,6 +36,16 @@ namespace protal {
         // (site_shift, which Score counts) only on a read it is unsure about (SimpleAlignmentHandler::SettleBySites).
         int site_shift = 0;
         int site_shift_pending = 0;
+        // The read's bases soft-clipped past its gene's start or end (PostProcessAlignment): the leading clips of an
+        // alignment that starts at the gene's first base, the trailing ones of one that ends at its last. A read that
+        // overhangs its gene is aligned with its overhang free; clips inside a gene are none of these.
+        uint16_t boundary_clips = 0;
+        // --gene_end_clips credit (SimpleAlignmentHandler::CreditGeneEndClips): what the candidate's boundary clips in
+        // excess of those of its read's least clipped candidate earn, at the identity floor's score per base, which
+        // RankScore adds; and whether it was given (then AlignmentEdits does not count the boundary clips as edits).
+        // 0 and false otherwise, so that the ranking is Score(2, 3, 1, 2) as before.
+        int clip_credit = 0;
+        bool end_clips_credited = false;
         uint32_t alignment_length = 0;
         float alignment_ani = 0.0f;
 
@@ -68,6 +78,9 @@ namespace protal {
             alignment_score = 0;
             site_shift = 0;
             site_shift_pending = 0;
+            boundary_clips = 0;
+            clip_credit = 0;
+            end_clips_credited = false;
 
             cigar_start = 0;
             cigar_end = 0;
@@ -167,6 +180,13 @@ namespace protal {
         int Score(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) const {
             return (matches * match_score) - (mismatch_penalty * mismatches + gap_open_penalty * (insertion_blocks + deletion_blocks) + gap_extend_penalty * (insertions + deletions)) -
                    (match_score + mismatch_penalty) * site_shift / 2;
+        }
+
+        // The score short reads' candidates are ranked by and their MAPQ computed from: the bitscore (2 a match, -3 a
+        // mismatch, gaps 1 + 2 a base) and the clip credit (--gene_end_clips credit; 0 otherwise). Long reads rank by
+        // the bitscore alone (LongReadBitscore).
+        int RankScore() const {
+            return Score(2, 3, 1, 2) + clip_credit;
         }
 
         void UpdateScore(int match_score = 0, int mismatch_penalty = 4, int gap_open_penalty = 6, int gap_extend_penalty = 2) {
@@ -731,6 +751,11 @@ namespace protal {
 //        std::cout << "GENE ALIGNMENT START " << info.gene_alignment_start << " from: " << reference_start_pos << " " << del_left << std::endl;
         info.GetInstructionCountsAndCompress();
         info.alignment_ani = (static_cast<double>(info.matches) / (info.matches + info.mismatches + info.insertions + info.deletions));
+        // The clips past the gene's ends: the leading ones of an alignment from the gene's first base, the trailing ones of
+        // one to its last (total_reference_length, the gene's length; reference_start_pos is the window's start on it).
+        size_t const gene_end = static_cast<size_t>(std::max(info.gene_alignment_start, 0)) + info.matches + info.mismatches + info.deletions;
+        size_t const boundary = (info.gene_alignment_start == 0 ? ins_left : 0) + (gene_end == total_reference_length ? ins_right : 0);
+        info.boundary_clips = static_cast<uint16_t>(std::min<size_t>(boundary, info.softclips));
     }
 
     static AlignmentInfo GetAlignmentInfo(std::string const& cigar){
@@ -887,9 +912,10 @@ namespace protal {
         return true;
     }
 
+    // A pair's score: its mates' (AlignmentInfo::RankScore: the bitscore, and the clip credit of --gene_end_clips credit).
     static int Bitscore(PairedAlignment const& a) {
-        auto score1 = a.first.IsSet() ? a.first.GetAlignmentInfo().Score(2, 3, 1, 2) : 0;
-        auto score2 = a.second.IsSet() ? a.second.GetAlignmentInfo().Score(2, 3, 1, 2) : 0;
+        auto score1 = a.first.IsSet() ? a.first.GetAlignmentInfo().RankScore() : 0;
+        auto score2 = a.second.IsSet() ? a.second.GetAlignmentInfo().RankScore() : 0;
         return score1 + score2;
     }
 

@@ -234,6 +234,27 @@ namespace protal {
         return std::move(found.front());
     }
 
+    // --gene_end_clips credit: a mate RescueMate found was aligned alone, so its clips past its gene's ends earned
+    // nothing; it takes its credit against the least clipped of that mate's candidates in `pairs` (`mate1`: mate 1's),
+    // as if it had been among them (SimpleAlignmentHandler::CreditGeneEndClips). Nothing with the option off.
+    template<typename AlignmentHandler>
+    void CreditFoundMate(AlignmentResult& found, PairedAlignmentResultList const& pairs, bool mate1, AlignmentHandler const& handler) {
+        if constexpr (requires { handler.GeneEndClips(); handler.ClipCredit(0, 0); }) {
+            if (!handler.GeneEndClips()) return;
+            auto& info = found.GetAlignmentInfo();
+            int common = info.boundary_clips;
+            int own = info.boundary_clips;  // its taxon's least clips among the mate's candidates (CreditGeneEndClips)
+            for (auto const& [a1, a2] : pairs) {
+                auto const& ar = mate1 ? a1 : a2;
+                if (!ar.IsSet()) continue;
+                common = std::min<int>(common, ar.GetAlignmentInfo().boundary_clips);
+                if (ar.Taxid() == found.Taxid()) own = std::min<int>(own, ar.GetAlignmentInfo().boundary_clips);
+            }
+            info.clip_credit = handler.ClipCredit(own, common);
+            info.end_clips_credited = true;
+        }
+    }
+
     // Whether a mate 1 and a mate 2 alignment are one fragment, as classify::JoinAlignmentPairs pairs them: on one
     // gene of a taxon in opposite orientations, or on two genes of it across their facing ends.
     inline bool MatesAreOneFragment(AlignmentResult const& first, AlignmentResult const& second, GenomeLoader& genomes) {
@@ -260,7 +281,7 @@ namespace protal {
 
         // The guiding mate's MAPQ against its other alignments; whether the other mate has one of its taxon.
         auto const& guide_info = guide.GetAlignmentInfo();
-        int const own = guide_info.Score(2, 3, 1, 2);
+        int const own = guide_info.RankScore();
         int second = 0;
         bool other_has_taxon = false;
         for (auto const& [a1, a2] : pairs) {
@@ -268,7 +289,7 @@ namespace protal {
             auto const& o = guide_is_first ? a2 : a1;
             if (g.IsSet() && !(g.Taxid() == guide.Taxid() && g.GeneId() == guide.GeneId() && g.Forward() == guide.Forward() &&
                                g.GetAlignmentInfo().gene_alignment_start == guide_info.gene_alignment_start)) {
-                second = std::max(second, g.GetAlignmentInfo().Score(2, 3, 1, 2));
+                second = std::max(second, g.GetAlignmentInfo().RankScore());
             }
             if (o.IsSet() && o.Taxid() == guide.Taxid()) other_has_taxon = true;
         }
@@ -278,6 +299,7 @@ namespace protal {
         auto alignment = guide_is_first ? RescueMate(guide, anchors2, record2, reverse2, handler, genomes, counts)
                                         : RescueMate(guide, anchors1, record1, reverse1, handler, genomes, counts);
         if (!alignment) return false;
+        CreditFoundMate(*alignment, pairs, !guide_is_first, handler);
         bool const orientation = guide_is_first ? CorrectOrientation(guide, *alignment) : CorrectOrientation(*alignment, guide);
         bool const across = guide_is_first ? across_genes::PairAcrossNeighbours(guide, *alignment, genomes, kRescueMaxFragment)
                                            : across_genes::PairAcrossNeighbours(*alignment, guide, genomes, kRescueMaxFragment);
@@ -294,8 +316,9 @@ namespace protal {
     // --mate_guidance consensus. After the candidates of a fragment are joined and sorted (best first), if the best has
     // one mate only (the mates did not align together as their best: one did not align, they prefer two taxa, or they
     // lie on two genes that are no neighbours), the two mates vote:
-    //  - Every taxon of the candidates is scored by the sum of the two mates' best scores on it (Score(2, 3, 1, 2), as a
-    //    pair's Bitscore). A mate without an alignment of the taxon is looked for there (RescueMate, from the other
+    //  - Every taxon of the candidates is scored by the sum of the two mates' best scores on it (RankScore, as a pair's
+    //    Bitscore: Score(2, 3, 1, 2), with --gene_end_clips credit its clip credit; a mate found takes its credit,
+    //    CreditFoundMate). A mate without an alignment of the taxon is looked for there (RescueMate, from the other
     //    mate's best alignment of it): on the taxa of the highest known scores first, at most kVoteMaxRescues of them,
     //    and only where finding it could change the best or the next sum (its read aligned perfectly).
     //  - A mate not found on a taxon, but aligned to another, scores what an alignment of its read at the identity
@@ -345,7 +368,7 @@ namespace protal {
         static thread_local std::vector<size_t> order;
         taxa.clear();
         auto mate = [&pairs](size_t i, size_t m) -> AlignmentResult& { return m == 0 ? pairs[i].first : pairs[i].second; };
-        auto vote_score = [](AlignmentResult const& ar) { return ar.GetAlignmentInfo().Score(2, 3, 1, 2); };
+        auto vote_score = [](AlignmentResult const& ar) { return ar.GetAlignmentInfo().RankScore(); };
 
         // The taxa in the order of their best candidates, and each mate's best alignment of all.
         std::array<int, 2> own_score{ kNone, kNone };
@@ -416,6 +439,7 @@ namespace protal {
                                         handler, genomes, counts);
             if (!alignment || alignment->Taxid() != taxa[t].taxid) continue;
             counts.vote_found++;
+            CreditFoundMate(*alignment, pairs, m == 0, handler);
             taxa[t].score[m] = vote_score(*alignment);
             found_on[t] = std::move(alignment);
         }

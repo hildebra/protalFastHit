@@ -1,0 +1,69 @@
+diff --git a/src/Core/AlignmentStrategy.h b/src/Core/AlignmentStrategy.h
+index fdbd98f..267b3c0 100644
+--- a/src/Core/AlignmentStrategy.h
++++ b/src/Core/AlignmentStrategy.h
+@@ -6,6 +6,7 @@
+ 
+ #include <climits>
+ #include <cmath>
++#include <cstdlib>
+ #include "WFA2Wrapper2.h"
+ #include "AlignmentOutputHandler.h"
+ #include "GenomeLoader.h"
+@@ -364,9 +365,27 @@ namespace protal {
+             if (!m_gene_end_clips || results.empty()) return;
+             int common = INT_MAX;
+             for (auto const& r : results) common = std::min<int>(common, r.GetAlignmentInfo().boundary_clips);
++            // Experiment (PROTAL_L2_TAXON_COMMON): every candidate of a taxon credited as the taxon's least clipped one.
++            static bool const per_taxon = std::getenv("PROTAL_L2_TAXON_COMMON") != nullptr;
++            static thread_local std::vector<std::pair<uint32_t, int>> taxon_min;
++            if (per_taxon) {
++                taxon_min.clear();
++                for (auto const& r : results) {
++                    auto const t = static_cast<uint32_t>(r.Taxid());
++                    int const c = r.GetAlignmentInfo().boundary_clips;
++                    auto it = std::find_if(taxon_min.begin(), taxon_min.end(), [t](auto const& p) { return p.first == t; });
++                    if (it == taxon_min.end()) taxon_min.emplace_back(t, c);
++                    else it->second = std::min(it->second, c);
++                }
++            }
+             for (auto& r : results) {
+                 auto& info = r.GetAlignmentInfo();
+-                info.clip_credit = ClipCredit(info.boundary_clips, common);
++                int clips = info.boundary_clips;
++                if (per_taxon) {
++                    auto const t = static_cast<uint32_t>(r.Taxid());
++                    clips = std::find_if(taxon_min.begin(), taxon_min.end(), [t](auto const& p) { return p.first == t; })->second;
++                }
++                info.clip_credit = ClipCredit(clips, common);
+                 info.end_clips_credited = true;
+             }
+         }
+diff --git a/src/Core/MateGuidance.h b/src/Core/MateGuidance.h
+index 75d02d7..e1d35a1 100644
+--- a/src/Core/MateGuidance.h
++++ b/src/Core/MateGuidance.h
+@@ -15,6 +15,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <climits>
++#include <cstdlib>
+ #include <cstdint>
+ #include <optional>
+ #include <string>
+@@ -243,11 +244,14 @@ namespace protal {
+             if (!handler.GeneEndClips()) return;
+             auto& info = found.GetAlignmentInfo();
+             int common = info.boundary_clips;
++            int own = info.boundary_clips;  // experiment PROTAL_L2_TAXON_COMMON: its taxon's least clipped
+             for (auto const& [a1, a2] : pairs) {
+                 auto const& ar = mate1 ? a1 : a2;
+                 if (ar.IsSet()) common = std::min<int>(common, ar.GetAlignmentInfo().boundary_clips);
++                if (ar.IsSet() && ar.Taxid() == found.Taxid()) own = std::min<int>(own, ar.GetAlignmentInfo().boundary_clips);
+             }
+-            info.clip_credit = handler.ClipCredit(info.boundary_clips, common);
++            static bool const per_taxon = std::getenv("PROTAL_L2_TAXON_COMMON") != nullptr;
++            info.clip_credit = handler.ClipCredit(per_taxon ? own : info.boundary_clips, common);
+             info.end_clips_credited = true;
+         }
+     }

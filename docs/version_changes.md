@@ -28,6 +28,25 @@ for this page.
 | 0.8.4 | `e990c69` | 2026-10-14 | 35 | the stride pick by default with gates pe:4, se:4, pb:16, ont:8 and models at other gates (r226 v27); the identity against each read's best strain allele; features that do not change with the read length or a sparse index (`length_free`, `read_length`, `ZS`; at the knob a sparse index at C 4 calls as ungated, 75 bp reads still call more false positives); GTDB builds on 75-250 bp paired-end, single-end Illumina and Ultima reads, random forests by default, both kinds of models in the database; opt-in a grid sparse index and a compact key map; zstd and many-member gzip input on several threads |
 | 0.8.5 | `7b40a36` | 2026-10-15 | 33 | what a run takes from its database and models (run settings recorded and followed, a settings line in every SAM, feature versions and training ranges in the models); the mates of a pair voting on its taxon; spike mode for libraries with carried-over PCR products; ONT reads from SRA/ENA; the key map hashed (one line a lookup); GTDB builds that check the finished database and report the marker truth with samples and species held out, with gradient-boosted trees as the default models again |
 
+## Since 0.8.5
+
+Not in a release yet.
+
+- **Credit for the bases clipped past a gene's end (`--gene_end_clips credit`, off by default)** (F1 audit L2,
+  2026-10-15). A short read that runs past its gene's start or end is aligned with the overhang soft-clipped, and the
+  bitscore that ranks the candidates and gives the MAPQ (2 a match, -3 a mismatch) gave those bases 0: a congener whose
+  gene covers the whole read outranked the read's own taxon whenever its extra mismatches were fewer than 2/5 of the
+  clipped bases. With `credit`, each candidate's bases clipped past its gene's ends beyond those of the read's (or
+  mate's) least clipped candidate score the identity floor's rate (`5 * a - 3`, 1.5 a base at `-a 0.9`), and they are
+  no edits in `ZA` (`congener_fit_share`); equal clips earn nothing (crediting every clipped base, tried with the
+  mates' vote, diluted the MAPQs). Long reads are unchanged. `--build` records the value (`gene_end_clips` in
+  `build_settings.tsv`: the one given, else `off`), runs follow it, and a database that records none was trained with
+  `off`; off, the outputs are 0.8.5's. On the reduced r226 database's simulated test set it removes 6% of the
+  fragments counted for a wrong species, but costs 0.46% of the right ones, mostly reads across two neighbouring genes
+  of their own genome whose MAPQ falls under 4; crediting every candidate of a taxon as its least clipped one keeps the
+  gain and turns that loss into a small gain (not committed). Calls change at the knob only, the mocks' not at all
+  ([report](claude/2026-10-15-f1-audit-lower-findings/L2-gene-end-clips.md)).
+
 ## What 0.8.5 adds
 
 0.8.5 collects the 32 commits after 0.8.4, most of them the follow-up of the

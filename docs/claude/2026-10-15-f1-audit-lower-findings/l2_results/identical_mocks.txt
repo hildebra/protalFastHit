@@ -1,0 +1,9 @@
+d6331_auckland_SRR33710519	records 88988 same	header same	profile same	truth_annotated same
+d6331_dna_SRR38158090	records 116017 same	header same	profile same	truth_annotated same
+d6331_hku_SRR23926922	records 91911 same	header same	profile same	truth_annotated same
+hcom1a_SRR24799833	records 53307 same	header same	profile same	truth_annotated same
+hcom2_SRR21819229	records 72189 same	header same	profile same	truth_annotated same
+treichel_ERR14788576	records 27191 same	header same	profile same	truth_annotated same
+settings lines (base, off):
+@CO	protal settings: read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack allele_scores=on weighted_site_shift=off mate_guidance=consensus align_top=3 adaptive_candidates=7 max_score_ani=0.9
+@CO	protal settings: read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack allele_scores=on weighted_site_shift=off mate_guidance=consensus align_top=3 adaptive_candidates=7 gene_end_clips=off max_score_ani=0.9

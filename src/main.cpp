@@ -173,6 +173,9 @@
 //   (se 75/100 bp, a miscalibrated NovaSeq setup, deeper samples, codon indels), and judge models by the marker truth
 //   with samples and species held out, gradient-boosted trees their default models again (the forests beside them); protal
 //   compiles in translation units of its own (src/Run/).
+// Since 0.8.5: short reads' bases clipped past their gene's ends, beyond their least clipped candidate's, can score the
+//   identity floor's rate in the ranking and MAPQ (--gene_end_clips credit, off by default, recorded with the database;
+//   docs/claude/2026-10-15-f1-audit-lower-findings/L2-gene-end-clips.md).
 #include <iostream>
 #include "RunProtal.h"
 

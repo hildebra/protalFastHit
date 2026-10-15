@@ -1,0 +1,10 @@
+sample	TP/FP/FN kept	TP/FP/FN rule	changes
+d6331_auckland_SRR33710519	12/0/1	12/0/1	21 taxa moved; calls changed: none
+d6331_dna_SRR38158090	12/0/0	12/0/0	4 taxa moved; calls changed: none
+d6331_hku_SRR23926922	12/0/1	12/0/1	12 taxa moved; calls changed: none
+hcom1a_SRR24799833	2/52/0	2/52/0	7 taxa moved; calls changed: none
+hcom2_SRR21819229	53/0/9	53/0/8	17 taxa moved; calls changed: none
+treichel_ERR14788576	62/0/1	62/0/1	14 taxa moved; calls changed: none
+# mock: kept TP/FP/FN 153/52/12 F1 0.8270; rule 153/52/11 F1 0.8293
+# sim: kept TP/FP/FN 0/0/0 F1 0.0000; rule 0/0/0 F1 0.0000
+# samples with any probability moved: 6

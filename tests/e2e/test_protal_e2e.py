@@ -4457,7 +4457,8 @@ class WfaTracebackTest(WorkDir):
 class RunSettingsTest(WorkDir):
     """The run settings a database's models depend on (2026-10-15): --build records them in build_settings.tsv (the site
     shift, the allele scores, --align_top, --adaptive_candidates, mate guidance, each read type's identity floor, the
-    unique k-mers' scheme, foreign genes, suspect copies, the depth margin); a run leaves them at auto to follow the
+    unique k-mers' scheme, foreign genes, suspect copies, the depth margin; after 0.8.5 --gene_end_clips, off unless
+    given); a run leaves them at auto to follow the
     database and is warned when told otherwise, --no_unique_cores apart; a database built before records none (a note).
     Every SAM says how it was aligned (@CO protal settings), and --profile_only takes its gate for the model and warns
     for a SAM aligned otherwise than the database's models were trained. On the operon release's inputs (OperonRelease),
@@ -4472,7 +4473,7 @@ class RunSettingsTest(WorkDir):
         shutil.copytree(release.inputs, cls.db)
         rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
                                 "--reference", os.path.join(cls.db, "reference.fna"), "--weighted_site_shift", "-c", "4",
-                                "-a", "0.92", "--keep_suspect_copies")
+                                "-a", "0.92", "--keep_suspect_copies", "--gene_end_clips", "credit")
         if rc != 0:
             raise RuntimeError("protal --build with run settings failed:\n" + cls.build_log[-3000:])
 
@@ -4493,17 +4494,18 @@ class RunSettingsTest(WorkDir):
     def test_the_build_records_its_run_settings(self):
         expected = {"weighted_site_shift": "on", "allele_scores": "on", "align_top": "4", "adaptive_candidates": "7",
                     "mate_guidance": "consensus", "max_score_ani_pe": "0.92", "max_score_ani_ont": "0.92", "unique_kmers": "cores",
-                    "keep_foreign_genes": "off", "keep_suspect_copies": "on", "depth_identity_margin": "0.08"}
+                    "keep_foreign_genes": "off", "keep_suspect_copies": "on", "depth_identity_margin": "0.08",
+                    "gene_end_clips": "credit"}
         recorded = dict(line.split("\t") for line in self.settings(self.db, "unpacked").splitlines() if not line.startswith("#"))
         for key, value in expected.items():
             self.assertEqual(recorded.get(key), value, key)
         self.assertIn("Run settings recorded for the database's runs: weighted_site_shift on, allele_scores on, align_top 4",
                       self.build_log)
-        # The defaults: ONT's own floor, the site shift off.
+        # The defaults: ONT's own floor, the site shift off, the gene end clips off.
         recorded = dict(line.split("\t") for line in self.settings(self.plain_db, "unpacked_plain").splitlines()
                         if not line.startswith("#"))
         for key, value in (("weighted_site_shift", "off"), ("align_top", "3"), ("max_score_ani_pe", "0.9"),
-                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off")):
+                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off"), ("gene_end_clips", "off")):
             self.assertEqual(recorded.get(key), value, key)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
@@ -4515,8 +4517,15 @@ class RunSettingsTest(WorkDir):
         self.assertNotIn("Note: the database records no", log)
         for key, value in (("read_type", "pe"), ("gate", "0"), ("unique_kmers", "cores"), ("traceback", "singletrack"),
                            ("allele_scores", "on"), ("weighted_site_shift", "on"), ("mate_guidance", "consensus"),
-                           ("align_top", "4"), ("adaptive_candidates", "7"), ("max_score_ani", "0.92")):
+                           ("align_top", "4"), ("adaptive_candidates", "7"), ("gene_end_clips", "credit"),
+                           ("max_score_ani", "0.92")):
             self.assertEqual(sam.get(key), value, key)
+        self.assertRegex(log, r"gene_end_clips\s+credit \(auto\)\s+credit\n")
+        # --gene_end_clips off on a database whose models were trained with credit: warned, and the SAM says off.
+        log, sam = self.align("clips_off", "--gene_end_clips", "off")
+        self.assertIn("Warning: this run is told otherwise than the database's models were trained (build_settings.tsv): "
+                      "gene_end_clips off (the database's: credit).", log)
+        self.assertEqual(sam["gene_end_clips"], "off")
         log, sam = self.align("told", "-c", "3", "--no_weighted_site_shift", "-a", "0.92")
         self.assertIn("Warning: this run is told otherwise than the database's models were trained (build_settings.tsv): "
                       "weighted_site_shift off (the database's: on), align_top 3 (the database's: 4).", log)
@@ -4555,6 +4564,12 @@ class RunSettingsTest(WorkDir):
                       "mate_guidance, max_score_ani_pe (built before 2026-10-15)", log)
         self.assertNotIn("is told otherwise", log)
         self.assertEqual((sam["align_top"], sam["weighted_site_shift"], sam["max_score_ani"]), ("3", "off", "0.9"))
+        # No gene_end_clips: off, as every database before the setting was trained (no note, the table says off).
+        self.assertEqual(sam["gene_end_clips"], "off")
+        self.assertRegex(log, r"gene_end_clips\s+off \(auto\)\s+off\n")
+        log, sam = self.align("old_credit", "--gene_end_clips", "credit", db=old)
+        self.assertIn("gene_end_clips credit (the database's: off)", log)
+        self.assertEqual(sam["gene_end_clips"], "credit")
         # Mate guidance as its models were trained: guide, every protal's mode before consensus.
         self.assertIn("; mate guidance: guide, the mode of every protal before (its models were trained with it)", log)
         self.assertEqual(sam["mate_guidance"], "guide")

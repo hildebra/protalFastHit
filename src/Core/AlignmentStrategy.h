@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <climits>
+#include <cmath>
 #include "WFA2Wrapper2.h"
 #include "AlignmentOutputHandler.h"
 #include "GenomeLoader.h"
@@ -133,6 +135,7 @@ namespace protal {
         // Strain alleles (SetAlleleScores): each candidate's site shift against its species' alleles (AlignmentInfo::site_shift).
         bool m_allele_scores = false;
         bool m_weighted_shift = false;  // SetWeightedShift
+        bool m_gene_end_clips = false;  // SetGeneEndClips
         strain_alleles::ReadDiffs m_read_diffs;  // AlignAnchor's, per candidate
         strain_alleles::Polymorphism m_polymorphism;  // ScoreAlleles' scratch
         std::vector<uint8_t> m_explained;             // ScoreAlleles' scratch
@@ -295,6 +298,7 @@ namespace protal {
                 m_genera(other.m_genera),
                 m_allele_scores(other.m_allele_scores),
                 m_weighted_shift(other.m_weighted_shift),
+                m_gene_end_clips(other.m_gene_end_clips),
                 m_unique_cores(other.m_unique_cores) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
@@ -333,6 +337,55 @@ namespace protal {
         // the option, off by default (on 2026-10-11 to 2026-10-12); a handler not told stays without it.
         void SetWeightedShift(bool on) {
             m_weighted_shift = on;
+        }
+
+        // --gene_end_clips credit (off by default; short reads): a read that overhangs its gene is aligned with the
+        // overhang free and soft-clipped, which the bitscore counts as 0 a base against 2 a match, so that a congener whose
+        // gene covers the whole read outranked the read's own taxon whenever its extra mismatches were fewer than 2/5 of
+        // the clipped bases. On, each candidate's clips past its gene's ends in excess of those of the read's least
+        // clipped candidate earn the identity floor's score per base (CreditGeneEndClips; AlignmentInfo::RankScore):
+        // equal clips earn nothing, so a read clipped alike on every candidate ranks as before.
+        void SetGeneEndClips(bool on) {
+            m_gene_end_clips = on;
+        }
+
+        bool GeneEndClips() const {
+            return m_gene_end_clips;
+        }
+
+        // The clip credit of `clips` bases past a gene's ends against the read's least clipped candidate's `common`: what
+        // an alignment at the identity floor scores a base (5 * floor - 3 at 2 a match and -3 a mismatch, as the mates'
+        // vote scores a mate missing from a taxon: 1.5 at -a 0.9), rounded.
+        int ClipCredit(int clips, int common) const {
+            double const rate = std::max(0.0, 5.0 * m_max_score_ani - 3.0);
+            return static_cast<int>(std::lround(rate * static_cast<double>(std::max(0, clips - common))));
+        }
+
+        // Each candidate's clip credit against the least boundary clips among `results`, a read's (or mate's) candidates,
+        // every candidate of a taxon credited as that taxon's least clipped one: two of the read's own genome, as at a
+        // junction of neighbouring genes, are credited alike, so that the credit does not split them (credited each by its
+        // own clips, the read's own taxon lost 2,645 fragments under MAPQ 4 on the reduced r226 database, against 210
+        // gained this way; docs/claude/2026-10-15-f1-audit-lower-findings/L2-gene-end-clips.md). Nothing with the option off.
+        void CreditGeneEndClips(AlignmentResultList& results) const {
+            if (!m_gene_end_clips || results.empty()) return;
+            int common = INT_MAX;
+            for (auto const& r : results) common = std::min<int>(common, r.GetAlignmentInfo().boundary_clips);
+            static thread_local std::vector<std::pair<uint32_t, int>> taxon_least;  // each taxon's least clips
+            taxon_least.clear();
+            for (auto const& r : results) {
+                auto const taxid = static_cast<uint32_t>(r.Taxid());
+                int const clips = r.GetAlignmentInfo().boundary_clips;
+                auto it = std::find_if(taxon_least.begin(), taxon_least.end(), [taxid](auto const& t) { return t.first == taxid; });
+                if (it == taxon_least.end()) taxon_least.emplace_back(taxid, clips);
+                else it->second = std::min(it->second, clips);
+            }
+            for (auto& r : results) {
+                auto const taxid = static_cast<uint32_t>(r.Taxid());
+                auto& info = r.GetAlignmentInfo();
+                int const least = std::find_if(taxon_least.begin(), taxon_least.end(), [taxid](auto const& t) { return t.first == taxid; })->second;
+                info.clip_credit = ClipCredit(least, common);
+                info.end_clips_credited = true;
+            }
         }
 
         void SetAnchoredAlignment(bool anchored) {
@@ -918,6 +971,8 @@ namespace protal {
             }
 
             if (m_allele_scores) SettleBySites(results);
+            // --gene_end_clips credit: the candidates' clips past their genes' ends, against the least clipped one's.
+            CreditGeneEndClips(results);
 
             // Sort alignment results
             std::sort(results.begin(), results.end(), [](AlignmentResult const& a, AlignmentResult const& b) {

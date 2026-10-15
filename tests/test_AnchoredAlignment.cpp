@@ -11,6 +11,7 @@
 #include <vector>
 #include <unistd.h>
 #include "Core/AlignmentStrategy.h"
+#include "Core/MateGuidance.h"
 #include "TestReference.h"
 
 using namespace protal;
@@ -526,4 +527,209 @@ TEST(SimpleAlignmentHandler, ReadsOfEitherStrandAlignWithTheirEdits) {
     }
     EXPECT_EQ(h.whole.m_whole_window_alignments, 80u);
     EXPECT_GT(h.anchored.m_anchored_alignments, 40u);
+}
+
+// The clips past a gene's ends (AlignmentInfo::boundary_clips, PostProcessAlignment): the leading clips of an alignment
+// from the gene's first base, the trailing ones of an alignment to its last; clips of an alignment inside the gene are
+// none of them.
+TEST(GeneEndClips, PostProcessAlignmentCountsTheClipsPastTheGenesEnds) {
+    std::string const leading = std::string(5, 'I') + std::string(145, 'M');
+    std::string const trailing = std::string(145, 'M') + std::string(5, 'I');
+    AlignmentInfo info;
+    PostProcessAlignment(leading, info, 150, 1000, 0, 0, -5);
+    EXPECT_EQ(info.compressed_cigar, "5S145M");
+    EXPECT_EQ(info.gene_alignment_start, 0);
+    EXPECT_EQ(info.softclips, 5u);
+    EXPECT_EQ(info.boundary_clips, 5u);
+    info.Reset();
+    PostProcessAlignment(leading, info, 150, 1000, 100, 0, 100);  // clipped inside the gene
+    EXPECT_EQ(info.softclips, 5u);
+    EXPECT_EQ(info.boundary_clips, 0u);
+    info.Reset();
+    PostProcessAlignment(trailing, info, 150, 1000, 855, 0, 855);  // to the gene's last base
+    EXPECT_EQ(info.compressed_cigar, "145M5S");
+    EXPECT_EQ(info.boundary_clips, 5u);
+    info.Reset();
+    PostProcessAlignment(trailing, info, 150, 1500, 855, 0, 855);  // the gene goes on
+    EXPECT_EQ(info.boundary_clips, 0u);
+    info.Reset();
+    // A window the alignment does not start at: its leading deletions are cut, its clips no gene end's.
+    PostProcessAlignment(std::string(3, 'D') + std::string(150, 'M'), info, 150, 1000, 0, 0, 3);
+    EXPECT_EQ(info.gene_alignment_start, 3);
+    EXPECT_EQ(info.boundary_clips, 0u);
+    EXPECT_EQ(info.clip_credit, 0);
+    EXPECT_FALSE(info.end_clips_credited);
+}
+
+namespace {
+    // The F1 audit's case (L2): a read S[0, 150) of taxon 1, whose gene starts 20 bases into the read (S from 20), and
+    // a congener (taxon 2) whose gene, S with mismatches at 40, 80 and 120, covers the whole read.
+    struct GeneEndReference : test::LoadedReference {
+        static std::string Genome() {
+            std::mt19937 rng(41);
+            return test::RandomSequence(1000, rng);
+        }
+        static std::string WithMismatches(std::string s, std::vector<size_t> const& at) {
+            for (size_t p : at) s[p] = s[p] == 'A' ? 'C' : 'A';
+            return s;
+        }
+        std::string const genome = Genome();
+
+        // Taxon 1's gene 1 starts `own_start` into the genome, taxon 2's gene 1 `congener_start` (mismatches at 40, 80 and
+        // 120 of the genome).
+        GeneEndReference(size_t own_start, size_t congener_start) :
+                LoadedReference({ { 1, { Genome().substr(own_start) } },
+                                  { 2, { WithMismatches(Genome(), { 40, 80, 120 }).substr(congener_start) } } }, "gene ends") {}
+    };
+
+    // The read's candidates on both taxa, as protal aligns them (the handler's operator()), ranked as the output ranks
+    // them (RankCandidates): anchored on the exact runs of the read on the diagonal (gene position - read position) of
+    // taxon 1's gene and of taxon 2's.
+    AlignmentResultList AlignOnBoth(GeneEndReference& ref, SimpleAlignmentHandler& handler, std::string const& read,
+                                    long own_diagonal, long congener_diagonal) {
+        AlignmentAnchorList anchors;
+        for (auto [taxid, diagonal] : { std::pair<uint32_t, long>{ 1, own_diagonal }, std::pair<uint32_t, long>{ 2, congener_diagonal } }) {
+            ChainAlignmentAnchor anchor(taxid, 1, true);
+            anchor.chain = ExactRuns(read, ref.Gene(taxid, 1), diagonal);
+            anchor.total_length = 100;
+            anchors.push_back(anchor);
+        }
+        AlignmentResultList results;
+        std::string header = "r";
+        handler(anchors, results, read, 3, header);
+        ProtalSingleOutputHandler<false>::RankCandidates(results);
+        return results;
+    }
+}
+
+// Off (the default), the clipped bases of the read's own taxon score nothing: the congener's 3 mismatches (285) beat
+// 130 matches and 20 clipped bases (260). With --gene_end_clips credit the 20 bases beyond the congener's 0 earn 1.5 each
+// at -a 0.9 (290), and the read's own taxon is first, with MAPQ MAPQv2(290, 285); its ZA edits leave the clips out.
+TEST(GeneEndClips, CreditedClipsRankTheReadsOwnTaxonFirst) {
+    GeneEndReference ref(20, 0);
+    std::string const read = ref.genome.substr(0, 150);
+    for (bool anchored : { true, false }) {
+        WFA2Wrapper2 aligner{4, 6, 2, 1000};
+        SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
+        handler.SetAnchoredAlignment(anchored);
+        auto off = AlignOnBoth(ref, handler, read, -20, 0);
+        ASSERT_EQ(off.size(), 2u);
+        EXPECT_EQ(off[0].Taxid(), 2u);
+        EXPECT_EQ(off[0].GetAlignmentInfo().RankScore(), 285);
+        EXPECT_EQ(off[1].GetAlignmentInfo().RankScore(), 260);
+        EXPECT_EQ(off[1].GetAlignmentInfo().boundary_clips, 20u);
+        EXPECT_EQ(off[1].GetAlignmentInfo().clip_credit, 0);
+        EXPECT_EQ(AlignmentEdits(off[1].GetAlignmentInfo()), 20);  // the clips count as edits, as before
+
+        handler.SetGeneEndClips(true);
+        auto on = AlignOnBoth(ref, handler, read, -20, 0);
+        ASSERT_EQ(on.size(), 2u);
+        auto const& own = on[0].GetAlignmentInfo();
+        EXPECT_EQ(on[0].Taxid(), 1u);
+        EXPECT_EQ(own.compressed_cigar, "20S130M");
+        EXPECT_EQ(own.clip_credit, 30);
+        EXPECT_EQ(own.RankScore(), 290);
+        EXPECT_EQ(own.Score(2, 3, 1, 2), 260);
+        EXPECT_EQ(on[1].GetAlignmentInfo().clip_credit, 0);
+        EXPECT_EQ(on[1].GetAlignmentInfo().RankScore(), 285);
+        EXPECT_EQ(MAPQv2(ProtalSingleOutputHandler<false>::Bitscore(on[0]), ProtalSingleOutputHandler<false>::Bitscore(on[1])),
+                  MAPQv2(290, 285));
+        EXPECT_EQ(AlignmentEdits(own), 0);
+        EXPECT_EQ(AlignmentEdits(on[1].GetAlignmentInfo()), 3);
+    }
+}
+
+// Controls: clipped alike on both taxa (both genes start 20 into the read), nothing is credited and the ranking is the
+// bitscore's; a read inside both genes has no clips past their ends.
+TEST(GeneEndClips, EqualClipsAndReadsInsideTheirGenesEarnNothing) {
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    GeneEndReference both(20, 20);
+    SimpleAlignmentHandler handler(*both.loader, aligner, 31, 3, 0.9, false);
+    handler.SetAnchoredAlignment(true);
+    handler.SetGeneEndClips(true);
+    std::string const read = both.genome.substr(0, 150);
+    auto clipped = AlignOnBoth(both, handler, read, -20, -20);
+    ASSERT_EQ(clipped.size(), 2u);
+    EXPECT_EQ(clipped[0].Taxid(), 1u);  // 130 matches against 127 and 3 mismatches
+    for (auto const& r : clipped) {
+        EXPECT_EQ(r.GetAlignmentInfo().boundary_clips, 20u);
+        EXPECT_EQ(r.GetAlignmentInfo().clip_credit, 0);
+        EXPECT_EQ(r.GetAlignmentInfo().RankScore(), r.GetAlignmentInfo().Score(2, 3, 1, 2));
+    }
+
+    GeneEndReference inside(20, 0);
+    SimpleAlignmentHandler inside_handler(*inside.loader, aligner, 31, 3, 0.9, false);
+    inside_handler.SetAnchoredAlignment(true);
+    inside_handler.SetGeneEndClips(true);
+    std::string const middle = inside.genome.substr(300, 150);
+    auto results = AlignOnBoth(inside, inside_handler, middle, 280, 300);
+    ASSERT_EQ(results.size(), 2u);
+    for (auto const& r : results) {
+        EXPECT_EQ(r.GetAlignmentInfo().softclips, 0u);
+        EXPECT_EQ(r.GetAlignmentInfo().boundary_clips, 0u);
+        EXPECT_EQ(r.GetAlignmentInfo().clip_credit, 0);
+    }
+}
+
+// A mate found by the mates' vote or guidance (RescueMate) is aligned alone: it takes its credit against the least clipped
+// of that mate's candidates among the fragment's (CreditFoundMate); with the option off, nothing.
+TEST(GeneEndClips, AFoundMateIsCreditedAgainstItsMatesCandidates) {
+    test::TinyReference ref;
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
+    auto result = [](uint32_t taxid, uint16_t clips) {
+        AlignmentResult r(0, taxid, 1, 0, true);
+        r.GetAlignmentInfo().boundary_clips = clips;
+        return r;
+    };
+    PairedAlignmentResultList pairs;
+    pairs.emplace_back(result(3, 0), AlignmentResult());   // mate 1 on taxon 3, unclipped
+    pairs.emplace_back(AlignmentResult(), result(4, 12));  // mate 2 on taxon 4, 12 clipped
+    auto found = result(5, 40);
+    CreditFoundMate(found, pairs, true, handler);  // off
+    EXPECT_EQ(found.GetAlignmentInfo().clip_credit, 0);
+    EXPECT_FALSE(found.GetAlignmentInfo().end_clips_credited);
+    handler.SetGeneEndClips(true);
+    CreditFoundMate(found, pairs, true, handler);  // against mate 1's 0
+    EXPECT_EQ(found.GetAlignmentInfo().clip_credit, 60);
+    EXPECT_TRUE(found.GetAlignmentInfo().end_clips_credited);
+    CreditFoundMate(found, pairs, false, handler);  // against mate 2's 12
+    EXPECT_EQ(found.GetAlignmentInfo().clip_credit, 42);
+    auto less = result(5, 5);
+    CreditFoundMate(less, pairs, false, handler);  // fewer clips than the mate's candidates: nothing
+    EXPECT_EQ(less.GetAlignmentInfo().clip_credit, 0);
+    EXPECT_EQ(handler.ClipCredit(7, 0), 11);  // 10.5, rounded away from 0
+}
+
+// Every candidate of a taxon is credited as that taxon's least clipped one (CreditGeneEndClips): a read over the
+// junction of two neighbouring genes of its own genome, clipped 20 past the end of one and 110 before the other, against
+// a congener whose gene covers it, gets the credit of 20 clipped bases on both, so that the credit does not split its own
+// two candidates (credited each by its own clips, the second's 165 put it 135 ahead of the first and its MAPQ fell). A
+// found mate likewise takes its taxon's least clips among the mate's candidates (CreditFoundMate).
+TEST(GeneEndClips, ATaxonsCandidatesAreCreditedAsItsLeastClipped) {
+    test::TinyReference ref;
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
+    handler.SetGeneEndClips(true);
+    auto result = [](uint32_t taxid, uint32_t gene, uint16_t clips) {
+        AlignmentResult r(0, taxid, gene, 0, true);
+        r.GetAlignmentInfo().boundary_clips = clips;
+        return r;
+    };
+    AlignmentResultList results;
+    results.push_back(result(1, 1, 20));
+    results.push_back(result(1, 2, 110));
+    results.push_back(result(2, 1, 0));
+    handler.CreditGeneEndClips(results);
+    EXPECT_EQ(results[0].GetAlignmentInfo().clip_credit, 30);
+    EXPECT_EQ(results[1].GetAlignmentInfo().clip_credit, 30);
+    EXPECT_EQ(results[2].GetAlignmentInfo().clip_credit, 0);
+    for (auto const& r : results) EXPECT_TRUE(r.GetAlignmentInfo().end_clips_credited);
+
+    PairedAlignmentResultList pairs;
+    pairs.emplace_back(result(1, 1, 20), AlignmentResult());
+    pairs.emplace_back(result(2, 1, 0), AlignmentResult());
+    auto found = result(1, 2, 110);
+    CreditFoundMate(found, pairs, true, handler);  // its taxon's least, 20, against the mate's least, 0
+    EXPECT_EQ(found.GetAlignmentInfo().clip_credit, 30);
 }

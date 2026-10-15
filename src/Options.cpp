@@ -43,6 +43,7 @@ namespace protal {
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("mate_guidance", "Paired-end reads whose mates did not align together as their best candidate: consensus (both mates vote: every taxon either mate aligned to is scored by the sum of the two mates' best scores on it, a mate without an alignment there looked for on the other mate's gene or its neighbours, or from its own anchor of the taxon, else scored as an alignment at the identity floor, at most its best elsewhere; the best sum wins, with the MAPQ of its margin over the next taxon's), guide (a mate sure of its alignment, MAPQ 20 or more, makes the other one align to its taxon; protal 0.7.1 to 0.8.4), or off (neither). The database's models are trained with one of them: auto (default) is the mode its build_settings.tsv records, else guide (a database built before 2026-10-15, whose models were trained with guide); --build records the mode given, else consensus.", cxxopts::value<std::string>()->default_value("auto"))
                 ("no_mate_guidance", "The same as --mate_guidance off (kept for older command lines).")
+                ("gene_end_clips", "Short reads that run past their gene's start or end are aligned with the overhang soft-clipped, which ranks them as if those bases did not exist: a congener whose gene covers the whole read then wins with fewer extra mismatches than 2/5 of the clipped bases. credit: each candidate's bases clipped past its gene's ends, beyond those of the read's least clipped candidate, score what an alignment at the identity floor (-a) scores a base (1.5 at 0.9) in the ranking and MAPQ, and are no edits in ZA; equal clips earn nothing. off: scored 0, as every protal before. Records, MAPQs and so the models' features depend on it. auto (default): as the database's build_settings.tsv records, else off; --build records the value given, else off.", cxxopts::value<std::string>()->default_value("auto"))
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
                 ("spike_genes", "Spike mode: whether a sample's spike genes are left out of the evidence of their species, as if their reads had not aligned. A spike gene's reads pile far beyond what the rest of its taxon's genes explain (50 reads or more, 50 times the depth of the taxon's genes outside its 3 deepest, the spikes together half of the taxon's reads or more): a PCR product or a fragment of one gene carried over into the library. auto (default): before a sample is profiled its reads per gene are counted, and the sample is in spike mode if at least 2 of its 10 taxa with the most reads have spike genes and the spikes hold 5% of its reads or more, the pattern of carried-over products (a relative's reads also pile on a few genes of an absent congener, a thin taxon, which this leaves alone); on: every sample (also a relative's piles are taken, which can make such a congener look present); off: none, and no counting. In a real D6331 mock sample every species had such a gene and two were missed without spike mode (docs/claude/2026-10-15-mock-near-misses). The log gives each sample's check; <profile>.spike_genes.tsv lists the genes left out.", cxxopts::value<std::string>()->default_value("auto"))
                 ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy). Without it (auto): as the database's build_settings.tsv records, else left out; --keep_suspect_copies=off leaves them out on any database.", cxxopts::value<std::string>()->default_value("auto")->implicit_value("on"))
@@ -245,6 +246,9 @@ namespace protal {
         auto run_auto = [this](bool is_given) { return is_given || m_build ? "" : " (auto: the database's, else this)"; };
         result_str << "align top:           " << std::to_string(m_align_top) << run_auto(g.align_top.has_value()) << '\n';
         result_str << "adaptive candidates: " << std::to_string(m_adaptive_candidates) << run_auto(g.adaptive_candidates.has_value()) << '\n';
+        result_str << "gene end clips:      " << (m_gene_end_clips ? "credit (short reads' clips past their genes' ends beyond their least clipped candidate's score the identity floor's rate)"
+                                                                   : "off (scored 0, as before)")
+                   << (g.gene_end_clips || m_build ? "" : " (auto: the database's, else off)") << '\n';
         result_str << "allele scores:       " << (m_no_allele_scores ? "off (--no_allele_scores)" : "the database's strain alleles, if it has them") << run_auto(g.allele_scores.has_value()) << '\n';
         result_str << "weighted site shift: " << (m_weighted_site_shift ? "with the database's column weights, if it has them (--weighted_site_shift)" : "off (--weighted_site_shift turns it on)") << run_auto(g.weighted_site_shift.has_value()) << '\n';
         result_str << "max key ubiquity:    " << std::to_string(m_max_key_ubiquity) << '\n';
@@ -1295,6 +1299,10 @@ namespace protal {
             on_off("keep_foreign_genes", given.keep_foreign_genes);
             on_off("keep_suspect_copies", given.keep_suspect_copies);
             decimal("depth_identity_margin", given.depth_identity_margin);
+            if (text("gene_end_clips") != "auto") {
+                if (!build_settings::KnownGeneEndClips(text("gene_end_clips"))) bad("gene_end_clips", "credit or off", text("gene_end_clips"));
+                given.gene_end_clips = text("gene_end_clips");
+            }
         }
 
         bool no_strains = result.count("no_strains");
@@ -1842,6 +1850,8 @@ namespace protal {
         d.threads                  = threads;
         d.align_top                = align_top;
         d.adaptive_candidates      = given.adaptive_candidates.value_or(DEFAULT_ADAPTIVE_CANDIDATES);
+        // Off unless given (--build records it so); a run's auto takes the database's (FollowDatabaseRunSettings).
+        d.gene_end_clips           = given.gene_end_clips ? build_settings::ParseGeneEndClips(*given.gene_end_clips).value_or(false) : false;
         d.no_allele_scores         = !given.allele_scores.value_or(true);
         d.max_out                  = max_out;
         d.max_score_ani            = max_score_ani;
@@ -1957,6 +1967,11 @@ namespace protal {
         if (!g.keep_foreign_genes && recorded.keep_foreign_genes) m_keep_foreign_genes = *recorded.keep_foreign_genes;
         if (!g.keep_suspect_copies && recorded.keep_suspect_copies) m_keep_suspect_copies = *recorded.keep_suspect_copies;
         if (!g.depth_identity_margin && recorded.depth_identity_margin) m_depth_identity_margin = *recorded.depth_identity_margin;
+        // Gene end clips: the database's; off where it records none (its models were trained so) or a value this protal
+        // does not know (ApplyRunSettings warns).
+        if (!g.gene_end_clips) {
+            m_gene_end_clips = recorded.gene_end_clips ? build_settings::ParseGeneEndClips(*recorded.gene_end_clips).value_or(false) : false;
+        }
         // unique_kmers: a run reads the database's unique_cores.bin where it has one, unless --no_unique_cores.
     }
 
@@ -1972,6 +1987,7 @@ namespace protal {
         s.keep_foreign_genes = m_keep_foreign_genes;
         s.keep_suspect_copies = m_keep_suspect_copies;
         s.depth_identity_margin = m_depth_identity_margin;
+        s.gene_end_clips = build_settings::GeneEndClipsName(m_gene_end_clips);
         return s;
     }
 

@@ -1,10 +1,11 @@
 // SamSettings.h - how a SAM was aligned, in a line of its header (since 2026-10-15): "@CO\tprotal settings: " and the
 // settings the run aligned the sample with, key=value separated by spaces:
 //   read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack allele_scores=on
-//   weighted_site_shift=off mate_guidance=on align_top=3 adaptive_candidates=7 max_score_ani=0.9
-// (allele_scores, weighted_site_shift and adaptive_candidates for short reads only, mate_guidance for paired-end reads
-// only: the others do not use them). --profile_only reads it: the sample is profiled with the database's model nearest
-// the SAM's gate, and is warned when the SAM was aligned otherwise than the database's models were trained
+//   weighted_site_shift=off mate_guidance=on align_top=3 adaptive_candidates=7 gene_end_clips=off max_score_ani=0.9
+// (allele_scores, weighted_site_shift, adaptive_candidates and gene_end_clips for short reads only, mate_guidance for
+// paired-end reads only: the others do not use them; gene_end_clips after 0.8.5). --profile_only reads it: the sample is
+// profiled with the database's model nearest the SAM's gate, and is warned when the SAM was aligned otherwise than the
+// database's models were trained
 // (RunProtal: ApplyRunSettings). A SAM without the line (an older protal's) is profiled as before. A later protal's keys
 // and values are kept as text: the reader neither refuses nor interprets them.
 #pragma once
@@ -33,6 +34,7 @@ namespace protal::sam_settings {
     inline constexpr std::string_view kMateGuidance = "mate_guidance";
     inline constexpr std::string_view kAlignTop = "align_top";
     inline constexpr std::string_view kAdaptiveCandidates = "adaptive_candidates";
+    inline constexpr std::string_view kGeneEndClips = "gene_end_clips";
     inline constexpr std::string_view kMaxScoreAni = "max_score_ani";
 
     using Fields = std::vector<std::pair<std::string, std::string>>;
