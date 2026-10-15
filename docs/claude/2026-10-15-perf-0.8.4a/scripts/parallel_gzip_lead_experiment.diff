@@ -1,0 +1,113 @@
+diff --git a/src/IO/ParallelGzip.cpp b/src/IO/ParallelGzip.cpp
+index e82347c..2812f15 100644
+--- a/src/IO/ParallelGzip.cpp
++++ b/src/IO/ParallelGzip.cpp
+@@ -13,6 +13,8 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <chrono>
++#include <cstdio>
+ #include <cerrno>
+ #include <condition_variable>
+ #include <cstdint>
+@@ -488,6 +490,7 @@ namespace protal {
+             RangeEnd result = RangeEnd::Failed;
+             uint64_t final_bit = kNone;
+             std::unique_ptr<Bytes> a, b;
++            bool abandoned = false;  // experiment: the lead decoded it itself while a worker still was (PGZ_NOWAIT)
+         };
+ 
+         // A run of output in file order: a range the lead decoded (bytes), a speculative piece being resolved (slot),
+@@ -539,6 +542,10 @@ namespace protal {
+         bool streaming = false;        // lead decodes to the member's end (the last item is its stream)
+         size_t dropped = 0;            // false block starts dropped in a row
+         ParallelGzip::Counts counts;   // how the ranges were decoded (the lead's thread)
++        // Experiment (PGZ_STATS, PGZ_NOWAIT): the lead's waits for workers, pieces it decoded instead, its in-order time.
++        bool exp_nowait = false;
++        size_t exp_waits = 0, exp_not_waited = 0, exp_abandoned = 0;
++        double exp_wait_s = 0, exp_in_order_s = 0, exp_resolve_wait_s = 0;
+ 
+         // Giving the output (Read).
+         Bytes stream_bytes;            // a stream item's current segment
+@@ -579,6 +586,11 @@ namespace protal {
+             }
+             changed.notify_all();
+             for (auto& t : workers) t.join();
++            if (std::getenv("PGZ_STATS")) {
++                std::fprintf(stderr, "pgz_stats nowait %d waits %zu wait_s %.3f not_waited %zu abandoned %zu in_order_s %.3f resolve_wait_s %.3f ahead %zu in_order %zu\n",
++                             exp_nowait ? 1 : 0, exp_waits, exp_wait_s, exp_not_waited, exp_abandoned, exp_in_order_s,
++                             exp_resolve_wait_s, counts.ahead, counts.in_order);
++            }
+             if (data) ::munmap(const_cast<uint8_t*>(data), size);
+         }
+ 
+@@ -676,6 +688,14 @@ namespace protal {
+                     lock.unlock();
+                     Speculate(piece, s, decoder, labels);
+                     lock.lock();
++                    if (piece.abandoned) {
++                        GiveBack(piece.a);
++                        GiveBack(piece.b);
++                        piece.state = State::Taken;
++                        exp_abandoned++;
++                        changed.notify_all();
++                        continue;
++                    }
+                     piece.state = State::Decoded;
+                     changed.notify_all();
+                     continue;
+@@ -807,8 +827,20 @@ namespace protal {
+                 if (s < slots && starts[s] == pos) {
+                     piece = &pieces[s];
+                     if (piece->state == State::Decoding && !may_wait) return false;
+-                    changed.wait(lock, [&] { return piece->state != State::Decoding; });
+-                    if (piece->state == State::Free) {
++                    if (piece->state == State::Decoding && exp_nowait) {
++                        // Experiment: decode it here, in order, rather than wait for the worker's two passes.
++                        piece->abandoned = true;
++                        exp_not_waited++;
++                        piece = nullptr;
++                    } else {
++                        if (piece->state == State::Decoding) {
++                            auto const w0 = std::chrono::steady_clock::now();
++                            changed.wait(lock, [&] { return piece->state != State::Decoding; });
++                            exp_waits++;
++                            exp_wait_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - w0).count();
++                        }
++                    }
++                    if (piece && piece->state == State::Free) {
+                         piece->state = State::Taken;
+                         piece = nullptr;
+                     }
+@@ -852,7 +884,9 @@ namespace protal {
+             if (end != kNone) {
+                 auto bytes = TakeBuffer();
+                 lead.Start(data, size, pos, end, window.data() + kWindow - dict_len, dict_len);
++                auto const d0 = std::chrono::steady_clock::now();
+                 RangeEnd const result = lead.Run(*bytes, kMaxPieceOutput, true);
++                exp_in_order_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - d0).count();
+                 if (result == RangeEnd::AtBoundary || result == RangeEnd::Final) {
+                     Item item;
+                     Chained(bytes->data, bytes->size);
+@@ -950,7 +984,11 @@ namespace protal {
+                         front->resolved = true;
+                         front->window.reset();
+                     }
+-                    changed.wait(lock, [&] { return front->resolved; });
++                    if (!front->resolved) {
++                        auto const r0 = std::chrono::steady_clock::now();
++                        changed.wait(lock, [&] { return front->resolved; });
++                        exp_resolve_wait_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count();
++                    }
+                 }
+                 uint8_t const* bytes;
+                 size_t n;
+@@ -1061,6 +1099,7 @@ namespace protal {
+                 return nullptr;
+             }
+             impl.max_member = max_member;
++            impl.exp_nowait = std::getenv("PGZ_NOWAIT") != nullptr;
+             impl.threads = std::max(threads, 2u);
+             impl.gap = GapSetting().load(std::memory_order_relaxed);
+             // The workers from threads + 2 pieces ahead of the reader's thread, up to threads further: each piece in

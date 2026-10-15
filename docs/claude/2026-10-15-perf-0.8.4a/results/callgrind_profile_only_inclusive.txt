@@ -1,0 +1,35 @@
+7,276,991,944 (100.0%)  PROGRAM TOTALS
+3,911,445,381 (53.75%)  ???:protal::ProfileSample(protal::ProfilingContext&, unsigned long, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, protal::profiler::
+3,479,035,773 (47.81%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::Mi
+2,861,842,820 (39.33%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::profiler::Profiler<protal::ScoreAlignments>::ReadSamGroups<protal::profiler::Profile
+2,835,538,183 (38.97%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std
+1,823,304,586 (25.06%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::Mi
+1,425,932,617 (19.60%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordE
+1,200,677,360 (16.50%)  ???:protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool, bool) [/home/falk/perf085/bin/protal_base]
+  817,614,510 (11.24%)  ???:protal::SamReader::Advance(protal::SamEntry&) [/home/falk/perf085/bin/protal_base]
+  534,462,965 ( 7.34%)  ???:protal::profiler::MicrobialProfile::ApplyRecordEvidence(unsigned long) [/home/falk/perf085/bin/protal_base]
+  524,494,053 ( 7.21%)  ???:protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long) [/home/falk/perf085/bin/protal_base]
+  475,840,939 ( 6.54%)  ???:protal::profiler::context::CongenerDistances::SketchOf(unsigned int) [/home/falk/perf085/bin/protal_base]
+  475,826,531 ( 6.54%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal:
+  471,914,519 ( 6.49%)  ???:protal::gene_conservation::BottomSketch(std::basic_string_view<char, std::char_traits<char> >, unsigned long) [/home/falk/perf085/bin/protal_base]
+  372,165,910 ( 5.11%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) [/home/falk/perf085/bin/pro
+  278,207,734 ( 3.82%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  239,748,790 ( 3.29%)  ???:protal::SamFromTokens(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const&, pr
+  188,572,472 ( 2.59%)  ???:protal::column_weights::Count(protal::column_weights::Columns const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, unsigned long,
+  173,062,692 ( 2.38%)  ???:0x00000000000200e0 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+  171,130,427 ( 2.35%)  ???:protal::profiler::TaxonFilterForest::ScoreFeatures(protal::profiler::Taxon const&) const [/home/falk/perf085/bin/protal_base]
+  163,449,075 ( 2.25%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostrea
+  163,162,991 ( 2.24%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std:
+  163,158,317 ( 2.24%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostrea
+  115,929,470 ( 1.59%)  ???:protal::profiler::TaxonFeatures[abi:cxx11](protal::profiler::Taxon const&) [/home/falk/perf085/bin/protal_base]
+   96,455,496 ( 1.33%)  ???:protal::packed::PackAvx2(char const*, unsigned long, unsigned char*) [/home/falk/perf085/bin/protal_base]
+   96,140,849 ( 1.32%)  ???:protal::strain_alleles::Polymorphism::Set(protal::strain_alleles::Table const&, std::span<protal::strain_alleles::Table::Stored const, 18446744073709551615ul>, unsigned int
+   95,545,394 ( 1.31%)  ???:protal::sam_detail::IntTag(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const
+   94,216,012 ( 1.29%)  ???:protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*) [/home/falk/perf085/bin/protal_base]
+   93,135,442 ( 1.28%)  ???:void protal::ancestry::ForEachSite<protal::profiler::RecordEvidenceCollector::NoteAlleles(protal::profiler::RecordEvidence&, unsigned int, unsigned int, protal::SamEntry co
+   91,247,004 ( 1.25%)  ???:protal::SamEntry::SamEntry(protal::SamEntry&&) [/home/falk/perf085/bin/protal_base]
+   82,727,701 ( 1.14%)  ???:protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long) [/home/falk/perf085/bin/protal_
+   82,726,538 ( 1.14%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned 
+   82,726,436 ( 1.14%)  ???:protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)
+   70,111,664 ( 0.96%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::WriteGeneProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::o
+  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S
