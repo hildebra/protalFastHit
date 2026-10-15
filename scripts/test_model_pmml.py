@@ -36,8 +36,10 @@ import numpy as np  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import prerequisites  # noqa: E402
-from model_pmml import (PmmlBoosted, PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
-                        load_model, read_depth_knob_curve, read_depth_knobs, read_false_calls, write_forest, write_model)
+from model_pmml import (PmmlBoosted, PmmlForest, feature_ranges_of, float32_split, format_depth_knob_curve,  # noqa: E402
+                        format_depth_knobs, format_feature_ranges, format_feature_versions, load_model, model_kind,
+                        read_depth_knob_curve, read_depth_knobs, read_false_calls, read_feature_ranges,
+                        read_feature_versions, read_feature_versions_file, write_forest, write_model, write_placeholder)
 
 try:
     import joblib  # noqa: F401  (the trainer's)
@@ -201,10 +203,86 @@ class ForestExportTest(unittest.TestCase):
         write_forest(rf, self.features, path)
         self.assertIsNone(read_false_calls(path))
 
+    def test_feature_versions_and_ranges(self):
+        # Since 2026-10-15 (the audit's C1, C4): the features' versions (protal --feature_versions) and their ranges over
+        # the rows the model was fitted on, as header Extensions before the Application, each number "%.9g"; read back;
+        # the scores as without them.
+        rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, self.y)
+        path = os.path.join(self.tmp.name, "features.xml")
+        ranges = feature_ranges_of(self.X, self.features)
+        write_forest(rf, self.features, path, feature_versions={"b": "3", "a": "1.2", "other": "9"}, feature_ranges=ranges)
+        with open(path) as fh:
+            xml = fh.read()
+        self.assertIn('  <Extension name="protal_feature_versions" value="a:1.2,b:3"/>\n', xml)  # the model's, in its order
+        value = re.search(r'<Extension name="protal_feature_ranges" value="([^"]*)"/>\n  <Application ', xml).group(1)
+        items = value.split(",")
+        self.assertEqual([item.split(":")[0] for item in items], self.features)
+        for item, column in zip(items, self.X.T):
+            expected = (column.min(), np.quantile(column, 0.01), np.quantile(column, 0.99), column.max())
+            self.assertEqual(item.split(":")[1:], ["%.9g" % v for v in expected])
+        self.assertEqual(read_feature_versions(path), {"a": "1.2", "b": "3"})
+        read = read_feature_ranges(path)
+        self.assertEqual(list(read), self.features)
+        for f in self.features:
+            np.testing.assert_allclose(read[f], ranges[f], rtol=1e-8)
+        np.testing.assert_array_equal(PmmlForest(path).predict(self.X), rf.predict_proba(self.X)[:, 1])
+        self.assertEqual(model_kind(path), "forest")
+        # Without them none; with versions of none of the model's features no versions.
+        write_forest(rf, self.features, path, feature_versions={"other": "1"})
+        self.assertEqual((read_feature_versions(path), read_feature_ranges(path)), ({}, {}))
+        with open(path) as fh:
+            self.assertNotIn("protal_feature", fh.read())
+
     def test_rejects_other_classes(self):
         rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, np.where(self.y == 1, "yes", "no"))
         with self.assertRaises(ValueError):
             write_forest(rf, self.features, os.path.join(self.tmp.name, "bad.xml"))
+
+
+class FeatureExtensionsTest(unittest.TestCase):
+    """The feature extensions' text (model_pmml.py): the ranges as C's "%.9g", names of letters, digits and "_" only, the
+    table of protal --feature_versions read, and placeholder models without them."""
+
+    def test_ranges_text(self):
+        self.assertEqual(format_feature_ranges({"x": (-0.0, 1e-5, 0.1 + 0.2, 123456789012.0), "y_2": (1, 2, 3, 4)},
+                                               ["y_2", "x"]),
+                         "y_2:1:2:3:4,x:-0:1e-05:0.3:1.23456789e+11")
+        for ranges, features in (({"a:b": (0, 0, 0, 0)}, ["a:b"]), ({"a b": (0, 0, 0, 0)}, ["a b"]),
+                                 ({"a": (0, 0, 0)}, ["a"]), ({"a": (0, 0, 0, np.inf)}, ["a"]), ({"a": (0, 0, 0, np.nan)}, ["a"]),
+                                 ({}, ["a"])):
+            with self.assertRaises(ValueError, msg=str(ranges)):
+                format_feature_ranges(ranges, features)
+        self.assertEqual(format_feature_versions({"b": "2", "a": "x1"}, ["a", "c", "b"]), "a:x1,b:2")
+        with self.assertRaises(ValueError):
+            format_feature_versions({"a": "1,2"}, ["a"])
+        with self.assertRaises(ValueError):
+            feature_ranges_of(np.zeros((3, 2)), ["a"])
+
+    def test_versions_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "versions.tsv")
+
+            def read(text):
+                with open(path, "w") as fh:
+                    fh.write(text)
+                return read_feature_versions_file(path)
+            self.assertEqual(read("feature\tversion\tchanged\tnote\nfragments\t1\t2026-08-10\tfirst\n\n"
+                                  "identity\t2\t2026-10-15\ta note, with commas: and colons\n# a comment\n"),
+                             {"fragments": "1", "identity": "2"})
+            self.assertEqual(read("#feature\tversion\tchanged\tnote\r\ndepth\t3\t\t\r\n"), {"depth": "3"})
+            self.assertEqual(read("note\tversion\tfeature\nx\t4\tdepth\n"), {"depth": "4"})  # by the header's names
+            for bad in ("", "name\tversion\nx\t1\n", "feature\tversion\nx\t1,2\n", "feature\tversion\na-b\t1\n",
+                        "feature\tversion\nx\t1\nx\t2\n", "feature\tversion\nx\n"):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    read(bad)
+            self.assertEqual(read("feature\tversion\nx\t1\nx\t1\n"), {"x": "1"})
+
+    def test_placeholder_models_have_none(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "model_pe.xml")
+            write_placeholder(path, "pe")
+            self.assertEqual(model_kind(path), "placeholder")
+            self.assertEqual((read_feature_ranges(path), read_feature_versions(path)), ({}, {}))
 
 
 @prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
@@ -301,9 +379,15 @@ class BoostedExportTest(unittest.TestCase):
         model = self.Boosted(max_iter=3, random_state=1).fit(self.X, self.y)
         path = os.path.join(self.tmp.name, "boosted_knobs.xml")
         calls = {"curve": [(0.0, 0.0001), (1.0, 0.99)], "prior": 0.2, "fdr": 0.05}
-        write_model(model, self.features, path, depth_knob_curve=[(5.5, 0.7)], false_calls=calls)
+        ranges = feature_ranges_of(self.X, self.features)
+        write_model(model, self.features, path, depth_knob_curve=[(5.5, 0.7)], false_calls=calls,
+                    feature_versions={f: "1" for f in self.features}, feature_ranges=ranges)
         self.assertEqual(read_depth_knob_curve(path), [(5.5, 0.7)])
         self.assertEqual(read_false_calls(path), calls)
+        self.assertEqual(read_feature_versions(path), {f: "1" for f in self.features})
+        self.assertEqual(list(read_feature_ranges(path)), self.features)
+        np.testing.assert_array_equal(load_model(path).predict(self.X), model.predict_proba(self.X)[:, 1])
+        self.assertEqual(model_kind(path), "gbm")
 
     def test_rejects_other_classes(self):
         model = self.Boosted(max_iter=2).fit(self.X, np.where(self.y == 1, "yes", "no"))
@@ -710,6 +794,88 @@ class FoldJobsTest(unittest.TestCase):
             trainer.FOLD_JOBS, trainer.FOLD_JOB_THREADS, trainer.ROW_WEIGHTS = saved
 
 
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
+class CrossedFoldsTest(unittest.TestCase):
+    """The trainer's folds that hold out a row's sample and species together (--cv-scheme samples+species, CrossedFolds;
+    the audit's E4): a fold's test rows share neither their sample nor their species with its training rows, which are
+    all the rows of neither group; rotations score rotations/k of the rows, each once; the groups are drawn by the seed;
+    an unseen table's species take the group of their name's taxon, or a seeded hash."""
+
+    @classmethod
+    def setUpClass(cls):
+        import machine_learning_cmdline
+        cls.trainer = machine_learning_cmdline
+        rng = np.random.default_rng(4)
+        rows = []
+        for sample in range(23):
+            for taxon in rng.choice(70, size=int(rng.integers(5, 30)), replace=False):
+                rows.append({"meta_sample": f"s{sample}", "taxon": int(taxon), "taxon_name": f"species {taxon}",
+                             "truth": int(taxon < 20)})
+        cls.df = pd.DataFrame(rows)
+
+    def opts(self, **kw):
+        return types.SimpleNamespace(**{"folds": 5, "seed": 3, "cv_rotations": 2, **kw})
+
+    def groups(self, crossed, df=None):
+        df = self.df if df is None else df
+        return (df["meta_sample"].map(crossed.sample_group).to_numpy(),
+                df["taxon"].astype(str).map(crossed.species_group).to_numpy())
+
+    def test_folds(self):
+        crossed = self.trainer.crossed_folds(self.df, self.opts())
+        self.assertEqual((crossed.k, crossed.rotations, len(crossed.splits)), (5, 2, 10))
+        y = self.df["truth"].to_numpy()
+        self.assertEqual([(list(a), list(b)) for a, b in self.trainer.folds(self.df, y, self.trainer.CROSSED, self.opts())],
+                         [(list(a), list(b)) for a, b in crossed.splits])
+        sg, tg = self.groups(crossed)
+        samples, species = self.df["meta_sample"].to_numpy(), self.df["taxon"].to_numpy()
+        times = np.zeros(len(self.df), dtype=int)
+        for train, test in crossed.splits:
+            i, j = sg[test[0]], tg[test[0]]
+            np.testing.assert_array_equal(test, np.flatnonzero((sg == i) & (tg == j)))
+            np.testing.assert_array_equal(train, np.flatnonzero((sg != i) & (tg != j)))
+            self.assertFalse(set(samples[train]) & set(samples[test]))
+            self.assertFalse(set(species[train]) & set(species[test]))
+            times[test] += 1
+        self.assertEqual(times.max(), 1)
+        self.assertEqual(crossed.scored, int(times.sum()))
+        self.assertAlmostEqual(times.mean(), 2 / 5, delta=0.08)
+        np.testing.assert_array_equal(crossed.scored_cells(sg, tg), times == 1)
+        self.assertIn(f"2 rotations of 5 folds (10 fits), each fitted on the rows of neither its sample group nor its "
+                      f"species group; {crossed.scored} of {len(self.df)} rows scored", crossed.describe())
+        # The groups hold about as many rows each.
+        for g in (sg, tg):
+            sizes = np.bincount(g, minlength=5)
+            self.assertLess(sizes.max() - sizes.min(), 0.2 * sizes.mean(), sizes)
+        # Every rotation (at most k): every row once.
+        every = self.trainer.crossed_folds(self.df, self.opts(cv_rotations=9))
+        self.assertEqual(every.rotations, 5)
+        self.assertEqual(every.scored, len(self.df))
+        # The same seed the same groups, another seed others.
+        self.assertEqual(self.trainer.crossed_folds(self.df, self.opts()).sample_group, crossed.sample_group)
+        self.assertNotEqual(self.trainer.crossed_folds(self.df, self.opts(seed=4)).sample_group, crossed.sample_group)
+        # Without samples, or with one: none (the trainer falls back to species held out).
+        self.assertIsNone(self.trainer.crossed_folds(self.df.drop(columns="meta_sample"), self.opts()))
+        self.assertIsNone(self.trainer.crossed_folds(self.df[self.df["meta_sample"] == "s0"], self.opts()))
+
+    def test_unseen_species_in_scored_cells(self):
+        crossed = self.trainer.crossed_folds(self.df, self.opts())
+        hashed = self.trainer.hashed_group
+        unseen = pd.DataFrame({"meta_sample": ["s0", "s1", "s99", "s2"],
+                               "taxon_name": ["species 3", "species 999", "species 4", "species 5"]})
+        expected = [crossed.scored_cells(crossed.sample_group["s0"], crossed.species_group["3"]),
+                    crossed.scored_cells(crossed.sample_group["s1"], hashed("species 999", 5, 3)),
+                    crossed.scored_cells(hashed("s99", 5, 3), crossed.species_group["4"]),
+                    crossed.scored_cells(crossed.sample_group["s2"], crossed.species_group["5"])]
+        np.testing.assert_array_equal(crossed.unseen_scored(unseen), expected)
+        self.assertEqual(len(crossed.unseen_scored(unseen.iloc[:0])), 0)
+        self.assertEqual(hashed("species 999", 5, 3), hashed("species 999", 5, 3))
+        # Over many unseen species, about the share of the rows scored.
+        many = pd.DataFrame({"meta_sample": [f"s{i % 23}" for i in range(2000)],
+                             "taxon_name": [f"new species {i}" for i in range(2000)]})
+        self.assertAlmostEqual(crossed.unseen_scored(many).mean(), 2 / 5, delta=0.05)
+
+
 def metrics_knobs(test, name):
     """The knob points of the model `name` trained in a TrainerDepthKnobsTest."""
     with open(os.path.join(test.tmp.name, name + ".metrics.json")) as fh:
@@ -851,9 +1017,11 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertEqual([[x, k] for x, k in curve], metrics["depth_knobs"]["curve"])
 
     def test_one_knob_for_every_sample(self):
-        # choose_global_knob: the median of the best thresholds with species held out over bootstrap resamples of the
-        # training samples, kept if it beats 0.5 in KNOB_SUPPORT of them and does not lose F1 on the test set, the rows
-        # weighted as the models weigh them (the scenarios' by --scenario-weight).
+        # choose_global_knob: the median of the best thresholds held out (--cv-scheme: samples and species by default)
+        # over bootstrap resamples of the training samples, kept if it beats 0.5 in KNOB_SUPPORT of them, the rows
+        # weighted as the models weigh them (the scenarios' by --scenario-weight). The test set does not choose (until
+        # 2026-10-15 a knob that lost there was dropped: the audit's E2).
+        crossed = self.trainer.CROSSED
         rng = np.random.default_rng(2)
         n = 4000
         y = (rng.random(n) < 0.3).astype(int)
@@ -861,30 +1029,40 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         frame = pd.DataFrame({"truth": y, "meta_scenario": "", "meta_sample": [f"s{i % 40}" for i in range(n)]})
         opts = types.SimpleNamespace(knob=0.5, seed=1)
         report = self.trainer.Report()
-        knob = self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts)
+        knob = self.trainer.choose_global_knob(report, frame, y, {crossed: scores}, opts)
         self.assertIsNotNone(knob)
         self.assertGreater(knob, 0.55)  # absent taxa score up to ~0.7: a knob above 0.5 calls fewer of them
         chosen = report.data["global_knob"]
-        self.assertEqual((chosen["knob"], chosen["median"]), (knob, knob))
+        self.assertEqual((chosen["knob"], chosen["median"], chosen["scheme"]), (knob, knob, crossed))
         self.assertGreaterEqual(chosen["support"], self.trainer.KNOB_SUPPORT)
         self.assertGreater(chosen["gain"], 0)
         self.assertLessEqual(chosen["range"][0], knob)
         self.assertGreaterEqual(chosen["range"][1], knob)
-        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": scores}, opts), knob)
-        # A test set it loses on (its present taxa scored between 0.5 and the knob): none, protal calls at --knob.
+        self.assertIsNone(chosen["species_only"])
+        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {crossed: scores}, opts), knob)
+        # A test set it loses on (its present taxa scored between 0.5 and the knob): the knob stands, the test set's F1
+        # at it and at 0.5 reported.
         test_y = np.ones(50, dtype=int)
-        test = (test_y, np.full(50, 0.52), np.ones(50))
         report = self.trainer.Report()
-        self.assertIsNone(self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts, test))
-        self.assertEqual(report.data["global_knob"]["test"]["F1_at_default"], 1.0)
-        self.assertIn("loses on the test set", "\n".join(report.lines))
-        # One it does not lose on: the knob stands.
-        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": scores}, opts,
-                                                         (test_y, np.full(50, 0.95), np.ones(50))), knob)
-        # Scores whose every threshold from 0.1 to 0.9 is as good: no knob beats 0.5, protal calls at --knob.
-        even = np.where(y == 1, 0.9, 0.1)
-        self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": even}, opts))
-        # Without scores with species held out (--evaluation none): none.
+        self.assertEqual(self.trainer.choose_global_knob(report, frame, y, {crossed: scores}, opts,
+                                                         (test_y, np.full(50, 0.52), np.ones(50))), knob)
+        tested = report.data["global_knob"]["test"]
+        self.assertEqual((tested["knob"], tested["F1_at_knob"], tested["F1_at_default"], tested["F1_at_median"], tested["rows"]),
+                         (knob, 0.0, 1.0, 0.0, 50))
+        self.assertIn(f"on the test set (50 rows, weighted; for information, it does not choose): F1 0.0000 at the knob "
+                      f"{knob:g}, 1.0000 at 0.5", "\n".join(report.lines))
+        # Only the decisions' scheme chooses; the knob of species held out alone is reported beside it.
+        report = self.trainer.Report()
+        even = np.where(y == 1, 0.9, 0.1)  # every threshold from 0.1 to 0.9 as good: no knob beats 0.5
+        self.assertEqual(self.trainer.choose_global_knob(report, frame, y, {crossed: scores, "species": even}, opts), knob)
+        self.assertIsNone(report.data["global_knob"]["species_only"]["knob"])
+        self.assertIn("with species held out alone (--cv-scheme species", "\n".join(report.lines))
+        species = types.SimpleNamespace(knob=0.5, seed=1, cv_scheme="species")
+        self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {crossed: scores, "species": even},
+                                                          species))
+        self.assertEqual(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": scores}, species), knob)
+        self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {crossed: even}, opts))
+        # Without held-out scores (--evaluation none): none.
         self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {}, opts))
         self.assertEqual(self.trainer.knob_label([(4.0, 0.7)]), "knob 0.7")
         self.assertEqual(self.trainer.knob_label([]), "knob 0.5")
@@ -1122,6 +1300,7 @@ class TrainerScenariosTest(unittest.TestCase):
         rows = {(r["scenario"], r["set"]): r for r in metrics["scenarios"]}
         self.assertEqual(set(rows), {("(design)", "training, species held out"), ("gut", "hold-in, in sample"),
                                      ("gut", "hold-in, samples held out"), ("gut", "hold-in, species held out"),
+                                     ("gut", "hold-in, samples and species held out"),
                                      ("gut", "hold-out"), ("host", "hold-out")})
         self.assertEqual((rows[("gut", "hold-in, in sample")]["samples"], rows[("gut", "hold-out")]["samples"],
                           rows[("host", "hold-out")]["samples"]), (6, 4, 3))
@@ -1218,16 +1397,174 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertAlmostEqual(auto["held_out"]["host hold-out"]["others_mean_F1"],
                                float(np.mean([r["F1 host hold-out"] for r in others])))
         # Why, in a line: its F1 against the other sets', the rule, the test sets.
-        self.assertRegex(auto["why"], rf"^F1 [0-9.]+ with species held out, the other {len(others)} sets [0-9.]+ on average "
+        self.assertRegex(auto["why"], rf"^F1 [0-9.]+ with samples and species held out \(rows weighted as in the fits\), "
+                                      rf"the other {len(others)} sets [0-9.]+ on average "
                                       r"\(the best of them \S+ [0-9.]+\); (the highest|the default set, as no other is "
                                       rf"{re.escape(str(self.features.AUTO_MIN_GAIN))} better)[^;]*; on samples never trained "
                                       r"on \(not used to choose\): test set [0-9.]+ \(the others [0-9.]+\), gut hold-out "
                                       r"[0-9.]+ \(the others [0-9.]+\), host hold-out")
-        # The model takes the chosen set's features, and the evaluation scored that set.
+        # The model takes the chosen set's features, and the evaluation scored that set with the same folds.
         self.assertEqual(load_model(prefix + ".xml").features, self.features.feature_set_columns(auto["chosen"]))
-        self.assertIn("## Feature set chosen (--features auto, species held out)", stdout)
+        self.assertIn("## Feature set chosen (--features auto, samples and species held out)", stdout)
         self.assertIn(f"feature set (--features auto): {auto['chosen']}: {auto['why']}", stdout)
-        self.assertAlmostEqual(metrics["evaluation"]["species"]["F1"], f1[auto["chosen"]])
+        unweighted = {r["features"]: r["F1 unweighted"] for r in auto["candidates"]}
+        self.assertAlmostEqual(metrics["evaluation"]["samples+species"]["F1"], unweighted[auto["chosen"]])
+        self.assertEqual((auto["scheme"], auto["weighted"]), ("samples+species", True))
+        # The F1 that chooses weighs the rows as the fits do: the gut scenario's rows 0.25 (--scenario-weight).
+        predictions = pd.read_csv(prefix + ".predictions.tsv.gz", sep="\t")
+        scored = predictions["p_samples+species"].notna().to_numpy()
+        call = predictions["p_samples+species"].to_numpy()[scored] >= 0.5
+        truth = predictions["truth"].to_numpy()[scored]
+        weight = np.where(predictions["meta_scenario"].fillna("").to_numpy()[scored] != "", 0.25, 1.0)
+        tp, fp, fn = (weight * (call & (truth == 1))).sum(), (weight * (call & (truth == 0))).sum(), \
+            (weight * (~call & (truth == 1))).sum()
+        self.assertAlmostEqual(f1[auto["chosen"]], 2 * tp / (2 * tp + fp + fn))
+        self.assertNotAlmostEqual(f1[auto["chosen"]], unweighted[auto["chosen"]])
+
+
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
+class TrainerHeadlineTest(unittest.TestCase):
+    """The trainer's headline (the audit's E3): the marker-truth F1, first in report.txt and metrics.json, held out (with
+    samples and species, and with species alone) and on the test set, the present species without a row counted as
+    missed where their cells were scored, and said so where an unseen table is missing; the features' ranges in every
+    model and their versions with --feature-versions; --cv-scheme species as before."""
+
+    @classmethod
+    def setUpClass(cls):
+        import machine_learning_cmdline
+        cls.trainer = machine_learning_cmdline
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.trained = {}
+
+        def table(path, samples, seed):
+            rng = np.random.default_rng(seed)
+            rows = []
+            for sample in range(samples):
+                for i in range(25):
+                    present, taxon = i < 10, (i + 2 * sample) % 70
+                    rows.append({"truth": int(present), "taxon": 200 + taxon, "taxon_name": f"s__T {taxon}",
+                                 "meta_sample": f"s{seed}_{sample}", "meta_scenario": "",
+                                 "meta_marker_reads": int(rng.integers(1, 9)) if present else "",
+                                 "fragments": float(rng.integers(1, 200)), "x": round(1.0 * present + rng.normal(0, 0.7), 1),
+                                 "y": round(rng.normal(0, 1), 1)})
+            frame = pd.DataFrame(rows)  # the sample's depth among the features: one knob for every sample (--depth-knobs)
+            frame["sample_log_fragments"] = np.round(np.log10(frame.groupby("meta_sample")["fragments"].transform("sum")), 2)
+            frame.to_csv(path, sep="\t", index=False)
+        cls.training = os.path.join(cls.tmp.name, "training.tsv")
+        cls.test = os.path.join(cls.tmp.name, "test.tsv")
+        table(cls.training, 30, 1)
+        table(cls.test, 8, 2)
+        # The training table's unseen species (collect_training_data.py's <table>.unseen.tsv): of the table's species and
+        # one it has no row of; the test table has none (missing).
+        cls.unseen = pd.DataFrame({"meta_design": "d", "meta_sample": [f"s1_{i}" for i in range(12)], "meta_scenario": "",
+                                   "taxon_name": [f"s__T {i * 5}" for i in range(11)] + ["s__T 999"], "marker_reads": 2})
+        cls.unseen.to_csv(os.path.join(cls.tmp.name, "training.unseen.tsv"), sep="\t", index=False)
+        cls.versions = os.path.join(cls.tmp.name, "versions.tsv")
+        with open(cls.versions, "w") as fh:
+            fh.write("feature\tversion\tchanged\tnote\nx\t2\t2026-10-15\tx's code\nfragments\t1\t2026-08-10\t\n"
+                     "other\t5\t\t\n")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def train(self, name, *extra):
+        """The trainer on the training table with the options `extra`, once per name -> (prefix, metrics, console)."""
+        if name not in self.trained:
+            prefix = os.path.join(self.tmp.name, name)
+            result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
+                                     self.training, "--output-prefix", prefix, "--features", "all", "--ntree", "16",
+                                     "--evaluation", "basic", "--threads", "1", "--depth-knobs", "--test-file", self.test,
+                                     *extra], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+            with open(prefix + ".metrics.json") as fh:
+                self.trained[name] = (prefix, json.load(fh), result.stdout)
+        return self.trained[name]
+
+    def test_headline(self):
+        prefix, metrics, stdout = self.train("crossed")
+        self.assertEqual(next(iter(metrics)), "headline")
+        headline = metrics["headline"]
+        self.assertEqual((headline["measure"], headline["scheme"]), ("marker truth", "samples+species"))
+        self.assertEqual(set(headline) - {"knob", "measure", "scheme", "notes"}, {"held_out", "held_out_species", "test"})
+        # Every present row has a marker read here: the marker truth is the rows' calls plus the unseen species as FN.
+        for key, h in ((k, headline[k]) for k in ("held_out", "held_out_species", "test")):
+            self.assertEqual((h["marker_truth_tp"], h["marker_truth_fp"]), (h["rows_tp"], h["rows_fp"]), key)
+            self.assertEqual(h["marker_truth_fn"], h["rows_fn"] + h["unseen"], key)
+            tp, fp, fn = h["marker_truth_tp"], h["marker_truth_fp"], h["marker_truth_fn"]
+            self.assertAlmostEqual(h["marker_truth_f1"], 2 * tp / (2 * tp + fp + fn), msg=key)
+        # Held out with samples and species: the unseen species of the scored cells; with species alone, all of them;
+        # the test table has no unseen table, which the headline says.
+        frame = self.trainer.load_table(self.training)
+        crossed = self.trainer.crossed_folds(frame, types.SimpleNamespace(folds=5, seed=1, cv_rotations=2))
+        self.assertEqual(headline["held_out"]["unseen"], int(crossed.unseen_scored(self.unseen).sum()))
+        self.assertEqual(headline["held_out"]["rows_scored"], crossed.scored)
+        self.assertEqual(headline["held_out_species"]["unseen"], len(self.unseen))
+        self.assertEqual(headline["held_out_species"]["rows_scored"], len(frame))
+        self.assertEqual(headline["test"]["unseen"], 0)
+        self.assertEqual(len(headline["notes"]), 1)
+        self.assertIn("independent test set: no ", headline["notes"][0])
+        self.assertIn("test.unseen.tsv", headline["notes"][0])
+        # First in report.txt, after the run's description; and first in the summary.
+        with open(prefix + ".report.txt") as fh:
+            report = fh.read()
+        self.assertLess(report.index("cross-validation folds fitted"), report.index("## Headline"))
+        self.assertEqual(report.index("\n## ") + 1, report.index("## Headline"), "the first section")
+        self.assertRegex(report, r"\nsamples and species held out \(\d+ of 750 rows scored\): marker-truth F1 [0-9.]+ "
+                                 r"\(TP \d+, FP \d+, FN \d+, \d+ of them unseen\); row-based F1 [0-9.]+ \(TP \d+, FP \d+, "
+                                 r"FN \d+\)\n")
+        summary = stdout[stdout.index("## Summary"):]
+        self.assertIn("\nspecies held out alone, as the decisions before 2026-10-15 (750 rows): marker-truth F1", summary)
+        self.assertIn("\nindependent test set (200 rows): marker-truth F1", summary)
+        self.assertIn("Note: independent test set: no ", summary)
+        # The evaluation: both schemes, the crossed one on its share of the rows; the knob chosen on it.
+        self.assertEqual(metrics["evaluation"]["samples+species"]["taxa"], crossed.scored)
+        self.assertEqual(metrics["evaluation"]["samples+species"]["fits"], 10)
+        self.assertEqual(metrics["evaluation"]["species"]["taxa"], len(frame))
+        self.assertEqual(metrics["cv_scheme"]["fits"], 10)
+        self.assertEqual(metrics["global_knob"]["scheme"], "samples+species")
+        self.assertEqual(metrics["global_knob"]["scored"], crossed.scored)
+        self.assertIsNotNone(metrics["global_knob"]["species_only"])
+        self.assertIn(("samples and species held out", "(all)"),
+                      {(r["set"], r["scenario"]) for r in metrics["marker_truth"]["rows"]})
+        # Every model's ranges over the training rows; no versions without --feature-versions.
+        ranges = read_feature_ranges(prefix + ".xml")
+        self.assertEqual(list(ranges), ["fragments", "x", "y", "sample_log_fragments"])
+        self.assertEqual(ranges["x"][0], frame["x"].min())
+        self.assertEqual(ranges["x"][3], frame["x"].max())
+        self.assertEqual(read_feature_versions(prefix + ".xml"), {})
+
+    def test_species_scheme_and_feature_versions(self):
+        prefix, metrics, stdout = self.train("species", "--cv-scheme", "species", "--feature-versions", self.versions)
+        headline = metrics["headline"]
+        self.assertEqual(headline["scheme"], "species")
+        self.assertEqual(set(headline) - {"knob", "measure", "scheme", "notes"}, {"held_out", "test"})
+        self.assertEqual(headline["held_out"]["estimate"], "species held out")
+        self.assertEqual(headline["held_out"]["unseen"], len(self.unseen))
+        self.assertNotIn("samples+species", metrics["evaluation"])
+        self.assertEqual(metrics["global_knob"]["scheme"], "species")
+        self.assertIsNone(metrics["global_knob"]["species_only"])
+        # The same species estimate as the crossed run's.
+        _, crossed, _ = self.train("crossed")
+        self.assertEqual(metrics["evaluation"]["species"], crossed["evaluation"]["species"])
+        self.assertEqual(headline["held_out"]["rows_scored"], crossed["headline"]["held_out_species"]["rows_scored"])
+        # --feature-versions: the model's features the file has, the others named.
+        self.assertEqual(read_feature_versions(prefix + ".xml"), {"fragments": "1", "x": "2"})
+        self.assertIn("feature versions (", stdout)
+        self.assertIn("2 of the 4 features in the model's header (protal_feature_versions); not in the file, so left "
+                      "out: y, sample_log_fragments", stdout)
+        self.assertEqual(metrics["model"]["feature_versions"], {"fragments": "1", "x": "2"})
+
+    def test_a_bad_versions_file_stops_at_once(self):
+        bad = os.path.join(self.tmp.name, "bad_versions.tsv")
+        with open(bad, "w") as fh:
+            fh.write("feature\tversion\nx\t1,2\n")
+        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
+                                 self.training, "--output-prefix", os.path.join(self.tmp.name, "bad"), "--feature-versions",
+                                 bad], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--feature-versions:", result.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "bad.metrics.json")))
 
 
 @prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)

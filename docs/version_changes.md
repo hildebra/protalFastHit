@@ -79,6 +79,18 @@ for this page.
   - **Stopping:** the reports' commands stop with the run, and nohup's SIGHUP is left ignored.
   - **Smaller fixes:** composition truth for single-end-only points, error-read folders cleared, ancestry sites without
     a hold-out, option checks.
+- **The trainer's F1, honestly** (2026-10-15; `machine_learning_cmdline.py`, protal runs the same; the
+  [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md)'s E2-E4, C1, C4;
+  [databases.md](databases.md#the-headline-the-decisions-folds-and-the-features-ranges-since-2026-10-15)):
+  - **The headline is the marker-truth F1:** first in each model's report and `metrics.json` (`headline`), held out and
+    on the test set, a present species without a row counted as missed; the row-based F1s beside it, labelled.
+  - **The decisions hold out the sample and the species together:** the knob, the knob curve, the calibrated calls and
+    `--features auto` (now by the F1 weighted as the fits) take folds that hold out both
+    (`--cv-scheme samples+species`; 2 rotations: 40% of the rows at twice species-CV's fits). Species held out alone is
+    reported beside it; `--cv-scheme species` decides as before.
+  - **No knob veto by the test set:** its F1 at the knob and at 0.5 is reported only.
+  - **The features' ranges in every model** (`protal_feature_ranges`) and, with `--feature-versions`, their code
+    versions (`protal_feature_versions`), for protal to check.
 
 ## What 0.8.4 adds
 

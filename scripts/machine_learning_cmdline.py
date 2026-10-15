@@ -18,14 +18,33 @@ The training table comes from collect_training_data.py: protal's training dumps
 sample (meta_sample) and, if known, the taxon's domain (meta_domain).
 
 Evaluation. Rows of one sample share its reads, and rows of one species share its reference, so a
-random split of rows scores a model on samples and species it was trained on. Here each row is
-scored by forests that saw neither its sample ("by sample") nor its species ("by species"), and,
-with --taxonomy and --evaluation full, by forests that saw no taxon of its genus, family, class or phylum. By species is
-what matters for a large database: of GTDB's ~130,000 species, a training set holds a few thousand,
-so most species protal meets in real samples were never in training; the clades tell how far that
-holds. A forest's out-of-bag estimate (each tree scores the rows it was not grown on) comes free with
-the fit; boosting has none. When the training database lacked species or whole clades (build_gtdb_database.py), the report
-also counts the false positives their reads cause, by the rank they were held out at.
+random split of rows scores a model on samples and species it was trained on. Here rows are scored by forests that saw
+not their sample ("by sample"), not their species ("by species"), neither of the two ("samples and species", --cv-scheme
+samples+species, since 2026-10-15) and, with --taxonomy and --evaluation full, no taxon of their genus, family, class or
+phylum. By species is what matters for a large database: of GTDB's ~130,000 species, a training set holds a few
+thousand, so most species protal meets in real samples were never in training; the clades tell how far that holds. By
+species alone a row's sample stays in training with its other taxa, and the sample-level features (sample_log_fragments,
+sample_identity, sample_read_length, ...: one value per sample) let trees learn a per-sample offset from them: at r226 v13
+the boosted model's shallow-soil hold-outs scored 0.881 against 0.931 once the depth was rounded
+(docs/claude/2026-10-06-r226-v13-soil; the audit's E4, docs/claude/2026-10-15-f1-audit-since-0.6.0a.md). The samples
+and the species are therefore dealt into --folds groups each (balanced by rows, by --seed; CrossedFolds), and fold (i, j)
+scores the rows of sample group i and species group j by a model fitted on the rows of neither: a rotation pairs every
+sample group with one species group, --folds fits that score 1/--folds of the rows; --cv-rotations (2) of them score
+2/--folds of the rows (each once) at twice the fits of by species, on 64% of the rows each (by species: 80%). This
+estimate takes the decisions: the knob (choose_global_knob), the knob curve over the depth, the calibration of
+--fdr-calls and --features auto; by species is still reported beside it (and in the build's summaries), so that builds
+compare. --cv-scheme species takes the decisions by species as before 2026-10-15. A forest's out-of-bag estimate (each
+tree scores the rows it was not grown on) comes free with the fit; boosting has none. When the training database lacked
+species or whole clades (build_gtdb_database.py), the report also counts the false positives their reads cause, by the
+rank they were held out at.
+
+The headline (since 2026-10-15; the audit's E3): the F1 over every truth species the marker genes can see, as protal
+calls by default, the first F1 of the report (section Headline, at its top) and of metrics.json ("headline": held_out,
+held_out_species, test, each with marker_truth_f1, marker_truth_tp, marker_truth_fp and marker_truth_fn): a present
+species whose genomes gave reads on a marker gene counts, found or missed, also when protal reported nothing of it and so
+wrote it no row (<table>.unseen.tsv, collect_training_data.py --gene_positions); the row-based F1s (taxa with a row only),
+which such a species does not lower, are given beside it as such. A table without the marker counts or an unseen table
+is said so in the headline, not left out silently.
 
 Written to PREFIX.*:
   xml                 the model (protal --model FILE, or protal --add_model FILE --read_type pe: model_pe.xml of a database)
@@ -57,13 +76,19 @@ evaluation); the earlier knobs by whole decade (bins 2-6, other bins at --knob's
 still reads, cost PacBio up to 0.016 on the v0.7.1 benchmark (docs/claude/2026-10-01-features-depth-knobs).
 build_gtdb_database.py passes it for every read type. With the sample's depth among the features (the default set)
 no curve is fitted, but one knob for every sample (choose_global_knob), in the model as a curve of one point: the
-median of the best thresholds with species held out over bootstrap resamples of the training samples, if it beats
---knob in 95% of them and, with --test-file, does not lose F1 on the test set (its rows weighted as the training rows)
-(since 2026-10-07; before, the best threshold if it gained 0.002, which near-equal models chose differently on a flat
-curve: r226 v12 pe 0.70, v15 0.80, se 0.73 in v14 and 0.5 in v15).
+median of the best thresholds held out (--cv-scheme) over bootstrap resamples of the training samples, if it beats
+--knob in 95% of them (since 2026-10-07; before, the best threshold if it gained 0.002, which near-equal models chose
+differently on a flat curve: r226 v12 pe 0.70, v15 0.80, se 0.73 in v14 and 0.5 in v15). The test set's F1 at it and
+at --knob is reported, but no longer vetoes it (until 2026-10-15 a knob that lost on the test set was dropped, and the
+same test set's F1 then reported: the audit's E2).
 
---fdr-calls calibrates the scores instead (an isotonic fit of presence on the scores of species held out) and
-chooses the target share of false calls per sample with the highest F1 on species held out: protal then reports in
+Feature versions and ranges (since 2026-10-15; the audit's C1 and C4): every model's header holds the range of each of
+its features over the rows the model was fitted on (protal_feature_ranges, "name:min:p01:p99:max,...", "%.9g") and,
+with --feature-versions (the table of `protal --feature_versions`), the version of the code that computed each
+(protal_feature_versions, "name:version,..."), which protal compares with its own (model_pmml.py).
+
+--fdr-calls calibrates the scores instead (an isotonic fit of presence on the scores held out, --cv-scheme) and
+chooses the target share of false calls per sample with the highest F1 held out: protal then reports in
 each sample the highest-scoring taxa while the mean of their 1 - probability, the probabilities adjusted to the
 sample's share of present candidates (Saerens et al. 2002), stays at or below it. A deep sample's many absent
 candidates lower that share and every probability with it, which a knob by depth only stands in for, and it holds
@@ -74,9 +99,10 @@ Scenarios (collect_training_data.py --scenarios, meta_scenario): the section "Sc
 false negative rates per scenario as protal calls, on its training samples (hold-in: in sample, and with their samples
 or species held out) and on its samples in --test-file (hold-out), which are kept out of the independent test set's
 section. Their rows weigh --scenario-weight (0.25) in every forest: at full weight, most of a GTDB build's rows, they
-shifted the design's calls (docs/claude/2026-10-05-r226-v12-scenarios). --features auto chooses the feature set with
-species held out (choose_feature_set): the forests of each candidate set's folds, about what the "Feature sets" study
-costs per set, which --evaluation full then reuses.
+shifted the design's calls (docs/claude/2026-10-05-r226-v12-scenarios). --features auto chooses the feature set held
+out (--cv-scheme; choose_feature_set), by the F1 with the rows weighted as in the fits (since 2026-10-15; unweighted
+before, so that the scenarios' rows counted four times what they weigh in the fits): the forests of each candidate set's
+folds, which the evaluation then reuses.
 
 Every call counted here leaves out the taxa protal's singleton rule vetoes (--singleton-congener, protal's
 --singleton_congener): one fragment beside a congener of 100 fragments or more, whose read looks like the congener's
@@ -94,6 +120,7 @@ import os
 import platform
 import sys
 import time
+import zlib
 
 import joblib
 import numpy as np
@@ -108,8 +135,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
 from model_features import (AUTO_FEATURE_SETS, AUTO_MIN_GAIN, DEFAULT_FEATURE_SET, FEATURE_SETS,  # noqa: E402
                             auto_candidates, feature_columns, feature_set_name, has_sample_depth)
-from model_pmml import (format_depth_knob_curve, load_model, read_depth_knob_curve, read_false_calls,  # noqa: E402
-                        write_model)
+from model_pmml import (FEATURE_NAME, feature_ranges_of, format_depth_knob_curve, format_feature_ranges,  # noqa: E402
+                        load_model, read_depth_knob_curve, read_false_calls, read_feature_ranges, read_feature_versions,
+                        read_feature_versions_file, write_model)
 
 # --model: a random forest (forest, the default) or gradient-boosted trees (gbm), and each one's defaults of the options that
 # shape it (--maxnodes, --min-samples-leaf; --ntree and --max-features are the forest's, --rounds, --learning-rate and
@@ -132,6 +160,15 @@ FOLD_JOBS, FOLD_JOB_THREADS = 1, 1  # set in train(): --fold-jobs and the thread
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
 CLADE_SCHEMES = ("genus", "family", "order", "class", "phylum")
+# --cv-scheme: the held-out estimate the decisions take (the knob, the knob curve, the calibrated calls, --features auto):
+# samples and species held out together (CROSSED, CrossedFolds; the default since 2026-10-15), or species alone (as
+# before). CV_ROTATIONS: the crossed folds' rotations by default, each --folds fits scoring 1/--folds of the rows, so
+# that the decisions cost about twice the fits of species held out (the audit's E4).
+CROSSED = "samples+species"
+CV_SCHEMES = (CROSSED, "species")
+CV_ROTATIONS = 2
+SCHEME_WORDS = {"rows": "rows held out", "samples": "samples held out", "species": "species held out",
+                CROSSED: "samples and species held out"}
 # --previous-procedure: the rows its grid search over max_features is run on at most, and its folds.
 PREVIOUS_GRID_ROWS = 20_000
 PREVIOUS_GRID_FOLDS = 3
@@ -194,6 +231,16 @@ CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_kept_ratio", "c
                   "conserved_hit_share", "excess_median"]
 TAXON_CLASSES = ["present, no congener held out", "present, beside a held-out congener",
                  "absent, congener of a held-out species", "absent, other"]
+
+
+def held_out_words(scheme):
+    """A held-out scheme in words: "species held out", "samples and species held out", "genus held out"."""
+    return SCHEME_WORDS.get(scheme, f"{scheme} held out")
+
+
+def decision_scheme(opts):
+    """The held-out scheme the decisions take (--cv-scheme; CROSSED for an opts without it)."""
+    return getattr(opts, "cv_scheme", CROSSED)
 
 
 def extra_test_spec(text):
@@ -268,6 +315,15 @@ def parse_args(argv=None):
     p.add_argument("--twin-distance", type=float, default=0.01,
                    help="--twin-weight's distance (default 0.01: a strain's distance on the marker genes)")
     p.add_argument("--folds", type=int, default=5)
+    p.add_argument("--cv-scheme", choices=CV_SCHEMES, default=CROSSED,
+                   help=f"the held-out estimate that chooses the knob, the knob curve, the calibrated calls and the "
+                        f"feature set (--features auto): {CROSSED} (default since 2026-10-15): each row scored by a model "
+                        "that saw neither its sample nor its species (CrossedFolds; see above); species: species held "
+                        "out alone, as before (the row's sample stays in training, and the sample-level features can "
+                        "learn it). Both are reported")
+    p.add_argument("--cv-rotations", type=int, default=CV_ROTATIONS,
+                   help=f"the {CROSSED} folds' rotations (default {CV_ROTATIONS}, at most --folds): each is --folds fits "
+                        "that score 1/--folds of the rows, so 2 score 2/--folds at twice the fits of species held out")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the clades held out (with --taxonomy) and the studies (see above); basic: by rows, "
                         "samples and species (and a forest's out of bag); none: fit and export only")
@@ -297,6 +353,11 @@ def parse_args(argv=None):
                         "--test-file's rows of the same samples: those all the tables have, so that they compare (since "
                         "2026-10-15; build_gtdb_database.py: the samples written to disk, which every sparse-first gate "
                         "profiled, not those streamed again only at the models' gates); default: each table's own")
+    p.add_argument("--feature-versions", metavar="FILE",
+                   help="the table of `protal --feature_versions` (tab-separated, a header line: feature, version, changed, "
+                        "note): the model's features' versions go into its header (protal_feature_versions, "
+                        "name:version,...), which protal compares with its own; features the file lacks are left out "
+                        "(and named in the report). Without it the model has no versions")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4,
                    help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
@@ -308,6 +369,8 @@ def parse_args(argv=None):
     for name, value in MODEL_DEFAULTS[opts.model].items():
         if getattr(opts, name) is None:
             setattr(opts, name, value)
+    if opts.cv_rotations < 1:
+        p.error("--cv-rotations must be at least 1")
     return opts
 
 
@@ -501,11 +564,107 @@ def fit_model(params, X, y, rows=None):
     return make_model(params).fit(X[rows], y[rows], sample_weight=row_weights(rows))
 
 
+def balanced_groups(sizes, k, rng):
+    """{key: group 0..k-1} of the keys of `sizes` ({key: rows}): in an order drawn by rng, the largest first (a stable
+    sort), each to the group with the fewest rows so far (the first of equals), so that the groups hold about as many rows
+    each (as GroupKFold's, but drawn by the seed)."""
+    keys = sorted(sizes)
+    keys = [keys[i] for i in rng.permutation(len(keys))]
+    keys.sort(key=lambda key: -sizes[key])
+    load, groups = np.zeros(k), {}
+    for key in keys:
+        group = int(np.argmin(load))
+        groups[key] = group
+        load[group] += sizes[key]
+    return groups
+
+
+def hashed_group(key, k, seed):
+    """The group of a key that the groups were not dealt over (an unseen table's species without a row): its seeded
+    hash, the same in every run."""
+    return zlib.crc32(f"{seed}\t{key}".encode()) % k
+
+
+class CrossedFolds:
+    """--cv-scheme samples+species (since 2026-10-15): folds that hold out a row's sample and its species together.
+
+    The table's samples (meta_sample) and species (taxon) are dealt into k groups each (balanced_groups, drawn by the
+    seed); fold (i, j) scores the rows of sample group i and species group j by a model fitted on the rows of neither
+    group i nor group j. Rotation r pairs every sample group i with species group (i + r) mod k: k fits that score 1/k
+    of the rows; `rotations` of them score rotations/k of the rows, each row once at most (a cell (i, j) is scored if
+    (j - i) mod k < rotations). By species alone (GroupKFold) a fold's test rows share their samples with its training
+    rows, whose sample-level features (one value per sample) let trees learn the sample (the audit's E4).
+
+    An unseen table's species (collect_training_data.py's <table>.unseen.tsv names them by taxon_name) take the group of
+    the table's taxon of that name; one the table has no row of, a group of its name's seeded hash (hashed_group); so do
+    samples without a row."""
+
+    def __init__(self, df, k, rotations, seed):
+        self.k, self.rotations, self.seed = k, rotations, seed
+        samples = df["meta_sample"].astype(str)
+        species = df["taxon"].astype(str)
+        self.sample_group = balanced_groups(samples.value_counts().to_dict(), k, np.random.default_rng([abs(seed), 1]))
+        self.species_group = balanced_groups(species.value_counts().to_dict(), k, np.random.default_rng([abs(seed), 2]))
+        self.taxon_of_name = {}
+        if "taxon_name" in df.columns:  # the names of one taxon each (a table's names are its species')
+            pairs = pd.DataFrame({"name": df["taxon_name"].astype(str), "taxon": species}).drop_duplicates()
+            single = pairs.groupby("name")["taxon"].transform("nunique") == 1
+            self.taxon_of_name = dict(zip(pairs.loc[single, "name"], pairs.loc[single, "taxon"]))
+        sg = samples.map(self.sample_group).to_numpy(dtype=int)
+        tg = species.map(self.species_group).to_numpy(dtype=int)
+        self.splits = []
+        for r in range(rotations):
+            for i in range(k):
+                j = (i + r) % k
+                test = np.flatnonzero((sg == i) & (tg == j))
+                if len(test):
+                    self.splits.append((np.flatnonzero((sg != i) & (tg != j)), test))
+        self.rows = len(df)
+        self.scored = int(sum(len(test) for _, test in self.splits))
+
+    def scored_cells(self, sample_groups, species_groups):
+        """Whether the cells (sample group, species group) are scored by a rotation."""
+        return ((np.asarray(species_groups) - np.asarray(sample_groups)) % self.k) < self.rotations
+
+    def unseen_scored(self, unseen):
+        """Of an unseen table's rows (meta_sample, taxon_name), those in a scored cell: the present species without a
+        row that the estimate counts as missed."""
+        if unseen is None or not len(unseen):
+            return np.zeros(0 if unseen is None else len(unseen), dtype=bool)
+        sg = [self.sample_group.get(s, hashed_group(s, self.k, self.seed)) for s in unseen["meta_sample"].astype(str)]
+        tg = []
+        for name in unseen["taxon_name"].astype(str):
+            taxon = self.taxon_of_name.get(name)
+            tg.append(self.species_group[taxon] if taxon in self.species_group else hashed_group(name, self.k, self.seed))
+        return self.scored_cells(sg, tg)
+
+    def describe(self):
+        """The folds in words."""
+        return (f"the samples and the species dealt into {self.k} groups each; {self.rotations} rotation"
+                f"{'s' if self.rotations > 1 else ''} of {self.k} folds ({len(self.splits)} fits), each fitted on the rows "
+                f"of neither its sample group nor its species group; {self.scored} of {self.rows} rows scored "
+                f"({100 * self.scored / max(1, self.rows):.0f}%)")
+
+
+def crossed_folds(df, opts):
+    """The table's CrossedFolds (k: --folds, at most the samples and the species; --cv-rotations, at most k), or None
+    without meta_sample or with fewer than 2 samples or species."""
+    if "meta_sample" not in df.columns or "taxon" not in df.columns:
+        return None
+    k = min(opts.folds, df["meta_sample"].nunique(), df["taxon"].nunique())
+    if k < 2:
+        return None
+    return CrossedFolds(df, k, max(1, min(getattr(opts, "cv_rotations", CV_ROTATIONS), k)), opts.seed)
+
+
 def folds(df, y, scheme, opts):
     """(train, test) index pairs; None if the table cannot be split that way."""
     if scheme == "rows":
         n = min(opts.folds, int(np.bincount(y).min()))
         return list(StratifiedKFold(n, shuffle=True, random_state=opts.seed).split(df, y)) if n >= 2 else None
+    if scheme == CROSSED:
+        crossed = crossed_folds(df, opts)
+        return crossed.splits if crossed is not None else None
     column = {"samples": "meta_sample", "species": "taxon"}.get(scheme, "meta_lineage_" + scheme)
     if column not in df.columns:
         return None
@@ -633,8 +792,13 @@ def threshold_table(y, p):
 # ---- report -----------------------------------------------------------------------------------------------
 
 class Report:
+    """The report, printed as it is written and saved (write) as PREFIX.report.txt and its numbers (data) as
+    PREFIX.metrics.json. The headline (set_headline: known only at the end) goes into report.txt where mark_headline
+    was called, after the run's description, and data["headline"] first into metrics.json."""
+
     def __init__(self):
         self.lines, self.data = [], {}
+        self.headline_at, self.headline_lines = None, []
 
     def section(self, title):
         self.add("")
@@ -647,11 +811,24 @@ class Report:
     def table(self, frame):
         self.add(frame.to_string(index=False, float_format=lambda v: f"{v:.4f}", na_rep="-"))
 
+    def mark_headline(self):
+        self.headline_at = len(self.lines)
+
+    def set_headline(self, lines):
+        self.headline_lines = list(lines)
+
     def write(self, prefix):
+        lines = self.lines
+        if self.headline_lines:
+            at = self.headline_at if self.headline_at is not None else 0
+            lines = lines[:at] + [""] + self.headline_lines + lines[at:]
         with open(prefix + ".report.txt", "w") as fh:
-            fh.write("\n".join(self.lines) + "\n")
+            fh.write("\n".join(lines) + "\n")
+        data = self.data
+        if "headline" in data:
+            data = {"headline": data["headline"], **{k: v for k, v in data.items() if k != "headline"}}
         with open(prefix + ".metrics.json", "w") as fh:
-            json.dump(self.data, fh, indent=1, default=_json_value)
+            json.dump(data, fh, indent=1, default=_json_value)
 
 
 def _json_value(value):
@@ -743,34 +920,49 @@ def held_out(p):
 
 
 def study_evaluation(report, df, X, y, opts, oob, known=None):
-    """Out of fold by rows, samples and species; returns the probabilities by scheme. known: probabilities of a
-    scheme already computed with the same folds and forests ({"species": ...} from choose_feature_set)."""
+    """Out of fold by rows, samples, species and (--cv-scheme samples+species) samples and species together; returns the
+    probabilities by scheme. known: probabilities of a scheme already computed with the same folds and forests
+    ({scheme: ...} from choose_feature_set)."""
     report.section(f"How well the model does on data it was not trained on (knob {opts.knob})")
+    crossed = crossed_folds(df, opts) if decision_scheme(opts) == CROSSED else None
     report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
                "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
-               "profiling real samples); genus, family, order, class, phylum (with --taxonomy and --evaluation full): "
+               "profiling real samples; the row's sample, with its other taxa, stays in training)"
+               + (f"; {CROSSED}: the row's sample and its species held out together ({crossed.describe()}: the "
+                  "estimate the knob and the other choices take)" if crossed is not None else "")
+               + "; genus, family, order, class, phylum (with --taxonomy and --evaluation full): "
                "whole clades held out, so the model saw no taxon of the row's clade (as for taxa of clades the training "
                "data barely cover)." + (" out of bag: each row scored by the trees not grown on it." if oob is not None
-                                        else ""))
+                                        else "") + " taxa: the rows scored; F1: of these rows only (the headline's "
+               "marker-truth F1 also counts the present species without a row).")
     params = model_params(opts)
     p = {"out of bag": oob} if oob is not None else {}
+    fits = {}
     # The clade ranks only with --evaluation full: 25 fits that the build's summary does not read (at r226 v13 their F1
     # within 0.0004 of each other; docs/claude/2026-10-06-training-time).
-    for scheme in ("rows", "samples", "species", *(CLADE_SCHEMES if opts.evaluation == "full" else ())):
-        if known and scheme in known:
-            p[scheme] = known[scheme]
+    for scheme in ("rows", "samples", "species", *((CROSSED,) if crossed is not None else ()),
+                   *(CLADE_SCHEMES if opts.evaluation == "full" else ())):
+        splits = crossed.splits if scheme == CROSSED else folds(df, y, scheme, opts)
+        if splits is None:
             continue
-        splits = folds(df, y, scheme, opts)
-        if splits is not None:
-            p[scheme] = predict_out_of_fold(X, y, splits, params)
+        fits[scheme] = len(splits)
+        p[scheme] = known[scheme] if known and scheme in known else predict_out_of_fold(X, y, splits, params)
     rows = [({"held out": k}, metrics(y, v, df, opts.knob)) for k, v in p.items()]
+    for label, m in rows:
+        if label["held out"] in fits:
+            m["fits"] = fits[label["held out"]]
     if "probability" in df.columns:
         p["collection model"] = df["probability"].to_numpy(dtype=float)
         rows.append(({"held out": "collection model"}, metrics(y, p["collection model"], df, opts.knob)))
     report.table(metrics_table(rows))
     report.add("collection model: the model that profiled the training samples (their dumps' probability), "
-               "e.g. the model shipped with protal.")
+               "e.g. the model shipped with protal. Fits: " + ", ".join(f"{k} {n}" for k, n in fits.items())
+               + (f" ({', '.join(known)}: the feature choice's, reused)" if known else "") + ".")
     report.data["evaluation"] = {label["held out"]: m for label, m in rows}
+    if crossed is not None:
+        report.data["cv_scheme"] = {"scheme": CROSSED, "groups": crossed.k, "rotations": crossed.rotations,
+                                    "fits": len(crossed.splits), "rows_scored": crossed.scored, "rows": crossed.rows,
+                                    "species_fits": fits.get("species")}
     return p
 
 
@@ -1194,26 +1386,10 @@ def f1_of_counts(counts):
     return np.where(tp > 0, 2 * tp / np.maximum(2 * tp + fp + fn, 1e-12), 0.0)
 
 
-def choose_global_knob(report, df, y, p, opts, test=None):
-    """--depth-knobs with the sample's depth a feature: no curve (the model knows the depth), but one knob for every
-    sample. Since 2026-10-07 it is the median of the best thresholds (DEPTH_KNOB_GRID) of KNOB_RESAMPLES bootstrap
-    resamples of the training samples, scored with species held out and the rows weighted as in the fits, kept if it
-    beats --knob in KNOB_SUPPORT of the resamples and, with a test set (test: its truth, the final model's scores and the
-    rows' weights as the training rows', the design's test samples and the scenarios' hold-out samples), does not lose F1
-    there. Before, the single best threshold was kept if it gained DEPTH_KNOB_MIN_GAIN: a flat curve made near-equal
-    models choose 0.5 or 0.73 (se at r226 v14 and v15), and nothing checked the knob on other samples
-    (docs/claude/2026-10-07-r226-v15). -> the knob, or None (protal calls at --knob)."""
-    report.section("Knob (species held out)")
-    report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the model's score already "
-               "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
-               "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead: the median "
-               f"of the best thresholds of {KNOB_RESAMPLES} bootstrap resamples of the training samples (species held "
-               f"out, rows weighted as in the fits), if it beats --knob in {KNOB_SUPPORT:.0%} of them and does not lose "
-               "F1 on the test set.")
-    scores = p.get("species")
-    if scores is None:
-        report.add("no scores with species held out: protal calls at --knob")
-        return None
+def global_knob(df, y, scores, opts):
+    """The knob for every sample of held-out `scores` (choose_global_knob): {"knob" (None: protal calls at --knob),
+    "best", "median", "support", "gain", "range", "F1_at_knob", "F1_best", "scored" (the rows with a score), "rows" (the
+    F1 at --knob, the median and the best)}."""
     ok = ~np.isnan(scores)
     scores = call_scores(df, scores)[ok]  # the singleton rule's rows are never called
     yy = y[ok]
@@ -1232,15 +1408,6 @@ def choose_global_knob(report, df, y, p, opts, test=None):
     j = int(np.argmin(np.abs(grid - np.median(bests))))
     median = float(grid[j])
     support = float((boot[:, j] > boot[:, at]).mean())
-    gain = float(whole[j] - whole[at])
-    knob = median if support >= KNOB_SUPPORT and j != at else None
-    tested = None
-    if knob is not None and test is not None:
-        ty, tscores, tweights = test
-        tested = {"F1_at_knob": weighted_f1(ty, tscores >= knob, tweights),
-                  "F1_at_default": weighted_f1(ty, tscores >= opts.knob, tweights), "rows": int(len(ty))}
-        if (tested["F1_at_knob"] or 0) < (tested["F1_at_default"] or 0):
-            knob = None
     design = scenario_of(df)[ok] == ""
     rows = []
     for label, t in ((f"--knob {opts.knob}", opts.knob), (f"median {median:.2f}", median), (f"best {best:.2f}", best)):
@@ -1248,35 +1415,81 @@ def choose_global_knob(report, df, y, p, opts, test=None):
         rows.append({"knob": label, "F1 (weighted)": weighted_f1(yy, call, weights), "F1 design rows": f1_of(yy[design], call[design]),
                      "F1 scenario rows": f1_of(yy[~design], call[~design]) if (~design).any() else None,
                      "FP": int((call & (yy == 0)).sum()), "FN": int((~call & (yy == 1)).sum())})
-    report.table(pd.DataFrame(rows))
-    spread = f"the resamples' best thresholds {np.quantile(bests, 0.05):.2f}-{np.quantile(bests, 0.95):.2f} (5-95%)"
-    on_test = (f"; on the test set ({tested['rows']} rows, weighted) F1 {tested['F1_at_knob']:.4f} at it, "
-               f"{tested['F1_at_default']:.4f} at {opts.knob}" if tested and tested["F1_at_knob"] is not None else "")
+    return {"knob": median if support >= KNOB_SUPPORT and j != at else None, "best": best, "median": median,
+            "support": support, "gain": float(whole[j] - whole[at]),
+            "range": [float(np.quantile(bests, 0.05)), float(np.quantile(bests, 0.95))],
+            "F1_at_knob": float(whole[at]), "F1_best": float(whole.max()), "scored": int(ok.sum()), "rows": rows}
+
+
+def choose_global_knob(report, df, y, p, opts, test=None):
+    """--depth-knobs with the sample's depth a feature: no curve (the model knows the depth), but one knob for every
+    sample. Since 2026-10-07 it is the median of the best thresholds (DEPTH_KNOB_GRID) of KNOB_RESAMPLES bootstrap
+    resamples of the training samples, scored held out (--cv-scheme: samples and species since 2026-10-15, species
+    before) and the rows weighted as in the fits, kept if it beats --knob in KNOB_SUPPORT of the resamples (global_knob).
+    Before, the single best threshold was kept if it gained DEPTH_KNOB_MIN_GAIN: a flat curve made near-equal models
+    choose 0.5 or 0.73 (se at r226 v14 and v15; docs/claude/2026-10-07-r226-v15). The test set (test: its truth, the
+    final model's scores and the rows' weights as the training rows', the design's test samples and the scenarios'
+    hold-out samples) is scored at the knob and at --knob for the report only: until 2026-10-15 a knob that lost there was
+    dropped, and the same test set's F1 then reported as independent (the audit's E2). With --cv-scheme samples+species
+    the knob of species held out alone is reported beside it. -> the knob, or None (protal calls at --knob)."""
+    scheme = decision_scheme(opts)
+    report.section(f"Knob ({held_out_words(scheme)})")
+    report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the model's score already "
+               "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
+               "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead: the median "
+               f"of the best thresholds of {KNOB_RESAMPLES} bootstrap resamples of the training samples "
+               f"({held_out_words(scheme)}, rows weighted as in the fits), if it beats --knob in {KNOB_SUPPORT:.0%} of "
+               "them. The test set does not choose: its F1 is given for information.")
+    scores = p.get(scheme)
+    if scores is None:
+        report.add(f"no scores with {held_out_words(scheme)}: protal calls at --knob")
+        return None
+    chosen = global_knob(df, y, scores, opts)
+    knob, median, support, gain = chosen["knob"], chosen["median"], chosen["support"], chosen["gain"]
+    tested = None
+    if test is not None:
+        ty, tscores, tweights = test
+        tested = {"knob": knob if knob is not None else float(opts.knob),
+                  "F1_at_knob": weighted_f1(ty, tscores >= (knob if knob is not None else opts.knob), tweights),
+                  "F1_at_default": weighted_f1(ty, tscores >= opts.knob, tweights),
+                  "F1_at_median": weighted_f1(ty, tscores >= median, tweights), "rows": int(len(ty))}
+    report.table(pd.DataFrame(chosen["rows"]))
+    spread = f"the resamples' best thresholds {chosen['range'][0]:.2f}-{chosen['range'][1]:.2f} (5-95%)"
+    scored = f"{chosen['scored']} of {len(y)} rows scored"
     if knob is not None:
         report.add(f"knob {knob:g} for every sample: {gain:.4f} of F1 above {opts.knob}, better in {support:.0%} of the "
-                   f"resamples; {spread}{on_test}")
-    elif tested is not None:
-        report.add(f"protal calls at --knob {opts.knob}: the median threshold, {median:.2f}, beats it in {support:.0%} "
-                   f"of the resamples but loses on the test set{on_test}; {spread}")
+                   f"resamples; {spread}; {scored}")
     else:
         report.add(f"protal calls at --knob {opts.knob}: the median threshold, {median:.2f}, beats it in {support:.0%} "
-                   f"of the resamples ({gain:.4f} of F1), fewer than {KNOB_SUPPORT:.0%}; {spread}")
-    report.data["global_knob"] = {"knob": knob, "best": best, "median": median, "support": support, "gain": gain,
-                                  "range": [float(np.quantile(bests, 0.05)), float(np.quantile(bests, 0.95))],
-                                  "F1_at_knob": float(whole[at]), "F1_best": float(whole.max()), "test": tested,
-                                  "rows": rows}
+                   f"of the resamples ({gain:.4f} of F1), fewer than {KNOB_SUPPORT:.0%}; {spread}; {scored}")
+    if tested and tested["F1_at_knob"] is not None:
+        report.add(f"on the test set ({tested['rows']} rows, weighted; for information, it does not choose): F1 "
+                   + (f"{tested['F1_at_knob']:.4f} at the knob {knob:g}, {fmt(tested['F1_at_default'], 4)} at {opts.knob}"
+                      if knob is not None else
+                      f"{fmt(tested['F1_at_default'], 4)} at {opts.knob} (no knob chosen; at the median threshold "
+                      f"{median:.2f} {fmt(tested['F1_at_median'], 4)})"))
+    species_only = None
+    if scheme != "species" and p.get("species") is not None:  # the knob as chosen before 2026-10-15, to compare
+        species_only = global_knob(df, y, p["species"], opts)
+        species_only.pop("rows")
+        report.add(f"with species held out alone (--cv-scheme species, the decisions before 2026-10-15): "
+                   + (f"knob {species_only['knob']:g}" if species_only["knob"] is not None else f"--knob {opts.knob}")
+                   + f" (median {species_only['median']:.2f}, better than {opts.knob} in {species_only['support']:.0%} "
+                   f"of the resamples, {species_only['gain']:.4f} of F1; {species_only['scored']} rows scored)")
+    report.data["global_knob"] = {**chosen, "scheme": scheme, "test": tested, "species_only": species_only}
     return knob
 
 
 def study_depth_knobs(report, df, X, y, p, opts):
-    """--depth-knobs: a knob curve over the sample's depth (DEPTH_KNOB_STEP and the rest above), on species held out;
+    """--depth-knobs: a knob curve over the sample's depth (DEPTH_KNOB_STEP and the rest above), held out (--cv-scheme);
     returns [(log10 fragments, knob)]."""
-    report.section("Knobs by sample depth (species held out)")
-    scores = p.get("species")
+    scheme = decision_scheme(opts)
+    report.section(f"Knobs by sample depth ({held_out_words(scheme)})")
+    scores = p.get(scheme)
     if scores is None:
-        splits = folds(df, y, "species", opts)
+        splits = folds(df, y, scheme, opts)
         if splits is None:
-            report.add("the table cannot hold out species: no depth knobs")
+            report.add(f"the table cannot be split with {held_out_words(scheme)}: no depth knobs")
             return []
         scores = predict_out_of_fold(X, y, splits, model_params(opts))
     depths = sample_depths(df)
@@ -1309,11 +1522,11 @@ def study_depth_knobs(report, df, X, y, p, opts):
     report.table(pd.DataFrame(rows))
     at_knob = f1_of(y[ok], scores[ok] >= opts.knob)
     with_knobs = f1_of(y[ok], depth_knob_calls(scores[ok], depths[ok], curve, opts.knob))
-    report.add(f"F1 of species held out: {fmt(at_knob, 4)} at {opts.knob}, {fmt(with_knobs, 4)} at the knob curve "
-               f"({format_depth_knob_curve(curve) or 'none'}). The knobs are chosen on these calls, so the second is "
-               "optimistic; the test set (--test-file) tells.")
+    report.add(f"F1 with {held_out_words(scheme)} ({int(ok.sum())} of {len(y)} rows scored): {fmt(at_knob, 4)} at "
+               f"{opts.knob}, {fmt(with_knobs, 4)} at the knob curve ({format_depth_knob_curve(curve) or 'none'}). The "
+               "knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.")
     report.data["depth_knobs"] = {"curve": [[x, k] for x, k in curve], "points": rows,
-                                  "F1_at_knob": at_knob, "F1_at_depth_knobs": with_knobs}
+                                  "F1_at_knob": at_knob, "F1_at_depth_knobs": with_knobs, "scheme": scheme}
     return curve
 
 
@@ -1402,20 +1615,24 @@ class FalseCallSamples:
 
 
 def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
-    """--fdr-calls: the calibration (fit_calibration) on species held out, and the target share of false calls per sample
-    (FDR_GRID) with the highest F1 there; returns {"curve", "prior", "fdr"}, or None if species cannot be held out."""
-    report.section("Calls at a target share of false calls (species held out)")
-    scores = p.get("species")
+    """--fdr-calls: the calibration (fit_calibration) held out (--cv-scheme), and the target share of false calls per
+    sample (FDR_GRID) with the highest F1 there; returns {"curve", "prior", "fdr"}, or None if the table cannot be split
+    so. With samples and species held out each sample has the rows of a share of its species scored, and its prior is
+    adjusted over those."""
+    scheme = decision_scheme(opts)
+    report.section(f"Calls at a target share of false calls ({held_out_words(scheme)})")
+    scores = p.get(scheme)
     if scores is None:
-        splits = folds(df, y, "species", opts)
+        splits = folds(df, y, scheme, opts)
         if splits is None:
-            report.add("the table cannot hold out species: no calibrated calls")
+            report.add(f"the table cannot be split with {held_out_words(scheme)}: no calibrated calls")
             return None
         scores = predict_out_of_fold(X, y, splits, model_params(opts))
     curve, prior = fit_calibration(y, scores)
     ok = ~np.isnan(scores)
     q = calibrated(curve, scores[ok])
-    report.add(f"calibration: an isotonic fit of presence on the scores of species held out, {len(curve)} points; log loss "
+    report.add(f"calibration: an isotonic fit of presence on the scores with {held_out_words(scheme)} ({int(ok.sum())} "
+               f"of {len(y)} rows), {len(curve)} points; log loss "
                f"{log_loss(y[ok], np.clip(scores[ok], 1e-6, 1 - 1e-6)):.4f} of the scores, "
                f"{log_loss(y[ok], np.clip(q, 1e-6, 1 - 1e-6)):.4f} calibrated; {prior:.4f} of the rows present")
     prepared = FalseCallSamples(df, y, scores, curve, prior)
@@ -1433,7 +1650,7 @@ def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
     at_knob = f1_of(y[ok], call_scores(df, scores)[ok] >= opts.knob)
     with_curve = (f1_of(y[ok], depth_knob_calls(call_scores(df, scores)[ok], sample_depths(df)[ok], depth_knobs, opts.knob))
                   if depth_knobs else None)
-    report.add(f"F1 of species held out: {fmt(at_knob, 4)} at {opts.knob}"
+    report.add(f"F1 with {held_out_words(scheme)}: {fmt(at_knob, 4)} at {opts.knob}"
                + (f", {fmt(with_curve, 4)} at the knob curve" if with_curve is not None else "")
                + f", {best['F1']:.4f} at a target of {best['target']} (chosen on these calls, so optimistic; the test set "
                  "tells)")
@@ -1442,7 +1659,8 @@ def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
         report.add(f"the samples' share of present taxa after adjustment: median {np.median(priors):.3f} "
                    f"(range {min(priors):.3f}-{max(priors):.3f}; {prior:.3f} over all rows)")
     report.data["false_calls"] = {"curve": [[x, v] for x, v in curve], "prior": prior, "fdr": best["target"],
-                                  "targets": rows, "F1": best["F1"], "F1_at_knob": at_knob, "F1_at_depth_knobs": with_curve}
+                                  "targets": rows, "F1": best["F1"], "F1_at_knob": at_knob, "F1_at_depth_knobs": with_curve,
+                                  "scheme": scheme}
     return {"curve": curve, "prior": prior, "fdr": best["target"]}
 
 
@@ -1460,7 +1678,8 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
     if "probability" in test.columns:
         rows.append(({"model": "collection model"}, metrics(y, test["probability"].to_numpy(dtype=float), test, opts.knob)))
     report.add(f"{len(test)} taxa in {test['meta_sample'].nunique() if 'meta_sample' in test else 1} samples, "
-               f"{int(y.sum())} present")
+               f"{int(y.sum())} present; F1 here: of the taxa with a row only (the headline's marker-truth F1 also counts "
+               "the present species without a row)")
     report.table(metrics_table(rows))
     report.data["test"] = {label["model"]: m for label, m in rows}
     cs = call_scores(test, p)  # the singleton rule's rows are never called
@@ -1601,9 +1820,12 @@ def study_threshold(report, df, y, p, opts, prefix):
 
 
 def study_features(report, df, y, opts, cols, known=None):
-    """The named feature sets held out by rows and by species. known: {set: probabilities with species held out}
-    that choose_feature_set computed with the same folds and forests (not computed again)."""
-    report.section("Feature sets (held out by rows and by species)")
+    """The named feature sets held out by rows, by species and by the decisions' scheme (--cv-scheme). known: {set:
+    probabilities held out by --cv-scheme} that choose_feature_set computed with the same folds and forests (not
+    computed again)."""
+    decision = decision_scheme(opts)
+    schemes = ("rows", "species") + ((decision,) if decision not in ("rows", "species") else ())
+    report.section(f"Feature sets (held out by {', '.join(schemes)})")
     report.add("A feature set that does much better on rows than on species has learned the training species.")
     sets = {}
     for name in FEATURE_SETS:
@@ -1615,11 +1837,13 @@ def study_features(report, df, y, opts, cols, known=None):
     for name, set_cols in sets.items():
         check_features(df, set_cols)
         X = df[set_cols].to_numpy(dtype=np.float64)
-        for scheme in ("rows", "species"):
-            if scheme == "species" and known and name in known:
+        for scheme in schemes:
+            if scheme == decision and known and name in known:
                 rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
                              metrics(y, known[name], df, opts.knob)))
                 continue
+            if scheme == decision and scheme not in ("rows", "species"):  # not a candidate of --features auto: its
+                continue                                                  # crossed folds are not worth the fits here
             splits = folds(df, y, scheme, opts)
             if splits is not None:
                 rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
@@ -1630,17 +1854,21 @@ def study_features(report, df, y, opts, cols, known=None):
 
 def choose_feature_set(report, df, y, opts, held_out=()):
     """--features auto: each candidate set (model_features.auto_candidates; those the table lacks columns of are left
-    out) scored with species held out (the folds and forests of the evaluation, so that its scores are reused), the
-    one of highest F1 at the knob chosen, but the default set unless another beats it by AUTO_MIN_GAIN (smaller gains
-    changed between fits and test sets at r226, as the depth knobs' did). held_out: [(label, table)] of samples never
+    out) scored held out (--cv-scheme: samples and species since 2026-10-15, species before; the folds and forests of
+    the evaluation, so that its scores are reused), the one of highest F1 at the knob chosen, but the default set unless
+    another beats it by AUTO_MIN_GAIN (smaller gains changed between fits and test sets at r226, as the depth knobs'
+    did). The F1 that chooses weighs each row as the fits do (row_weights: the scenarios' rows by --scenario-weight;
+    since 2026-10-15, unweighted before), F1 unweighted is given beside it. held_out: [(label, table)] of samples never
     trained on (the independent test set, the scenarios' hold-out samples), each candidate's model fitted on all rows
     scores them for the report; they do not choose, or their scores would no longer be held out. -> (set, its columns,
-    {set: probabilities with species held out}, the chosen set's model fitted on all rows or None: the final model,
-    when its settings are the same)."""
-    report.section(f"Feature set chosen (--features {opts.features}, species held out)")
-    splits = folds(df, y, "species", opts)
+    {set: probabilities held out}, the chosen set's model fitted on all rows or None: the final model, when its settings
+    are the same)."""
+    scheme = decision_scheme(opts)
+    report.section(f"Feature set chosen (--features {opts.features}, {held_out_words(scheme)})")
+    splits = folds(df, y, scheme, opts)
     if splits is None:
-        sys.exit("--features auto scores the feature sets with species held out, and the table has too few species")
+        sys.exit(f"--features auto scores the feature sets with {held_out_words(scheme)}, and the table has too few "
+                 "samples or species")
     rows, known, columns, fitted = [], {}, {}, {}
     for name in auto_candidates(opts.features):
         try:
@@ -1655,8 +1883,11 @@ def choose_feature_set(report, df, y, opts, held_out=()):
         X = df[cols].to_numpy(dtype=np.float64)
         known[name], columns[name] = predict_out_of_fold(X, y, splits, model_params(opts)), cols
         m = metrics(y, known[name], df, opts.knob)
-        row = {"features": name, "n": len(cols), "F1": m["F1"], "AP": m["AP"], "log_loss": m["log_loss"],
-               "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"], "FN": m["FN"]}
+        ok = np.flatnonzero(~np.isnan(known[name]))
+        weighted = weighted_f1(y[ok], call_scores(df, known[name])[ok] >= opts.knob, row_weights(ok))
+        row = {"features": name, "n": len(cols), "F1": weighted, "F1 unweighted": m["F1"], "AP": m["AP"],
+               "log_loss": m["log_loss"], "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"],
+               "FN": m["FN"]}
         if held_out:
             rf = fitted[name] = fit_model(model_params(opts), X, y)
             for label, table in held_out:
@@ -1682,7 +1913,7 @@ def choose_feature_set(report, df, y, opts, held_out=()):
         theirs = [r[column] for r in others if r.get(column) is not None]
         return mine, (float(np.mean(theirs)) if theirs else None)
     mine, mean = against("F1")
-    why = f"F1 {fmt(mine, 4)} with species held out"
+    why = f"F1 {fmt(mine, 4)} with {held_out_words(scheme)} (rows weighted as in the fits)"
     if others:
         top = max(others, key=lambda r: f1[r["features"]])
         why += (f", the other {len(others)} sets {fmt(mean, 4)} on average (the best of them {top['features']} "
@@ -1697,7 +1928,8 @@ def choose_feature_set(report, df, y, opts, held_out=()):
                (" The F1 columns of samples never trained on are scored by each set's model fitted on all rows, for "
                 "comparison only: they do not choose." if held_out else ""))
     report.data["features_auto"] = {"candidates": rows, "chosen": chosen, "best": best, "default": default,
-                                    "min_gain": AUTO_MIN_GAIN, "why": why, "others_mean_F1": mean,
+                                    "min_gain": AUTO_MIN_GAIN, "why": why, "others_mean_F1": mean, "scheme": scheme,
+                                    "fits_per_set": len(splits), "weighted": ROW_WEIGHTS is not None,
                                     "held_out": {label: {"F1": m, "others_mean_F1": o} for label, m, o in tests}}
     return chosen, columns[chosen], known, fitted.get(chosen)
 
@@ -1720,25 +1952,46 @@ def default_calls(frame, p, opts, depth_knobs=None):
 MARKER_COLUMN = "meta_marker_reads"  # collect_training_data.py --gene_positions: a present taxon's reads on a marker gene
 
 
+def unseen_path(path_arg, table_path):
+    """The unseen table of a table (--unseen-file, --test-unseen-file): the file given, or with auto the one beside the
+    table (<table>.unseen.tsv); None for none (or auto beside a table not named .tsv)."""
+    if path_arg == "auto":
+        return table_path[:-len(".tsv")] + ".unseen.tsv" if table_path and table_path.endswith(".tsv") else None
+    return None if not path_arg or path_arg == "none" else path_arg
+
+
 def unseen_rows(path_arg, table_path):
     """A table's present species of the database with reads on a marker gene but no row (collect_training_data.py's
     <table>.unseen.tsv): the file given, or with auto the one beside the table; None without one."""
-    path = path_arg
-    if path_arg == "auto":
-        path = table_path[:-len(".tsv")] + ".unseen.tsv" if table_path and table_path.endswith(".tsv") else None
-    if not path or path == "none" or not os.path.isfile(path):
+    path = unseen_path(path_arg, table_path)
+    if not path or not os.path.isfile(path):
         return None
-    return pd.read_csv(path, sep="\t", dtype={"meta_scenario": str, "meta_sample": str}, keep_default_na=False)
+    return pd.read_csv(path, sep="\t", dtype={"meta_scenario": str, "meta_sample": str, "taxon_name": str},
+                       keep_default_na=False)
+
+
+def unseen_note(path_arg, table_path, label):
+    """Why a table's present species without a row are not counted (None when they are: its unseen table is there)."""
+    path = unseen_path(path_arg, table_path)
+    if path_arg == "none":
+        return f"{label}: unseen species not counted (none given): present species without a row are left out"
+    if not path:
+        return f"{label}: no unseen table known for {table_path}: present species without a row are left out"
+    if not os.path.isfile(path):
+        return (f"{label}: no {path} (collect_training_data.py --gene_positions writes it): present species without a "
+                "row are left out, so its marker-truth F1 is optimistic")
+    return None
 
 
 def marker_truth_row(label, frame, y, p, opts, depth_knobs, unseen):
     """A row of the marker truth's table: the calls protal makes by default on these rows (default_calls), scored with
     the simulation's truth and with the species whose marker genes got reads only. A present taxon without any such
     read (meta_marker_reads 0: present, but not in the marker genes) is left out, called or not; one not counted (no
-    gene positions for its genome) is kept; `unseen` present species with such reads but no row count as missed."""
+    gene positions for its genome) is kept; `unseen` present species with such reads but no row count as missed. The
+    calls are made over all rows (a knob curve at the depth of each whole sample), then those with a score kept."""
     ok = ~np.isnan(p)
-    frame, y, p = frame[ok], y[ok], p[ok]
     _, _, call = default_calls(frame, p, opts, depth_knobs)
+    frame, y, p, call = frame[ok], y[ok], p[ok], call[ok]
     markers = pd.to_numeric(frame[MARKER_COLUMN], errors="coerce").to_numpy(dtype=float)
     blind = (y == 1) & (markers < 1)  # unknown (NaN) compares False: kept
     tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
@@ -1755,24 +2008,42 @@ def marker_truth_row(label, frame, y, p, opts, depth_knobs, unseen):
             "sensitivity markers": tp_m / (tp_m + fn_m) if tp_m + fn_m else None}
 
 
-def study_marker_truth(report, df, p_species, test, test_p, opts, depth_knobs, unseen_training, unseen_test):
-    """F1 over the species the marker genes can see (collect_training_data.py --gene_positions): as protal calls by
-    default, with species held out (all training rows, the design's, each scenario's hold-in samples), on the
-    independent test set and on each scenario's hold-out samples; beside the F1 with the simulation's truth."""
+def marker_truth_available(df, test):
+    """None if the tables (training, and test if any) count the present taxa's marker reads (MARKER_COLUMN), else why
+    not."""
     frames = [f for f in (df, test) if f is not None]
-    if not frames or not all(MARKER_COLUMN in f.columns for f in frames):
-        return
-    counted = any(pd.to_numeric(f[MARKER_COLUMN], errors="coerce").notna().any() for f in frames)
-    if not counted:
+    if not frames:
+        return "no table"
+    if not all(MARKER_COLUMN in f.columns for f in frames):
+        return f"the tables have no {MARKER_COLUMN} column (collected by an older collect_training_data.py)"
+    if not any(pd.to_numeric(f[MARKER_COLUMN], errors="coerce").notna().any() for f in frames):
+        return f"the tables' {MARKER_COLUMN} are empty (collected without --gene_positions)"
+    return None
+
+
+def study_marker_truth(report, df, p, test, test_p, opts, depth_knobs, unseen_training, unseen_test):
+    """F1 over the species the marker genes can see (collect_training_data.py --gene_positions): as protal calls by
+    default, held out (p: probabilities by scheme; with samples and species held out over all training rows, with
+    species held out over all of them, the design's and each scenario's hold-in samples), on the independent test set
+    and on each scenario's hold-out samples; beside the F1 with the simulation's truth. With samples and species held out
+    the unseen species count in the cells the folds score (CrossedFolds.unseen_scored). -> {(set, scenario): row}."""
+    missing = marker_truth_available(df, test)
+    if missing:
         report.add("")
-        report.add(f"marker truth: the tables' {MARKER_COLUMN} are empty (collected without --gene_positions)")
-        return
+        report.add(f"marker truth: {missing}")
+        return {}
 
     def unseen_of(table, scenario=None):
         if table is None:
             return 0
         return int(len(table) if scenario is None else (table["meta_scenario"].fillna("") == scenario).sum())
     rows = []
+    p_species = (p or {}).get("species")
+    if (p or {}).get(CROSSED) is not None:
+        crossed = crossed_folds(df, opts)
+        unseen = int(crossed.unseen_scored(unseen_training).sum()) if unseen_training is not None else 0
+        rows.append(marker_truth_row({"set": held_out_words(CROSSED), "scenario": "(all)"}, df, df["truth"].to_numpy(),
+                                     p[CROSSED], opts, depth_knobs, unseen))
     if p_species is not None:
         y, names = df["truth"].to_numpy(), scenario_of(df)
         rows.append(marker_truth_row({"set": "species held out", "scenario": "(all)"}, df, y, p_species, opts,
@@ -1792,7 +2063,7 @@ def study_marker_truth(report, df, p_species, test, test_p, opts, depth_knobs, u
                                               "scenario": name or "(design)"}, test[mask], y[mask], test_p[mask], opts,
                                              depth_knobs, unseen_of(unseen_test, name)))
     if not rows:
-        return
+        return {}
     report.section("Marker truth: the species whose marker genes got reads")
     report.add(f"At the model's {knob_label(depth_knobs, opts.knob)}, as protal calls by default. F1: with the "
                "simulation's truth (every species simulated in the sample); F1 markers: with only the species whose "
@@ -1801,16 +2072,99 @@ def study_marker_truth(report, df, p_species, test, test_p, opts, depth_knobs, u
                "species with such reads but no row (unseen, <table>.unseen.tsv) count as missed. present, not counted: "
                "taxa whose genomes have no gene positions, kept as present.")
     report.table(pd.DataFrame(rows))
+    for note in filter(None, (unseen_note(opts.unseen_file, opts.truth_file, "training table") if unseen_training is None
+                              else None,
+                              unseen_note(opts.test_unseen_file, opts.test_file, "test table")
+                              if test is not None and unseen_test is None else None)):
+        report.add("Note: " + note)
     report.data["marker_truth"] = {"knob": knob_label(depth_knobs, opts.knob), "rows": rows}
+    return {(r["set"], r["scenario"]): r for r in rows}
+
+
+def rows_counts(frame, y, p, opts, depth_knobs):
+    """The calls protal makes by default (default_calls; over all rows, so that a knob curve is read at the depth of each
+    whole sample) on the rows with a score, by the simulation's truth: rows scored, TP, FP, FN and F1."""
+    ok = ~np.isnan(p)
+    _, _, call = default_calls(frame, p, opts, depth_knobs)
+    call, yy = call[ok], y[ok]
+    tp, fp, fn = int((call & (yy == 1)).sum()), int((call & (yy == 0)).sum()), int((~call & (yy == 1)).sum())
+    return {"rows_scored": int(ok.sum()), "rows_tp": tp, "rows_fp": fp, "rows_fn": fn,
+            "rows_f1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None}
+
+
+def study_headline(report, df, p, test, test_p, opts, depth_knobs, marker, unseen_training, unseen_test):
+    """The headline (the audit's E3): the F1 over every truth species the marker genes can see (marker: the rows of
+    study_marker_truth; a present species without a row counted as missed), as protal calls by default, held out (by the
+    decisions' scheme, and by species alone when that is another) and on the independent test set (test: its design's
+    rows); beside each, the F1 of the rows (the taxa with a row only). Without the marker counts or an unseen table the
+    headline says so. Written first into report.txt and metrics.json (Report.set_headline; data["headline"]: held_out,
+    held_out_species, test, each with marker_truth_f1, marker_truth_tp, marker_truth_fp, marker_truth_fn, rows_f1, ...).
+    -> the headline's lines."""
+    knob = knob_label(depth_knobs, opts.knob)
+    scheme = decision_scheme(opts)
+    missing = marker_truth_available(df, test)
+    notes = [] if not missing else [f"no marker truth: {missing}; the F1 below counts only the taxa with a row, so a "
+                                    "present species protal reported nothing of lowers none"]
+    estimates = []
+    if p.get(scheme) is not None:
+        estimates.append(("held_out", held_out_words(scheme), df, p[scheme], (held_out_words(scheme), "(all)")))
+    if scheme != "species" and p.get("species") is not None:
+        estimates.append(("held_out_species", "species held out alone, as the decisions before 2026-10-15", df,
+                          p["species"], ("species held out", "(all)")))
+    if test is not None and test_p is not None:
+        estimates.append(("test", "independent test set", test, test_p, ("independent test set", "(design)")))
+    if not missing:
+        if any(key != "test" for key, *_ in estimates) and unseen_training is None:
+            notes.append(unseen_note(opts.unseen_file, opts.truth_file, "held out"))
+        if test is not None and test_p is not None and unseen_test is None:
+            notes.append(unseen_note(opts.test_unseen_file, opts.test_file, "independent test set"))
+    notes = [n for n in notes if n]
+    data = {"knob": knob, "measure": "rows" if missing else "marker truth", "scheme": scheme, "notes": notes}
+    lines = [f"## Headline: F1 over every species the marker genes can see, as protal calls by default ({knob})",
+             "marker-truth F1: every present species whose genomes gave reads on a marker gene, found or missed, those "
+             "protal reported nothing of (no row: unseen) counted as missed, and every absent taxon called as a false "
+             "positive; row-based F1: the taxa with a row only (a present species without one is neither found nor "
+             "missed)." + (" The knob was chosen on the held-out scores, so the held-out F1s are slightly optimistic."
+                           if depth_knobs else "")]
+    for key, words, frame, scores, marker_key in estimates:
+        if key == "test":
+            design = scenario_of(frame) == ""
+            frame, scores = frame[design], scores[design]
+        counts = rows_counts(frame, frame["truth"].to_numpy(), scores, opts, depth_knobs)
+        entry = {"estimate": words, "rows": int(len(frame)), **counts, "marker_truth_f1": None, "marker_truth_tp": None,
+                 "marker_truth_fp": None, "marker_truth_fn": None, "unseen": None}
+        r = marker.get(marker_key)
+        if r is not None:
+            entry.update({"marker_truth_f1": r["F1 markers"], "marker_truth_tp": r["TP markers"], "marker_truth_fp": r["FP"],
+                          "marker_truth_fn": r["FN markers"], "unseen": r["unseen"],
+                          "present_without_marker_read": r["present, no marker read"]})
+        data[key] = entry
+        rows_text = (f"row-based F1 {fmt(entry['rows_f1'], 4)} (TP {entry['rows_tp']}, FP {entry['rows_fp']}, FN "
+                     f"{entry['rows_fn']})")
+        where = (f"{words} ({entry['rows_scored']} of {entry['rows']} rows scored)" if entry["rows_scored"] != entry["rows"]
+                 else f"{words} ({entry['rows']} rows)")
+        if r is not None:
+            lines.append(f"{where}: marker-truth F1 {fmt(entry['marker_truth_f1'], 4)} (TP {entry['marker_truth_tp']}, FP "
+                         f"{entry['marker_truth_fp']}, FN {entry['marker_truth_fn']}, {entry['unseen']} of them unseen); "
+                         f"{rows_text}")
+        else:
+            lines.append(f"{where}: no marker-truth F1; {rows_text}")
+    if not estimates:
+        lines.append("nothing scored: no held-out scores (--evaluation none) and no test set")
+    lines += ["Note: " + n for n in notes]
+    report.data["headline"] = data
+    report.set_headline(lines)
+    return lines
 
 
 def scenario_row(label, frame, y, p, opts, depth_knobs=None):
     """A row of the scenario table: the calls protal makes by default (the knob, or the knob curve) on these rows, their
     errors and rates, the false positives closest to a species the database lacks (meta_novel_level), and the highest
-    F1 at any threshold."""
+    F1 at any threshold. The calls are made over all rows (a knob curve at the depth of each whole sample), then those
+    with a score kept."""
     ok = ~np.isnan(p)
-    frame, y, p = frame[ok], y[ok], p[ok]
     scores, _, call = default_calls(frame, p, opts, depth_knobs)
+    frame, y, p, scores, call = frame[ok], y[ok], p[ok], scores[ok], call[ok]
     tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
     present, absent = int(y.sum()), int((y == 0).sum())
     samples = frame["meta_sample"].nunique() if "meta_sample" in frame else 1
@@ -1841,7 +2195,8 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
     report.section("Scenarios: hold-in and hold-out samples")
     report.add(f"At the model's {knob_label(depth_knobs, opts.knob)}, as protal calls by default. "
                "hold-in: the scenario's training samples, scored by the final model (in sample: fitted on them), by "
-               "models that did not see their sample (samples held out) or their species (species held out); hold-out: "
+               "models that did not see their sample (samples held out), their species (species held out) or either "
+               "(samples and species held out: a share of the rows); hold-out: "
                "the scenario's samples of the test set, which no model saw. FP rate: of the absent taxa, those called; "
                "FN rate: of the present taxa, those not called; FP near novel: false positives whose closest species in "
                "the sample is one the database lacks; best F1: at the threshold best for these rows.")
@@ -1854,7 +2209,8 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
         mask = names == name
         if mask.any():
             for label, scores in (("hold-in, in sample", fitted), ("hold-in, samples held out", p.get("samples")),
-                                  ("hold-in, species held out", p.get("species"))):
+                                  ("hold-in, species held out", p.get("species")),
+                                  ("hold-in, samples and species held out", p.get(CROSSED))):
                 if scores is not None:
                     rows.append(scenario_row({"scenario": name, "set": label}, df[mask], y[mask], scores[mask], opts,
                                              depth_knobs))
@@ -2086,13 +2442,30 @@ def train(opts):
                f"threads each (--fold-jobs, --threads)")
     if opts.model == "gbm":
         report.add(f"gradient boosting's bins: {weighted_binning()}")
+    report.mark_headline()  # the headline goes here (Report.write), once known
     report.data["run"] = {"args": vars(opts), "sklearn": sklearn.__version__, "python": platform.python_version()}
+    feature_versions = None  # --feature-versions: {feature: version} of protal's table
+    if opts.feature_versions:
+        try:
+            feature_versions = read_feature_versions_file(opts.feature_versions)
+        except (OSError, ValueError) as error:
+            sys.exit(f"--feature-versions: {error}")
 
     t0 = time.time()
     df = load_table(opts.truth_file, opts.taxonomy)
     if df["truth"].nunique() < 2:
         sys.exit("the training table has only present or only absent taxa")
     y = df["truth"].to_numpy()
+    if opts.cv_scheme == CROSSED:
+        crossed = crossed_folds(df, opts)
+        if crossed is None:  # no meta_sample, or one sample or species: the decisions by species, as before
+            report.add(f"--cv-scheme {CROSSED}: the table has no samples (meta_sample) or too few samples or species to "
+                       "hold out both; the decisions take species held out")
+            opts.cv_scheme = "species"
+        else:
+            report.add(f"held-out estimate of the decisions (--cv-scheme {CROSSED}): {crossed.describe()}; species held "
+                       "out alone reported beside it")
+    report.data["cv_scheme_used"] = opts.cv_scheme
     if opts.scenario_weight < 0:
         sys.exit("--scenario-weight cannot be negative")
     in_scenarios = scenario_of(df) != ""
@@ -2114,7 +2487,7 @@ def train(opts):
         test_design = test[~in_scenario] if (~in_scenario).any() else None
         test_scenarios = test[in_scenario] if in_scenario.any() else None
     timing["load"] = time.time() - t0
-    known = {}  # probabilities with species held out by feature set (--features auto), reused by the evaluation
+    known = {}  # probabilities held out by --cv-scheme by feature set (--features auto), reused by the evaluation
     chosen_model = None  # the chosen set's model fitted on all rows by --features auto, the final one if the same
     if opts.reference_pmml:
         cols = load_model(opts.reference_pmml).features
@@ -2134,6 +2507,9 @@ def train(opts):
         source = f"--features {opts.features}"
     cols = [c for c in cols if c != "domain"]
     check_features(df, cols)
+    bad_names = [c for c in cols if not FEATURE_NAME.fullmatch(c)]
+    if bad_names:  # the model's header names its features in protal_feature_ranges, separated by ',' and ':'
+        sys.exit("feature names may hold only letters, digits and '_': " + ", ".join(map(repr, bad_names)))
     X = df[cols].to_numpy(dtype=np.float64)
     report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
     if in_scenarios.any():
@@ -2183,7 +2559,8 @@ def train(opts):
                            "(rows are drawn by their class weight) and have no out-of-bag score; left out")
         t0 = time.time()
         chosen_set = report.data.get("features_auto", {}).get("chosen")
-        p = study_evaluation(report, df, X, y, opts, oob, {"species": known[chosen_set]} if chosen_set in known else None)
+        p = study_evaluation(report, df, X, y, opts, oob,
+                             {decision_scheme(opts): known[chosen_set]} if chosen_set in known else None)
         study_threshold(report, df, y, p, opts, prefix)
         study_breakdown(report, df, y, p, opts)
         study_by_rank(report, df, y, p, opts)
@@ -2270,9 +2647,12 @@ def train(opts):
     write_calls(prefix + ".calls.tsv.gz", df, (p or {}).get("species"), test if opts.test_file else None, test_p, opts,
                 depth_knobs)
     timing["calls"] = time.time() - t0
-    study_marker_truth(report, df, (p or {}).get("species"), test if opts.test_file else None, test_p, opts, depth_knobs,
-                       unseen_rows(opts.unseen_file, opts.truth_file),
-                       unseen_rows(opts.test_unseen_file, opts.test_file) if opts.test_file else None)
+    unseen_training = unseen_rows(opts.unseen_file, opts.truth_file)
+    unseen_test = unseen_rows(opts.test_unseen_file, opts.test_file) if opts.test_file else None
+    marker = study_marker_truth(report, df, p, test if opts.test_file else None, test_p, opts, depth_knobs,
+                                unseen_training, unseen_test)
+    headline = study_headline(report, df, p, test if opts.test_file else None, test_p, opts, depth_knobs, marker,
+                              unseen_training, unseen_test)
 
     # Export, and check that the file scores as the model does.
     report.section("Model file")
@@ -2280,12 +2660,17 @@ def train(opts):
     notes = [f"trained {datetime.date.today().isoformat()} on {os.path.abspath(opts.truth_file)}",
              f"{len(df)} taxa, {int(y.sum())} present, {df['meta_sample'].nunique() if 'meta_sample' in df else 1} samples",
              f"{describe_model(opts)}, seed {opts.seed}, scikit-learn {sklearn.__version__}"]
+    for key in ("held_out", "test"):
+        h = report.data["headline"].get(key)
+        if h:
+            notes.append(f"{h['estimate']}: " + (f"marker-truth F1 {fmt(h['marker_truth_f1'])}, " if h["marker_truth_f1"]
+                                                 is not None else "") + f"row-based F1 {fmt(h['rows_f1'])} as protal calls")
     species = report.data.get("evaluation", {}).get("species")
     if species:
         notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
     if len(depth_knobs) == 1:
-        notes.append(f"knob {depth_knobs[0][1]:g} for every sample, chosen with species held out (a knob curve of one "
-                     f"point: {format_depth_knob_curve(depth_knobs)})")
+        notes.append(f"knob {depth_knobs[0][1]:g} for every sample, chosen with {held_out_words(decision_scheme(opts))} "
+                     f"(a knob curve of one point: {format_depth_knob_curve(depth_knobs)})")
     elif depth_knobs:
         notes.append(f"knob curve by sample depth (log10 fragments: knob): {format_depth_knob_curve(depth_knobs)}")
     if ROW_WEIGHTS is not None:
@@ -2293,18 +2678,34 @@ def train(opts):
                      (f"; the absent rows beside a held-out twin within {opts.twin_distance:g} weighted {opts.twin_weight:g} "
                       f"(--twin-weight)" if opts.twin_weight != 1 else ""))
     if false_calls:
-        notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated on species "
-                     f"held out (prior {false_calls['prior']:.4f})")
+        notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated with "
+                     f"{held_out_words(decision_scheme(opts))} (prior {false_calls['prior']:.4f})")
     notes.append(f"singleton rule as trained: {SINGLETON_CONGENER} (protal --singleton_congener)")
     if "features_auto" in report.data:
         notes.append(f"feature set {report.data['features_auto']['chosen']} (--features {opts.features}: the highest F1 "
-                     f"with species held out, the default unless {AUTO_MIN_GAIN} better)")
-    write_model(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls)
+                     f"with {held_out_words(decision_scheme(opts))}, the default unless {AUTO_MIN_GAIN} better)")
+    # The features' ranges over every row the model was fitted on (unweighted), and their versions (--feature-versions).
+    ranges = feature_ranges_of(X, cols)
+    versions = {c: feature_versions[c] for c in cols if c in feature_versions} if feature_versions is not None else None
+    if feature_versions is not None:
+        lacking = [c for c in cols if c not in feature_versions]
+        report.add(f"feature versions ({opts.feature_versions}): {len(versions)} of the {len(cols)} features in the "
+                   "model's header (protal_feature_versions)" + (f"; not in the file, so left out: {', '.join(lacking)}"
+                                                                  if lacking else ""))
+    write_model(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls, versions, ranges)
     if read_depth_knob_curve(prefix + ".xml") != [(float(f"{x:.3f}"), k) for x, k in depth_knobs]:
         sys.exit(f"{prefix}.xml: the depth knobs read back differ from those written")
     if read_false_calls(prefix + ".xml") != (false_calls and {"curve": [tuple(c) for c in false_calls["curve"]],
                                                               "prior": false_calls["prior"], "fdr": false_calls["fdr"]}):
         sys.exit(f"{prefix}.xml: the calibrated calls read back differ from those written")
+    written = {c: tuple(float(v) for v in item.split(":")[1:])
+               for c, item in zip(cols, format_feature_ranges(ranges, cols).split(","))}
+    if read_feature_ranges(prefix + ".xml") != written or list(read_feature_ranges(prefix + ".xml")) != cols:
+        sys.exit(f"{prefix}.xml: the feature ranges read back differ from those written")
+    if read_feature_versions(prefix + ".xml") != (versions or {}):
+        sys.exit(f"{prefix}.xml: the feature versions read back differ from those written")
+    report.add(f"feature ranges over the {len(X)} training rows (minimum, 1st and 99th percentile, maximum) in the "
+               "model's header (protal_feature_ranges)")
     timing["export"] = time.time() - t0
     with sequential(rf):  # the trees summed in file order, as protal sums them
         sk = rf.predict_proba(X)[:, 1]
@@ -2317,7 +2718,8 @@ def train(opts):
     report.add(f"PMML scored as protal scores it vs scikit-learn, {len(X)} rows: max difference {diff:.3g}, "
                f"{flips} calls differ at knob {opts.knob}")
     report.data["model"] = {"kind": opts.model, "bytes": size, "nodes": nodes, "trees": model_trees(rf), "features": cols,
-                            "pmml_vs_sklearn_max_diff": diff, "pmml_vs_sklearn_call_differences": flips}
+                            "pmml_vs_sklearn_max_diff": diff, "pmml_vs_sklearn_call_differences": flips,
+                            "feature_versions": versions, "feature_ranges": {c: list(v) for c, v in written.items()}}
     joblib.dump(rf, prefix + ".joblib")
     importance = model_importances(rf, len(cols))
     pd.DataFrame({"feature": cols, "importance": importance}).sort_values(
@@ -2334,10 +2736,18 @@ def train(opts):
         out.to_csv(prefix + ".predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
 
     report.section("Summary")
+    for line in headline[1:]:  # the headline first, as at the top of report.txt
+        report.add(line)
+    crossed_m = report.data.get("evaluation", {}).get(CROSSED)
+    if crossed_m:
+        cv = report.data.get("cv_scheme", {})
+        report.add(f"samples and species held out ({crossed_m['taxa']} of {len(df)} rows scored, {cv.get('fits')} fits): "
+                   f"AP {fmt(crossed_m['AP'])}, F1 {fmt(crossed_m['F1'])}, sensitivity {fmt(crossed_m['sensitivity'])}, "
+                   f"precision {fmt(crossed_m['precision'])} at knob {opts.knob} (rows only)")
     if species:
         report.add(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])}, sensitivity "
                    f"{fmt(species['sensitivity'])}, precision {fmt(species['precision'])}, "
-                   f"{fmt(species.get('FP_per_sample'), 2)} false positives per sample at knob {opts.knob}; "
+                   f"{fmt(species.get('FP_per_sample'), 2)} false positives per sample at knob {opts.knob} (rows only); "
                    + ", ".join(f"{k[len('sensitivity_'):]} sensitivity {fmt(v)}" for k, v in species.items() if k.startswith("sensitivity_")))
         collection = report.data["evaluation"].get("collection model")
         if collection:
@@ -2381,14 +2791,14 @@ def train(opts):
             warnings.append(f"F1 on species held out is {species['F1']:.3f}")
     test = report.data.get("test", {}).get("this one")
     if test:
-        report.add(f"independent test set: F1 {fmt(test['F1'])}, sensitivity {fmt(test['sensitivity'])}, precision "
+        report.add(f"independent test set (rows only): F1 {fmt(test['F1'])}, sensitivity {fmt(test['sensitivity'])}, precision "
                    f"{fmt(test['precision'])}, {fmt(test.get('FP_per_sample'), 2)} false positives per sample at knob "
                    f"{opts.knob}; highest F1 at threshold {report.data['test_best_threshold']['threshold']:.3f}")
         for key, label in (("test_depth_knobs", f"at the model's {report.data.get('test_depth_knobs', {}).get('knob', 'knob')}"),
                            ("test_false_calls", "at the target share of false calls")):
             if key in report.data:
                 r = report.data[key]
-                report.add(f"independent test set {label}: F1 {fmt(r['F1'])}, {r['FP']} false positives, {r['FN']} false "
+                report.add(f"independent test set {label} (rows only): F1 {fmt(r['F1'])}, {r['FP']} false positives, {r['FN']} false "
                            "negatives")
         worst = [r for r in report.data.get("test_by_depth", []) if r["FN rate"] is not None]
         if worst:
