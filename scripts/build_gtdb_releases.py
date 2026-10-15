@@ -48,7 +48,7 @@ COLUMNS = ["release", "variant", "status", "protal_version", "marker_genes", "ge
            "database_gb", "build_time", "build_peak_gb", "profiling_peak_gb", "run_time"]
 for _t in READ_TYPES:
     COLUMNS += [f"{_t}_test_F1", f"{_t}_test_FP_per_sample", f"{_t}_test_sensitivity", f"{_t}_test_precision",
-                f"{_t}_heldout_F1", f"{_t}_heldout_FP_per_sample"]
+                f"{_t}_heldout_F1", f"{_t}_heldout_FP_per_sample", f"{_t}_test_marker_F1", f"{_t}_heldout_marker_F1"]
 COLUMNS += ["outdir", "log"]
 
 
@@ -111,8 +111,16 @@ def taxonomy_counts(path):
     return counts
 
 
+# summary.txt's rows by their "evaluated on": the read type's model's own (not a scenario's, nor another gate's or
+# kind's), the marker truth's (the trainer's headline measure) beside them. Until 2026-10-15 every row but the test
+# set's counted as held out, so a scenario's or the marker truth's last row was taken.
+SUMMARY_ROWS = {"species held out": "heldout", "independent test set": "test",
+                "marker truth: species held out": "heldout_markers", "marker truth: independent test set": "test_markers"}
+
+
 def model_table(path):
-    """model_logs/summary.txt -> {(read type, "test" | "heldout"): {column: value}}."""
+    """model_logs/summary.txt -> {(read type, "test" | "heldout" | "test_markers" | "heldout_markers"): {column: value}}.
+    Rows of other sets (the scenarios', the marker truth's of a scenario) are left out."""
     table = {}
     try:
         with open(path) as fh:
@@ -124,9 +132,8 @@ def model_table(path):
         f = re.split(r"  +", line.rstrip())
         if f[:2] == ["read type", "evaluated on"]:
             header = f
-        elif header and len(f) == len(header) and f[0] in READ_TYPES:
-            which = "test" if f[1].startswith("independent") else "heldout"
-            table[(f[0], which)] = dict(zip(header, f))
+        elif header and len(f) == len(header) and f[0] in READ_TYPES and f[1] in SUMMARY_ROWS:
+            table[(f[0], SUMMARY_ROWS[f[1]])] = dict(zip(header, f))
     return table
 
 
@@ -176,6 +183,8 @@ def summarize(release, variant, outdir, status, seconds, log):
         row[f"{t}_test_precision"] = test.get("precision", "")
         row[f"{t}_heldout_F1"] = held.get("F1", "")
         row[f"{t}_heldout_FP_per_sample"] = held.get("FP/sample", "")
+        row[f"{t}_test_marker_F1"] = models.get((t, "test_markers"), {}).get("F1", "")
+        row[f"{t}_heldout_marker_F1"] = models.get((t, "heldout_markers"), {}).get("F1", "")
     return row
 
 
@@ -195,7 +204,9 @@ def describe(row):
         if row[f"{t}_test_F1"] or row[f"{t}_heldout_F1"]:
             lines.append(f"  {t}: independent test F1 {row[f'{t}_test_F1'] or '-'}, FP/sample {row[f'{t}_test_FP_per_sample'] or '-'}, "
                          f"sensitivity {row[f'{t}_test_sensitivity'] or '-'}, precision {row[f'{t}_test_precision'] or '-'}; "
-                         f"species held out F1 {row[f'{t}_heldout_F1'] or '-'}, FP/sample {row[f'{t}_heldout_FP_per_sample'] or '-'}")
+                         f"species held out F1 {row[f'{t}_heldout_F1'] or '-'}, FP/sample {row[f'{t}_heldout_FP_per_sample'] or '-'}; "
+                         f"marker truth F1: test {row[f'{t}_test_marker_F1'] or '-'}, species held out "
+                         f"{row[f'{t}_heldout_marker_F1'] or '-'}")
     return "\n".join(lines)
 
 

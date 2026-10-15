@@ -1552,7 +1552,11 @@ with open(os.path.join(out, "work", "internal_taxonomy.dmp"), "w") as fh:
 with open(os.path.join(out, "model_logs", "summary.txt"), "w") as fh:
     fh.write("read type  evaluated on           knob  taxa  TP  FP  TN  FN  sensitivity  specificity  precision  F1      FP rate  FN rate  FP/sample\n"
              "pe         species held out       0.5   100   9   1   88  2   0.8182       0.9888       0.9000     0.8571  0.0112   0.1818   0.50\n"
-             "pe         independent test set   0.5   50    5   0   44  1   0.8333       1.0000       1.0000     0.9091  0.0000   0.1667   0.00\n")
+             "pe         independent test set   0.5   50    5   0   44  1   0.8333       1.0000       1.0000     0.9091  0.0000   0.1667   0.00\n"
+             "pe         soil: hold-out             0.5   40    3   2   33  2   0.6000       0.9429       0.6000     0.6000  0.0571   0.4000   1.00\n"
+             "pe         marker truth: species held out  0.5   100   9   1   88  3   0.7500       0.9888       0.9000     0.8182  0.0112   0.2500   0.50\n"
+             "pe         marker truth: independent test set  0.5   50    5   0   44  2   0.7143       1.0000       1.0000     0.8333  0.0000   0.2857   0.00\n"
+             "pe         marker truth: soil hold-out  0.5   40    3   2   33  3   0.5000       0.9429       0.6000     0.5455  0.0571   0.5000   1.00\n")
 if "--rank-genes" in args:
     with open(os.path.join(out, "model_logs", "gene_ranking.tsv"), "w") as fh:
         fh.write("rank\tgene_id\tmarker\tscore\n1\t7\tA\t0.9\n")
@@ -1644,8 +1648,10 @@ class BuildReleasesTest(unittest.TestCase):
             self.assertEqual((r["genomes_simulated"], r["species_held_out"], r["database_gb"]),
                              ("30 genomes of 12 species", "4", "0.01"))
             self.assertEqual((r["build_time"], r["build_peak_gb"], r["profiling_peak_gb"]), ("0:01:02", "1.5", "0.5"))
+            # (the model's own rows, not the scenario's or the marker truth's that follow them)
             self.assertEqual((r["pe_test_F1"], r["pe_test_FP_per_sample"], r["pe_heldout_F1"], r["se_test_F1"]),
                              ("0.9091", "0.00", "0.8571", ""))
+            self.assertEqual((r["pe_test_marker_F1"], r["pe_heldout_marker_F1"]), ("0.8333", "0.8182"))
         with open(os.path.join(self.out, "build_summary.txt")) as fh:
             text = fh.read()
         self.assertRegex(text, r"GTDB r226, full: ok; (protal )?protal v0\.7\.8 \(commit 1234\)")
