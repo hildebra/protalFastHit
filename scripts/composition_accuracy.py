@@ -20,12 +20,17 @@ community (a long-read or Ultima sample's: the paired-end community it replays, 
                      FragmentBaseShare; single-end: half the pairs' coverage; drawn reads: their bases by the genomes'
                      weights)
 A paired-end or single-end sample's host share is its reads beyond the community's; a drawn sample's that of the
-paired-end sample whose community it replays (drawn by bases at the same share).
+paired-end sample whose community it replays (drawn by bases at the same share), or, where the community's point has
+no paired-end samples (a single-end setup of its own, collect_training_data.py --se_read_setups), that of its first
+reads' sample, whose reads are the pairs' first reads (since 2026-10-15; before, such a sample's host share was not
+known).
 
 Writes --out (one line per sample) and prints a summary per set and read type (--summary writes it too): the median
 and the 10-90% range of each estimate's error against its truth. --species-out writes every sample's species present
 or called, protal's depth and genome size beside the truth, so that a bias can be traced to the species it comes from
-off the cluster, where the profiles and manifests are not.
+off the cluster, where the profiles and manifests are not. build_gtdb_database.py runs main() in its own process
+beside a thread that says lines of its own, so main() prints to the stream it is given (`out`), never by swapping
+sys.stdout (since 2026-10-15: the build's contextlib.redirect_stdout took the other thread's lines into the summary).
 
   python3 scripts/composition_accuracy.py --calls OUT/model_logs/trained_model.calls.tsv.gz --training OUT/work/training \\
       --test OUT/work/test --heldout OUT/model_logs/heldout_species.txt --read-type pe \\
@@ -146,9 +151,18 @@ def read_heldout(path):
         return {line.split("\t")[0].strip() for line in fh if line.strip() and not line.startswith("#")}
 
 
+def community_composition_of(points, base, community):
+    """The <profile>.composition of a drawn sample's community sample (of point `base`): its paired-end sample's; where
+    that point has none (a single-end setup of its own: collect_training_data.design_points' for_pe false), its first
+    reads' (protal_se, <community>_se), which read the same simulation's first reads, one per pair (since 2026-10-15)."""
+    paired = os.path.join(points, base, "protal", "profiles", community + ".profile.composition")
+    single = os.path.join(points, base, "protal_se", "profiles", community + "_se.profile.composition")
+    return single if not os.path.isfile(paired) and os.path.isfile(single) else paired
+
+
 def sample_files(collection, point, sample):
     """(the sample's <profile>.log, the manifest rows of its community, whether its reads are drawn, the community's
-    paired-end <profile>.composition for a drawn sample) as the collector lays them out; None if missing."""
+    <profile>.composition for a drawn sample: community_composition_of) as the collector lays them out; None if missing."""
     points = os.path.join(collection, "points")
     drawn = os.path.join(points, point, "sim", "samples.tsv")
     if os.path.isfile(drawn):  # long reads and Ultima reads: drawn from a paired-end community sample's genomes
@@ -160,7 +174,7 @@ def sample_files(collection, point, sample):
             return None
         base = community.rsplit("_s_", 1)[0]
         rows = [r for r in collect.manifest_rows(os.path.join(points, base, "sim")) if r["sample"] == community]
-        return log, rows, True, os.path.join(points, base, "protal", "profiles", community + ".profile.composition")
+        return log, rows, True, community_composition_of(points, base, community)
     if point.endswith("_se") and sample.endswith("_se"):  # a paired-end point's first reads, as single-end reads
         base = point[: -len("_se")]
         log = os.path.join(points, base, "protal_se", "profiles", sample + ".profile.log")
@@ -241,6 +255,8 @@ def evaluate(job):
     cells = sum(t[1] for t in truth.values())
     weight = sum(t[2] for t in truth.values())  # a drawn sample's bases, by genome
     if drawn:
+        # The community sample's scanned fragments: its pairs, the host's among them; of its first reads' sample (a
+        # single-end-only point, community_composition_of) its reads, one per pair: the same count, so the same host share.
         pe = read_composition(community_composition) if community_composition else None
         pairs = sum(t[0] for t in truth.values())
         host = max(0.0, 1 - pairs / number(pe["ScannedFragments"])) if pe and number(pe["ScannedFragments"]) > 0 else NAN
@@ -353,7 +369,10 @@ def brief(lines):
             f"{show(ags * 100, '{:+.1f}%')}, species' depth {show(depth * 100, '{:+.1f}%')}")
 
 
-def main(argv=None):
+def main(argv=None, out=None):
+    """The command on argv: -> the samples' lines (COLUMNS, as dicts). Its summary is printed to `out` (a text stream;
+    default sys.stdout as it is when it prints): a caller with threads of its own passes a stream rather than swapping
+    sys.stdout, which would take their lines too (since 2026-10-15)."""
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--training", help="the training samples' collection (collect_training_data.py -o)")
     ap.add_argument("--test", help="the test samples' collection")
@@ -418,7 +437,7 @@ def main(argv=None):
             text += summary(chosen, ratios_of, f"{name} set")
     if skipped:
         text.append("skipped: " + ", ".join(f"{n} ({why})" for why, n in sorted(skipped.items())))
-    print("\n".join(text))
+    print("\n".join(text), file=sys.stdout if out is None else out)
     if args.summary:
         with open(args.summary, "w") as fh:
             fh.write("\n".join(text) + "\n")

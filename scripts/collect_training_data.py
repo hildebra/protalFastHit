@@ -1136,8 +1136,23 @@ def units_of(opts):
                 units.append({"type": read_type, "name": name, "setup": setup, "bases": int(float(bases)),
                               "samples": samples, "communities": communities,
                               "point": {"name": name, "read_length": str(setup["length_mean"]), "read_pairs": bases}})
+    # A design point that no unit profiles (neither its pe nor its se reads collected: --read_types without pe, or
+    # without se for a single-end setup of its own) is simulated only for the communities long-read and Ultima units
+    # replay: without reads (reads False: simulate_metagenomes --test, as a scenario's community point), so that no
+    # reads are written that nothing profiles, removes or counts on the disk (since 2026-10-15).
+    profiled_points = {u["point"]["name"] for u in units if not drawn(u)}
+    for point in pe_points:
+        if point["name"] not in profiled_points:
+            point["reads"] = False
     scenario_points, more = scenario_units(opts)
     return pe_points + scenario_points, units + more
+
+
+def needed_points(units):
+    """The names of the paired-end points the units need simulated: every read type needs them (pe and se read them,
+    long-read and Ultima units replay their communities; a point no unit reads is simulated without reads, units_of)."""
+    return {u["point"]["name"] for u in units if not drawn(u)} | \
+        {p["name"] for u in units if drawn(u) for p in u["communities"]}
 
 
 def unit_communities(unit, opts, source=None):
@@ -1417,6 +1432,8 @@ def simulation_command(point, index, opts, threads, clades):
         command += ["--pick_random_demand_if_fail"]
     if kind == "groups":
         command += ["--congener_groups", congeners]
+    if point.get("reads") is False:  # its communities alone (units_of: no unit profiles its reads)
+        command += ["--test"]
     return command, None
 
 
@@ -1564,6 +1581,15 @@ def host_pairs_of(point):
     return [int(point.get("host_pairs") or 0)] * point["samples"]
 
 
+def sample_pairs(point):
+    """Each sample's read pairs a paired-end point's simulator run writes: its community's and a scenario's host's after
+    them (the same run, --host_pairs); none for a point only of communities (reads False: simulate_metagenomes --test).
+    What its time, its room on the disk and --stream_above count (pe_point_seconds, pe_bytes, sample_bytes)."""
+    if point.get("reads") is False:
+        return [0] * point["samples"]
+    return [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
+
+
 def bases_of(unit):
     """Each sample's bases of a drawn unit (long reads, a scenario's Ultima reads): a scenario's samples' own
     (scenario_units), else the unit's for every sample."""
@@ -1588,13 +1614,11 @@ def genomes_per_sample(point, opts=None):
 
 
 def pe_point_seconds(point, threads, opts=None):
-    """A rough estimate of a paired-end point's time on `threads` threads (PE_GENOME_SECONDS, PE_PAIR_SECONDS)."""
-    if point.get("community_pairs_of"):  # a scenario's samples of their own depths
-        pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
-    else:
-        pairs = [float(point["read_pairs"])] * point["samples"]
+    """A rough estimate of a paired-end point's time on `threads` threads (PE_GENOME_SECONDS, PE_PAIR_SECONDS): its
+    samples' genomes, and the read pairs it writes (sample_pairs: none for a point only of communities)."""
     genomes = genomes_per_sample(point, opts) * PE_GENOME_SECONDS
-    return sum(genomes + p * int(point["read_length"]) / 150 * PE_PAIR_SECONDS for p in pairs) / max(1, threads)
+    return sum(genomes + p * int(point["read_length"]) / 150 * PE_PAIR_SECONDS
+               for p in sample_pairs(point)) / max(1, threads)
 
 
 # Bytes on the disk per base a simulation writes, for the room it needs (Scheduler space; measured 2026-10-05,
@@ -1610,13 +1634,17 @@ class Scheduler:
     it writes, opens: whether it starts new work (a sample) rather than finishing work begun (a chunk's reads). With
     space = (folder, bytes to keep free), a job starts only while the folder's file system has room for it and for
     the jobs running, and one that opens new work only if `bytes to keep free` are left besides; otherwise it waits
-    (for a --follow run to remove reads). A job's new jobs join the queue. Once a job has failed no more start; the
-    running ones end. run() -> {name: why it failed}."""
+    (for a --follow run to remove reads). on_wait(True) says when nothing runs and a job waits for room (looked at again
+    every room_poll seconds), on_wait(False) when one starts again or the run ends (mark_waiting: the --follow run then
+    profiles the reads that are ready, however few; since 2026-10-15). A job's new jobs join the queue. Once a job has
+    failed no more start; the running ones end. run() -> {name: why it failed}."""
 
-    def __init__(self, slots, limits=None, space=None):
+    def __init__(self, slots, limits=None, space=None, on_wait=None):
         self.slots = max(1, slots)
         self.limits = dict(limits or {})
         self.space = space
+        self.on_wait = on_wait
+        self.room_poll = 30.0
         self.pending = []
 
     def add(self, name, run, need=1, after=(), priority=0.0, group=None, disk=0, opens=True):
@@ -1633,49 +1661,61 @@ class Scheduler:
 
     def run(self):
         done, failures, running, free = set(), {}, {}, self.slots
-        said = 0.0
-        with concurrent.futures.ThreadPoolExecutor(self.slots) as executor:
-            while self.pending or running:
-                waiting = None  # a ready job that waits for room
-                if not failures:
-                    ready = sorted((j for j in self.pending if j["after"] <= done), key=lambda j: -j["priority"])
-                    groups = collections.Counter(j["group"] for j in running.values())
-                    for job in ready:  # the first that fits; smaller ones fill what is left
-                        if job["group"] in self.limits and groups[job["group"]] >= self.limits[job["group"]]:
-                            continue
-                        if job["need"] <= free or not running:
-                            if not self.room(job, running):
-                                waiting = waiting or job
+        said, stalled = 0.0, False
+
+        def stall(now):  # on_wait when it changes: nothing runs and a job waits for room, or no longer
+            nonlocal stalled
+            if now != stalled:
+                stalled = now
+                if self.on_wait:
+                    self.on_wait(now)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(self.slots) as executor:
+                while self.pending or running:
+                    waiting = None  # a ready job that waits for room
+                    if not failures:
+                        ready = sorted((j for j in self.pending if j["after"] <= done), key=lambda j: -j["priority"])
+                        groups = collections.Counter(j["group"] for j in running.values())
+                        for job in ready:  # the first that fits; smaller ones fill what is left
+                            if job["group"] in self.limits and groups[job["group"]] >= self.limits[job["group"]]:
                                 continue
-                            self.pending.remove(job)
-                            running[executor.submit(job["run"])] = job
-                            free -= job["need"]
-                            groups[job["group"]] += 1
-                if waiting and time.time() - said >= 600:
-                    print(f"{waiting['name']} waits for room: {waiting['disk'] / 1e9:.1f} GB of its own and "
-                          f"{self.space[1] / 1e9:.0f} GB to keep free on {self.space[0]}, which has "
-                          f"{shutil.disk_usage(self.space[0]).free / 1e9:.1f} GB free", flush=True)
-                    said = time.time()
-                if not running:
-                    if waiting:  # nothing runs: the room comes from reads that a --follow run removes
-                        time.sleep(30)
-                        continue
-                    break  # nothing runs and nothing can start: a job failed, or one waits for a job that never came
-                finished, _ = concurrent.futures.wait(running, timeout=30 if waiting else None,
-                                                      return_when=concurrent.futures.FIRST_COMPLETED)
-                for future in finished:
-                    job = running.pop(future)
-                    free += job["need"]
-                    try:
-                        error, new = future.result()
-                    except Exception as exc:  # a genome that cannot be read, say: the job fails, and says why
-                        error, new = f"{type(exc).__name__}: {exc}", []
-                    if error:
-                        failures[job["name"]] = error
-                        continue
-                    done.add(job["name"])
-                    for j in new:
-                        self.add(**j)
+                            if job["need"] <= free or not running:
+                                if not self.room(job, running):
+                                    waiting = waiting or job
+                                    continue
+                                self.pending.remove(job)
+                                running[executor.submit(job["run"])] = job
+                                free -= job["need"]
+                                groups[job["group"]] += 1
+                                stall(False)
+                    if waiting and time.time() - said >= 600:
+                        print(f"{waiting['name']} waits for room: {waiting['disk'] / 1e9:.1f} GB of its own and "
+                              f"{self.space[1] / 1e9:.0f} GB to keep free on {self.space[0]}, which has "
+                              f"{shutil.disk_usage(self.space[0]).free / 1e9:.1f} GB free", flush=True)
+                        said = time.time()
+                    if not running:
+                        if waiting:  # nothing runs: the room comes from reads that a --follow run removes
+                            stall(True)
+                            time.sleep(self.room_poll)
+                            continue
+                        break  # nothing runs and nothing can start: a job failed, or one waits for a job that never came
+                    finished, _ = concurrent.futures.wait(running, timeout=self.room_poll if waiting else None,
+                                                          return_when=concurrent.futures.FIRST_COMPLETED)
+                    for future in finished:
+                        job = running.pop(future)
+                        free += job["need"]
+                        try:
+                            error, new = future.result()
+                        except Exception as exc:  # a genome that cannot be read, say: the job fails, and says why
+                            error, new = f"{type(exc).__name__}: {exc}", []
+                        if error:
+                            failures[job["name"]] = error
+                            continue
+                        done.add(job["name"])
+                        for j in new:
+                            self.add(**j)
+        finally:
+            stall(False)
         if not failures:
             for job in self.pending:
                 failures[job["name"]] = f"waits for {', '.join(sorted(job['after'] - done))}, which never ran"
@@ -2003,8 +2043,9 @@ def community_of(unit, sample, opts):
 def write_table(read_type, units, opts, context, gate=None):
     """Joins the dumps of a read type's units into its table; with `gate`, a level (unit_level_ids: a sparse-first gate,
     with --flex_indels too as "1f"), those of its samples profiled at it into OUT/c_gates/c<gate>/, meta_sample the
-    samples' own names, and their names into samples_<read type>.txt there (units whose reads came through pipes have
-    none, but at their --model_levels)."""
+    samples' own names, their names into samples_<read type>.txt there and, with --gene_positions, their present species
+    without a row into <table>.unseen.tsv there (units whose reads came through pipes have none, but at their
+    --model_levels; a gate without samples has none of these files)."""
     domains, novel, reps, db_lineages, sim_lineages, clouds = context
     header, rows, totals = None, 0, collections.Counter()
     if gate is None:
@@ -2113,15 +2154,29 @@ def write_table(read_type, units, opts, context, gate=None):
                   (f"; {unseen} present species of the database with reads on a marker gene and no row" if unseen else ""),
                   flush=True)
             totals.update(present=present, absent=absent, samples=len(dumps(unit)), unseen=unseen)
+    # Beside a table written without --gene_positions, no <table>.unseen.tsv of an earlier run that had it (its species
+    # would count as missed against other samples; since 2026-10-15).
+    stale_unseen = os.path.join(os.path.dirname(table), unseen_table(read_type)) if unseen_path == os.devnull else None
     if gate is not None:
         # A gate's table (" (sparse-first gate C)": build_gtdb_database.py counts the "N taxa in TABLE: " lines of the
-        # main tables only), and its samples; none without a sample (all streamed).
+        # main tables only), its samples and its <table>.unseen.tsv (until 2026-10-15 left as .partial, and the trainers
+        # counted no unseen species at any gate but the database's); none without a sample (all streamed), nor an
+        # earlier run's table, samples or unseen species there (since 2026-10-15: they were read as this run's).
+        samples_file = os.path.join(os.path.dirname(table), f"samples_{read_type}.txt")
         if header is None:
-            os.remove(table + ".partial")
+            for path in (table + ".partial", unseen_partial, table, samples_file, unseen_path, stale_unseen):
+                if path and path != os.devnull:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.remove(path)
             print(f"no samples of {read_type} at {level_text(gate)} (their reads came through pipes)", flush=True)
             return
         os.replace(table + ".partial", table)
-        with open(os.path.join(os.path.dirname(table), f"samples_{read_type}.txt"), "w") as fh:
+        if unseen_path != os.devnull:
+            os.replace(unseen_partial, unseen_path)
+        elif stale_unseen:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(stale_unseen)
+        with open(samples_file, "w") as fh:
             fh.writelines(s + "\n" for s in samples_written)
         print(f"{rows} taxa in {table} ({level_text(gate)}): {totals['present']} present, {totals['absent']} "
               f"absent, from {totals['samples']} sample{'s' if totals['samples'] != 1 else ''}", flush=True)
@@ -2129,6 +2184,9 @@ def write_table(read_type, units, opts, context, gate=None):
     os.replace(table + ".partial", table)
     if unseen_path != os.devnull:
         os.replace(unseen_partial, unseen_path)
+    elif stale_unseen:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(stale_unseen)
     print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
           f"sample{'s' if totals['samples'] != 1 else ''}" +
           (f"; {totals['unseen']} present species without a row but with reads on a marker gene ({unseen_path})"
@@ -2267,10 +2325,10 @@ def simulation_of(unit):
 
 
 def pe_bytes(point):
-    """What a paired-end point's reads take on the disk (the community's; a host's are added by jobs of their own)."""
-    if point.get("reads") is False:
-        return 0
-    return int(sum(community_pairs_of(point)) * 2 * int(point["read_length"]) * PE_BYTES)
+    """What a paired-end point's reads take on the disk: both reads of the pairs its simulator run writes
+    (sample_pairs), a scenario's host's among them (until 2026-10-15 left out, as if other jobs wrote them: the
+    scheduler counted a host scenario's point at a tenth of its reads); none for a point only of communities."""
+    return int(sum(sample_pairs(point)) * 2 * int(point["read_length"]) * PE_BYTES)
 
 
 def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=frozenset()):
@@ -2323,7 +2381,9 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
     if not pending and not long_pending:
         return
     space = (opts.out, opts.min_free * 1e9) if opts.min_free > 0 else None
-    scheduler, started = Scheduler(slots, None, space), time.time()
+    # A --simulate_only run says when all its simulations wait for room (OUT/simulating.json), for its follower.
+    on_wait = (lambda waiting: mark_waiting(opts, waiting)) if getattr(opts, "simulate_only", False) else None
+    scheduler, started = Scheduler(slots, None, space, on_wait), time.time()
     counter = {"pe": 0, "long": 0, "long_total": len(long_pending)}
     # The paired-end points share the cores with the long reads by their estimated work, so that both end about
     # together (the long reads take the cores the paired-end points leave, and those they free).
@@ -2332,7 +2392,9 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
     threads_of = pe_threads(pending, max(1, round(slots * pe_work / ((pe_work + long_work) or 1))), opts)
     if pending:
         more = [f"{p['name']} {threads_of[p['name']]}" for _, p in pending if threads_of[p["name"]] > 1]
+        bare = sum(p.get("reads") is False for _, p in pending)
         print(f"simulating {len(pending)} paired-end design points"
+              + (f" ({bare} of them their communities alone, without reads)" if bare else "")
               + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
     if long_pending:
         print(f"simulating {len(long_pending)} long-read design points "
@@ -2536,6 +2598,21 @@ def mark_prepared(opts):
         write_key(simulating_file(opts), {**state, "prepared": True})
 
 
+def mark_waiting(opts, waiting):
+    """Says in OUT/simulating.json whether the --simulate_only run's simulations all wait for room on the disk (none
+    runs and one waits: Scheduler's on_wait), for its --follow run to profile the reads that are ready then, fewer than
+    --profile_block GB as they may be, rather than wait for more that cannot come (since 2026-10-15)."""
+    state = simulation_state(opts.out)
+    if state:
+        with contextlib.suppress(OSError):
+            write_key(simulating_file(opts), {**state, "waiting_for_room": bool(waiting)})
+
+
+def simulations_waiting(opts):
+    """Whether this collection's --simulate_only run says that all its simulations wait for room (mark_waiting)."""
+    return bool((simulation_state(opts.out) or {}).get("waiting_for_room"))
+
+
 def simulations_running(opts):
     """Whether a --simulate_only run of this collection is running (on another host: assumed so while its file is
     there)."""
@@ -2568,8 +2645,7 @@ def sample_bytes(unit):
     if drawn(unit):
         return max(bases_of(unit)) * DRAWN_BYTES
     point = unit["point"]
-    pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
-    return max(pairs) * 2 * int(point["read_length"]) * PE_BYTES
+    return max(sample_pairs(point)) * 2 * int(point["read_length"]) * PE_BYTES
 
 
 def streamed_simulations(units, opts):
@@ -2592,10 +2668,9 @@ def simulation_bytes(units):
         name = simulation_of(unit)
         if drawn(unit):
             reads = sum(bases_of(unit)) * DRAWN_BYTES
-        else:
+        else:  # what the point's simulator run writes, as the scheduler counts it (pe_bytes)
             point = unit["point"]
-            pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
-            reads = sum(pairs) * 2 * int(point["read_length"]) * PE_BYTES
+            reads = sum(sample_pairs(point)) * 2 * int(point["read_length"]) * PE_BYTES
         largest, total = out.get(name, (0, 0))
         out[name] = (max(largest, sample_bytes(unit)), max(total, reads))
     return out
@@ -2738,12 +2813,14 @@ def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
 
 def follow_state(units, opts, keys, key_of, streams):
     """What --follow could profile now: {todo: the units not yet profiled; running: whether the simulations go on;
-    ready: the units of written reads whose simulation has ended and whose reads are all there; size: those reads'
-    bytes; streamable: [the waiting units of a streamed simulation (`streams`)] for each whose communities are there
-    (their points' simulated.json: simulated, or a streamed point's design made), in the simulations' names' order}.
-    Whether the simulations go on is looked at first: once they have ended, all they made is seen as ready."""
+    stalled: whether they all wait for room on the disk (simulations_waiting); ready: the units of written reads whose
+    simulation has ended and whose reads are all there; size: those reads' bytes; streamable: [the waiting units of a
+    streamed simulation (`streams`)] for each whose communities are there (their points' simulated.json: simulated, or
+    a streamed point's design made), in the simulations' names' order}. Whether the simulations go on is looked at
+    first: once they have ended, all they made is seen as ready."""
     todo = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
     running = simulations_running(opts)
+    stalled = running and simulations_waiting(opts)
     ready, files = [], {}
     for unit in todo:
         if simulation_of(unit) in streams:
@@ -2758,15 +2835,16 @@ def follow_state(units, opts, keys, key_of, streams):
         if pending and all(same_key(os.path.join(point_dirs(p, opts)[0], "simulated.json"), keys[p["name"]])
                            for u in pending if drawn(u) for p in u["communities"]):
             streamable.append(pending)
-    return {"todo": todo, "running": running, "ready": ready, "size": sum(os.path.getsize(f) for f in files),
-            "streamable": streamable}
+    return {"todo": todo, "running": running, "stalled": stalled, "ready": ready,
+            "size": sum(os.path.getsize(f) for f in files), "streamable": streamable}
 
 
 def next_batch(state, opts, block, cap):
     """The next protal run of --follow, from what is ready (follow_state), or None while none can start:
-    ("written", units, their reads' bytes) once the written reads ready reach `block` bytes (--profile_block) or the
-    simulations have ended; else ("streamed", [the units of each simulation], None) once a streamed simulation's
-    communities are there.
+    ("written", units, their reads' bytes) once the written reads ready reach `block` bytes (--profile_block), the
+    simulations have ended, or they all wait for room on the disk (stalled: until 2026-10-15 the follower waited for
+    `block` bytes that could not come while the simulations waited for it to remove reads, both forever); else
+    ("streamed", [the units of each simulation], None) once a streamed simulation's communities are there.
 
     A run of written reads takes at most `cap` bytes of them (--profile_block_max; 0: no limit): whole simulations (a
     point's pe and se units read one set of files), in the order they wait in; the rest go into the next run at once.
@@ -2790,7 +2868,7 @@ def next_batch(state, opts, block, cap):
     paired-end point's design gives its own at the start of --follow): one whose communities are not there yet waits
     for a later run."""
     ready = state["ready"]
-    if ready and (state["size"] >= block or not state["running"]):
+    if ready and (state["size"] >= block or not state["running"] or state.get("stalled")):
         groups = list(dict.fromkeys(simulation_of(u) for u in ready))
         group_files = {name: dict.fromkeys(f for u in ready if simulation_of(u) == name for f in unit_reads(u, opts))
                        for name in groups}
@@ -2809,14 +2887,34 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
     ended; after each run, the reads of points profiled for every read type that reads them are removed. A run waits
     for its turn (--protal_lock) once it can start, and takes what is ready when its turn comes (next_batch). Units it
     cannot profile once the simulations have ended (never simulated, or their reads removed) are simulated here:
-    simulate_again(names). The simulations to stream (--stream_above, streamed_simulations) are this run's: every one
-    whose communities are there in one protal run reading named pipes (stream_run, pe_command(point, threads) a
-    paired-end point's simulation command, long_plan(unit, threads) a long-read unit's); their paired-end points'
-    designs first, which long reads of other points may need (stream_design)."""
+    simulate_again(names). While the simulations all wait for room on the disk (mark_waiting), what is ready is
+    profiled however little it is. The simulations to stream (--stream_above, streamed_simulations) are this run's:
+    every one whose communities are there in one protal run reading named pipes (stream_run, pe_command(point, threads)
+    a paired-end point's simulation command, long_plan(unit, threads) a long-read unit's); their paired-end points'
+    designs first, which long reads of other points may need (stream_design); not those an earlier run wrote and
+    profiled."""
     key_of = profile_keys(units, opts, keys)
     block, runs, again, began = opts.profile_block * 1e9, 0, set(), time.time()
     cap = (getattr(opts, "profile_block_max", 0) or 0) * 1e9
     streams = streamed_simulations(units, opts) if pe_command else set()
+    # A simulation above --stream_above that an earlier run wrote and profiled (every unit of it, at every level, with
+    # this key: a rerun on a fuller disk streams more) is left as it is, not streamed: until 2026-10-15 its paired-end
+    # point's sim folder was replaced by a design (stream_design), and the counts of the marker genes' reads in its
+    # manifest were lost to the tables.
+    by_simulation = collections.defaultdict(list)
+    for unit in units:
+        by_simulation[simulation_of(unit)].append(unit)
+
+    def written_and_profiled(name):
+        its = by_simulation[name]
+        base = point_dirs(its[0]["point"], opts)[0]
+        return not streamed_here(its[0], opts) and same_key(os.path.join(base, "simulated.json"), keys[name]) and \
+            all(profiled(u, opts, key_of[u["name"]]) for u in its)
+    kept = {name for name in streams if written_and_profiled(name)}
+    if kept:
+        print(f"{len(kept)} simulations above --stream_above were written and profiled by an earlier run: kept, not "
+              "streamed (" + ", ".join(sorted(kept)) + ")", flush=True)
+    streams -= kept
     for unit in units:  # the streamed paired-end points' designs (seconds each)
         point = unit["point"]
         if not drawn(unit) and point["name"] in streams and not (
@@ -2846,8 +2944,9 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
                     _, ready, size = batch
                     start_profiling(ready, opts, key_of)
                     print(f"protal run {runs}: {len(ready)} design points, {size / 1e9:.1f} GB of reads; the simulations "
-                          f"{'go on' if state['running'] else 'have ended'}; {len(state['todo']) - len(ready)} design "
-                          "points after these", flush=True)
+                          f"{'go on' if state['running'] else 'have ended'}"
+                          f"{' (all waiting for room on the disk)' if state.get('stalled') else ''}; "
+                          f"{len(state['todo']) - len(ready)} design points after these", flush=True)
                     profile(ready, opts, folder=os.path.join(opts.out, "profile_all", f"run{runs}"))
                 elif batch:
                     runs += 1
@@ -2873,9 +2972,12 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
             again |= stuck
             continue
         if time.time() - told >= 600:
+            # Stalled with nothing ready: the simulations that wait for room hold the reads on the disk (long reads
+            # whose paired-end communities are not simulated yet, say), which no run can profile.
             print(f"{len(todo)} design points to profile, {len(state['ready'])} of them simulated "
-                  f"({state['size'] / 1e9:.1f} GB of reads); waiting for the simulations, {clock(time.time() - began)} in "
-                  "all", flush=True)
+                  f"({state['size'] / 1e9:.1f} GB of reads); waiting for the simulations"
+                  + (", which all wait for room on the disk, with no reads ready to profile" if state["stalled"] else "")
+                  + f", {clock(time.time() - began)} in all", flush=True)
             told = time.time()
         time.sleep(opts.poll)
     print(f"every design point is profiled, in {runs} protal run{'s' if runs != 1 else ''}", flush=True)
@@ -2916,9 +3018,7 @@ def collect(opts):
     slots = max(1, opts.jobs or opts.threads)
     prepare_scenarios(pe_points, units, opts, novel)
 
-    # Every read type needs paired-end points: se reads them, pb and ont replay their communities.
-    needed = {u["point"]["name"] for u in units if not drawn(u)} | \
-             {p["name"] for u in units if drawn(u) for p in u["communities"]}
+    needed = needed_points(units)
     keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
     for i, unit in enumerate(u for u in units if drawn(u)):
         keys[unit["name"]] = long_key(unit, i, opts, keys)

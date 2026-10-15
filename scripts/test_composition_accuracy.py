@@ -4,8 +4,10 @@ one sample and a PacBio point that replays its community, the numbers worked out
 
 Run: python3 -m unittest scripts/test_composition_accuracy.py
 """
+import contextlib
 import csv
 import gzip
+import io
 import math
 import os
 import sys
@@ -119,6 +121,48 @@ class CompositionAccuracyTest(unittest.TestCase):
         self.assertAlmostEqual(line["explained"], (2.88e6 + 0.3e6) / 7.5e6)
         self.assertAlmostEqual(line["true_explained_by_calls"], 0.4)
         self.assertAlmostEqual(line["true_unknown_given_calls"], 0.6)
+
+    def test_a_community_of_single_end_reads_only(self):
+        # A point of a single-end setup of its own (q: no paired-end samples) whose community a drawn unit replays (v):
+        # the host share from q_s_1's first reads, 10,000 of them for A's 8,000 pairs (2,000 the host's): 0.2 (before
+        # 2026-10-15 not known, the paired-end composition missing). v's 10 Mb: 8 Mb of A (2 Mb), depth 4.
+        sim = os.path.join(self.root, "points", "q", "sim")
+        write(os.path.join(sim, "manifest.tsv"),
+              "sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance\n"
+              "q_s_1\tgA\tA\td__B;p__P;c__C;o__O;f__F;g__G;s__A\t2000000\t8000\t1.2\t1\n")
+        write(os.path.join(self.root, "points", "q", "protal_se", "profiles", "q_s_1_se.profile.composition"),
+              COMPOSITION_HEADER + "q_s_1_se\t10000\t10000\t1500000\t1\tNA\n")
+        vsim, vout = os.path.join(self.root, "points", "v", "sim"), os.path.join(self.root, "points", "v", "protal")
+        write(os.path.join(vsim, "samples.tsv"), "sample\treads\ttruth\tcommunity\nv_s_1\tv.fq\t/truth\tq_s_1\n")
+        write(os.path.join(vout, "profiles", "v_s_1.profile.log"), LOG_HEADER + log_line(1, 1, "A", 4.0, 2000000))
+        write(os.path.join(vout, "profiles", "v_s_1.profile.composition"), COMPOSITION_HEADER + "v_s_1\t100\t100\t10000000\t1\tNA\n")
+        self.assertEqual(acc.community_composition_of(os.path.join(self.root, "points"), "q", "q_s_1"),
+                         os.path.join(self.root, "points", "q", "protal_se", "profiles", "q_s_1_se.profile.composition"))
+        calls = os.path.join(self.tmp.name, "trained_model_pb.calls.tsv.gz")
+        with gzip.open(calls, "wt") as fh:
+            fh.write("meta_design\tmeta_sample\tmeta_read_type\tmeta_scenario\ttaxon\ttruth\tset\tp\tknob\tcall\n"
+                     "v\tv_s_1\tpb\t\t1\t1\ttest\t0.9\t0.5\t1\n")
+        (line,) = self.run_script("--calls", calls, "--read-type", "pb")
+        self.assertEqual(line["sample"], "v_s_1")
+        self.assertAlmostEqual(line["host_share"], 0.2)
+        self.assertAlmostEqual(line["true_explained"], 0.8)
+        self.assertAlmostEqual(line["explained"], 0.8)
+        self.assertAlmostEqual(line["depth_ratio"], 1.0)
+        # A point with paired-end samples keeps theirs (p's, 25,000 fragments for its 25,000 pairs: no host).
+        self.assertEqual(acc.community_composition_of(os.path.join(self.root, "points"), "p", "p_s_1"),
+                         os.path.join(self.root, "points", "p", "protal", "profiles", "p_s_1.profile.composition"))
+
+    def test_the_summary_to_the_stream_given(self):
+        # main(argv, out): the summary goes to `out`, nothing to sys.stdout (build_gtdb_database.py's reports thread
+        # prints there meanwhile; since 2026-10-15).
+        stream, stdout = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            lines = acc.main(["--test", self.root, "--heldout", self.heldout, "--out", os.path.join(self.tmp.name, "o.tsv")],
+                             out=stream)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertTrue(stream.getvalue().startswith("Composition of the pe samples against their truth"))
+        self.assertIn("test set: 1 samples", stream.getvalue())
 
     def test_the_species_table(self):
         # --species-out: A, B and C present (C held out and not in the profile: no taxid, no depth). X is in the profile

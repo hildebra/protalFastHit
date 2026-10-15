@@ -365,7 +365,9 @@ numbered line when it starts and indented lines when it ends.
    every gate, for `protal --model_kind gbm` ([kinds of models](#kinds-of-models)); `--model forest` trains
    one kind.
 8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does; the read
-   types' checks side by side (`protal --profile_only`, no index loaded), those of both kinds.
+   types' checks side by side (`protal --profile_only`, no index loaded), those of both kinds, and since
+   2026-10-15 those of the models at other gates too, on the samples profiled at their gate
+   (`check_model_parity.py --level C`).
 9. **Packaging** (`final_package.log`): the models of both kinds go into the finished database, with
    `build_metadata.tsv`, in one write in place (the database's build packed placeholders of them). The reports
    of what the models' errors rest on (`trace_relatives.log`, `error_reads_<read type>.log`) start
@@ -434,7 +436,8 @@ genome size of each taxon in the sample's `.profile.log` over the species the mo
 read type, samples with a host's reads apart (the unknown share counts them as genomes of the
 called species' average size, so it is high there by design); the console a line of medians per
 read type. A sample's host share is its reads beyond its community's (a drawn sample's that of the
-paired-end sample it replays). The script runs on its own too, on a collection of
+paired-end sample it replays or, where that point has no paired-end samples, of its first reads' sample;
+since 2026-10-15). The script runs on its own too, on a collection of
 `collect_training_data.py`, with the profiles' own calls without `--calls`.
 
 #### What it prints
@@ -473,7 +476,7 @@ with `--scratch`, and about 1,400 with `--share-logs`, whose error-read SAMs are
 |---|---|
 | `protal_db/` | the database: `database.protal` with its models of both kinds; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes. Since 2026-10-13 `database.protal` holds these three too ([the notes](#the-notes-a-database-carries)): it alone is the database |
 | `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
-| `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the read types' parity checks, run side by side, each after a `==> parity_<read type> <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
+| `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the parity checks, run side by side, each after a `==> parity_<read type>[_c<C>][_<kind>] <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
 | `console.log` | the console's lines, of every run into the folder |
 | `work/` | what a rerun reuses, not needed to use the database: `stages/` (what a rerun may skip), `genomes.tsv` (the genomes simulated from: accession, taxonomy, FASTA, length) and `genomes_simulated.tsv` (with the in-silico strains), `internal_taxonomy.dmp`, `gene2geneid.tsv`, `foreign_rates/` (the finished database's scan, stored in it), and `training/`, `test/`: one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`), to retrain a model. Without `--scratch` also the samples, their profiles, the training database, the genome store and the in-silico strains (with `--scratch` these are on the scratch disk) |
 | `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
@@ -701,14 +704,21 @@ report's "Extra test tables" section and `extra_tests` in `<prefix>.metrics.json
 database gate's model beside the test file's rows of the same samples. The present species of a
 table's samples that have no row in it (`<table>.unseen.tsv`, beside it: a gate that gives up every
 read of a species leaves it no row) count as missed; before 2026-10-13 they were left out, so that
-a gate losing more species looked better ([report](claude/2026-10-13-r226-v27-c-gates.md)). The build
-writes `model_logs/c_gates.tsv` and a console line per read type:
+a gate losing more species looked better ([report](claude/2026-10-13-r226-v27-c-gates.md)), and until
+2026-10-15 they still were at every gate but the database's (the gates' unseen tables were never
+finished: [audit](claude/2026-10-15-gtdb-build-audit/README.md), G2). Every row is over the same
+samples, those every gate profiled (`test/c_gates/compare_samples_<type>.txt`, which the trainers get as
+`--extra-test-samples`): the samples streamed into protal are profiled again only at the gates of
+`--model-gates`, and until 2026-10-15 those gates' rows had them too, more and deeper samples than the
+others' (G3). The build writes `model_logs/c_gates.tsv` (with `--model forest,gbm` also
+`c_gates_gbm.tsv`, the other kind's models; their console lines start with the kind) and a console line
+per read type, which gives the number of samples:
 
 | Column | Holds |
 |---|---|
 | `read_type`, `gate`, `pick`, `flex_indels`, `database_gate`, `model_gate` | the read type, the gate (0: off), its pick (`stride` or `hash`; `-` below 2, where both look up every core), 1 with `--flex_indels`, 1 for the database's gate (the test file itself), and the gate of the model that scored it |
 | `samples`, `taxa`, `present`, `unseen`, `TP`, `FP`, `FN`, `precision`, `sensitivity`, `F1` | the model's calls on those samples at that gate, `unseen` present species without a row counted in `present` and `FN` |
-| `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the protal runs' `aligning <sample>` rows (`protal_cpu_<collection>.tsv`; empty when a sample has none) |
+| `aligning_cpu_s`, `aligning_wall_s` | the samples' alignment, summed over the test collection's protal runs' `aligning <sample>` rows (`protal_cpu_test.tsv`; empty when a sample has none); with `--profile-ahead` (the default) the profiling of the samples done beside their alignment counts in, so that a row is what profiling those samples at that gate costs |
 | `baseline_F1`, `baseline_aligning_cpu_s` | the same samples at the database's gate without `--flex_indels`, scored by its model, beside every other row (for se's rows with `--flex_indels`, the Ultima samples alone) |
 
 A gate without a model of its own is scored by a model trained at another: a gate whose F1 holds even
@@ -867,7 +877,9 @@ every row (`trained_model*.calls.tsv.gz`: the training rows' with species held o
 the final model, at the model's knob) and follows the reads (the fragments, of paired-end reads) that
 align to a false positive (`FP:<taxid>`) or a false negative (`FN:`), that seeded on a false negative
 or an unseen species but did not align to it (`seeded:`), or that come from a genome of a false negative
-or unseen species, wherever they went (`source:`). It writes to `model_logs/error_reads/<read type>/`:
+or unseen species, wherever they went (`source:`). It writes to `model_logs/error_reads/<read type>/`, after
+removing what an earlier run wrote there (since 2026-10-15: a rerun kept the earlier SAMs of samples without
+errors now):
 
 | File | |
 |---|---|
@@ -876,7 +888,8 @@ or unseen species, wherever they went (`source:`). It writes to `model_logs/erro
 | `<training\|test>/<design point>/<sample>.FP.sam.zst`, `.FN.sam.zst` | with `--share-logs`: the records of the reads taken for the false positives, and for the false negatives (`FN:`, and `seeded:` and `source:` of a false negative), of at most 20 fragments per taxon and reason (the same ones at any cap: the lowest CRC-32 of the read name); each record with QUAL left out (`*`), its source genome and species (`xg:Z:`, `xs:Z:`, "(not in the database)" for a species the training database lacks) and why it was taken (`xe:Z:`, its reasons); the `@SQ` lines cut to the genes they name |
 
 With `--share-logs` the build
-then runs `scripts/ancestry_sites.py` on every read type's SAMs, in one run that reads the references once and
+then runs `scripts/ancestry_sites.py` on every read type's SAMs (`.sam`, `.sam.gz` or `.sam.zst`; without species
+held out, with no `--heldout`, every congener of the genus counts, since 2026-10-15), in one run that reads the references once and
 analyses the read types side by side (`model_logs/ancestry_sites/<read type>.*`, `logs/ancestry_sites.log`; a log per
 read type before 2026-10-09): for every false positive and false negative, the sites where the
 species' gene copies differ from its nearest congener's in the training database and, from the species'
@@ -941,7 +954,9 @@ The simulations write and delete many files, which a network file system is slow
 `--scratch DIR` makes the samples, the training database and the converter's temporary files on a
 node's own disk (with the in-silico strains), and copies the tables to `--outdir/work`. The samples are profiled as they are simulated
 and their reads removed once profiled (`--profile-blocks`), and a simulation that would leave less
-than `--keep-free` GB (30) waits for that, so the disk holds the training database (~24 GB at r226),
+than `--keep-free` GB (30) waits for that (a host scenario's host reads counted with its own since
+2026-10-15; when every simulation waits so, the next protal run profiles whatever is ready, however
+little, rather than wait for `--profile-blocks` GB), so the disk holds the training database (~24 GB at r226),
 what is simulated but not yet profiled, the SAMs and profiles, and the genome store (`--genome-store`,
 ~50 GB at r226, kept for the next build).
 
@@ -968,7 +983,10 @@ chose, `build_metadata.tsv` (`samples_streamed`) keeps it, and the run's end giv
 the disk beside the estimate. Each protal run's log is copied to `OUTDIR/logs/protal_runs_<collection>.log`.
 With `--profile-blocks 0` nothing is streamed and every sample is on the disk at once. A rerun reuses the
 samples only from the same DIR, so on a disk that is cleared after the job, a rerun simulates again
-(the builds are kept in `--outdir`).
+(the builds are kept in `--outdir`). On a rerun with the same DIR, what the collections already hold there
+counts as room (since 2026-10-15: it was counted twice, and a rerun streamed more or stopped), and a
+simulation an earlier run wrote and profiled is kept, with its counts of reads on marker genes, whatever
+`--stream-above` chooses now.
 
 #### Time and memory
 
@@ -1048,7 +1066,7 @@ keeps the finished database.
 | `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
 | `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn; a continuous long tail, no species below 1/1000 of the median, every species a read pair or more), `poisson_lognormal:SIGMA` (Poisson counts + 1, the lognormal before 2026-10-07: ~40-45% of the species at the lowest weight), `powerlaw:ALPHA` or `negbin:R:P` |
-| `--read-types` | `pe,se,pb,ont` | the read types to train |
+| `--read-types` | `pe,se,pb,ont` | the read types to train, each once; a design point that no pe or se unit reads, but whose communities the long-read or Ultima samples replay, is simulated without reads (since 2026-10-15) |
 | `--long-read-bases`, `--long-read-samples` | 300 kb to 6 Gb, 36 | long-read depths and samples per point |
 | `--pb-setup`, `--ont-setup`, `--pbsim`, `--pbsim-models` | | how long reads are made ([above](#one-model-per-read-type)) |
 | `--test-samples` | 4 | test-set samples per design point; 0 for none |
@@ -1648,10 +1666,14 @@ full`, the "Feature sets" study reuse the candidates' scores with species held o
 
 `scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
 saved training samples and checks that protal's probabilities are the model file's and its features
-those of the training data (`--read_type se`, `pb`, `ont` for other models). It takes the first and
-last (`--points`) of the design points that have samples of that read type: with `--se_read_setups` a
-point may hold paired-end or single-end samples only. It profiles into
-`training/parity` (`parity_<read type>`, or `-o`), which every run rewrites. Differences in the last
+those of the training data (`--read_type se`, `pb`, `ont` for other models). It takes `--points` (2)
+of the design points that have samples of that read type (with `--se_read_setups` a point may hold
+paired-end or single-end samples only), shared among their kinds: the first and last of one kind, and
+for se the first Illumina point and the first of the design's Ultima units (`se_ultima_r*`, since
+2026-10-15). `--level C` checks a model of another gate (`model_<type>_c<C>.xml`) on the samples the
+collection profiled at that gate, as the build does for every model of `--model-gates`; and
+`--weighted_site_shift` profiles as a collection with that option did. It profiles into
+`training/parity` (`parity_<read type>`, `_c<C>` with `--level`, or `-o`), which every run rewrites. Differences in the last
 digits (1e-12) are noted, not failed. A sample without taxa (a shallow one of a database of few genes)
 passes if it had none during collection either; the check fails only if no sample has a taxon to
 compare. `gradient_boosted_cmdline.py` and

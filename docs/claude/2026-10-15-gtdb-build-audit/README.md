@@ -49,8 +49,8 @@ folder, keeps `protal_db` and finishes.
 1. **G1, the rerun after v28 loses the marker-truth evaluation.** Once `protal_db` is kept, the collections get no
    `--gene_positions`. The tables then lack `meta_marker_reads`, there are no `.unseen.tsv` tables and no "Marker
    truth" sections, and the line "F1 as protal calls, with every species simulated -> with only those whose marker
-   genes got reads" disappears. The probe of exactly this rerun has 0 of 244 rows with marker reads, against every row
-   in the first run. The models are not affected.
+   genes got reads" disappears. The probe of exactly this rerun has 0 of 244 rows with marker reads, against the 62
+   present taxa's rows in the first run. The models are not affected.
 2. **G2, `c_gates.tsv` and its console lines compare the gates unfairly.** The tables at other gates never get their
    `.unseen.tsv`: it stays `.unseen.tsv.partial`. So every row except the database gate's leaves out the present
    species a gate drops entirely, which was the fix of 2026-10-13. This is why the database's gate is the worst
@@ -396,3 +396,121 @@ Results:
 - Nothing was timed.
 - No r226-scale run was made.
 - The website is not affected by any finding.
+
+## Fixes (2026-10-15, the same day)
+
+The user asked for every finding to be fixed. The work was split by file:
+- the collector (`collect_training_data.py`) and the helper scripts each by the agent that had audited them;
+- `build_gtdb_database.py` and the trainer's new option by the main session.
+
+How each finding was fixed:
+
+| ID | Fix |
+|---|---|
+| G1 | `marker_positions()` runs before `work/converted` is removed (its copy on the samples' disk), and the build warns if the collections would still run without `--gene_positions` |
+| G2 | `write_table` renames a gate's `.unseen.tsv.partial`. A gate without samples leaves no table, samples file or unseen file, nor an earlier run's. A table written without `--gene_positions` removes an earlier run's unseen table beside it |
+| G3 | The build writes `test/c_gates/compare_samples_<type>.txt`: the samples every level without `--flex_indels` has. Every trainer with extra tests gets it as `machine_learning_cmdline.py --extra-test-samples`, which scores each extra table, and the test file's same samples, over those alone. `c_gates_summary` times the same samples, takes the database row from the first level without `--flex_indels`, and gives the sample count on each console line |
+| G4 | The check that keeps the Ultima reads on disk also subtracts what the other simulations take at the models' gates when all are streamed |
+| G5 | `start_convert` forgets the convert stage of the folder it converts into, which is marked again only once the conversion is done. Requiring the full reference in `converted_before` is then not needed: a stopped conversion no longer has a stage |
+| G6 | `install_signal_handlers()` leaves a signal that is ignored at the start as it is (nohup's SIGHUP, a background job's SIGINT) |
+| G7 | `composition_accuracy.main(argv, out=...)` writes its text to the stream given; the build no longer redirects `sys.stdout` |
+| G8 | The reports' commands start through `side_popen`, in a process group of their own and in a list that `stop_jobs` ends (SIGTERM, then SIGKILL) |
+| G9 | The marker-truth, c_gates, feature and scenario lines are said for every kind and labelled with it; the other kind's table is `model_logs/c_gates_<kind>.tsv` |
+| G10 | `--insilico-strains 0` given keeps the `--insilico-multi` strains. An `auto` that resolves to no strains at all takes its step (and the clouds' when only the strains needed them) out of the total |
+| G11 | The ancestry reference is no longer added to the needs |
+| G12 | The collector's `sample_pairs(point)` (community and host pairs) feeds `pe_bytes`, `sample_bytes`, `simulation_bytes` and the time estimate alike |
+| G13 | `ancestry_sites.py --heldout` is optional; without it no species counts as held out, and the run says so |
+| G14 | `error_reads.py` first removes what it writes in its `--out` (by pattern: an `--out` given by mistake loses nothing else). `ancestry_sites.py` and the build read only `.sam`, `.sam.gz` and `.sam.zst` (and `.gz` with gzip) |
+| G15 | CPU from the test collection's tables only. `aligning_cpu_s` is documented as what it is: with `--profile-ahead`, the alignment and the profiling done beside it (see below) |
+| G16 | `composition_accuracy.community_composition_of` falls back to the community's first-reads sample (`protal_se`), whose ScannedFragments equal the pairs, host included |
+| G17 | A design point that no pe or se unit reads is simulated without reads (`--test`, as a scenario's community point); `needed_points` lists what the units need |
+| G18 | The build counts what the collections' points already hold on the samples' disk as room (`collections_held`). `follow()` leaves a simulation that an earlier run wrote and profiled as it is, even when `--stream-above` would now stream it. A gate table: G2 |
+| G19 | The scheduler tells a `--simulate_only` run when everything waits for room (`waiting_for_room` in `simulating.json`), and the follower then profiles what is ready, however little |
+| G20 | When this run built the finished database anew and the scan's table is kept from an earlier run, the table goes into the new database (`--add_tables`) |
+| G21 | `check_model_parity.py` chooses among both kinds of a read type's points: for se, the Illumina points and the design's Ultima units. `--level C` checks a model of another gate on the samples profiled there, and the build runs it for every model of `--model-gates` and kind. `--weighted_site_shift` is passed through when the collections used it: without it, such a build would have failed its parity check |
+| G22 | `Steps.total` counts the finished database's foreign scan. `--read-types` must name each type once, `--holdout` must be in [0, 1), and `--depth-knob-read-types` must name read types. The docstring now gives the `--model` default (`forest,gbm`) and five scenarios. The c_gates database row: G3 |
+
+Left as they are, and why:
+- **G15, the CPU of `--profile-ahead`.** protal's `aligning <sample>` rows still include the profiling worker's CPU:
+  - separating the two exactly would need per-thread accounting of the worker's OpenMP team;
+  - a gate's cost with its profiling is the fairer comparison anyway (fewer records to profile at a higher gate);
+  - the remaining error is one sample's profiling at each level block's first sample.
+- **G19, two waits the change cannot break:**
+  - long reads on disk whose community point itself waits for room;
+  - stalled simulations with nothing ready.
+
+  The follower's 10-minute line now says when the simulations are stalled.
+- **G17, single-end-only points** still write read 2, which is not read.
+- **G18, the race left in the collector.** A simulation written but never profiled, then streamed by a rerun, is still
+  designed again (`stream_design`) while a `--simulate_only` run may read its `sim/`. Reusing that folder is a change
+  of its own.
+
+Tests added:
+- `test_gtdb_build.py`: the option checks, an ignored signal, the reports' commands ending with the run, and the
+  c_gates rows over the compared samples (two existing c_gates tests now expect the sample count).
+- `test_model_pmml.py`:
+  - `ExtraTestsUnseenTest.test_over_the_samples_every_table_has`;
+  - parity tests: the Ultima points and the choice of points, samples at a level.
+- `test_collector.py`:
+  - the gate tables' unseen files and stale tables;
+  - host bytes;
+  - points without a unit;
+  - follow keeping written profiled simulations;
+  - the scheduler's wait hook and the follower profiling when all wait.
+- `test_composition_accuracy.py`, `test_ancestry_sites.py`, `test_error_reads.py`: G16 and G7, G13 and G14's globs,
+  G14's clearing.
+
+### Results
+
+Everything ran in WSL on 4 cores, against the working tree before the commit, with protal and the simulator built from
+`dd01eb1` (their sources are unchanged).
+
+The test suites:
+
+| Suite | Result |
+|---|---|
+| CI's script suites (`test_model_pmml.py`, `test_error_reads.py`, `test_composition_accuracy.py`, `test_ancestry_sites.py`, ...) | 123 tests OK |
+| `scripts/mini_db/test_collector.py` | 28 OK |
+| `test_gtdb_build.py` | 39 OK |
+| `test_ancestry_world.py` | 19 OK |
+| `test_downloads.py` | 9 OK |
+| `test_gene_neighbours.py` | 12 OK |
+| `test_mini_db.py` | 21 OK |
+| `test_gtdb_pipeline.py` | 8 tests in 812 s |
+
+In the pipeline suite, test_j at first failed on the console's c_gates line, whose format changed (the kind label and
+the sample count). Its assertions were updated and extended:
+- the second kind's `c_gates_forest.tsv`;
+- `compare_samples_pe.txt`;
+- the gates' finished unseen tables;
+- the gate model's parity.
+
+It then passed (431 s).
+
+The probes again, with the fixed scripts:
+- **`run_probe.sh v28fixed`** (PROBE_SRC = the working tree's `scripts/mini_db`): exit 0.
+  - 40 gate unseen tables finished, none left `.partial` (G2).
+  - Every read type's c_gates rows are over the same samples (7 pe, 5 se, 3 for se's `--flex_indels` rows, which are
+    the Ultima samples), and `compare_samples_<type>.txt` is written (G3).
+  - The labelled lines for both kinds, and `c_gates.tsv` and `c_gates_gbm.tsv` (G9).
+  - 16 parity checks at other gates, no problem; se's on `rl150_p1000` and `se_ultima_r1000` (G21).
+  - No reports' line in `composition_accuracy.txt` (G7).
+  - Steps 1/11 to 11/11.
+- **`crash_rerun.sh <checkout> <checkout>/scripts/mini_db`:** the first run stops at parity as v28 did. The rerun with
+  the fixed scripts and a new scratch folder:
+  - keeps `protal_db`;
+  - has 24 "Marker truth" lines, as the first run had;
+  - has marker reads on 62 of its 244 training rows (the present taxa's), where the unfixed rerun had 0 (G1).
+
+The mini world has no unseen species, so the `unseen` column stays 0 there. Only an r226 build shows how much the
+database gate's row was penalised in v28.
+
+Docs:
+- `docs/databases.md`:
+  - parity: Ultima samples, gate models, `--level`, `--weighted_site_shift`;
+  - c_gates: the samples compared, the kind tables, the CPU column;
+  - composition's fallback, error reads cleared, ancestry sites without a hold-out;
+  - local scratch: host reads, waiting for room, reruns;
+  - the `--read-types` row and the logs row.
+- `docs/version_changes.md`: an entry under "Since 0.8.4".
+- The website is not affected.

@@ -25,6 +25,15 @@ record), OUT.taxa.tsv.gz (per taxon, pooled), OUT.auc.tsv (the AUC of each signa
 against the FP reads, per taxon, overall and within identity bands) and OUT.summary.txt (the same in words, also on
 stdout).
 
+--heldout is optional (since 2026-10-15; build_gtdb_database.py passes it only when it held species out, and a build
+with --share-logs but no hold-out reported every read type's report as failed): without it no species counts as held
+out, so a taxon's congeners are every species of its genus in --taxonomy, as they are in a training database that
+holds none out. Given for a database that did hold species out, their missing copies would only take places among
+the congeners drawn (at most --max-congeners), so the report says (on stdout) when it takes none as held out.
+
+The SAMs of a folder are the files named .sam, .sam.gz or .sam.zst (since 2026-10-15: *.sam* took a killed
+error_reads.py worker's .sam.zst.partial too, read as plain text).
+
 The gene copies are compared along their shared 12-mers (insilico_strains.substitutions), without an alignment, so a
 stretch past an indel is not compared.
 
@@ -88,7 +97,8 @@ def parse_args(argv=None):
     p.add_argument("--full-reference", help="full_reference.fna[.zst]: every genome's marker genes, >taxid_geneid of its "
                                             "species; gives the species' polymorphic sites")
     p.add_argument("--taxonomy", required=True, help="internal_taxonomy.dmp")
-    p.add_argument("--heldout", required=True, help="heldout_species.txt (species the training database lacks)")
+    p.add_argument("--heldout", help="heldout_species.txt (species the training database lacks); without it, none: every "
+                                     "species of --taxonomy counts as one the training database has")
     p.add_argument("--out", required=True, nargs="+", help="output prefix, one per --sams folder in the same order")
     p.add_argument("--max-congeners", type=int, default=8)
     p.add_argument("--max-alleles", type=int, default=6, help="other genomes' copies kept per species and gene")
@@ -167,13 +177,17 @@ class Taxonomy:
 
 
 def open_text(path):
-    """Lines (bytes) of a plain or zstd-compressed file."""
+    """Lines (bytes) of a plain, zstd- or gzip-compressed file (by its name: .zst, .gz; gzip since 2026-10-15, as the
+    SAM folders' files may be .sam.gz)."""
     if path.endswith(".zst"):
         proc = subprocess.Popen(["zstd", "-dcq", path], stdout=subprocess.PIPE)
         yield from proc.stdout
         proc.wait()
         if proc.returncode:
             raise RuntimeError(f"zstd -dc {path} exited {proc.returncode}")
+    elif path.endswith(".gz"):
+        with gzip.open(path, "rb") as fh:
+            yield from fh
     else:
         with open(path, "rb") as fh:
             yield from fh
@@ -508,9 +522,14 @@ def summarize(taxa, with_alleles):
     return lines, aucs
 
 
+SAM_ENDINGS = (".sam", ".sam.gz", ".sam.zst")  # a SAM's names; not a .partial one, which a killed writer leaves
+
+
 def sams_of(folder):
-    """The SAMs of one --sams folder: <set>/<point>/<sample>[.FP|.FN].sam[.zst], or at its top."""
-    return sorted(glob.glob(os.path.join(folder, "*", "*", "*.sam*")) + glob.glob(os.path.join(folder, "*.sam*")))
+    """The SAMs of one --sams folder: <set>/<point>/<sample>[.FP|.FN].sam[.gz|.zst], or at its top (SAM_ENDINGS only,
+    since 2026-10-15)."""
+    found = glob.glob(os.path.join(folder, "*", "*", "*.sam*")) + glob.glob(os.path.join(folder, "*.sam*"))
+    return sorted(path for path in found if path.endswith(SAM_ENDINGS))
 
 
 class Folder:
@@ -675,6 +694,10 @@ def main(argv=None):
         print(f"no full reference {opts.full_reference}: the congener sites only", flush=True)
         opts.full_reference = None
     tax = Taxonomy(opts.taxonomy, opts.heldout)
+    if not opts.heldout or not os.path.isfile(opts.heldout):  # every species of the taxonomy a congener (since 2026-10-15)
+        echo(("no --heldout" if not opts.heldout else f"no hold-out file {opts.heldout}") +
+             f": no species taken as held out, a taxon's congeners are every species of its genus in {opts.taxonomy} "
+             "(as in a training database that holds none out)")
     found = []
     for sams_dir in opts.sams:
         found.append(sams_of(sams_dir))

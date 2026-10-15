@@ -63,6 +63,22 @@ for this page.
     53-111 s (96-149 s), from scratch 86-90 s (105-157 s) ([report](claude/2026-10-14-compile-time/README.md#implementation)).
   - **Cost:** the units together do 1.6 times the old compile's work, and the binary's code is 12% larger. The
     outputs and the alignment's and profiling's instructions are the same (within 1%).
+- **The GTDB build after the r226 v28 crash** (2026-10-15; `build_gtdb_database.py` and its scripts, protal runs the
+  same). v28 stopped at its parity check, which took design points without single-end samples. That check, and 21
+  findings of the audit that followed, are fixed ([report](claude/2026-10-15-gtdb-build-audit/README.md)):
+  - **`c_gates.tsv` compares the gates fairly:**
+    - every gate counts the present species it leaves without a row (only the database's gate did, so it looked worst);
+    - every row is over the same samples (the models' gates had the streamed, deepest ones too);
+    - each kind of model has its own table and labelled lines.
+  - **A rerun that keeps the finished database** still reports the marker truth (it ran without gene positions).
+  - **The parity check** takes the Ultima samples and the models at other gates too.
+  - **Disk:** the room estimate counts the ancestry reference and an earlier run's samples once, and the Ultima reads
+    no longer stop a tight disk.
+  - **Reruns:** an interrupted conversion is no longer taken as done; a written and profiled simulation is kept; a
+    rebuilt finished database gets its foreign-reads table.
+  - **Stopping:** the reports' commands stop with the run, and nohup's SIGHUP is left ignored.
+  - **Smaller fixes:** composition truth for single-end-only points, error-read folders cleared, ancestry sites without
+    a hold-out, option checks.
 
 ## What 0.8.4 adds
 

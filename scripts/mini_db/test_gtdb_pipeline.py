@@ -1117,11 +1117,24 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertEqual(int(row["samples"]), len(test_samples[row["read_type"]]), row)
             self.assertTrue(row["F1"], row)
             self.assertGreaterEqual(float(row["aligning_cpu_s"]), 0, row)  # recorded (the mini samples take ~0 s)
-        self.assertRegex(result.stdout, r"sparse-first gates \(c_gates\.tsv\), test samples: pe: off \(model 1\) F1 [\d.]+, "
+        # Each kind's lines, labelled (since 2026-10-15), over the samples every gate profiled (their count said).
+        self.assertRegex(result.stdout, r"gbm: sparse-first gates \(c_gates\.tsv\), test samples: pe \(\d+ samples?\): off "
+                                        r"\(model 1\) F1 [\d.]+, "
                                         r"\d+ CPU s; 1 \(its model\) F1 [\d.]+, \d+ CPU s; 2 stride \(model 1\) F1 [\d.]+, "
                                         r"\d+ CPU s; 4 stride \(database\) F1 [\d.]+, \d+ CPU s; "
                                         r"4 hash F1 [\d.]+ \([\d.]+ by stride\), \d+ CPU s; "
                                         r"4 grid F1 [\d.]+ \([\d.]+ by stride\), \d+ CPU s")
+        self.assertRegex(result.stdout, r"forest: sparse-first gates \(c_gates_forest\.tsv\), test samples: pe ")
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, gates, "model_logs", "c_gates_forest.tsv")))
+        self.assertTrue(os.path.isfile(os.path.join(scratch, "test", "c_gates", "compare_samples_pe.txt")))
+        # A gate's table has its unseen species beside it, as the main table (since 2026-10-15: left .partial).
+        for c in (0, 1, 2):
+            self.assertTrue(os.path.isfile(os.path.join(scratch, "test", "c_gates", f"c{c}", "training_data.unseen.tsv")), c)
+            self.assertFalse(os.path.exists(os.path.join(scratch, "test", "c_gates", f"c{c}",
+                                                         "training_data.unseen.tsv.partial")), c)
+        # The models at other gates are checked for parity too, on the samples profiled at their gate.
+        self.assertIn("and the models at other gates: the same probabilities and features", result.stdout)
+        self.assertIn("at sparse-first gate 1", self.text(gates, "model_logs", "parity.txt"))
         self.assertRegex(result.stdout, r"models at other gates .*: pe 1 [\d.]+/[\d.]+ \(the database's 4 above\)")
         self.assertRegex(self.text(gates, "model_logs", "summary.txt"), r"\npe c1 +independent test set ")
         metadata = self.metadata(gates)["sparse_first"]

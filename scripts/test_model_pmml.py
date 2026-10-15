@@ -578,6 +578,105 @@ class ParityFeaturesTest(unittest.TestCase):
             self.assertEqual(names["se"], [("rl150_p10", ["rl150_p10_s_1_se"]), ("rl250_p10", ["rl250_p10_s_1_se"])])
             self.assertEqual(cmp.points_with_samples(training, "pb"), [])
 
+    @staticmethod
+    def parity_layout(training, simulated, drawn, levels=()):
+        """collect_training_data.py's layout of design points of one sample each, with its SAM and training dump:
+        simulated {name: (pe, se)}, a simulator's map (the paired-end sample's SAM <sample>.sam.zst in protal/, its
+        first reads' <sample>_se.sam.gz in protal_se/); drawn, the names of drawn units (sim/samples.tsv, their samples'
+        SAMs in protal/); every sample also at the levels given (<folder>_c<level>/, <sample>__c<level>, its SAM's
+        extension kept), as collect_training_data.unit_map_rows names them."""
+        def files(folder, sample, ending):
+            for level in (None, *levels):
+                at, name = (folder, sample) if level is None else (f"{folder}_c{level}", f"{sample}__c{level}")
+                for sub, end in (("alignments", ending), ("profiles", ".profile.truth_annotated")):
+                    os.makedirs(os.path.join(at, sub), exist_ok=True)
+                    open(os.path.join(at, sub, name + end), "w").close()
+        for name, (pe, se) in simulated.items():
+            base, sample = os.path.join(training, "points", name), name + "_s_1"
+            os.makedirs(os.path.join(base, "sim"))
+            with open(os.path.join(base, "sim", "protal.meta"), "w") as fh:
+                fh.write(f"#OUTPUT_DIR\t{os.path.join(base, 'protal')}\n#SAMPLEID\tSAM\tPROFILE_TRUTH\n"
+                         f"{sample}\t{sample}.sam.zst\t/truth\n")
+            if pe:
+                files(os.path.join(base, "protal"), sample, ".sam.zst")
+            if se:
+                files(os.path.join(base, "protal_se"), sample + "_se", ".sam.gz")
+        for name in drawn:
+            base, sample = os.path.join(training, "points", name), name + "_s_1"
+            os.makedirs(os.path.join(base, "sim"))
+            with open(os.path.join(base, "sim", "samples.tsv"), "w") as fh:
+                fh.write(f"sample\treads\ttruth\tcommunity\n{sample}\t{sample}.fq.zst\t/truth_{name}\trl150_p10_s_1\n")
+            files(os.path.join(base, "protal"), sample, ".sam.gz")
+
+    def test_ultima_units_and_the_choice(self):
+        """The design's Ultima units (se_ultima_r<reads>: drawn like long reads, sim/samples.tsv, SAMs in protal/) are
+        single-end points too (since 2026-10-15), the scenarios' not; the points chosen take each kind's share, so
+        that the default 2 re-profile an Illumina point and an Ultima one."""
+        import check_model_parity as cmp
+        with tempfile.TemporaryDirectory() as training:
+            self.parity_layout(training, {"rl100_p10": (True, False), "rl150_p10": (True, True),
+                                          "rl150_p20": (True, True), "rl250_p10": (True, True)},
+                               ["se_ultima_r10", "se_ultima_r20", "pb_b10", "sc_soil_se_ultima_r10"])
+            se = cmp.points_with_samples(training, "se")
+            self.assertEqual([os.path.basename(p) for p, _ in se],
+                             ["rl150_p10", "rl150_p20", "rl250_p10", "se_ultima_r10", "se_ultima_r20"])
+            ultima = dict(se)[os.path.join(training, "points", "se_ultima_r10")]
+            self.assertEqual(ultima, [("se_ultima_r10_s_1", os.path.join(training, "points", "se_ultima_r10", "protal",
+                                                                         "alignments", "se_ultima_r10_s_1.sam.gz"),
+                                       "/truth_se_ultima_r10",
+                                       os.path.join(training, "points", "se_ultima_r10", "protal", "profiles",
+                                                    "se_ultima_r10_s_1.profile.truth_annotated"))])
+
+            def chosen(points, n):
+                return [os.path.basename(p) for p, _ in cmp.choose(points, n)]
+            self.assertEqual(chosen(se, 2), ["rl150_p10", "se_ultima_r10"])
+            self.assertEqual(chosen(se, 3), ["rl150_p10", "rl250_p10", "se_ultima_r10"])
+            self.assertEqual(chosen(se, 4), ["rl150_p10", "rl250_p10", "se_ultima_r10", "se_ultima_r20"])
+            self.assertEqual(chosen(se, 9), [os.path.basename(p) for p, _ in se])
+            # One kind of points: the first and the last, as before.
+            pe = cmp.points_with_samples(training, "pe")
+            self.assertEqual(chosen(pe, 2), ["rl100_p10", "rl250_p10"])
+            self.assertEqual([os.path.basename(p) for p, _ in cmp.points_with_samples(training, "pb")], ["pb_b10"])
+            self.assertEqual(cmp.points_with_samples(training, "ont"), [])
+
+    def test_samples_at_a_level(self):
+        """--level C: the samples as the collection profiled them at another sparse-first gate (--model_levels:
+        <sample>__c<C> in <profile folder>_c<C>/, the SAM's extension that of the sample's own), for a model of that
+        gate; a point without them is left out; the outputs in TRAINING/parity[_<type>]_c<C>."""
+        import contextlib
+        import io
+        import shutil
+        import check_model_parity as cmp
+        with tempfile.TemporaryDirectory() as training:
+            self.parity_layout(training, {"rl150_p10": (True, True), "rl250_p10": (True, True)}, ["se_ultima_r10"],
+                               levels=("1", "8s"))
+            shutil.rmtree(os.path.join(training, "points", "rl250_p10", "protal_c1"))
+            points = os.path.join(training, "points")
+
+            def at(t, level):
+                return [s for _, samples in cmp.points_with_samples(training, t, level) for s in samples]
+            self.assertEqual(at("pe", "1"), [("rl150_p10_s_1__c1",
+                                              os.path.join(points, "rl150_p10", "protal_c1", "alignments",
+                                                           "rl150_p10_s_1__c1.sam.zst"), "/truth",
+                                              os.path.join(points, "rl150_p10", "protal_c1", "profiles",
+                                                           "rl150_p10_s_1__c1.profile.truth_annotated"))])
+            self.assertEqual([(s[0], os.path.relpath(s[1], points)) for s in at("se", "1")],
+                             [("rl150_p10_s_1_se__c1", os.path.join("rl150_p10", "protal_se_c1", "alignments",
+                                                                     "rl150_p10_s_1_se__c1.sam.gz")),
+                              ("rl250_p10_s_1_se__c1", os.path.join("rl250_p10", "protal_se_c1", "alignments",
+                                                                     "rl250_p10_s_1_se__c1.sam.gz")),
+                              ("se_ultima_r10_s_1__c1", os.path.join("se_ultima_r10", "protal_c1", "alignments",
+                                                                      "se_ultima_r10_s_1__c1.sam.gz"))])
+            self.assertEqual([s[0] for s in at("pe", "8s")], ["rl150_p10_s_1__c8s", "rl250_p10_s_1__c8s"])
+            self.assertEqual(at("pe", "4"), [])
+            self.assertEqual([s[0] for s in at("pe", None)], ["rl150_p10_s_1", "rl250_p10_s_1"])
+        self.assertEqual(cmp.default_out("T", "pe"), os.path.join("T", "parity"))
+        self.assertEqual(cmp.default_out("T", "se", "1"), os.path.join("T", "parity_se_c1"))
+        self.assertEqual(cmp.level_text("1f"), "sparse-first gate 1, --flex_indels")
+        self.assertEqual(cmp.parse_args(["--db", "d", "--model", "m", "--training", "t", "--level", "8"]).level, "8")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            cmp.parse_args(["--db", "d", "--model", "m", "--training", "t", "--level", "c8"])
+
 
 @prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class FoldJobsTest(unittest.TestCase):
@@ -1278,6 +1377,49 @@ class ExtraTestsUnseenTest(unittest.TestCase):
                                "taxon_name": ["x", "y", "z"], "marker_reads": [3, 1, 2]})
         self.assertEqual(trainer.unseen_in(unseen, {"a", "b"}), 2)
         self.assertEqual(trainer.unseen_in(None, {"a"}), 0)
+
+    def test_over_the_samples_every_table_has(self):
+        """--extra-test-samples (since 2026-10-15): each extra table scored over those samples only, beside the test
+        file's rows of the same samples; a table of more samples (a model's gate, with the streamed ones) compares with
+        the others, and one with none of them has no scores."""
+        import unittest.mock
+        import pandas as pd
+        import machine_learning_cmdline as trainer
+
+        class Forest:
+            def predict_proba(self, x):
+                return np.column_stack([1 - x[:, 0], x[:, 0]])
+
+        class Report:
+            def __init__(self):
+                self.data = {}
+
+            def section(self, *_):
+                pass
+
+            def add(self, *_):
+                pass
+
+            def table(self, *_):
+                pass
+        tables = {"c1": pd.DataFrame({"meta_sample": ["a", "b", "s"], "truth": [1, 1, 1], "f": [0.9, 0.1, 0.9]}),
+                  "c8": pd.DataFrame({"meta_sample": ["s"], "truth": [1], "f": [0.9]})}
+        test = pd.DataFrame({"meta_sample": ["a", "b", "s"], "truth": [1, 1, 1], "f": [0.9, 0.9, 0.9]})
+        with tempfile.TemporaryDirectory() as root:
+            keep = os.path.join(root, "compare_samples_pe.txt")
+            with open(keep, "w") as fh:
+                fh.write("a\nb\n")
+            opts = types.SimpleNamespace(knob=0.5, taxonomy=None, test_unseen_file="none", test_file=None,
+                                         extra_test_file=[(label, label) for label in tables], extra_test_samples=keep)
+            report = Report()
+            with unittest.mock.patch.object(trainer, "call_scores", lambda frame, p: p), \
+                    unittest.mock.patch.object(trainer, "load_table", lambda path, taxonomy: tables[path]):
+                trainer.study_extra_tests(report, Forest(), ["f"], opts, None, test)
+        c1, c8 = report.data["extra_tests"]["c1"], report.data["extra_tests"]["c8"]
+        self.assertEqual((c1["scores"]["samples"], c1["scores"]["TP"], c1["scores"]["FN"]), (2, 1, 1))
+        self.assertEqual((c1["test_file_same_samples"]["samples"], c1["test_file_same_samples"]["TP"]), (2, 2))
+        self.assertIsNone(c8["scores"])
+        self.assertIsNone(c8["test_file_same_samples"])
 
 
 if __name__ == "__main__":

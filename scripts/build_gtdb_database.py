@@ -76,19 +76,19 @@ simulations then written to the disk rather than streamed; and every read
 type's test samples at its database gate (2 or more) with the other pick, the
 hash sample of the cores rather than every C-th (--test-other-pick).
 
-Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
-soil, 90% host reads) add samples of their own, each at a depth drawn around its
+Five scenarios of real studies (--scenarios, scenarios.py: gut, moderate, soil,
+shallow soil, 90% host reads) add samples of their own, each at a depth drawn around its
 scenario's: their hold-in samples join the training data, their hold-out samples
 the test set, and every model's report scores both. The models are trained on the
 default feature set, evaluated with rows, samples and species held out (--features,
 --evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
 set with species held out, and the run then says which set won and why. Every
-model is trained in two kinds (--model, default gbm,forest): gradient-boosted
-trees, the database's default (model_pe.xml, model_pe_c1.xml, ...), and a random
-forest, stored beside them (model_pe_forest.xml, model_pe_c1_forest.xml, ...),
-which protal --model_kind forest profiles with, at every gate. The second kind
-trains after the first (the trainers' memory as with one kind); the summary
-scores both.
+model is trained in two kinds (--model, default forest,gbm): a random forest,
+the database's default (model_pe.xml, model_pe_c1.xml, ...), and gradient-boosted
+trees, stored beside them (model_pe_gbm.xml, model_pe_c1_gbm.xml, ...), which
+protal --model_kind gbm profiles with, at every gate. The second kind trains
+after the first (the trainers' memory as with one kind); the summary, and each
+kind's lines on the console, score both.
 
 OUT_DIR holds, each file once:
   protal_db/      the database: database.protal, which holds every file protal reads and these notes (protal
@@ -1571,7 +1571,7 @@ def reports(trace, units, prefixes, training, test, training_db, logs, steps, th
             fh = open(log, "w")
             fh.write(" ".join(command) + "\n")
             fh.flush()
-            running.append((what, subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT), log, out, fh))
+            running.append((what, side_popen(command, stdout=fh, stderr=subprocess.STDOUT), log, out, fh))
         looked = time.time()
         while any(p.poll() is None for _, p, _, _, _ in running):
             time.sleep(0.5)
@@ -1581,8 +1581,7 @@ def reports(trace, units, prefixes, training, test, training_db, logs, steps, th
     finally:
         for _, p, _, _, fh in running:
             if p.poll() is None:
-                p.kill()
-                p.wait()
+                kill_group(p, wait=0)
             fh.close()
     for what, p, log, out, _ in running:
         if not out:  # trace_relatives.py
@@ -1605,8 +1604,7 @@ def reports(trace, units, prefixes, training, test, training_db, logs, steps, th
     if sams and done and protal and taxonomy and work:
         ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, steps, unpacking)
     elif unpacking:
-        unpacking.kill()
-        unpacking.wait()
+        kill_group(unpacking, wait=0)
         shutil.rmtree(os.path.join(work, "ancestry_files"), ignore_errors=True)
 
 
@@ -1629,7 +1627,7 @@ def start_unpack(training_db, protal, work, threads, steps):
                "-t", str(threads)]
     fh.write(" ".join(command) + "\n")
     fh.flush()
-    process = subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT)
+    process = side_popen(command, stdout=fh, stderr=subprocess.STDOUT)
     fh.close()  # the child holds its own descriptor
     return process
 
@@ -1663,7 +1661,9 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
     told = {}
     with_sams = []
     for kind in kinds:
-        if glob.glob(os.path.join(logs, "error_reads", kind, "*", "*", "*.sam*")):
+        # error_reads.py's SAMs (a killed worker's .partial is none since 2026-10-15)
+        if any(p.endswith((".sam", ".sam.gz", ".sam.zst"))
+               for p in glob.glob(os.path.join(logs, "error_reads", kind, "*", "*", "*.sam*"))):
             with_sams.append(kind)
         else:
             told[kind] = f"{kind}: no SAMs"  # no errors, or none with a read
@@ -1678,7 +1678,7 @@ def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, 
         with open(log, "w") as fh:
             fh.write(" ".join(command) + "\n")
             fh.flush()
-            code = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+            code = side_popen(command, stdout=fh, stderr=subprocess.STDOUT).wait()
         for kind in with_sams:
             told[kind] = (f"{kind}: failed ({code}; see {log})" if code
                           else f"{kind}: {ancestry_summary(os.path.join(out_dir, kind + '.auc.tsv'))}")
@@ -2102,21 +2102,48 @@ def aligning_times(cpu_tables):
     return times
 
 
+def level_samples(test_dir, t, level):
+    """The test samples of read type t profiled at a level (the collector's c_gates/c<level>/samples_<t>.txt), or []."""
+    try:
+        with open(os.path.join(test_dir, LEVELS_DIR, f"c{level}", f"samples_{t}.txt")) as fh:
+            return [line.strip() for line in fh if line.strip()]
+    except OSError:
+        return []
+
+
+def compare_samples(test_dir, t, levels):
+    """The test samples of read type t that every level of `levels` without --flex_indels has (level_samples): those
+    written to the disk, which every gate profiled, and not those streamed into protal, which only the models' gates
+    profile again (--model-gates). c_gates.tsv scores and times every level over these (since 2026-10-15: the models'
+    gates' rows had the deepest samples too, and their F1 and CPU did not compare with the others'). -> a sorted list,
+    or None without a level that lists samples."""
+    common = None
+    for level in levels:
+        if level_parts(level)[1]:
+            continue
+        samples = level_samples(test_dir, t, level)
+        if samples:
+            common = set(samples) if common is None else common & set(samples)
+    return sorted(common) if common is not None else None
+
+
 def c_gates_summary(read_types, prefixes, test_levels, database_gates, test_dir, cpu_tables, out, gate_prefixes=None,
-                    scored_by=None, picks=None):
+                    scored_by=None, picks=None, compare=None):
     """--test-c-gates and --model-gates: per read type, its test samples at the database's gate and at its other levels
     (test_levels: other gates, the models' other gates among them, gates with the other pick, "8h" or "8s", and with
     --flex_indels, "1f"), each scored by the model of the gate nearest its own, as protal profiles a run gated so
     (scored_by {read type: {level: model gate}}; the database gate's model, prefixes, or another's, gate_prefixes {read
     type: {gate: prefix}}: the trainers' extra_tests in <prefix>.metrics.json; the present species of its samples
-    without a row counted as missed, unseen), and timed (their alignment's CPU and wall seconds, aligning_times), as
-    model_logs/c_gates.tsv (out). The database's row is the test file's rows of the samples the first level has (those
-    whose reads came through pipes only at the models' gates); every other row has its baseline beside it, the same
-    samples at the database's gate without --flex_indels scored by its model (baseline_F1, baseline_aligning_cpu_s: for
-    se's rows with --flex_indels, the Ultima samples alone). A gate's row with the other pick follows its row with the
-    database's pick (picks {read type: "stride" or "hash"}), whose F1 its line gives beside its own. -> a line per read
-    type."""
+    without a row counted as missed, unseen), and timed (their alignment's CPU and wall seconds, aligning_times: the
+    test collection's runs; with --profile-ahead the profiling of the samples done beside the alignment counts in), as
+    `out` (model_logs/c_gates.tsv). Every row is over the samples every gate profiled (compare {read type: samples},
+    compare_samples; the trainers scored the levels over them: --extra-test-samples), the rows with --flex_indels over
+    those of them it has (se: the Ultima samples). The database's row is the test file's rows of those samples; every
+    other row has its baseline beside it, the same samples at the database's gate without --flex_indels scored by its
+    model (baseline_F1, baseline_aligning_cpu_s). A gate's row with the other pick follows its row with the database's
+    pick (picks {read type: "stride" or "hash"}), whose F1 its line gives beside its own. -> a line per read type."""
     gate_prefixes, scored_by, picks = gate_prefixes or {}, scored_by or {}, picks or {}
+    compare = {t: set(samples) for t, samples in (compare or {}).items() if samples}
     times = aligning_times(cpu_tables)
     rows, lines = [], []
 
@@ -2127,11 +2154,9 @@ def c_gates_summary(read_types, prefixes, test_levels, database_gates, test_dir,
         return sum(c for c, _ in found), sum(w for _, w in found)
 
     def samples_at(t, level):
-        try:
-            with open(os.path.join(test_dir, LEVELS_DIR, f"c{level}", f"samples_{t}.txt")) as fh:
-                return [line.strip() for line in fh if line.strip()]
-        except OSError:
-            return []
+        samples = level_samples(test_dir, t, level)
+        common = compare.get(t)
+        return [s for s in samples if s in common] if common else samples
 
     def number(value, form):
         return "" if value is None else format(value, form)
@@ -2154,7 +2179,7 @@ def c_gates_summary(read_types, prefixes, test_levels, database_gates, test_dir,
         extra = extra_tests(prefixes[t])  # the database gate's model's: every level, and the baselines
         others = {g: extra_tests(prefix) for g, prefix in gate_prefixes.get(t, {}).items()}
         pick = picks.get(t, "hash")
-        first = levels[0]
+        first = next((level for level in levels if not level_parts(level)[1]), levels[0])  # not the Ultima samples alone
         # (gate, flex, its pick, the model's gate, scores, samples, their rows' suffix, the same samples' scores at the
         # database's gate)
         entries = [(own, False, pick, own, (extra.get(f"c{first}") or {}).get("test_file_same_samples"),
@@ -2194,7 +2219,8 @@ def c_gates_summary(read_types, prefixes, test_levels, database_gates, test_dir,
                           else "") +
                          ("" if cpu is None else f", {cpu:.0f} CPU s"))
         if parts:
-            lines.append(f"{t}: " + "; ".join(parts))
+            n = len(entries[0][5])
+            lines.append(f"{t} ({n} sample{'' if n == 1 else 's'}): " + "; ".join(parts))
     with open(out, "w") as fh:
         fh.write("\t".join(C_GATES_COLUMNS) + "\n")
         fh.writelines("\t".join("" if v is None else (f"{v:.6g}" if isinstance(v, float) else str(v)) for v in row) + "\n"
@@ -2370,10 +2396,11 @@ def composition_report(read_types, prefixes, training, test, heldout, logs, thre
                 "--species-out", os.path.join(logs, f"composition_species{suffix}.tsv.gz")]
         argv += ["--test", test] if test else []
         argv += ["--heldout", heldout] if heldout else []
+        # Its text into `output` (main's out), not by redirecting sys.stdout, which is the whole process's: the reports'
+        # thread says its lines meanwhile (since 2026-10-15: they went into composition_accuracy.txt and summary.txt).
         output = io.StringIO()
         try:
-            with contextlib.redirect_stdout(output):
-                lines = composition_accuracy.main(argv)
+            lines = composition_accuracy.main(argv, out=output)
             briefs[t] = composition_accuracy.brief(lines)
         except BaseException as e:  # SystemExit too: the build goes on
             briefs[t] = f"failed: {e}"
@@ -2637,14 +2664,49 @@ def is_allele_genome(fields, reps, share):
     return bool(accession) and (reps is None or accession not in reps) and allele_genome(accession, share)
 
 
+SIDE_COMMANDS = []  # the reports' commands (reports(): Popens of their thread, not Jobs), which stop_jobs ends too
+SIDE_LOCK = threading.Lock()
+
+
+def side_popen(command, **kwargs):
+    """subprocess.Popen of a report's command (reports(), in its thread), in a process group of its own, which
+    stop_jobs ends with the jobs (since 2026-10-15: a build that stopped left them running, writing into model_logs/
+    and work/ beside a rerun's)."""
+    with SIDE_LOCK:
+        process = subprocess.Popen(command, start_new_session=True, **kwargs)
+        SIDE_COMMANDS.append(process)
+    return process
+
+
+def kill_group(process, wait=30):
+    """Ends a command started in a process group of its own and what it started: SIGTERM, then SIGKILL after `wait`
+    seconds."""
+    for sig, timeout in ((signal.SIGTERM, wait), (signal.SIGKILL, None)):
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            break
+        try:
+            process.wait(timeout=timeout)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def stop_jobs():
-    """Stops the jobs still running; one that already ended well still counts (its build is recorded)."""
+    """Stops the jobs still running; one that already ended well still counts (its build is recorded). The reports'
+    commands (side_popen) too."""
     for job in list(Job.running):
         if job.poll() == 0:
             job.ended(0)
     for job in list(Job.running):
         job.kill()
     Job.running.clear()
+    with SIDE_LOCK:
+        running = [p for p in SIDE_COMMANDS if p.poll() is None]
+        SIDE_COMMANDS.clear()
+    for process in running:
+        kill_group(process)
 
 
 def stop(message):
@@ -3391,8 +3453,10 @@ def main():
     args.no_foreign_rates = args.no_foreign_rates or not args.foreign_rates  # the scan only with --foreign-rates
     if not 0 < args.min_real_strains <= 1 or not 0 <= args.insilico_multi <= 1:
         p.error("--min-real-strains is a share above 0 and at most 1, --insilico-multi a share from 0 to 1")
-    # Whether there will be in-silico strains: auto decides how many once the genome table is made (step 2).
-    insilico_wanted = args.insilico_strains == "auto" or args.insilico_strains > 0
+    # Whether there will be in-silico strains: auto decides how many once the genome table is made (step 2); those of
+    # species with real strains (--insilico-multi) are made whatever --insilico-strains says (since 2026-10-15: an
+    # --insilico-strains 0 given left them out, auto resolving to 0 did not).
+    insilico_wanted = args.insilico_strains == "auto" or args.insilico_strains > 0 or args.insilico_multi > 0
     if args.strain_alleles < 0 or not 0 <= args.allele_genome_share <= 1 or not 0 <= args.final_allele_genome_share <= 1 \
             or args.index_alleles < 0:
         p.error("--strain-alleles is a count (0: none), --allele-genome-share and --final-allele-genome-share shares from "
@@ -3419,8 +3483,13 @@ def main():
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
-    if not read_types or any(t not in TABLES for t in read_types):
-        p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
+    if not read_types or any(t not in TABLES for t in read_types) or len(set(read_types)) != len(read_types):
+        p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, each once, got {args.read_types!r}")
+    if any(t not in TABLES for t in depth_knob_types(args)):
+        p.error(f"--depth-knob-read-types: a comma-separated list of {', '.join(TABLES)} (or ''), got "
+                f"{args.depth_knob_read_types!r}")
+    if not 0 <= args.holdout < 1:
+        p.error(f"--holdout: a share of the species from 0 to below 1, got {args.holdout:g}")
     # --model-gates: each read type's gates with a model (its database gate's among them), and the others, whose models
     # are trained on the collections profiled at them too and stored beside the database gate's (model_pe_c1.xml, ...).
     args.model_ladder = model_gate_ladder(args.model_gates, args.sparse_first, read_types)
@@ -3574,7 +3643,18 @@ def main():
     steer_holdout = (args.holdout > 0 or bool(clades)) and not args.holdout_species and args.holdout_complex_distance > 0
     # The species clouds steer the hold-out and give the in-silico strains their congener sites.
     make_clouds = steer_holdout or (insilico_wanted and not args.no_gene_neighbours)
-    Steps.total = 8 + has_test + subset + insilico_wanted + (not args.no_foreign_rates) + make_clouds
+
+    # A training database of its own (species held out, or other alleles than the finished database's), as it will be
+    # unless the hold-out comes out empty: then a foreign-reads scan of each database (since 2026-10-15: one counted).
+    separate_training_db = args.holdout > 0 or bool(clades) or bool(args.holdout_species) or \
+        (args.strain_alleles > 0 and args.final_allele_genome_share != args.allele_genome_share)
+
+    def step_total():
+        """The steps (Steps.start), the foreign-reads scans with them (one per database); corrected once the training
+        database is known (scan, below) in the rare case that separate_training_db was wrong."""
+        return 8 + has_test + subset + insilico_wanted + (not args.no_foreign_rates) * (1 + separate_training_db) + \
+            make_clouds
+    Steps.total = step_total()
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -3608,7 +3688,13 @@ def main():
     neighbours_key = None  # set once the genome table is there
 
     def start_convert(into):
-        """The converter into `into`, in the background (its Job)."""
+        """The converter into `into`, in the background (its Job). It writes the folder's files in place, so the stage of
+        an earlier conversion into it goes first: a conversion stopped midway leaves none (since 2026-10-15: the
+        earlier one's key and the half-written files made the next run take the folder as converted, and build
+        without a full reference or gene neighbours). The stage is marked again once the conversion is done."""
+        stored = stages.stored("convert")
+        if isinstance(stored, dict) and stored.get("into") == os.path.basename(into):
+            stages.forget("convert")
         # With --scratch, the converter spools the marker genes on the node's disk (~5 GB compressed at r226).
         return Job([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
                     str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
@@ -3737,7 +3823,10 @@ def main():
     if args.insilico_strains == "auto":
         auto_share, _, _, single = auto_insilico_share(genome_table, reps, args.insilico_multi, args.min_real_strains)
         args.insilico_strains = round(auto_share, 4)
-        insilico_wanted = args.insilico_strains > 0 or args.insilico_multi > 0
+        if not (args.insilico_strains > 0 or args.insilico_multi > 0):  # none after all: their steps are none either
+            insilico_wanted = False
+            make_clouds = steer_holdout
+            Steps.total = step_total()
         insilico_choice = (f"--insilico-strains auto: {args.insilico_strains:g} of the {single} one-genome species, so that "
                            f"real strains are at least {args.min_real_strains:g} of the simulated strains")
         summary.append(insilico_choice)
@@ -4122,8 +4211,34 @@ def main():
                     os.remove(kept)
                 with contextlib.suppress(OSError):
                     os.link(os.path.join(training_db, "reference.fna"), kept)
+
+    def marker_positions():
+        """The release's gene_positions.tsv (every genome of the table placed, held-out species included), copied to
+        the samples' disk once, where the simulators read it while the finished database's build packs its own; None
+        without one (--no-gene-neighbours)."""
+        target = os.path.join(samples_root, "gene_positions.tsv")
+        source = next((p for p in (os.path.join(f, "gene_positions.tsv") for f in (converted, db, full) if f)
+                       if os.path.isfile(p)), None)
+        if source is None:
+            return target if os.path.isfile(target) else None
+        if not os.path.isfile(target) or os.path.getmtime(target) < os.path.getmtime(source) or \
+                os.path.getsize(target) != os.path.getsize(source):
+            os.makedirs(samples_root, exist_ok=True)
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(target + ".partial")
+            try:  # a hard link on the same disk (it outlives the source's removal), else a copy (~0.8 GB at r226)
+                os.link(source, target + ".partial")
+            except OSError:
+                shutil.copyfile(source, target + ".partial")
+            os.replace(target + ".partial", target)
+        return target
+
     if converted and converted != db:
         join_insilico()  # they may read the gene positions of the release converted again, which goes now
+        # ... and so may the collections, later: their copy on the samples' disk first (since 2026-10-15: a rerun that
+        # kept the finished database, whose own copy its build packed, removed the only one, and its collections ran
+        # without --gene_positions: no marker truth, no unseen tables, and nothing said so).
+        marker_positions()
         shutil.rmtree(converted, ignore_errors=True)
 
     # The finished database is needed only for --add_model at the end: it is built in the background from the
@@ -4137,8 +4252,11 @@ def main():
         return (f"built {os.path.basename(name)}{' in the background' if job is final_build else ''} in "
                 f"{job.took()}{db_size(name)}{extra}")
 
+    final_rebuilt = []  # [True] once this run has built the finished database (foreign_rates: a table kept goes into it)
+
     def built_final():
         stages.mark("protal_db", final_key)
+        final_rebuilt.append(True)
 
     def built_final_in_background():  # says so when the script notices, whatever step it is at
         built_final()
@@ -4184,32 +4302,16 @@ def main():
         positions = marker_positions()
         if positions:  # meta_marker_reads: the trainers' F1 over the species whose marker genes got reads
             command += ["--gene_positions", positions]
+        elif not args.no_gene_neighbours and not getattr(marker_positions, "warned", False):
+            marker_positions.warned = True
+            say("    WARNING: the release's gene_positions.tsv is in none of the converted folders nor on the samples' "
+                "disk: the collections count no reads on marker genes, so the trainers report no marker truth and no "
+                "unseen species")
         if levels:
             command += ["--sparse_first_levels", levels_text(levels)]
         if model_levels:
             command += ["--model_levels", levels_text(model_levels)]
         return command
-
-    def marker_positions():
-        """The release's gene_positions.tsv (every genome of the table placed, held-out species included), copied to
-        the samples' disk once, where the simulators read it while the finished database's build packs its own; None
-        without one (--no-gene-neighbours)."""
-        target = os.path.join(samples_root, "gene_positions.tsv")
-        source = next((p for p in (os.path.join(f, "gene_positions.tsv") for f in (converted, db, full) if f)
-                       if os.path.isfile(p)), None)
-        if source is None:
-            return target if os.path.isfile(target) else None
-        if not os.path.isfile(target) or os.path.getmtime(target) < os.path.getmtime(source) or \
-                os.path.getsize(target) != os.path.getsize(source):
-            os.makedirs(samples_root, exist_ok=True)
-            with contextlib.suppress(FileNotFoundError):
-                os.remove(target + ".partial")
-            try:  # a hard link on the same disk (it outlives the source's removal), else a copy (~0.8 GB at r226)
-                os.link(source, target + ".partial")
-            except OSError:
-                shutil.copyfile(source, target + ".partial")
-            os.replace(target + ".partial", target)
-        return target
 
     genome_store = None  # --genome-store
     if args.genome_store == "auto":
@@ -4342,8 +4444,22 @@ def main():
     needs = disk_needs(samples_root, genome_store, store_bases, to_build, hosts, sizes, keep_free)
     if at_model_levels and args.profile_blocks > 0:
         needs["SAMs and profiles at the models' other gates"] = at_model_levels
-    free = shutil.disk_usage(samples_root).free
-    say(f"    room on {samples_root}: {gigabytes(free)} free; besides the reads the run needs ~"
+
+    def collections_held():
+        """What the collections' design points already hold on the samples' disk (a rerun's reads, SAMs and profiles):
+        part of what the needs and the reads count, and so of the room (since 2026-10-15: counted again, a rerun on a
+        kept disk streamed more than its first run, or stopped)."""
+        held = 0
+        for o in (collector_args(c[2:]) for _, c, _ in collections_):
+            points = os.path.join(o.out, "points")
+            if os.path.isdir(points) and on_disk(points, samples_root):
+                held += tree_size(points)
+        return held
+    held = collections_held()
+    free = shutil.disk_usage(samples_root).free + held
+    say(f"    room on {samples_root}: {gigabytes(free)} free" +
+        (f" (with the {gigabytes(held)} an earlier run's samples hold there)" if held else "") +
+        "; besides the reads the run needs ~"
         f"{gigabytes(sum(needs.values()))} there ({needs_text(needs)}), and the reads of its {len(sizes)} simulations take "
         f"~{gigabytes(reads)} (the collector's estimate, ~1.25 times what r226 v15 wrote)" +
         (f"; written, the samples' rows at other gates add up to ~{gigabytes(at_levels)} of SAMs and profiles "
@@ -4373,6 +4489,8 @@ def main():
     # database's with --share-logs after the ancestry report). The finished database's table waits in work/foreign_rates/
     # for a rerun, not beside database.protal, which holds it. Only with --foreign-rates (r226 v18: 0.001 of AUC for ~21 min).
     scan = not args.no_foreign_rates
+    if scan and (training_db != db) != separate_training_db:  # a scan per database: two, or one after all
+        Steps.total += 1 if training_db != db else -1
 
     def foreign_rates(against):
         table = os.path.join(against if against != db else os.path.join(work, "foreign_rates"), "foreign_rates.tsv")
@@ -4385,6 +4503,14 @@ def main():
                     f"cop{'y' if args.foreign_per_header == 1 else 'ies'} of each species' gene in its full reference, aligned "
                     f"against it")
         if stages.done(stage, key) and os.path.isfile(table):
+            if against == db and final_rebuilt:
+                # The finished database built anew by this run, under the key of the one the table went into: the table
+                # holds, the new database.protal lacks it (since 2026-10-15: "kept", and the database went without it).
+                run([args.protal, "--add_tables", table, "--db", against, "-t", str(args.threads)], log,
+                    label=f"storing the table in {os.path.basename(against)}", append=True)
+                Steps.done(f"{table} was made by an earlier run for the same database; stored in "
+                           f"{os.path.basename(against)}, built anew")
+                return table
             Steps.done(f"{table} was made by an earlier run for the same database; kept")
             return table
         full = full_reference_path(against)
@@ -4416,6 +4542,9 @@ def main():
         foreign_rates(folder)
         return "" if keep else remove_full_reference(folder)
 
+    # The release's gene positions onto the samples' disk before a build of the finished database packs its copy (since
+    # 2026-10-15: without species held out, that build ran before the collections, and they had none).
+    marker_positions()
     if final_done:
         pass
     elif training_db == db:
@@ -4453,13 +4582,12 @@ def main():
     # reads room on the disk at once, besides what disk_needs counts now that the training database is built. The
     # simulations draw from the in-silico strains: they are made by now (or waited for).
     join_insilico()
-    free = shutil.disk_usage(samples_root).free
+    # The ancestry report's reference.fna (a hard link kept until the end) is on the disk already: not a need (since
+    # 2026-10-15: counted again, ~15 GB at r226).
+    free = shutil.disk_usage(samples_root).free + collections_held()
     needs = disk_needs(samples_root, genome_store, sim_table,
                        [("finished database", db)] if not final_done and training_db != db else [], hosts, sizes,
                        keep_free)
-    ancestry_reference = os.path.join(training_db, ANCESTRY_REFERENCE)  # kept for the ancestry report until the end
-    if os.path.isfile(ancestry_reference) and on_disk(training_db, samples_root):
-        needs["the ancestry report's reference.fna"] = os.path.getsize(ancestry_reference)
     room = free - sum(needs.values())
     auto = args.stream_above == "auto"
     # The simulations a collector writes whatever --stream-above says (--write_simulations: the test set's Ultima ones
@@ -4468,7 +4596,11 @@ def main():
     pinned_costs = simulation_costs(collections_, "written")
     pinned = sum(r for _, r, _, _ in pinned_costs)
     pinned_levels = sum(c for _, _, c, _ in pinned_costs)
-    if pinned and args.profile_blocks > 0 and room - pinned - pinned_levels < 0:
+    # Beside them, the others take at least what they take with every one streamed: their SAMs and profiles at the
+    # models' gates (since 2026-10-15: left out here, a room between the two kept the Ultima reads and then stopped the
+    # run for want of room "even with every simulation streamed").
+    least_streamed = sum(s for _, _, _, s in simulation_costs(collections_, "streamable"))
+    if pinned and args.profile_blocks > 0 and room - pinned - pinned_levels - least_streamed < 0:
         say(f"    WARNING: the test set's Ultima reads (~{gigabytes(pinned)}, written for --test-flex-indels, and "
             f"~{gigabytes(pinned_levels)} of SAMs and profiles at other gates) do not fit beside the rest "
             f"(~{gigabytes(max(0, room))} of room): streamed into protal, so they are not profiled with --flex_indels")
@@ -4690,6 +4822,15 @@ def main():
             stop(f"no training table of the {t} samples at gate {g} ({os.path.join(training, LEVELS_DIR, f'c{g}')}): "
                  f"the database holds a placeholder for its model ({gate_model_file(t, g)}); rerun, or build with "
                  "--model-gates none")
+    # The test samples every gate profiled (compare_samples), per read type: the trainers score each level over them
+    # (--extra-test-samples), so that the levels' rows of c_gates.tsv compare.
+    compare, compare_files = {}, {}
+    for t in read_types if has_test else ():
+        samples = compare_samples(test, t, test_levels.get(t, []))
+        if samples:
+            compare[t], compare_files[t] = samples, os.path.join(test, LEVELS_DIR, f"compare_samples_{t}.txt")
+            with open(compare_files[t], "w") as fh:
+                fh.writelines(s + "\n" for s in samples)
     # Boosting's OpenMP threads wait on each other at every step: nothing else runs beside the trainers. The finished
     # database's build, if still running, is paused (its memory kept) and goes on after them.
     check_jobs()
@@ -4727,6 +4868,8 @@ def main():
                     table = os.path.join(test, LEVELS_DIR, f"c{c}", TABLES[t])
                     if os.path.isfile(table) and (g is None or scored_by[t][c] == g):
                         command += ["--extra-test-file", f"c{c}={table}"]
+                if "--extra-test-file" in command and t in compare_files:
+                    command += ["--extra-test-samples", compare_files[t]]
             name = (t if g is None else f"{t} c{g}") + suffix.replace("_", " ")
             trainers[(t, g)] = Job(command, step_log("classifier_training" + ("" if t == "pe" else "_" + t) +
                                                      ("" if g is None else f"_c{g}") + suffix + ".log"),
@@ -4739,18 +4882,24 @@ def main():
             Steps.done(f"{kind}: " + gate_model_scores(args.extra_gates, own_gates, args.sparse_first))
     if paused:
         final_build.resume()
-    if marker_scores(read_types, prefixes):
-        Steps.done(marker_scores(read_types, prefixes))
-    if test_levels:  # the test samples' F1 and alignment CPU at each gate (the database's marked), as protal would call
-        cpu_tables = [os.path.join(d, PROTAL_CPU) for d in (training, test)] + \
-            [step_log(f"protal_cpu_{os.path.basename(d)}.tsv") for d in (training, test)]
-        for line in c_gates_summary(read_types, prefixes, test_levels, args.sparse_first, test, cpu_tables,
-                                    os.path.join(logs, "c_gates.tsv"), gate_prefixes, scored_by, args.sparse_first_pick):
-            Steps.done(f"sparse-first gates (c_gates.tsv), test samples: {line}")
-    for t, name, why in feature_choices(read_types, prefixes):
-        Steps.done(f"{t} model's features: {name}: {why}")
-    if selected:
-        Steps.done(scenario_scores(read_types, prefixes, selected))
+    # What the models' reports say beyond their F1: the first kind's, and each other kind's (--model) labelled (since
+    # 2026-10-15: only the first kind's were said, after the other kinds' lines and without a label).
+    test_cpu = [os.path.join(test, PROTAL_CPU), step_log(f"protal_cpu_{os.path.basename(test)}.tsv")]  # the test samples'
+    for kind in args.model_kinds:
+        own, own_gates = (prefixes, gate_prefixes) if kind == args.model else kind_prefixes[kind]
+        label = f"{kind}: " if args.other_kinds else ""
+        said = marker_scores(read_types, own)
+        if said:
+            Steps.done(label + said)
+        if test_levels:  # the test samples' F1 and alignment CPU at each gate (the database's marked), as protal would call
+            table = "c_gates.tsv" if kind == args.model else f"c_gates_{kind}.tsv"
+            for line in c_gates_summary(read_types, own, test_levels, args.sparse_first, test, test_cpu,
+                                        os.path.join(logs, table), own_gates, scored_by, args.sparse_first_pick, compare):
+                Steps.done(f"{label}sparse-first gates ({table}), test samples: {line}")
+        for t, chosen, why in feature_choices(read_types, own):
+            Steps.done(f"{label}{t} model's features: {chosen}: {why}")
+        if selected:
+            Steps.done(label + scenario_scores(read_types, own, selected))
     # The reports of what the models' errors rest on need only the trainers' calls, the samples' SAMs and the training
     # database (neither feeds the database): they start now, in a thread beside the parity check, the composition, the
     # wait for the finished database's build and --add_model (r226 v18 waited 21 min for that build before them).
@@ -4767,28 +4916,39 @@ def main():
     reporting.start()
     # protal must score as the trainer does, and compute the features as it did during collection: the read types'
     # checks side by side (protal --profile_only: no index loaded), their logs then joined in parity.log; those of the
-    # models of each kind (--model), each into its own folder (TRAINING/parity[_<type>][_<kind>]).
+    # models of each kind (--model), and of the models at other gates (--model-gates: on the samples the collection
+    # profiled at that gate, check_model_parity.py --level; since 2026-10-15), each into its own folder
+    # (TRAINING/parity[_<type>][_c<C>][_<kind>]).
     Steps.start("checking that protal scores the models as the trainer does (parity.log)")
     began = time.time()
     parity_log = step_log("parity.log")
-    parity_runs = [(t, kind, prefixes[t] if kind == args.model else kind_prefixes[kind][0][t],
-                    os.path.join(training, ("parity" if t == "pe" else "parity_" + t) + ("" if kind == args.model else "_" + kind)))
-                   for kind in args.model_kinds for t in read_types]
+    parity_runs = []  # (read type, gate or None, prefix, its output folder, its name in logs)
+    for kind in args.model_kinds:
+        own, own_gates = (prefixes, gate_prefixes) if kind == args.model else kind_prefixes[kind]
+        for t in read_types:
+            for g in [None] + args.extra_gates.get(t, []):
+                suffix = ("" if g is None else f"_c{g}") + ("" if kind == args.model else "_" + kind)
+                folder = ("parity" if t == "pe" else "parity_" + t) + suffix
+                parity_runs.append((t, g, own[t] if g is None else own_gates[t][g], os.path.join(training, folder),
+                                    f"parity_{t}{suffix}"))
     checks = [Job([sys.executable, PARITY, "--db", training_db, "--model", prefix + ".xml", "--training", training,
-                   "--read_type", t, "--protal", args.protal, "-t", str(max(1, args.threads // len(parity_runs))), "-o", out],
-                  step_log(f"parity_{t}{'' if kind == args.model else '_' + kind}.log"),
-                  label=f"checking the {t}{'' if kind == args.model else ' ' + kind} model's parity with protal")
-              for t, kind, prefix, out in parity_runs]
+                   "--read_type", t, "--protal", args.protal, "-t", str(max(1, args.threads // len(parity_runs))), "-o", out] +
+                  ([] if g is None else ["--level", str(g)]) +
+                  (["--weighted_site_shift"] if args.weighted_site_shift else []),  # as the collections profiled
+                  step_log(name + ".log"),
+                  label=f"checking the {name.removeprefix('parity_').replace('_', ' ')} model's parity with protal")
+              for t, g, prefix, out, name in parity_runs]
     for job in checks:
         job.finish()
     concatenate_logs([job.log for job in checks], parity_log, lambda p: os.path.basename(p).removesuffix(".log"))
     for job in checks:
         os.remove(job.log)
-    Steps.done(f"{', '.join(read_types)}{' (' + ', '.join(args.model_kinds) + ')' if args.other_kinds else ''}: the same "
-               f"probabilities and features, checked in {clock(time.time() - began)}")
+    Steps.done(f"{', '.join(read_types)}{' (' + ', '.join(args.model_kinds) + ')' if args.other_kinds else ''}"
+               f"{' and the models at other gates' if args.extra_gates else ''}: the same probabilities and features, "
+               f"checked in {clock(time.time() - began)}")
     # model_logs/parity.txt: each model's result (check_model_parity.py's parity.txt), which names its model.
     results = []
-    for _, _, _, out in parity_runs:
+    for _, _, _, out, _ in parity_runs:
         path = os.path.join(out, "parity.txt")
         if os.path.isfile(path):
             with open(path) as fh:
@@ -4896,9 +5056,17 @@ def main():
         f"({files[WORK]}; not needed to use the database)")
 
 
-if __name__ == "__main__":
+def install_signal_handlers():
+    """SIGTERM, SIGINT and SIGHUP stop the run with what it started (on_signal), except one ignored when the run starts,
+    which stays so: nohup's SIGHUP, a background job's SIGINT (since 2026-10-15: a run started with nohup stopped when
+    its terminal went)."""
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        signal.signal(sig, on_signal)
+        if signal.getsignal(sig) != signal.SIG_IGN:
+            signal.signal(sig, on_signal)
+
+
+if __name__ == "__main__":
+    install_signal_handlers()
     try:
         main()
     finally:  # an uncaught exception, too

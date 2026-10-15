@@ -253,6 +253,68 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(build.argparse.ArgumentTypeError):
                 build.stream_spec(bad)
 
+    def test_options_checked_before_the_run(self):
+        # Since 2026-10-15: a read type given twice (two trainers would write the same files hours in), a --holdout share
+        # outside [0, 1) and a --depth-knob-read-types that names no read type stop the run before it starts.
+        with tempfile.TemporaryDirectory() as root:
+            for bad, said in ((["--read-types", "pe,se,pe"], "each once"), (["--holdout", "1"], "--holdout"),
+                              (["--holdout", "-0.1"], "--holdout"), (["--depth-knob-read-types", "pe,xx"],
+                                                                     "--depth-knob-read-types")):
+                argv = ["build_gtdb_database.py", "--outdir", os.path.join(root, "out"), "--protal", "/nowhere/protal",
+                        *bad]
+                stderr = io.StringIO()
+                with self.assertRaises(SystemExit) as stopped, contextlib.redirect_stderr(stderr), \
+                        contextlib.redirect_stdout(io.StringIO()), unittest.mock.patch.object(sys, "argv", argv):
+                    build.main()
+                self.assertEqual(stopped.exception.code, 2, bad)
+                self.assertIn(said, stderr.getvalue(), bad)
+                self.assertFalse(os.path.exists(os.path.join(root, "out")), bad)
+
+    def test_an_ignored_signal_stays_ignored(self):
+        # Since 2026-10-15: SIGHUP ignored when the run starts (nohup) stays ignored; the others stop the run.
+        saved = {sig: build.signal.getsignal(sig) for sig in (build.signal.SIGTERM, build.signal.SIGINT,
+                                                               build.signal.SIGHUP)}
+        try:
+            build.signal.signal(build.signal.SIGHUP, build.signal.SIG_IGN)
+            build.signal.signal(build.signal.SIGTERM, build.signal.SIG_DFL)
+            build.install_signal_handlers()
+            self.assertEqual(build.signal.getsignal(build.signal.SIGHUP), build.signal.SIG_IGN)
+            self.assertEqual(build.signal.getsignal(build.signal.SIGTERM), build.on_signal)
+        finally:
+            for sig, handler in saved.items():
+                build.signal.signal(sig, handler)
+
+    def test_the_reports_commands_end_with_the_run(self):
+        # Since 2026-10-15: the reports' commands (side_popen, in their thread) end with the jobs when the run stops,
+        # with what they started (their process group).
+        with tempfile.TemporaryDirectory() as root:
+            pid_file = os.path.join(root, "child.pid")
+            report = build.side_popen([sys.executable, "-c",
+                                       "import subprocess, sys, time; "
+                                       f"c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                                       f"open({pid_file!r}, 'w').write(str(c.pid)); time.sleep(60)"])
+            deadline = time.time() + 30
+            while not os.path.isfile(pid_file) and time.time() < deadline:
+                time.sleep(0.05)
+            with open(pid_file) as fh:
+                child = int(fh.read())
+            began = time.time()
+            build.stop_jobs()
+            self.assertLess(time.time() - began, 30)
+            self.assertIsNotNone(report.poll())
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                try:
+                    os.kill(child, 0)
+                except ProcessLookupError:
+                    break
+                with contextlib.suppress(ChildProcessError):
+                    os.waitpid(child, os.WNOHANG)  # not ours: reaped by init
+                time.sleep(0.05)
+            else:
+                self.fail("the report's own child still runs")
+            self.assertEqual(build.SIDE_COMMANDS, [])
+
     def test_rows_at_other_gates_on_the_disk(self):
         # --test-c-gates: the samples of a simulation profiled again at other levels write a SAM, a profile and dumps each
         # time: KEPT_SHARE of its reads per level of its unit with the most (a paired-end point's pe and se units
@@ -692,11 +754,12 @@ class BuildFunctionsTest(unittest.TestCase):
         out = os.path.join(root, "c_gates.tsv")
         lines = build.c_gates_summary(["pe", "pb", "ont"], prefixes, {"pe": [0, 4], "pb": [4, "4s", "8s"], "ont": [0, "1f"]},
                                       {"pe": 1, "pb": 8, "ont": 1}, test, cpu, out)
-        self.assertEqual(lines, ["pe: off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 hash F1 0.7000",
-                                 "pb: 4 hash F1 0.9000, 30 CPU s; 4 stride F1 0.9200 (0.9000 by hash), 31 CPU s; 8 hash "
-                                 "(database) F1 0.8333, 20 CPU s; 8 stride F1 0.8500 (0.8333 by hash), 21 CPU s",
-                                 "ont: off F1 0.9500, 90 CPU s; 1 (database) F1 0.9600, 50 CPU s; 1 with --flex_indels F1 "
-                                 "0.9700 (0.9600 at the database's gate), 60 CPU s"])
+        self.assertEqual(lines, ["pe (2 samples): off F1 0.9091, 30 CPU s; 1 (database) F1 0.8333, 20 CPU s; 4 hash F1 "
+                                 "0.7000",
+                                 "pb (1 sample): 4 hash F1 0.9000, 30 CPU s; 4 stride F1 0.9200 (0.9000 by hash), 31 CPU s; "
+                                 "8 hash (database) F1 0.8333, 20 CPU s; 8 stride F1 0.8500 (0.8333 by hash), 21 CPU s",
+                                 "ont (1 sample): off F1 0.9500, 90 CPU s; 1 (database) F1 0.9600, 50 CPU s; 1 with "
+                                 "--flex_indels F1 0.9700 (0.9600 at the database's gate), 60 CPU s"])
         table = list(csv.DictReader(open(out), delimiter="\t"))
         self.assertEqual(list(table[0]), build.C_GATES_COLUMNS)
         self.assertEqual([(r["read_type"], r["gate"], r["pick"], r["flex_indels"], r["database_gate"], r["model_gate"],
@@ -746,8 +809,8 @@ class BuildFunctionsTest(unittest.TestCase):
         out = os.path.join(root, "c_gates_models.tsv")
         lines = build.c_gates_summary(["pe"], prefixes, {"pe": levels}, {"pe": 4}, test, [], out, gate_prefixes, scored_by,
                                       {"pe": "stride"})
-        self.assertEqual(lines, ["pe: off (model 1) F1 0.9100; 1 (its model) F1 0.9200; 2 stride (model 1) F1 0.9300; "
-                                 "4 stride (database) F1 0.9000; 4 hash F1 0.8800 (0.9000 by stride); "
+        self.assertEqual(lines, ["pe (2 samples): off (model 1) F1 0.9100; 1 (its model) F1 0.9200; 2 stride (model 1) F1 "
+                                 "0.9300; 4 stride (database) F1 0.9000; 4 hash F1 0.8800 (0.9000 by stride); "
                                  "8 stride (its model) F1 0.8500"])
         table = list(csv.DictReader(open(out), delimiter="\t"))
         self.assertEqual([(r["gate"], r["pick"], r["database_gate"], r["model_gate"], r["unseen"], r["F1"], r["baseline_F1"])
@@ -755,6 +818,40 @@ class BuildFunctionsTest(unittest.TestCase):
                          [("0", "-", "0", "1", "0", "0.91", "0.9"), ("1", "-", "0", "1", "0", "0.92", "0.9"),
                           ("2", "stride", "0", "1", "0", "0.93", "0.9"), ("4", "stride", "1", "4", "0", "0.9", ""),
                           ("4", "hash", "0", "4", "3", "0.88", "0.9"), ("8", "stride", "0", "8", "0", "0.85", "0.9")])
+
+    def test_c_gates_rows_over_the_samples_every_gate_profiled(self):
+        # Since 2026-10-15: the samples streamed into protal are profiled again only at the models' gates (--model-gates),
+        # so those gates' tables have more samples than the others'. Every row is over the samples all the levels without
+        # --flex_indels have (compare_samples, which the trainers get as --extra-test-samples), its CPU too; a row with
+        # --flex_indels over those of them it has; the database's row over them, from the first level without it.
+        root = self.tmp.name
+        test = os.path.join(root, "test_compare")
+        levels = ["1f", 0, 1]  # 1: a model's gate, with the streamed s3
+        for c, samples in (("1f", ["s1"]), (0, ["s1", "s2"]), (1, ["s1", "s2", "s3"])):
+            os.makedirs(os.path.join(test, build.LEVELS_DIR, f"c{c}"), exist_ok=True)
+            with open(os.path.join(test, build.LEVELS_DIR, f"c{c}", "samples_pe.txt"), "w") as fh:
+                fh.writelines(s + "\n" for s in samples)
+        self.assertEqual(build.compare_samples(test, "pe", levels), ["s1", "s2"])
+        self.assertIsNone(build.compare_samples(test, "se", levels))
+
+        def scores(f1):
+            return {"samples": 2, "taxa": 10, "present": 6, "unseen": 0, "TP": 5, "FP": 1, "FN": 1, "F1": f1}
+        prefix = os.path.join(root, "trained_model_compare")
+        with open(prefix + ".metrics.json", "w") as fh:
+            json.dump({"extra_tests": {"c0": {"scores": scores(0.8), "test_file_same_samples": scores(0.9)},
+                                       "c1": {"scores": scores(0.7), "test_file_same_samples": scores(0.9)},
+                                       "c1f": {"scores": scores(0.6), "test_file_same_samples": scores(0.5)}}}, fh)
+        cpu = os.path.join(root, "compare_cpu.tsv")
+        with open(cpu, "w") as fh:
+            fh.write("run\tstage\twall_seconds\tcpu_seconds\tthreads\tcores_busy\n")
+            for sample, c in (("s1", 1), ("s2", 2), ("s3", 100), ("s1__c0", 3), ("s2__c0", 4), ("s1__c1", 5),
+                              ("s2__c1", 6), ("s3__c1", 500), ("s1__c1f", 7)):
+                fh.write(f"run 1\taligning {sample}\t1\t{c}\t4\t\n")
+        out = os.path.join(root, "c_gates_compare.tsv")
+        lines = build.c_gates_summary(["pe"], {"pe": prefix}, {"pe": levels}, {"pe": 4}, test, [cpu], out,
+                                      compare={"pe": build.compare_samples(test, "pe", levels)})
+        self.assertEqual(lines, ["pe (2 samples): off F1 0.8000, 7 CPU s; 1 F1 0.7000, 11 CPU s; 4 hash (database) F1 "
+                                 "0.9000, 3 CPU s; 1 with --flex_indels F1 0.6000 (0.5000 at the database's gate), 7 CPU s"])
 
     def test_cpu_logs(self):
         # The run's CPU use goes to logs only: a row per command that ended (Job.cpu_row: its wall and CPU seconds and the

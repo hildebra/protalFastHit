@@ -292,6 +292,11 @@ def parse_args(argv=None):
                         "gate: collect_training_data.py --sparse_first_levels; its meta_sample the --test-file sample's): "
                         "scored with the fitted model as protal calls, its design's and scenarios' rows together, beside "
                         "--test-file's rows of the same samples (section Extra test tables, JSON extra_tests); repeatable")
+    p.add_argument("--extra-test-samples", metavar="FILE",
+                   help="the samples (meta_sample, one a line) every --extra-test-file table is scored over, beside "
+                        "--test-file's rows of the same samples: those all the tables have, so that they compare (since "
+                        "2026-10-15; build_gtdb_database.py: the samples written to disk, which every sparse-first gate "
+                        "profiled, not those streamed again only at the models' gates); default: each table's own")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4,
                    help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
@@ -1547,15 +1552,27 @@ def study_extra_tests(report, rf, cols, opts, depth_knobs, test):
     (meta_sample), so that the two differ only in how the samples were profiled. The present species of a table's
     samples without a row in it (its <table>.unseen.tsv, beside it; the test file's --test-unseen-file) count as
     missed: a gate that gives up every read of a species leaves it no row, which its table alone would not count
-    (until 2026-10-13 these were left out, and a gate losing more species looked better)."""
+    (until 2026-10-13 these were left out, and a gate losing more species looked better). With --extra-test-samples,
+    each table's samples among those only (since 2026-10-15: a table of more samples than the others, the deep ones
+    streamed again for a model's gate, scored more of the easier samples and did not compare)."""
     report.section("Extra test tables (samples of the test file, profiled otherwise)")
     report.add(f"calls at the model's {knob_label(depth_knobs, opts.knob)}, the design's and the scenarios' rows together; "
                "each table beside the test file's rows of the same samples; unseen: present species of the samples "
                "with reads on a marker gene and no row, counted as missed (FN)")
+    keep = None
+    if getattr(opts, "extra_test_samples", None):
+        with open(opts.extra_test_samples) as fh:
+            keep = {line.strip() for line in fh if line.strip()}
+        report.add(f"over the {len(keep)} samples of {opts.extra_test_samples} (--extra-test-samples) each table has")
     test_unseen = unseen_rows(opts.test_unseen_file, opts.test_file)
     rows, data = [], {}
     for label, path in opts.extra_test_file:
         extra = load_table(path, opts.taxonomy)
+        if keep is not None and "meta_sample" in extra:
+            extra = extra[extra["meta_sample"].astype(str).isin(keep)]
+            if not len(extra):  # none of its samples among them: nothing to compare
+                data[label] = {"file": path, "scores": None, "test_file_same_samples": None}
+                continue
         samples = set(extra["meta_sample"].astype(str)) if "meta_sample" in extra else set()
         base = test[test["meta_sample"].astype(str).isin(samples)] if "meta_sample" in test else test
         scores = extra_test_scores(rf, cols, extra, opts, depth_knobs, unseen_in(unseen_rows("auto", path), samples))

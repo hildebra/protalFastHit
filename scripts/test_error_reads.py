@@ -280,6 +280,31 @@ class ErrorReads(unittest.TestCase):
         self.assertEqual((row["FP"], row["FN"], row["unseen"], row["fragments"]), ("1", "1", "0", "4"))
         self.assertEqual([r["error"] for r in self.taxa(out)], ["FP", "FN"])
 
+    def test_a_rerun_keeps_nothing_stale(self):
+        # A run first removes what an earlier one wrote to OUT (since 2026-10-15): the SAMs of samples it has no errors
+        # in now, the .partial files of a writer stopped mid-way, the summary and the taxa table; nothing else there.
+        args = self.world()
+        out = self.run_pe(args)
+        stale = [os.path.join(out, "training", POINT, "rl150_p1000_s_9.FP.sam.zst"),
+                 os.path.join(out, "training", POINT, SAMPLE + ".FN.sam.zst.partial"),
+                 os.path.join(out, "test", "rl75_p10", "rl75_p10_s_1.unseen.sam.zst"),
+                 os.path.join(out, "test", "rl75_p10", "rl75_p10_s_1.taxa.tsv.partial"),
+                 os.path.join(out, "summary.tsv.partial")]
+        others = [os.path.join(out, "notes.txt"), os.path.join(out, "training", "README")]
+        for path in stale + others:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "w").close()
+        out = self.run_pe(args + ["--sams", "none"])
+        self.assertEqual([p for p in stale if os.path.exists(p)], [])
+        self.assertEqual(sorted(os.listdir(out)), ["notes.txt", "summary.tsv", "taxa.tsv.gz", "training"])
+        self.assertEqual(os.listdir(os.path.join(out, "training")), ["README"])  # the design point's folder emptied
+        self.assertEqual([r["sams"] for r in self.summary(out)], [""])
+        # A run that finds no sample leaves no summary of an earlier one.
+        self.assertEqual(error_reads.main(args + ["--calls", os.path.join(self.tmp.name, "trained_model.calls.tsv.gz"),
+                                                  "--samples", "gut", "--out", out]), 0)
+        self.assertEqual(sorted(os.listdir(out)), ["notes.txt", "training"])
+        self.assertEqual(error_reads.clear_outputs(os.path.join(self.tmp.name, "nowhere")), [])
+
     def test_at_most_n_fragments_per_taxon_and_reason(self):
         # --max-fragments 1: of B's reads (source:2), the one of lowest CRC-32 of its name, and those of the reasons
         # with a single fragment (FN:2: read 3; seeded:2: read 5); the taxa tables count them all.

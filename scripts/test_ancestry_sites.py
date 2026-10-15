@@ -175,6 +175,41 @@ class AncestrySites(unittest.TestCase):
         self.assertIn("own source genome's allele was left out: FN own 1", summary)
         self.assertIn("N >= 10: 2 taxa (1 FN)", summary)
 
+    def test_without_a_hold_out(self):
+        # No --heldout (a build that holds no species out; since 2026-10-15, required before): no species is held out,
+        # so X counts as a congener of T too. It has no copy in the reference, so the report is the same here but for
+        # the copies wanted (X's too), and the run says why it takes none as held out.
+        d = self.tmp.name
+        out = os.path.join(d, "logs", "no_holdout", "pe")  # the prefix's name as the run's: the gzip headers hold it
+        said = run(["--sams", d, "--reference", os.path.join(d, "reference.fna"),
+                    "--full-reference", os.path.join(d, "full_reference.fna"),
+                    "--taxonomy", os.path.join(d, "internal_taxonomy.dmp"), "--out", out])
+        self.assertIn("no --heldout: no species taken as held out", said)
+        for suffix in OUTPUTS:
+            with open(self.out + suffix, "rb") as fh, open(out + suffix, "rb") as new:
+                expected = fh.read().replace(b"1 taxon-genes, 3 copies wanted", b"1 taxon-genes, 4 copies wanted")
+                self.assertEqual(new.read(), expected, suffix)
+        with open(out + ".summary.txt") as fh:
+            self.assertIn("1 taxa, 1 taxon-genes, 4 copies wanted", fh.read())
+        tax = an.Taxonomy(os.path.join(d, "internal_taxonomy.dmp"), None)
+        self.assertEqual((tax.held_out, sorted(tax.genus_members["10"])), (set(), ["11", "12", "13", "14"]))
+
+    def test_the_sams_of_a_folder(self):
+        # Only names ending .sam, .sam.gz or .sam.zst (since 2026-10-15): not a .partial file a killed writer left, nor
+        # a sample's taxa table; a .sam.gz is read decompressed.
+        with tempfile.TemporaryDirectory() as folder:
+            point = os.path.join(folder, "training", "point")
+            os.makedirs(point)
+            text = "@HD\tVN:1.6\nr1\t0\t11_5\t1\t60\t4M\t*\t0\t0\tACGT\t*\n"
+            with gzip.open(os.path.join(point, "s1.FP.sam.gz"), "wt") as fh:
+                fh.write(text)
+            for name, content in (("s1.FN.sam.zst.partial", b"\x28\xb5\x2f\xfd\t1\t2\t3\n"), ("s1.taxa.tsv", b"x\n"),
+                                  ("s2.FN.sam", text.encode()), ("s3.FP.sam.zst.tmp", b"")):
+                with open(os.path.join(point, name), "wb") as fh:
+                    fh.write(content)
+            self.assertEqual([os.path.basename(p) for p in an.sams_of(folder)], ["s1.FP.sam.gz", "s2.FN.sam"])
+            self.assertEqual(b"".join(an.open_text(os.path.join(point, "s1.FP.sam.gz"))), text.encode())
+
     def test_auc(self):
         self.assertAlmostEqual(an.auc([1, 1, 0, 0], [0.9, 0.8, 0.2, 0.1]), 1.0)
         self.assertAlmostEqual(an.auc([1, 0, 1, 0], [0.5, 0.5, 0.5, 0.5]), 0.5)

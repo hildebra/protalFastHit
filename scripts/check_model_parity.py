@@ -14,7 +14,16 @@ files and training dumps. protal re-profiles the SAMs of a few points (--profile
 features with the dumps written during collection.
 
 --read_type checks the model of other reads (se, pb, ont: the collection's samples of that read type,
-profiled with protal's option for that model, e.g. --model_se).
+profiled with protal's option for that model, e.g. --model_se). The single-end samples are the paired-end points'
+first reads and, since 2026-10-15, the design's Ultima units (se_ultima_r<reads>, drawn like long reads): the points
+are chosen among both (choose), so that the se model is checked on both kinds of its reads.
+
+--level C (since 2026-10-15) checks a model of another sparse-first gate (build_gtdb_database.py --model-gates:
+model_<type>_c<C>.xml) on the samples the collection profiled at that gate (collect_training_data.py --model_levels:
+<sample>__c<C>, in <profile folder>_c<C>/, beside the database gate's), against their dumps there. Any level the
+collector names (8, or 8s, 8h, 8g, 1f: with another pick or --flex_indels) is taken the same way. protal needs no
+--sparse_first for it: --profile_only aligns nothing, the gate only steers the seeding (whose outcome the SAM holds),
+and a --model given scores every sample whatever its gate (Options::ModelGate, SampleModelDbFile).
 
 A feature that differs in its last digits only (relative difference up to ROUNDING) is noted, not a
 problem: a sum added up in another order (in chunks on more threads, say) can round so, and that
@@ -22,12 +31,14 @@ moves no taxon across a tree's split in practice. protal sums its features so th
 the same on any number of threads, so such a note points to a sum that does not yet.
 
 usage: check_model_parity.py --db DB --model MODEL.xml --training TRAINING_DIR [--read_type pe] [--points 2]
+                             [--level C]
 Exit code 1 if a probability or a feature differs (beyond rounding, for a feature).
 """
 
 import argparse
 import glob
 import os
+import re
 import subprocess
 import sys
 
@@ -41,6 +52,14 @@ from model_pmml import load_model  # noqa: E402
 MODEL_OPTIONS = {"pe": "--model", "se": "--model_se", "pb": "--model_pb", "ont": "--model_ont"}
 # The largest relative difference of a feature that is rounding (see above): a double's last digits are ~1e-16.
 ROUNDING = 1e-12
+# collect_training_data.py's names: the scenarios' points (SCENARIO_PREFIX), the drawn units of each read type (units_of,
+# ultima_design_units: pb_b<bases>, ont_b<bases>, se_ultima_r<reads>), and a sample at another level (level_dir,
+# unit_map_rows: <sample>__c<level> in <profile folder>_c<level>).
+SCENARIO_PREFIX = "sc_"
+DRAWN_PREFIXES = {"pe": (), "se": ("se_ultima_",), "pb": ("pb_",), "ont": ("ont_",)}
+LEVEL_SUFFIX, LEVEL_FOLDER = "__c", "_c"
+LEVEL = re.compile(r"\d+[fshg]?")  # collect_training_data.unit_level_ids: a gate, with a pick or --flex_indels or not
+LEVEL_WORDS = {"f": ", --flex_indels", "s": ", stride pick", "h": ", hash pick", "g": ", grid pick"}
 
 
 def parse_args(argv=None):
@@ -50,25 +69,67 @@ def parse_args(argv=None):
     p.add_argument("--training", required=True, help="output folder of collect_training_data.py")
     p.add_argument("--read_type", default="pe", choices=sorted(MODEL_OPTIONS),
                    help="the reads the model is for (default pe)")
-    p.add_argument("--points", type=int, default=2, help="design points to re-profile (default 2: the first and last)")
+    p.add_argument("--points", type=int, default=2, help="design points to re-profile (default 2), shared among the kinds "
+                                                        "of the read type's points (choose): the first and last of one "
+                                                        "kind, the first of each of two (se: Illumina and Ultima)")
+    p.add_argument("--level", help="the samples as the collection profiled them at this sparse-first gate, for a model "
+                                   "of that gate (collect_training_data.py --model_levels; default: at the database's)")
     p.add_argument("--protal", default="protal")
+    p.add_argument("--weighted_site_shift", action="store_true",
+                   help="protal's --weighted_site_shift, as the collection profiled its samples with it "
+                        "(collect_training_data.py --weighted_site_shift; since 2026-10-15: without it, protal computed "
+                        "the shifted features otherwise than the dumps, and the check failed)")
     p.add_argument("-o", "--out", help="folder for protal's outputs, rewritten on every run (default: TRAINING/parity, "
-                                       "or parity_<read type>)")
+                                       "or parity_<read type>, and _c<level> with --level)")
     p.add_argument("-t", "--threads", type=int, default=4)
-    return p.parse_args(argv)
+    opts = p.parse_args(argv)
+    if opts.level is not None and not LEVEL.fullmatch(opts.level):
+        p.error(f"--level {opts.level!r}: a sparse-first gate as the collector names its levels (8, or 8s, 8h, 8g, 1f)")
+    return opts
 
 
-def samples_of(point, read_type="pe"):
+def level_text(level):
+    """How a level is said (collect_training_data.level_text): "sparse-first gate 8", "sparse-first gate 1,
+    --flex_indels"."""
+    suffix = level[-1:] if level[-1:] in LEVEL_WORDS else ""
+    return f"sparse-first gate {level[:len(level) - len(suffix)]}{LEVEL_WORDS.get(suffix, '')}"
+
+
+def default_out(training, read_type, level=None):
+    """TRAINING/parity[_<read type>][_c<level>]: where protal's outputs go without -o."""
+    return os.path.join(training, ("parity" if read_type == "pe" else "parity_" + read_type) +
+                        ("" if level is None else f"{LEVEL_FOLDER}{level}"))
+
+
+def drawn(point):
+    """Whether a design point's samples are drawn reads (long reads, Ultima reads: its sim/samples.tsv), not a
+    simulator's map of paired-end samples (sim/protal.meta)."""
+    return os.path.isfile(os.path.join(point, "sim", "samples.tsv"))
+
+
+def sample_entry(folder, sample, sam_name, truth, level=None):
+    """[(sample, SAM path, truth path, collection dump)] of a sample whose SAM and training dump are there, else []:
+    as collected at the database's gate (`folder`, the SAM `sam_name`), or at `level` (<folder>_c<level>, the sample
+    <sample>__c<level> and its SAM with the same extension, as collect_training_data.unit_map_rows names them)."""
+    if level is not None:
+        ending = sam_name[sam_name.index(sample) + len(sample):] if sample in sam_name else ".sam.gz"
+        folder, sample = f"{folder}{LEVEL_FOLDER}{level}", f"{sample}{LEVEL_SUFFIX}{level}"
+        sam_name = sample + ending
+    sam = os.path.join(folder, "alignments", sam_name)
+    dumps = glob.glob(os.path.join(glob.escape(folder), "**", glob.escape(sample) + ".profile.truth_annotated"),
+                      recursive=True)
+    return [(sample, sam, truth, dumps[0])] if os.path.isfile(sam) and dumps else []
+
+
+def samples_of(point, read_type="pe", level=None):
     """(sample, SAM path, truth path, collection dump) of each sample of a design point: its paired-end samples,
-    or their first reads alone (se, in protal_se), or its long-read samples (pb, ont: sim/samples.tsv)."""
-    if read_type in ("pb", "ont"):
+    or their first reads alone (se, in protal_se), or its drawn samples (pb, ont, and se's Ultima units:
+    sim/samples.tsv); with `level`, those samples as profiled at that level (sample_entry)."""
+    if drawn(point):
         with open(os.path.join(point, "sim", "samples.tsv")) as fh:
             next(fh)
             for sample, _, truth, _ in (line.rstrip("\n").split("\t") for line in fh if line.strip()):
-                sam = os.path.join(point, "protal", "alignments", sample + ".sam.gz")
-                dumps = glob.glob(os.path.join(point, "protal", "**", sample + ".profile.truth_annotated"), recursive=True)
-                if os.path.isfile(sam) and dumps:
-                    yield sample, sam, truth, dumps[0]
+                yield from sample_entry(os.path.join(point, "protal"), sample, sample + ".sam.gz", truth, level)
         return
     meta = os.path.join(point, "sim", "protal.meta")
     output_dir, rows = None, []
@@ -82,26 +143,52 @@ def samples_of(point, read_type="pe"):
             elif not line.startswith("#") and line.strip():
                 rows.append(dict(zip(header, fields)))
     for row in rows:
-        sample, sam = row["SAMPLEID"], os.path.join(output_dir, "alignments", row["SAM"])
         if read_type == "se":
-            output_dir_se = os.path.join(point, "protal_se")
-            sample, sam = sample + "_se", os.path.join(output_dir_se, "alignments", sample + "_se.sam.gz")
-        dumps = glob.glob(os.path.join(os.path.dirname(os.path.dirname(sam)), "**", sample + ".profile.truth_annotated"),
-                          recursive=True)
-        if os.path.isfile(sam) and dumps:
-            yield sample, sam, row["PROFILE_TRUTH"], dumps[0]
+            sample = row["SAMPLEID"] + "_se"
+            yield from sample_entry(os.path.join(point, "protal_se"), sample, sample + ".sam.gz", row["PROFILE_TRUTH"],
+                                    level)
+        else:
+            yield from sample_entry(output_dir, row["SAMPLEID"], row["SAM"], row["PROFILE_TRUTH"], level)
 
 
-def points_with_samples(training, read_type="pe"):
-    """[(design point, its samples_of)] of the collection's design points that have samples of the read type, by name.
-    A point need not have them: with single-end setups of their own (collect_training_data.py --se_read_setups, since
-    2026-10-14) a point holds paired-end samples only, single-end ones only, or both. The scenarios' points (sc_*,
-    collect_training_data.SCENARIO_PREFIX) hold deep samples, and the design's give the same check."""
-    marker = "samples.tsv" if read_type in ("pb", "ont") else "protal.meta"
-    points = sorted(p for p in glob.glob(os.path.join(training, "points", "*"))
-                    if os.path.isfile(os.path.join(p, "sim", marker)) and not os.path.basename(p).startswith("sc_")
-                    and (read_type not in ("pb", "ont") or os.path.basename(p).startswith(read_type + "_")))
-    return [(p, samples) for p, samples in ((p, list(samples_of(p, read_type))) for p in points) if samples]
+def points_with_samples(training, read_type="pe", level=None):
+    """[(design point, its samples_of)] of the collection's design points that have samples of the read type (at
+    `level`, if given), by name. A point need not have them: with single-end setups of their own
+    (collect_training_data.py --se_read_setups, since 2026-10-14) a point holds paired-end samples only, single-end
+    ones only, or both. The read type's points: the paired-end points (sim/protal.meta) for pe and se, and its drawn
+    units (DRAWN_PREFIXES: pb_*, ont_*, and since 2026-10-15 se's Ultima units se_ultima_*). The scenarios' points
+    (sc_*, collect_training_data.SCENARIO_PREFIX) hold deep samples, and the design's give the same check."""
+    points = []
+    for point in sorted(glob.glob(os.path.join(glob.escape(training), "points", "*"))):
+        name = os.path.basename(point)
+        if name.startswith(SCENARIO_PREFIX):
+            continue
+        if drawn(point):
+            if name.startswith(DRAWN_PREFIXES[read_type]):
+                points.append(point)
+        elif read_type in ("pe", "se") and os.path.isfile(os.path.join(point, "sim", "protal.meta")):
+            points.append(point)
+    return [(p, samples) for p, samples in ((p, list(samples_of(p, read_type, level))) for p in points) if samples]
+
+
+def choose(points, n):
+    """n of the points [(point, samples)] (all if they are no more), in name order: the points of each kind (simulated
+    by simulate_metagenomes, or drawn: se's Ultima units) a share of n, in turn while a kind has points left, so that
+    with two kinds and n 2 each gives one (since 2026-10-15); within a kind spread evenly by name, the first and the
+    last of it for 2, its first for 1 (as before 2026-10-15 over all the points)."""
+    if len(points) <= n:
+        return list(points)
+    kinds = [kind for kind in ([p for p in points if not drawn(p[0])], [p for p in points if drawn(p[0])]) if kind]
+    shares, left = [0] * len(kinds), n
+    while left > 0:
+        for i, kind in enumerate(kinds):
+            if left > 0 and shares[i] < len(kind):
+                shares[i] += 1
+                left -= 1
+    chosen = []
+    for kind, k in zip(kinds, shares):
+        chosen += [kind[round(i * (len(kind) - 1) / max(1, k - 1))] for i in range(k)]
+    return sorted(chosen, key=lambda p: p[0])
 
 
 def read_dump(path):
@@ -147,22 +234,22 @@ def split_rounding(differences):
 
 def main(argv=None):
     opts = parse_args(argv)
-    points = points_with_samples(opts.training, opts.read_type)
+    at = "" if opts.level is None else f" at {level_text(opts.level)}"
+    points = points_with_samples(opts.training, opts.read_type, opts.level)
     if not points:
-        sys.exit(f"no design point in {opts.training}/points with {opts.read_type} samples that have a SAM and a "
+        sys.exit(f"no design point in {opts.training}/points with {opts.read_type} samples{at} that have a SAM and a "
                  "training dump")
-    chosen = points if len(points) <= opts.points else \
-        [points[round(i * (len(points) - 1) / max(1, opts.points - 1))] for i in range(opts.points)]
+    chosen = choose(points, opts.points)
     samples = [s for _, of_point in chosen for s in of_point]
     chosen = [p for p, _ in chosen]
-    out = opts.out or os.path.join(opts.training, "parity" if opts.read_type == "pe" else "parity_" + opts.read_type)
+    out = opts.out or default_out(opts.training, opts.read_type, opts.level)
     os.makedirs(out, exist_ok=True)
     # --force: a rerun (of the build, say) profiles into the folder its last run filled, which --profile_only
     # otherwise refuses; with --profile_only it aligns nothing, it only writes the profiles again.
     command = [opts.protal, "--db", opts.db, MODEL_OPTIONS[opts.read_type], opts.model,
                "--profile_only", ",".join(s[1] for s in samples),
                "--profile_truth", ",".join(s[2] for s in samples), "-o", out, "-t", str(opts.threads),
-               "--no_strains", "--no_qcmsa", "--force"]
+               "--no_strains", "--no_qcmsa", "--force"] + (["--weighted_site_shift"] if opts.weighted_site_shift else [])
     with open(os.path.join(out, "protal.log"), "w") as log:
         rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
     if rc != 0:
@@ -189,7 +276,7 @@ def main(argv=None):
         problems.append("protal computes features differently than when the training data was collected (largest "
                         "relative difference): " + ", ".join(f"{c} {v:.3g}" for c, v in sorted(differs.items())))
     lines = [f"model {opts.model} ({opts.read_type} reads): {len(model.trees)} trees, {len(model.features)} features",
-             f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}: {rows} taxa"
+             f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}{at}: {rows} taxa"
              + (f" ({empty} sample{'s' if empty > 1 else ''} without any)" if empty else "")]
     lines += ["PROBLEM: " + p for p in problems] or [
         "protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; "

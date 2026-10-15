@@ -46,6 +46,10 @@ and with --sams, to OUT/<training|test>/<design point>/:
                      of an FN taxon) and its unseen species (seeded: and source: of one); the header's @SQ lines cut to
                      the genes they name; a file only for a kind of --sams the sample has records of
 (Before 2026-10-08 each sample's taxa were a file of their own there, <sample>.taxa.tsv: 1,500 files at r226 v17.)
+A run first removes what an earlier run wrote there (clear_outputs: the samples' files above, summary.tsv and
+taxa.tsv.gz, each with its .partial), so that OUT holds this run's samples only (since 2026-10-15: a rerun kept the
+SAMs of samples it no longer had errors in, and the .partial files of a worker killed mid-write, which the ancestry
+report and the build's share archive read).
 
     python3 scripts/error_reads.py --calls OUT/model_logs/trained_model.calls.tsv.gz --training OUT/work/training \\
         --test OUT/work/test --db OUT/work/training_db --read-type pe --out OUT/model_logs/error_reads/pe
@@ -516,6 +520,31 @@ def write_taxa(path, sample, which, errors, unseen, manifest, fragments, source,
     os.replace(path + ".partial", path)
 
 
+OUTPUT_FILES = ("summary.tsv", "taxa.tsv.gz")  # OUT's own files
+# A sample's files in OUT/<set>/<design point>/ (extract, write_taxa), and those a writer stopped mid-way leaves.
+SAMPLE_FILES = tuple(f"*.{kind}.sam.zst" for kind in KINDS) + ("*.taxa.tsv",)
+
+
+def clear_outputs(out):
+    """Removes what a run writes to OUT: OUTPUT_FILES, the samples' files (SAMPLE_FILES) in OUT/<set>/<design point>/,
+    each with its .partial, and the folders they leave empty; nothing else (a --out given by mistake, a collection's
+    folder say, loses none of its own files). -> the files removed."""
+    removed = [os.path.join(out, name + partial) for name in OUTPUT_FILES for partial in ("", ".partial")]
+    for which in SETS:
+        for pattern in SAMPLE_FILES:
+            for partial in ("", ".partial"):
+                removed += glob.glob(os.path.join(glob.escape(out), which, "*", pattern + partial))
+    removed = [path for path in removed if os.path.isfile(path)]
+    for path in removed:
+        os.remove(path)
+    folders = [p for which in SETS for p in glob.glob(os.path.join(glob.escape(out), which, "*", "")) +
+               glob.glob(os.path.join(glob.escape(out), which, ""))]
+    for folder in sorted(folders, reverse=True):  # a design point's before its set's
+        if not os.listdir(folder):
+            os.rmdir(folder)
+    return removed
+
+
 def merge_taxa(out, done):
     """OUT/taxa.tsv.gz (TABLE_COLUMNS): the error taxa of every sample of `done` (summary rows, in their order), from the
     <sample>.taxa.tsv the workers wrote, which it removes, with the folders left empty; and any such file left by an
@@ -637,6 +666,9 @@ def run_jobs(jobs, work, threads, budget, estimate):
 def main(argv=None):
     opts = parse_args(argv)
     began = time.time()
+    removed = clear_outputs(opts.out)  # an earlier run's (since 2026-10-15)
+    if removed:
+        print(f"removed {len(removed)} files of an earlier run from {opts.out}", flush=True)
     by_name, by_id = database_species(opts.db)
     if opts.heldout:  # in genome2tiid.tsv, but without genes in the training database: never unseen
         with open(opts.heldout) as fh:

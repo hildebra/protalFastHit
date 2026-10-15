@@ -219,6 +219,43 @@ class CollectorTest(unittest.TestCase):
         _, units = collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_samples": 12}))
         self.assertEqual([u["samples"] for u in units if u["type"] == "ont"], [12, 6, 5])
 
+    def test_points_no_unit_profiles(self):
+        # A design point whose reads no unit profiles (--read_types without pe: the paired-end setups' points; or
+        # without se: a single-end setup's own) but whose communities long-read and Ultima units replay is simulated
+        # without reads (simulate_metagenomes --test, as a scenario's community point; since 2026-10-15): until then its
+        # reads were written, never profiled, never removed and not counted on the disk.
+        opts = argparse.Namespace(read_setups="75:HS25:250:40,150:HSXt:350:50", se_read_setups="150:HSXt:350:50",
+                                  read_pairs="1000,5000:2", read_types=["se", "pb", "ont"], samples=2, long_read_samples=4,
+                                  pb_setup="hifi:15000:3000:3", ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97",
+                                  long_read_bases="1e6,2e6", se_ultima_setup="ultima:300:50:25:2", scenarios="",
+                                  out="/o", simulator="sim", genome_table="g", species_per_sample="5-30", seed=1, abundance="",
+                                  strains_per_species="", archaea=0, novel_clades=0, congeners=collect.congener_spec("0"))
+        points, units = collect.units_of(opts)
+        by_name = {p["name"]: p for p in points}
+        read = {u["point"]["name"] for u in units if not collect.drawn(u)}
+        self.assertEqual(read, {"rl150_p1000", "rl150_p5000"})  # their se units
+        self.assertEqual(collect.needed_points(units), {"rl75_p1000", "rl75_p5000", "rl150_p1000", "rl150_p5000"})
+        self.assertEqual(sorted(name for name, p in by_name.items() if p.get("reads") is False), ["rl75_p1000", "rl75_p5000"])
+        for name, point in by_name.items():
+            command, error = collect.simulation_command(point, 0, opts, 1, {})
+            self.assertIsNone(error)
+            self.assertEqual("--test" in command, name.startswith("rl75"), name)
+        bare, read_point = by_name["rl75_p5000"], by_name["rl150_p5000"]
+        self.assertEqual((collect.pe_bytes(bare), collect.sample_pairs(bare)), (0, [0, 0]))
+        self.assertEqual(collect.pe_bytes(read_point), int(2 * 5000 * 2 * 150 * collect.PE_BYTES))
+        self.assertAlmostEqual(collect.pe_point_seconds(bare, 1, opts),  # its genomes alone, no read pairs
+                               2 * collect.genomes_per_sample(bare, opts) * collect.PE_GENOME_SECONDS)
+        self.assertNotIn("rl75_p5000", collect.simulation_bytes(units))  # no unit's: nothing written to count
+        # Without pe but with a single-end setup of its own: those points; with every read type, none.
+        opts.read_types, opts.se_read_setups = ["pe", "pb", "ont"], "150:NovaSeq:350:50"
+        points, units = collect.units_of(opts)
+        self.assertEqual(sorted(p["name"] for p in points if p.get("reads") is False),
+                         ["rl150_NovaSeq_p1000", "rl150_NovaSeq_p5000"])
+        self.assertTrue(set(p["name"] for p in points if p.get("reads") is False) <= collect.needed_points(units))
+        opts.read_types = ["pe", "se", "pb", "ont"]
+        points, _ = collect.units_of(opts)
+        self.assertFalse(any(p.get("reads") is False for p in points))
+
     def test_long_read_replay(self):
         # pb/ont samples replay a paired-end point's communities: one simulate_metagenomes run per unit draws the
         # reads (a genome by relative abundance times length, a start uniform, either strand) until each sample's bases,
@@ -415,6 +452,34 @@ class CollectorTest(unittest.TestCase):
             shutil.disk_usage = original
         self.assertLess(events.index(("start", "c")), events.index(("end", "a")))
         self.assertLess(events.index(("end", "a")), events.index(("start", "b")))
+
+    def test_scheduler_says_when_all_wait_for_room(self):
+        # on_wait(True) once nothing runs and a job waits for room, on_wait(False) once one starts again (since
+        # 2026-10-15; a --simulate_only run's mark_waiting, for its follower): here the room comes when it is said.
+        free, calls = [50], []
+        usage = collections.namedtuple("usage", "total used free")
+
+        def on_wait(waiting):
+            calls.append(waiting)
+            if waiting:
+                free[0] = 200  # what a follower's protal run, profiling what is ready, frees
+        original = shutil.disk_usage
+        shutil.disk_usage = lambda path: usage(1000, 1000 - free[0], free[0])
+        try:
+            s = collect.Scheduler(2, space=(self.tmp.name, 10), on_wait=on_wait)
+            s.room_poll = 0.05
+            gate = Gate()
+            gate.release()
+            s.add("big", gate.job("big"), disk=80)  # 50 < 80 + 10: waits, nothing running
+            self.assertEqual(s.run(), {})
+        finally:
+            shutil.disk_usage = original
+        self.assertEqual((calls, gate.started()), ([True, False], ["big"]))
+        # A job that fits at once: never said.
+        calls.clear()
+        s = collect.Scheduler(1, on_wait=on_wait)
+        s.add("small", Gate().job("small", wait=False))
+        self.assertEqual((s.run(), calls), ({}, []))
 
     def test_follow(self):
         # --follow: units profiled as their simulations end, while the simulations go on (a protal run as soon as a
@@ -752,6 +817,81 @@ class CollectorTest(unittest.TestCase):
         shutil.rmtree(collect.level_dir(units[0], opts, 4))
         self.assertFalse(collect.profiled(units[0], opts, key_of[units[0]["name"]]))
 
+    def test_follow_profiles_what_is_ready_when_all_wait_for_room(self):
+        # The simulations all wait for room on the disk (their run's mark_waiting): the follower profiles what is
+        # ready, fewer reads as it is than --profile_block (here 1 TB), rather than wait for more that cannot come
+        # (since 2026-10-15: both waited forever). Otherwise it waits for --profile_block as before.
+        root, opts, points, units, keys, runs = self.follow_fixture("stalled", (
+            "open(runs, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+            "for r in rows:\n"
+            "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"))
+        opts.profile_block = 1000.0
+        units = units[:2]  # the first point's pe and se units
+        simulator = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        collect.write_key(collect.simulating_file(opts), {"pid": simulator.pid, "host": socket.gethostname(),
+                                                          "prepared": True})
+        console = io.StringIO()
+        try:
+            self.write_reads(points[0], opts, keys)
+            key_of = collect.profile_keys(units, opts, keys)
+            state = collect.follow_state(units, opts, keys, key_of, set())
+            self.assertEqual((len(state["ready"]), state["running"], state["stalled"]), (2, True, False))
+            self.assertIsNone(collect.next_batch(state, opts, opts.profile_block * 1e9, 0))
+            collect.mark_waiting(opts, True)
+            self.assertTrue(collect.simulations_waiting(opts))
+            self.assertEqual(collect.simulation_state(root)["pid"], simulator.pid)  # the rest of the state kept
+            state = collect.follow_state(units, opts, keys, key_of, set())
+            self.assertEqual(collect.next_batch(state, opts, opts.profile_block * 1e9, 0)[:2], ("written", units))
+            with contextlib.redirect_stdout(console):
+                follower = threading.Thread(target=collect.follow, args=(units, opts, keys, None))
+                follower.start()
+                follower.join(60)  # every unit profiled: it ends although the simulations go on
+            self.assertFalse(follower.is_alive())
+            collect.mark_waiting(opts, False)
+            self.assertFalse(collect.simulations_waiting(opts))
+        finally:
+            simulator.kill()
+            simulator.wait()
+            os.remove(collect.simulating_file(opts))
+        self.assertIn("protal run 1: 2 design points, 0.0 GB of reads; the simulations go on (all waiting for room on "
+                      "the disk); 0 design points after these", console.getvalue())
+        self.assertTrue(all(collect.profiled(u, opts, key_of[u["name"]]) for u in units))
+        self.assertEqual(glob.glob(os.path.join(root, "points", "rl100_p10", "sim", "reads", "*")), [])
+
+    def test_follow_keeps_written_profiled_simulations(self):
+        # A rerun that streams more (--stream_above smaller, a fuller disk) leaves a simulation an earlier run wrote and
+        # profiled as it is (since 2026-10-15): its sim folder, the marker genes' counts in its manifest among it, is not
+        # replaced by a design (stream_design), nothing is streamed or profiled again.
+        root, opts, points, units, keys, runs = self.follow_fixture("kept", (
+            "open(runs, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+            "for r in rows:\n"
+            "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"))
+        points, units = points[:1], units[:2]
+        self.write_reads(points[0], opts, keys)
+        manifest = os.path.join(root, "points", "rl100_p10", "sim", "manifest.tsv")
+        with open(manifest, "w") as fh:
+            fh.write("sample\tgenome\ttaxonomy\tmarker_read_pairs\tmarker_first_reads\nrl100_p10_s_1\tG\td__B;s__A\t7\t5\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.follow(units, opts, keys, None)  # the simulations have ended: profiled, the reads removed
+        called = os.path.join(root, "designed")
+        simulator = os.path.join(root, "simulate")
+        with open(simulator, "w") as fh:  # a design run would leave its mark
+            fh.write(f"#!/bin/sh\ntouch {called}\n")
+        os.chmod(simulator, 0o755)
+        streaming = argparse.Namespace(**{**vars(opts), "simulator": simulator, "stream_above": 1e-12})
+        self.assertEqual(collect.streamed_simulations(units, streaming), {"rl100_p10"})
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console):
+            collect.follow(units, streaming, keys, None, lambda point, threads: [simulator, "-o", "x"])
+        self.assertIn("1 simulations above --stream_above were written and profiled by an earlier run: kept, not "
+                      "streamed (rl100_p10)", console.getvalue())
+        self.assertIn("every design point is profiled, in 0 protal runs", console.getvalue())
+        self.assertFalse(os.path.exists(called))
+        self.assertFalse(collect.streamed_here(units[0], streaming))
+        self.assertEqual(collect.marker_counts(os.path.join(root, "points", "rl100_p10")), {"rl100_p10_s_1": {"G": [7, 5]}})
+        with open(runs) as fh:
+            self.assertEqual(len(fh.read().splitlines()), 1)
+
     def test_tables_in_parallel(self):
         # The read types' tables written in forked worker processes: the same files and the same lines, in the same
         # order, as one after the other; a table that fails stops the collector as it did, after the same lines.
@@ -850,6 +990,49 @@ class CollectorTest(unittest.TestCase):
         self.assertIn("rl100_p10_se: ", serial[0])
         self.assertNotIn("training_data_se.tsv:", serial[0])
         self.assertEqual(tables(2), serial)
+
+    def test_gate_tables_unseen_and_stale(self):
+        # With --gene_positions a gate's table has its <table>.unseen.tsv beside it, as the main table has (until
+        # 2026-10-15 it stayed .partial, and the trainers counted no unseen species at any gate but the database's). A
+        # gate without samples (all streamed) leaves no table, samples file or unseen species there, nor an earlier run's;
+        # nor does a table written without --gene_positions keep an earlier run's unseen species beside it.
+        root = os.path.join(self.tmp.name, "gate_unseen")
+        opts = argparse.Namespace(out=root, gene_positions="given", model_levels={"pe": [1, 8]})
+        point = {"name": "P", "read_length": "150", "read_pairs": "1000", "samples": 1}
+        unit = {"type": "pe", "point": point, "name": "P", "samples": 1}
+        sim = os.path.join(root, "points", "P", "sim")
+        os.makedirs(sim)
+        with open(os.path.join(sim, "manifest.tsv"), "w") as fh:
+            fh.write("sample\tgenome\ttaxonomy\tmarker_read_pairs\tmarker_first_reads\n"
+                     "P_s_1\tG1\td__B;s__A a\t10\t10\nP_s_1\tG2\td__B;s__B b\t7\t7\n")
+        for folder, name in (("protal", "P_s_1"), ("protal_c1", "P_s_1__c1")):  # none at gate 8 (streamed, say)
+            os.makedirs(os.path.join(root, "points", "P", folder, "profiles"))
+            with open(os.path.join(root, "points", "P", folder, "profiles", name + ".profile.truth_annotated"), "w") as fh:
+                fh.write("taxon_name\ttruth\tfeat\ns__A a\t1\t0.5\n")
+        gate8 = os.path.join(root, collect.LEVELS_DIR, "c8")
+        os.makedirs(gate8)
+        stale = ["training_data.tsv", "samples_pe.txt", "training_data.unseen.tsv", "training_data.unseen.tsv.partial"]
+        for name in stale:  # an earlier run's, when gate 8 had samples
+            with open(os.path.join(gate8, name), "w") as fh:
+                fh.write("old\n")
+        lineage = {s: {"species": s} for s in ("s__A a", "s__B b")}
+        context = ({}, {}, {}, lineage, {}, {})
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.write_tables(["pe"], [unit], opts, context, 1)
+        gate1 = os.path.join(root, collect.LEVELS_DIR, "c1")
+        self.assertEqual(sorted(os.listdir(gate1)), ["samples_pe.txt", "training_data.tsv", "training_data.unseen.tsv"])
+        for folder in (root, gate1):  # s__B b: simulated, reads on a marker gene, no row
+            with open(os.path.join(folder, "training_data.unseen.tsv")) as fh:
+                self.assertEqual([line.split("\t") for line in fh.read().splitlines()],
+                                 [collect.UNSEEN_COLUMNS, ["P", "P_s_1", "", "s__B b", "7"]])
+        self.assertEqual(os.listdir(gate8), [])
+        # Without --gene_positions: the tables, and no unseen species of the run before.
+        del opts.gene_positions
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.write_tables(["pe"], [unit], opts, context, 1)
+        self.assertEqual(sorted(os.listdir(gate1)), ["samples_pe.txt", "training_data.tsv"])
+        self.assertNotIn("training_data.unseen.tsv", os.listdir(root))
+        self.assertIn("training_data.tsv", os.listdir(root))
 
     def test_long_read_templates(self):
         # simulate_metagenomes draws a long-read sample's templates from the contigs of 100 bases or more (plain or
@@ -1149,6 +1332,14 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(host["community_pairs_of"], [round(p * 0.1) for p in pairs])
         self.assertTrue(all(1_250_000 <= p <= 20_000_000 for p in pairs))
         self.assertEqual(collect.community_pairs_of(points[0]), [1000, 1000])  # the design's: one depth
+        # The room a host's point takes on the disk for the scheduler: its host's reads too, which the same simulator
+        # run writes (until 2026-10-15 left out: a tenth of it here); what --stream_above and the disk estimate count.
+        self.assertEqual(collect.sample_pairs(host), pairs)
+        self.assertEqual(collect.pe_bytes(host), int(sum(pairs) * 2 * 150 * collect.PE_BYTES))
+        sizes = collect.simulation_bytes(units)
+        self.assertAlmostEqual(sizes["sc_host_pe_p10000000"][1], collect.pe_bytes(host), delta=1)
+        self.assertAlmostEqual(sizes["sc_host_pe_p10000000"][0], max(pairs) * 2 * 150 * collect.PE_BYTES)
+        self.assertEqual(collect.pe_bytes(points[0]), int(2 * 1000 * 2 * 150 * collect.PE_BYTES))
         names = [u["name"] for u in units if u.get("scenario")]
         self.assertEqual(names, ["sc_host_pe_p10000000", "sc_host_se_ultima_r10000000", "sc_host_pb_b3000000000",
                                  "sc_host_ont_b3000000000", "sc_gut_pe_p20000000", "sc_gut_pb_b6000000000",
