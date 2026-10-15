@@ -138,6 +138,7 @@ namespace protal::classify {
                 k.clear();
                 bm_kmer_extracter.Start();
                 kmer_handler(std::string_view(r.sequence), k);
+                DropReadAmbiguousKmers(r.sequence, kmer_handler, k);
                 bm_kmer_extracter.Stop();
                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
@@ -504,6 +505,12 @@ namespace protal::classify {
         });
     }
 
+    // Pairs of equal Bitscore keep the order they come in where there are 16 or fewer (libstdc++ sorts those by insertion,
+    // stably: the seeds' taxid-first order, so the lower internal taxid first), and introsort's otherwise (crowded reads):
+    // deterministic for a read, by taxid or not. Their MAPQ is 0, so no taxon's `fragments` counts them, but the first one's
+    // record counts for its taxon in fragments_all, low_mapq_share, congener_fit_share and the failed candidates'
+    // denominators; training and runs order alike (F1 audit L4; a stable sort with a taxid tie-break would move only the
+    // MAPQ-0 records of crowded reads, for a retrained model).
     static void SortAlignmentPairs3(PairedAlignmentResultList &pairs) {
         std::sort(pairs.begin(), pairs.end(), [](PairedAlignment const& a, PairedAlignment const& b) {
             return Bitscore(a) > Bitscore(b);
@@ -684,6 +691,7 @@ namespace protal::classify {
                 k2.clear();
                 bm_kmer_extracter.Start();
                 kmer_handler(std::string_view(r1.sequence), k1);
+                DropReadAmbiguousKmers(r1.sequence, kmer_handler, k1);
                 bm_kmer_extracter.Stop();
                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
@@ -691,6 +699,7 @@ namespace protal::classify {
                 }
                 bm_kmer_extracter.Start();
                 kmer_handler(std::string_view(r2.sequence), k2);
+                DropReadAmbiguousKmers(r2.sequence, kmer_handler, k2);
                 bm_kmer_extracter.Stop();
                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();

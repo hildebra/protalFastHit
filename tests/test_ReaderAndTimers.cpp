@@ -1731,6 +1731,12 @@ TEST(SeqReaderPE, MatesAreNamedAlikeButForTheirNumber) {
     EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7/1", "r8/2"));
     EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7", "r71"));
     EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("", "2"));
+    // One mate named with its number, the other without it (F1 audit L11): alike; swapped numbers are not.
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7", "r7/2"));
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7_1", "r7"));
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7.1", "r7"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7", "r8/2"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7/1", "r7/1x"));
 
     // Pairs whose mates' names differ are counted (for protal's warning), and the first is kept.
     std::string const r1 = Fastq(50, "a"), r2 = Fastq(10, "a") + Fastq(40, "b");

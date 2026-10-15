@@ -106,4 +106,9 @@ endif()
 # halt_on_error=1 as soon as a test aligns. They are not protal's code; the flag does nothing
 # outside sanitizer builds.
 target_compile_options(wfa_lib PRIVATE -fno-sanitize=undefined)
+# The library at the baseline ISA (-march=x86-64, after any -march in CMAKE_C_FLAGS), as protal's own code: with
+# __AVX2__ (a build given -march=native, say) WFA2 compiles its AVX2/AVX-512 extend kernels, which choose otherwise
+# among ends-free alignments of the same score than the portable ones the databases were built with
+# (docs/claude/2026-10-02-wfa-avx2; F1 audit L12). The cloned loops (WFA_CLONE_V3) still take x86-64-v3 at run time.
+target_link_libraries(wfa_lib PRIVATE isa_baseline)
 set_target_properties(wfa_lib PROPERTIES LINKER_LANGUAGE CXX)

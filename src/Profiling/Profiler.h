@@ -1222,7 +1222,7 @@ namespace protal {
             mutable std::optional<double> m_allele_top_identity;  // cached by AlleleTopIdentity
             mutable std::optional<double> m_top_identity_bound;  // cached by TopIdentityBound
             mutable std::optional<double> m_allele_top_identity_bound;  // cached by AlleleTopIdentityBound
-            size_t m_fragments = 0;  // reads with an accepted alignment, a pair counting once
+            size_t m_fragments = 0;  // reads with an accepted alignment, a pair counting once, a long read once per gene segment
             size_t m_last_read = SIZE_MAX;
             GeneMap m_genes;
 
@@ -3947,6 +3947,9 @@ namespace protal {
                 m_outside_training_range = std::move(outside);
             }
 
+            // (Units: `kept_fragments` counts a long read once per gene segment kept on the taxon, `all_fragments` once (by its
+            // link), so for long reads whose segments span several of the taxon's genes `dropped` is 0 and soft is the kept count;
+            // it adds mostly where few of a taxon's reads keep a segment, absent taxa's. Training and runs count alike.)
             // The fragments the MAPQ and length filters keep, plus each fragment they drop whose best record is on the
             // taxon (fragments_all - kept) by the share the read EM leaves the taxon of the dropped records: of its best
             // records the EM leaves it em_all, of the kept em_kept, so of the dropped (em_all x records - em_kept x kept)

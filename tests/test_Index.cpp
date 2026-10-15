@@ -145,7 +145,7 @@ TEST(AmbiguousKmers, SequencesOfAcgtAreLeftAlone) {
     std::string sequence(100, 'A');
     for (size_t i = 0; i < sequence.size(); i++) sequence[i] = "ACGTacgt"[i % 8];
     auto kmers = WindowsAt(0, 69);
-    protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+    protal::DropAmbiguousKmers(sequence, 31, kmers);
     EXPECT_EQ(kmers, WindowsAt(0, 69));
 }
 
@@ -154,7 +154,7 @@ TEST(AmbiguousKmers, WindowsWithAnAmbiguousBaseAreDropped) {
     for (char code : { 'N', 'Y', 'R', 'k', '-' }) {
         sequence[50] = code;
         auto kmers = WindowsAt(0, 69);
-        protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+        protal::DropAmbiguousKmers(sequence, 31, kmers);
         // windows [p, p + 31) that hold position 50: p = 20 .. 50
         std::vector<size_t> expected;
         for (size_t p = 0; p <= 69; p++) if (p < 20 || p > 50) expected.push_back(p);
@@ -169,12 +169,12 @@ TEST(AmbiguousKmers, AtTheEndsAndSeveralInOneSequence) {
     sequence[99] = 'W';
     sequence[60] = 'S';
     auto kmers = WindowsAt(0, 69);
-    protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+    protal::DropAmbiguousKmers(sequence, 31, kmers);
     std::vector<size_t> expected;
     for (size_t p = 1; p <= 68; p++) if (p < 30 || p > 60) expected.push_back(p);  // base 60 is in windows 30 .. 60, base 99 only in window 69
     EXPECT_EQ(Positions(kmers), expected);
 
     protal::KmerList none;
-    protal::build::DropAmbiguousKmers(sequence, 31, none);
+    protal::DropAmbiguousKmers(sequence, 31, none);
     EXPECT_TRUE(none.empty());
 }

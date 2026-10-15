@@ -57,30 +57,6 @@ namespace protal::build {
         return true;
     }
 
-    // Ambiguous bases (anything but A, C, G, T: N, the IUPAC codes) do not go into the index: a k-mer
-    // whose window holds one is taken out of a record's k-mers (their second is the window's first
-    // position), in the passes that count and place the values and in the uniqueness check. A sequence of
-    // A, C, G, T only, nearly always, is scanned once and left alone.
-    inline void DropAmbiguousKmers(std::string_view sequence, size_t k, KmerList& kmers) {
-        if (kmers.empty()) return;
-        unsigned ambiguous = 0;
-        for (char const c : sequence) {
-            unsigned char const upper = static_cast<unsigned char>(c) & 0xDF;  // lowercase is read as uppercase
-            ambiguous |= !(upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T');
-        }
-        if (!ambiguous) return;
-        std::vector<uint32_t> before(sequence.size() + 1, 0);  // ambiguous bases in sequence[0, i)
-        for (size_t i = 0; i < sequence.size(); i++) {
-            unsigned char const upper = static_cast<unsigned char>(sequence[i]) & 0xDF;
-            before[i + 1] = before[i] + !(upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T');
-        }
-        std::erase_if(kmers, [&](KmerElement const& kmer) {
-            size_t const begin = std::min(kmer.second, sequence.size());
-            size_t const end = std::min(kmer.second + k, sequence.size());
-            return before[end] != before[begin];
-        });
-    }
-
     // Opens a build input (--reference, --full_reference); a .zst file or sibling is fine too.
     inline std::unique_ptr<zstd::InputFile> OpenInput(std::string const& path) {
         auto input = std::make_unique<zstd::InputFile>(zstd::Resolve(path));
@@ -2408,8 +2384,10 @@ namespace protal::build {
                     items.clear();
                     if (!inputs[b].Empty()) {
                         source.ForEach(inputs[b], scratch, [&](size_t taxid, size_t geneid, std::string_view sequence) {
-                            // With --build_gene_subset the database's genes are the subset: a copy of another gene is
-                            // not among the sequences a read could come from, so it does not make k-mers non-unique.
+                            // With --build_gene_subset the database's genes are the subset, and a copy of another gene does not make
+                            // k-mers non-unique: the full reference's other genes would cost most of the pass, and an exact k-mer a kept
+                            // gene shares with another gene family of another taxon is rare; a sample's read of that left-out gene still
+                            // finds it unique (F1 audit L8; databases.md, reduced marker sets).
                             if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(geneid)) return;
                             kmers.clear();
                             handler(sequence, kmers);
@@ -2550,6 +2528,7 @@ namespace protal::build {
         if (std::any_of(settings.sparse_first.begin(), settings.sparse_first.end(), [](auto const& g) { return g.has_value(); })) {
             settings.sparse_first_score = options.GetSparseFirstScore();
             settings.sparse_first_hits = options.GetSparseFirstHits();
+            settings.sparse_first_min_picks = options.GetSparseFirstMinPicks();
         }
         // Every read type's pick: given (--sparse_first_pick), else (auto) stride, protal's default since 2026-10-13. A
         // database built before records none where the gate was hash's (build_settings::DatabasePick).
@@ -2571,7 +2550,8 @@ namespace protal::build {
                   << FragmentCountName(options.GetFragmentCount()) << ", sparse-first gates: "
                   << SparseFirstGatesText(settings.sparse_first)
                   << (settings.sparse_first_score ? ", score " + std::to_string(*settings.sparse_first_score) + ", " +
-                                                    std::to_string(*settings.sparse_first_hits) + " hit(s)" : std::string())
+                                                    std::to_string(*settings.sparse_first_hits) + " hit(s), least picks " +
+                                                    std::to_string(*settings.sparse_first_min_picks) : std::string())
                   << ", pick " << SparseFirstPicksText(settings.sparse_first_pick)
                   << " (" << target << ")" << std::endl;
     }
@@ -3237,9 +3217,10 @@ namespace protal::build {
             kmer_handler.SetSequence(std::string_view(record.sequence));
 
             auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(record.header);
-            // With --build_gene_subset the database's genes are the subset: a copy of another gene is
-            // not among the sequences a read could come from, so it does not make k-mers non-unique
-            // (nor does it cost time: most of the full reference with a small subset).
+            // With --build_gene_subset the database's genes are the subset, and a copy of another gene does not make
+            // k-mers non-unique (nor does it cost time: most of the full reference with a small subset); an exact k-mer a
+            // kept gene shares with another gene family of another taxon is rare, and a read of that left-out gene still
+            // finds it unique (F1 audit L8).
             if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) continue;
 
             thread_statistics.reads++;

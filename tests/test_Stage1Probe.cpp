@@ -182,6 +182,33 @@ TEST(Stage1Probe, StridePicksEveryCthCoreCentred) {
     }
 }
 
+// The stride a read of few cores is sampled at (StrideFor, --sparse_first_min_picks; F1 audit B2): the gate's c while
+// the read has min_picks picks at it, else the largest power of two below that gives it them (every core at worst);
+// 0 leaves c. StridePicks counts StridePicked's picks. A 75 bp mate (12 cores) at C 4: 3 picks, at 2 six; 150 bp (28
+// cores): 7 at C 4.
+TEST(Stage1Probe, ShortReadsGetADenserStride) {
+    EXPECT_EQ(StrideFor(12, 4, 6), 2u);
+    EXPECT_EQ(StrideFor(28, 4, 6), 4u);
+    EXPECT_EQ(StrideFor(5, 4, 6), 1u);
+    EXPECT_EQ(StrideFor(12, 4, 0), 4u);
+    for (size_t cores = 0; cores <= 120; cores++) {
+        for (size_t j = 0; j < kLevels; j++) {
+            size_t const c = size_t{1} << j;
+            size_t picked = 0;
+            for (size_t i = 0; i < cores; i++) picked += StridePicked(i, cores, c);
+            ASSERT_EQ(StridePicks(cores, c), picked) << cores << " cores, c " << c;
+            ASSERT_EQ(StrideFor(cores, c, 0), c);
+            for (size_t const min_picks : { size_t{1}, size_t{3}, size_t{6} }) {
+                size_t const s = StrideFor(cores, c, min_picks);
+                ASSERT_LE(s, c);
+                ASSERT_EQ(s & (s - 1), 0u);
+                if (s > 1) ASSERT_GE(StridePicks(cores, s), min_picks) << cores << " cores, c " << c;
+                if (s < c) ASSERT_LT(StridePicks(cores, 2 * s), min_picks) << cores << " cores, c " << c;
+            }
+        }
+    }
+}
+
 // The stride's rules count the lookups of the picked cores of each mate (its own cores, Begin), side by side with the
 // hash sample's; a lookup without a core index is in no stride pick.
 TEST(Stage1Probe, StrideRulesCountEachMatesPickedCores) {

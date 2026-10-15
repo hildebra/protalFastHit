@@ -71,6 +71,20 @@ namespace protal::stage1_probe {
         return index < cores && index >= offset && ((index - offset) & (c - 1)) == 0;
     }
 
+    // The picks of a read's `cores` cores at stride c (StridePicked).
+    inline size_t StridePicks(size_t cores, size_t c) {
+        return cores == 0 ? 0 : (cores - 1 - StrideOffset(cores, c)) / c + 1;
+    }
+
+    // The stride a gate samples a read (a mate, a long read's chunk) of `cores` cores at: c, halved while it would leave the
+    // read fewer than `min_picks` picks, down to 1 (--sparse_first_min_picks): a short read keeps about the chances of a
+    // longer one to be kept, which at C 4 dropped 9-12% of 75-100 bp reads 5% from their reference (F1 audit B2).
+    // min_picks 0: c for every read.
+    inline size_t StrideFor(size_t cores, size_t c, size_t min_picks) {
+        while (c > 1 && StridePicks(cores, c) < min_picks) c >>= 1;
+        return c;
+    }
+
     inline size_t RuleIndex(size_t level, size_t min_score, size_t min_hits) {
         return (level * kMinScores.size() + min_score) * kMinHits.size() + min_hits;
     }

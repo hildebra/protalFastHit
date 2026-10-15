@@ -8,6 +8,7 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include "FastxReader.h"
 #include "omp.h"
 
@@ -210,11 +211,19 @@ namespace protal {
 
     public:
         // Whether two mates' read names agree: the same, or the same but for a last character 1 in
-        // the first and 2 in the second (name/1 and name/2, name.1 and name.2).
+        // the first and 2 in the second (name/1 and name/2, name.1 and name.2), or one with a mate number (/1, .2, _1, ...)
+        // and the other the same without it (name and name/2). Swapped numbers (name/2 first) do not agree.
         static bool MatesNamedAlike(std::string const& a, std::string const& b) {
             if (a == b) return true;
             size_t const n = a.size();
-            return n > 0 && n == b.size() && a[n - 1] == '1' && b[n - 1] == '2' && a.compare(0, n - 1, b, 0, n - 1) == 0;
+            if (n > 0 && n == b.size() && a[n - 1] == '1' && b[n - 1] == '2' && a.compare(0, n - 1, b, 0, n - 1) == 0) return true;
+            auto numbered = [](std::string const& s) {
+                size_t const k = s.size();
+                return k >= 2 && (s[k - 1] == '1' || s[k - 1] == '2') && (s[k - 2] == '/' || s[k - 2] == '.' || s[k - 2] == '_');
+            };
+            bool const na = numbered(a), nb = numbered(b);
+            if (na == nb) return false;
+            return std::string_view(a).substr(0, a.size() - (na ? 2 : 0)) == std::string_view(b).substr(0, b.size() - (nb ? 2 : 0));
         }
 
         // Pairs read so far whose mates' names differ, and the first one's names ("a, b"); after

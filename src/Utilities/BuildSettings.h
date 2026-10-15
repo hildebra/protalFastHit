@@ -164,6 +164,9 @@ namespace protal::build_settings {
     inline constexpr std::string_view kSparseFirst = "sparse_first_";
     inline constexpr std::string_view kSparseFirstScore = "sparse_first_score";
     inline constexpr std::string_view kSparseFirstHits = "sparse_first_hits";
+    // sparse_first_min_picks (since 2026-10-15): the stride pick's least picks of a read (Stage1Probe.h StrideFor); a protal
+    // from before skips it (no read type "min_picks").
+    inline constexpr std::string_view kSparseFirstMinPicks = "sparse_first_min_picks";
     // sparse_first_pick_pe .. sparse_first_pick_ont (since 2026-10-13): the read type's gate's pick, hash or stride. A
     // protal from before skips these lines (no read type "pick_pe") and gates by hash.
     inline constexpr std::string_view kSparseFirstPick = "sparse_first_pick_";
@@ -209,6 +212,7 @@ namespace protal::build_settings {
         SparseFirstGates sparse_first;                // per read type; nothing if the file does not say (off)
         std::optional<size_t> sparse_first_score;     // nothing if the file does not say (14)
         std::optional<size_t> sparse_first_hits;      // nothing if the file does not say (1)
+        std::optional<size_t> sparse_first_min_picks; // nothing if the file does not say (0)
         SparseFirstPicks sparse_first_pick;           // per read type; nothing if the file does not say (DatabasePick)
         RunSettings run;                              // each nothing if the file does not say (built before 2026-10-15)
     };
@@ -397,6 +401,13 @@ namespace protal::build_settings {
                            std::string(value) + "'";
                 }
                 settings.fragment_count = count;
+            } else if (name == kSparseFirstMinPicks) {
+                auto const count = ParseCount(value);
+                if (!count) {
+                    return "line " + std::to_string(number) + ": " + std::string(name) + " is a whole number, not '" +
+                           std::string(value) + "'";
+                }
+                settings.sparse_first_min_picks = count;
             } else if (name == kSparseFirstScore || name == kSparseFirstHits) {
                 auto const count = ParseCount(value);
                 if (!count || (name == kSparseFirstScore ? *count > 16 : *count == 0)) {
@@ -438,6 +449,7 @@ namespace protal::build_settings {
         }
         if (settings.sparse_first_score) os << kSparseFirstScore << '\t' << *settings.sparse_first_score << '\n';
         if (settings.sparse_first_hits) os << kSparseFirstHits << '\t' << *settings.sparse_first_hits << '\n';
+        if (settings.sparse_first_min_picks) os << kSparseFirstMinPicks << '\t' << *settings.sparse_first_min_picks << '\n';
         for (auto const& info : kReadTypes) {
             auto const& pick = settings.sparse_first_pick[static_cast<size_t>(info.type)];
             if (pick) os << kSparseFirstPick << info.token << '\t' << SparseFirstPickName(*pick) << '\n';

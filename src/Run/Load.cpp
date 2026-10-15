@@ -528,6 +528,11 @@ namespace protal {
         if (options.CompactKeys() && !options.SparseSeeding()) map->SetCompactLoad(true);
         map->Load(index_file, load_threads, &layout);
         log << "Index features: " << map->FeatureDescription() << std::endl;
+        if (!map->ChecksSingleEntryUniques()) {
+            std::cerr << "Warning: this index was built before 2026-09-26 (78f7a92) and never checked its k-mer cores of one "
+                      << "value against the full reference: such cores count as not unique, as its models were trained "
+                      << "(rebuild the database to count them)." << std::endl;
+        }
         log << "Index in memory: " << map->MemoryDescription() << std::endl;
         if (options.SparseSeeding()) LogSparseIndex(*map, log);
         // The key map of the used cores only (CompactKeys.h), the direct one freed; the same lookups. (A raw index.prx is

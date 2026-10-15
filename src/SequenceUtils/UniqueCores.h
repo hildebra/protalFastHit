@@ -15,6 +15,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -126,6 +127,9 @@ namespace protal::unique_cores {
             return static_cast<size_t>(row);
         }
 
+        // Each taxon's first row (by taxid; one more than the taxa, the last the rows): RowsMismatch.
+        std::vector<uint32_t> const& FirstRows() const { return m_first_row; }
+
         // The cores a row has room for (its cores and up to three more).
         size_t Capacity(size_t row) const { return 4 * static_cast<size_t>(m_start[row + 1] - m_start[row]); }
 
@@ -208,6 +212,28 @@ namespace protal::unique_cores {
         std::string m_flags;  // four cores a byte; read in place from the file's bytes (Read)
     };
 
+    // "" if `table` has a row per gene id of each taxon of `genomes` (genes 1 to its gene count, Build.h GeneRowsOf) and
+    // none besides, else the first difference: a table of another database (a copied file) would count a record's ZS,
+    // ZU and ZT from another gene's cores, or, where a gene's cores do not fit its row, from the anchor's seeds (Counter),
+    // mixing the two in one sample (F1 audit L6). `Genomes`: GetGenomeMap(), each genome's GetGeneList().
+    template<typename Genomes>
+    std::string RowsMismatch(Table const& table, Genomes& genomes) {
+        size_t max_taxid = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) max_taxid = std::max<size_t>(max_taxid, taxid);
+        std::vector<uint64_t> expected(max_taxid + 2, 0);
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) expected[taxid + 1] = genome.GetGeneList().size();
+        for (size_t t = 1; t < expected.size(); t++) expected[t] += expected[t - 1];
+        auto const& first = table.FirstRows();
+        for (size_t taxid = 0; taxid + 1 < std::max(expected.size(), first.size()); taxid++) {
+            auto rows = [taxid](auto const& v) -> uint64_t { return taxid + 1 < v.size() ? v[taxid + 1] - v[taxid] : 0; };
+            if (rows(first) != rows(expected)) {
+                return "taxon " + std::to_string(taxid) + " has " + std::to_string(rows(first)) + " rows, the database " +
+                       std::to_string(rows(expected)) + " genes";
+            }
+        }
+        return "";
+    }
+
     // An alignment thread's counter: its own copy of the run's k-mer handler (the build's windows) finds a gene's cores,
     // whose positions it keeps for the last kCachedGenes genes; a copy starts with an empty cache. Inactive without a table.
     template<typename Handler>
@@ -216,16 +242,20 @@ namespace protal::unique_cores {
         Counter() = default;
 
         Counter(std::shared_ptr<Table const> table, Handler const& handler) : m_table(std::move(table)) {
-            if (m_table) m_handler = std::make_unique<Handler>(handler);
+            if (m_table) {
+                m_handler = std::make_unique<Handler>(handler);
+                m_mismatched = std::make_shared<std::atomic<size_t>>(0);
+            }
         }
 
-        Counter(Counter const& other) : m_table(other.m_table) {
+        Counter(Counter const& other) : m_table(other.m_table), m_mismatched(other.m_mismatched) {
             if (other.m_handler) m_handler = std::make_unique<Handler>(*other.m_handler);
         }
 
         Counter& operator=(Counter const& other) {
             if (this != &other) {
                 m_table = other.m_table;
+                m_mismatched = other.m_mismatched;
                 m_handler = other.m_handler ? std::make_unique<Handler>(*other.m_handler) : nullptr;
                 m_positions.clear();
             }
@@ -235,8 +265,8 @@ namespace protal::unique_cores {
         bool Active() const { return m_table != nullptr; }
 
         // Genes whose cores did not fit their row (the table is not this database's, or the handler not the build's): their
-        // records keep the anchor's counts.
-        size_t Mismatched() const { return m_mismatched; }
+        // records keep the anchor's counts. Shared by the counter's copies (a sample's threads), each gene once per copy.
+        size_t Mismatched() const { return m_mismatched ? m_mismatched->load(std::memory_order_relaxed) : 0; }
 
         // The counts of an alignment of `columns` from gene position `start` on taxid's gene (`gene`: its Sequence() decodes
         // it); nullopt without the table, for a gene beyond it, or one whose cores do not fit its row.
@@ -266,7 +296,7 @@ namespace protal::unique_cores {
             size_t const capacity = m_table->Capacity(row);
             bool const fits = positions.size() <= capacity && positions.size() + 4 > capacity;
             if (!fits) {
-                m_mismatched++;
+                m_mismatched->fetch_add(1, std::memory_order_relaxed);
                 positions.clear();
             }
             auto& kept = m_positions[row] = std::move(positions);
@@ -277,6 +307,6 @@ namespace protal::unique_cores {
         std::unique_ptr<Handler> m_handler;
         KmerList m_kmers;
         std::unordered_map<size_t, std::vector<uint32_t>> m_positions;
-        size_t m_mismatched = 0;
+        std::shared_ptr<std::atomic<size_t>> m_mismatched;  // shared by the copies
     };
 }

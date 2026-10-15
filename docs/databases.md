@@ -1271,6 +1271,12 @@ protal --build --no_profile --db /data/protal_r226_12 --reference /data/protal_r
 the other genes stay in `reference.fna` but get no k-mers, so no read lands on them. It refuses a
 folder with `gene_neighbours.tsv`, which was counted over every gene.
 
+A reduced database checks its k-mers' uniqueness against the kept genes' copies alone: the other genes' copies would
+cost most of the full reference's time. An exact k-mer that a kept gene shares with another gene family of another
+taxon (not its orthologs, which keep their gene id and are compared) therefore still counts as unique, and a sample's
+read of that left-out gene can hit it. Such sharing between gene families is expected to be rare; it was not measured
+([F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), L8). Full databases are not affected.
+
 ### Step by step
 
 #### GTDB files
@@ -1445,7 +1451,8 @@ otherwise, and are warned when it does: the two tracebacks give the same scores 
 otherwise among equally good alignments, in the strain alleles, congener gaps and column weights
 below and in the runs a model is trained on ([report](claude/2026-10-11-singletrack/README.md)).
 `--sparse_first` with `--build` records each read type's sparse-first gate there too (`pe:1,pb:8`,
-or one gate for all; `--sparse_first_score` and `--sparse_first_hits` with them), which runs on the
+or one gate for all; `--sparse_first_score`, `--sparse_first_hits` and, since 2026-10-15, `--sparse_first_min_picks`
+(6 unless given) with them), which runs on the
 database follow unless their `--sparse_first` says otherwise: the database's models must have been
 trained on runs gated so ([above](#choosing-the-sparse-first-gates)). `--sparse_first_pick` with
 `--build` records each gate's pick likewise (`pe:hash`, or one pick for all; `stride` where it says

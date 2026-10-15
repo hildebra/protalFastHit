@@ -209,6 +209,7 @@ namespace protal {
         bool m_sparse_grid = false;
         bool m_grid_whole = false;  // the grid gate on the whole index: kept reads seeded from every entry (SetSparseFirst)
         uint32_t m_sparse_score = 0;
+        uint32_t m_sparse_min_picks = 0;  // --sparse_first_min_picks (SetSparseMinPicks): a short read's stride halved
         LookupResultList m_sparse_lookups;
         size_t m_sparse_kmers = 0;  // the sampled k-mers of the read SparsePrepare looked up last
         std::vector<size_t> m_sampled;  // the indexes of a read's sampled k-mers (SparseHits, LookupKmers)
@@ -738,7 +739,7 @@ namespace protal {
                 m_genome_loader(other.m_genome_loader), m_sparse_first(other.m_sparse_first),
                 m_sparse_level(other.m_sparse_level), m_sparse_stride(other.m_sparse_stride), m_sparse_grid(other.m_sparse_grid),
                 m_grid_whole(other.m_grid_whole),
-                m_sparse_score(other.m_sparse_score), m_seed_level(other.m_seed_level),
+                m_sparse_score(other.m_sparse_score), m_sparse_min_picks(other.m_sparse_min_picks), m_seed_level(other.m_seed_level),
                 m_single_seed_anchors(other.m_single_seed_anchors) {};
 
         bool Success() {
@@ -1054,11 +1055,16 @@ namespace protal {
         }
         bool SparseFirst() const { return m_sparse_first; }
 
-        // Whether the gate samples k-mer j of a read's (chunk's) `kmers`: by its core's level, by its place in the stride,
-        // or with the grid every core. The probe's stride rules pick the same (Stage1Probe.h).
+        // --sparse_first_min_picks: with the stride pick a read (a mate, a long read's chunk) of few cores is sampled at a
+        // denser stride, halved until it has `picks` picks (stage1_probe::StrideFor); 0: every read at the gate's stride.
+        // Copies keep it.
+        void SetSparseMinPicks(uint32_t picks) { m_sparse_min_picks = picks; }
+
+        // Whether the gate samples k-mer j of a read's (chunk's) `kmers`: by its core's level, by its place in the stride (a
+        // short read's denser, SetSparseMinPicks), or with the grid every core. The probe's stride rules pick the same (Stage1Probe.h).
         bool SparsePicked(size_t j, size_t kmers, uint64_t kmer) const {
             if (m_sparse_grid) return true;
-            return m_sparse_stride ? stage1_probe::StridePicked(j, kmers, size_t{1} << m_sparse_level)
+            return m_sparse_stride ? stage1_probe::StridePicked(j, kmers, stage1_probe::StrideFor(kmers, size_t{1} << m_sparse_level, m_sparse_min_picks))
                                    : stage1_probe::Level(m_kmer_lookup.MainKey(kmer)) >= m_sparse_level;
         }
 

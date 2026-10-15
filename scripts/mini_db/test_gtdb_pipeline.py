@@ -1140,8 +1140,10 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertTrue(runs)
         for path in runs:
             with open(path) as fh:
-                self.assertIn("sparse first: pe 4 stride, se 4 stride, score 14, 1 hit(s); the database's models were "
-                              "trained with pe 4 stride, se 4 stride, score 14, 1 hit(s)", fh.read(), path)
+                # (a short read's stride halved until it has 6 picks, as --build records since 2026-10-15)
+                self.assertIn("sparse first: pe 4 stride, se 4 stride, score 14, 1 hit(s), least picks 6; the database's "
+                              "models were trained with pe 4 stride, se 4 stride, score 14, 1 hit(s), least picks 6",
+                              fh.read(), path)
         result = self.build(gates, "--scratch", scratch, "--profile-blocks", "0.00001", "--test-c-gates", "pe:0/1/2,se:0",
                             "--model-gates", "pe:1", "--model", "gbm,forest")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])

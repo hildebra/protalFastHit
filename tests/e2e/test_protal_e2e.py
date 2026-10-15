@@ -2372,8 +2372,9 @@ class BadInputTest(DbTest):
             cls.samples["zpipe"] = [cls.fifo("zpipe_R1.fq.zst", frames[0]), cls.fifo("zpipe_R2.fq.zst", frames[1])]
         cls.samples["pipe"] = [cls.fifo("pipe_R1.fq.gz", gzip.compress(data1)), cls.fifo("pipe_R2.fq", data2)]
         lines = data2.decode().splitlines(keepends=True)
-        cls.renamed = len(lines) // 4
-        for i in range(0, len(lines), 4):
+        # Every tenth pair's second mate renamed: warned about; most pairs renamed fail the sample (rotated, below).
+        cls.renamed = len(range(0, len(lines), 40))
+        for i in range(0, len(lines), 40):
             lines[i] = lines[i].replace("@sa.", "@other.", 1)
         cls.samples["names"] = [r1, cls.write("renamed_R2.fq", "".join(lines).encode())]
         cls.samples["empty"] = [cls.write("empty_R1.fq", b""), cls.write("empty_R2.fq", b"")]
@@ -2393,6 +2394,9 @@ class BadInputTest(DbTest):
             "gzip": [cls.write("damaged_R1.fq.gz", gzip.compress(data1[:half], mtime=0) + b"\x1fX" +
                                gzip.compress(data1[half:], mtime=0)[2:]), r2],
             "good": [r1, r2]}
+        # The second file one read ahead of the first (its first read moved to its end): every pair two unrelated reads.
+        lines2 = data2.decode().splitlines(keepends=True)
+        cls.broken["rotated"] = [r1, cls.write("rotated_R2.fq", "".join(lines2[4:] + lines2[:4]).encode())]
         cls.broken_rc, cls.broken_log = cls.sample_run("out_broken", cls.broken)
 
     @classmethod
@@ -2462,7 +2466,9 @@ class BadInputTest(DbTest):
         self.assertIn("Reading the FASTQ files of sample bz2 failed", self.broken_log)
         self.assertIn("The FASTQ files of sample zstd are truncated or corrupt", self.broken_log)
         self.assertIn("The FASTQ files of sample gzip are truncated or corrupt", self.broken_log)
-        for sample in ("bz2", "zstd", "gzip"):
+        self.assertRegex(self.broken_log, r"Reading the FASTQ files of sample rotated failed \(.*: the mates of \d+ of its \d+ read "
+                                          r"pairs have different names \(e\.g\. .*\): the two files are not in the same order\)")
+        for sample in ("bz2", "zstd", "gzip", "rotated"):
             self.assertFalse(glob.glob(self.path("out_broken", f"{sample}.sam*")), f"{sample}: no SAM may be written")
         self.assertEqual(read_text(self.path("out_broken", "good.profile")), baseline().text("sa.profile"),
                          "the good sample is profiled as on its own")
@@ -4621,15 +4627,15 @@ class SparseFirstGatesTest(WorkDir):
         settings = read_text(os.path.join(unpacked, "build_settings.tsv"))
         # Every read type's pick: given (pe hash), else stride (protal's default since 2026-10-13).
         for line in ("sparse_first_pe\t2\n", "sparse_first_se\t4\n", "sparse_first_pb\t8\n", "sparse_first_ont\t1\n",
-                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n", "sparse_first_pick_pe\thash\n",
+                     "sparse_first_score\t13\n", "sparse_first_hits\t1\n", "sparse_first_min_picks\t6\n", "sparse_first_pick_pe\thash\n",
                      "sparse_first_pick_se\tstride\n", "sparse_first_pick_pb\tstride\n", "sparse_first_pick_ont\tstride\n"):
             self.assertIn(line, settings)
         self.assertIn(", pick pe hash, se stride, pb stride, ont stride (", self.build_log)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
         log = self.align("auto")
-        self.assertIn("sparse first: pe 2, score 13, 1 hit(s); the database's models were trained with pe 2, score 13, "
-                      "1 hit(s)", log)
+        self.assertIn("sparse first: pe 2, score 13, 1 hit(s), least picks 6; the database's models were trained with pe 2, score "
+                      "13, 1 hit(s), least picks 6", log)
         self.assertIn("Sample auto sparse first (1/2 of the cores, score 13, 1 hit(s))", log)
         self.assertNotIn("gated otherwise", log)
         log = self.align("off", "--sparse_first", "0")
@@ -4659,8 +4665,8 @@ class SparseFirstGatesTest(WorkDir):
         self.assertNotIn("sparse first", log)
         # Its runs gated by --sparse_first pick by stride, as its build recorded (protal's default since 2026-10-13).
         log = self.align("plain_gated", "--sparse_first", "2", db=self.plain_db)
-        self.assertIn("sparse first: pe 2 stride (--sparse_first), score 14, 1 hit(s); the database's models were trained "
-                      "with pe off, score 14, 1 hit(s)", log)
+        self.assertIn("sparse first: pe 2 stride (--sparse_first), score 14, 1 hit(s), least picks 0; the database's models were "
+                      "trained with pe off, score 14, 1 hit(s), least picks 0", log)
         self.assertIn("Sample plain_gated sparse first (1/2 of the cores by stride, score 14", log)
         self.assertIn("Warning: 1 sample(s) of this run (e.g. plain_gated) are gated otherwise", log)
 
@@ -4914,8 +4920,8 @@ class SparseFirstGatesTest(WorkDir):
             self.assertEqual(rc, rc_expected, log[-3000:])
             return log
         log = single("se_auto")
-        self.assertIn("sparse first: se 4 stride, score 13, 1 hit(s); the database's models were trained with se 4 stride, "
-                      "score 13, 1 hit(s)", log)
+        self.assertIn("sparse first: se 4 stride, score 13, 1 hit(s), least picks 6; the database's models were trained with se 4 "
+                      "stride, score 13, 1 hit(s), least picks 6", log)
         self.assertIn("Sample se_auto sparse first (1/4 of the cores by stride, score 13, 1 hit(s))", log)
         self.assertNotIn("gated otherwise", log)
         log = single("se_hash", "--sparse_first_pick", "hash")

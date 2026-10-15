@@ -57,6 +57,8 @@ namespace protal {
     static const int DEFAULT_COMPRESS_WINDOW_LOG = 27;
     static const int DEFAULT_COMPRESS_FRAME_MB = 64;  // independent frames: loading uses -t threads
     static const size_t DEFAULT_ALIGN_TOP = 3;
+    // The sparse-first gate's least picks of a read that --build records (--sparse_first_min_picks; F1 audit B2).
+    static const size_t DEFAULT_SPARSE_FIRST_MIN_PICKS = 6;
     // Anchors a divergent read may try beyond --align_top on congeners of its best alignment that its seeds could not
     // tell apart (SimpleAlignmentHandler::operator(), --adaptive_candidates).
     static const size_t DEFAULT_ADAPTIVE_CANDIDATES = 7;
@@ -133,6 +135,7 @@ namespace protal {
         SparseFirstGates sparse_first;                // --sparse_first per read type; nothing: auto (the database's)
         std::optional<size_t> sparse_first_score;     // --sparse_first_score; nothing: the database's, else 14
         std::optional<size_t> sparse_first_hits;      // --sparse_first_hits; nothing: the database's, else 1
+        std::optional<size_t> sparse_first_min_picks; // --sparse_first_min_picks; nothing: the database's, else 0 (--build: 6)
         SparseFirstPicks sparse_first_pick;           // --sparse_first_pick per read type; nothing: auto (the database's)
         bool stage1_probe = false;
         bool sparse_seeding = false;                  // --sparse_seeding
@@ -304,6 +307,8 @@ namespace protal {
         std::optional<size_t> m_sparse_first_hits_given;
         size_t m_sparse_first_score = 14;
         size_t m_sparse_first_hits = 1;
+        std::optional<size_t> m_sparse_first_min_picks_given;
+        size_t m_sparse_first_min_picks = 0;
         // --sparse_first_pick as given (per read type; nothing: auto), and as the run picks for each read type: given,
         // else the database's (SetSparseFirstPick; --build: as given, stride where not).
         SparseFirstPicks m_sparse_first_pick_given;
@@ -552,6 +557,8 @@ namespace protal {
                 m_sparse_first_hits_given(d.sparse_first_hits),
                 m_sparse_first_score(d.sparse_first_score.value_or(14)),
                 m_sparse_first_hits(d.sparse_first_hits.value_or(1)),
+                m_sparse_first_min_picks_given(d.sparse_first_min_picks),
+                m_sparse_first_min_picks(d.sparse_first_min_picks.value_or(d.build ? DEFAULT_SPARSE_FIRST_MIN_PICKS : 0)),
                 m_sparse_first_pick_given(d.sparse_first_pick),
                 m_sparse_first_pick(PicksOrStride(d.sparse_first_pick)),
                 m_taxon_statistics(d.taxon_statistics),
@@ -1770,6 +1777,17 @@ namespace protal {
         }
         std::optional<size_t> SparseFirstHitsGiven() const {
             return m_sparse_first_hits_given;
+        }
+        // --sparse_first_min_picks: given (nothing: auto), and the run's (given, else the database's, else 0; --build: as given,
+        // else DEFAULT_SPARSE_FIRST_MIN_PICKS), once the database's is known (SetSparseFirstMinPicks).
+        std::optional<size_t> SparseFirstMinPicksGiven() const {
+            return m_sparse_first_min_picks_given;
+        }
+        size_t GetSparseFirstMinPicks() const {
+            return m_sparse_first_min_picks;
+        }
+        void SetSparseFirstMinPicks(size_t picks) {
+            m_sparse_first_min_picks = picks;
         }
         // The run's gates by read type, score and hits, once the database's are known (RunProtal: ApplyBuildSettings).
         void SetSparseFirst(std::array<size_t, kReadTypeCount> const& gates, size_t score, size_t hits) {

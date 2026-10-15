@@ -25,6 +25,7 @@ namespace protal::sam_settings {
     inline constexpr std::string_view kPick = "pick";
     inline constexpr std::string_view kScore = "score";
     inline constexpr std::string_view kHits = "hits";
+    inline constexpr std::string_view kMinPicks = "min_picks";  // the stride pick's least picks of a read (since 2026-10-15)
     inline constexpr std::string_view kUniqueKmers = "unique_kmers";
     inline constexpr std::string_view kTraceback = "traceback";
     inline constexpr std::string_view kAlleleScores = "allele_scores";

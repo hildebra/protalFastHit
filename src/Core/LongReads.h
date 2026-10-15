@@ -531,6 +531,7 @@ namespace protal {
                         m_chunk.assign(read, chunk.offset, chunk.length);
                         m_kmers.clear();
                         m_kmer_handler(std::string_view(m_chunk), m_kmers);
+                        DropReadAmbiguousKmers(m_chunk, m_kmer_handler, m_kmers);
                         hits += m_anchor_finder.SparseHits(m_kmers, m_sparse_hits - hits);
                         if (hits >= m_sparse_hits) break;
                     }
@@ -551,6 +552,7 @@ namespace protal {
                 m_seeds.clear();
                 m_anchors.clear();
                 m_kmer_handler(std::string_view(m_chunk), m_kmers);
+                DropReadAmbiguousKmers(m_chunk, m_kmer_handler, m_kmers);
                 m_anchor_finder(m_kmers, m_seeds, m_anchors, m_chunk);
                 m_last_seeds += m_seeds.size();
                 m_last_anchors += m_anchors.size();

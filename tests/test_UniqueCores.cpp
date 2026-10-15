@@ -1,6 +1,7 @@
 // A record's unique k-mers counted from its alignment (UniqueCores.h, since 2026-10-14): which of a gene's cores an
 // alignment covers with exact k-mers, the table of every copy's cores' bits (unique_cores.bin) and a thread's counter.
 #include <gtest/gtest.h>
+#include <map>
 #include <random>
 #include <sstream>
 #include <string>
@@ -134,7 +135,35 @@ TEST(UniqueCores, TheCounterCountsAGenesCoresFromTheTable) {
     EXPECT_FALSE(wrong.Count(1, 1, gene, M(150), 0).has_value());
     EXPECT_FALSE(wrong.Count(1, 1, gene, M(150), 0).has_value());  // from the cache
     EXPECT_EQ(wrong.Mismatched(), 1u);
+    // Copies (a sample's threads) share the count (F1 audit L6).
+    uc::Counter<SimpleKmerHandler<ClosedSyncmer>> wrong_copy(wrong);
+    ASSERT_FALSE(wrong_copy.Count(1, 1, gene, M(150), 0));
+    EXPECT_EQ(wrong.Mismatched(), 2u);
+    EXPECT_EQ(wrong_copy.Mismatched(), 2u);
     uc::Counter<SimpleKmerHandler<ClosedSyncmer>> none;
     EXPECT_FALSE(none.Active());
     EXPECT_FALSE(none.Count(1, 1, gene, M(150), 0).has_value());
+}
+
+// The table fits a database whose taxa have its rows as genes (RowsMismatch; F1 audit L6), else it says where not: a
+// taxon with a gene more, or one the table has no rows of. A run does not use a table that does not fit.
+TEST(UniqueCores, TheTableFitsTheDatabasesGenesOrSaysWhereNot) {
+    struct FakeGenome {
+        std::vector<uint32_t> genes;
+        std::vector<uint32_t> const& GetGeneList() const { return genes; }
+    };
+    struct FakeGenomes {
+        std::map<uint32_t, FakeGenome> genomes;
+        std::map<uint32_t, FakeGenome> const& GetGenomeMap() const { return genomes; }
+    };
+    uc::Table const table(std::vector<uint64_t>{ 0, 0, 3, 3, 5 }, std::vector<uint32_t>(5, 8));  // taxon 1: 3 rows, taxon 3: 2
+    FakeGenomes db;
+    db.genomes[1] = { { 1, 2, 3 } };
+    db.genomes[3] = { { 1, 2 } };
+    EXPECT_EQ(uc::RowsMismatch(table, db), "");
+    db.genomes[3].genes.push_back(3);
+    EXPECT_EQ(uc::RowsMismatch(table, db), "taxon 3 has 2 rows, the database 3 genes");
+    db.genomes[3].genes.pop_back();
+    db.genomes[4] = { { 1 } };
+    EXPECT_EQ(uc::RowsMismatch(table, db), "taxon 4 has 0 rows, the database 1 genes");
 }

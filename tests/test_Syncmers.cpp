@@ -193,3 +193,49 @@ TEST(Syncmers, ScanCodesEveryByteAndEveryLengthAsTheDefinition) {
         }
     }
 }
+
+// A read's k-mers over an ambiguous base are not looked up (DropReadAmbiguousKmers; F1 audit L10, they were looked up as
+// if the base were A or T): the list of a read with an N at p is that of the same read with A there, less the k-mers
+// whose window covers p (every other window is the same in both), at every level; a read of A, C, G, T only, lowercase
+// too, keeps its list. (The list's second is the window's first position: ScanGivesTheKmersOfTheDefinition.)
+TEST(Syncmers, ReadKmersOverAnAmbiguousBaseAreLeftOut) {
+    std::mt19937 rng(23);
+    for (simd::Level level : Levels()) {
+        ClosedSyncmer syncmer{kM, 7, 2, true};
+        SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
+        ASSERT_EQ(handler.Use(level), level);
+        ASSERT_EQ(handler.K(), kK);
+        size_t dropped = 0;
+        for (int round = 0; round < 60; round++) {
+            std::string read(150, 'A');
+            for (auto& c : read) c = "ACGT"[rng() % 4];
+            KmerList clean;
+            handler(std::string_view(read), clean);
+            KmerList kept = clean;
+            DropReadAmbiguousKmers(read, handler, kept);
+            EXPECT_EQ(kept, clean);
+            std::string lower = read;
+            for (auto& c : lower) c = static_cast<char>(c | 0x20);
+            KmerList lower_list;
+            handler(std::string_view(lower), lower_list);
+            kept = lower_list;
+            DropReadAmbiguousKmers(lower, handler, kept);
+            EXPECT_EQ(kept, lower_list);
+
+            size_t const p = rng() % read.size();
+            std::string n_read = read, a_read = read;
+            n_read[p] = round % 3 == 0 ? 'n' : round % 3 == 1 ? 'N' : 'R';
+            a_read[p] = 'A';
+            KmerList with_n, a_list, expected;
+            handler(std::string_view(n_read), with_n);
+            handler(std::string_view(a_read), a_list);
+            DropReadAmbiguousKmers(n_read, handler, with_n);
+            for (auto const& kmer : a_list) {
+                if (!(kmer.second <= p && p < kmer.second + kK)) expected.push_back(kmer);
+            }
+            EXPECT_EQ(with_n, expected) << simd::Name(level) << ", N at " << p;
+            dropped += a_list.size() - expected.size();
+        }
+        EXPECT_GT(dropped, 0u);
+    }
+}

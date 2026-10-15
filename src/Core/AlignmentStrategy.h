@@ -189,6 +189,8 @@ namespace protal {
         std::vector<uint32_t> const& Untried() const { return m_untried; }
         // Anchors aligned beyond align_top by the adaptive candidates (TryCongeners), over all calls.
         size_t m_adaptive_alignments = 0;
+        // Calls of TryCongeners that tried --adaptive_candidates anchors with more eligible ones left (the cap, F1 audit L3).
+        size_t m_adaptive_capped = 0;
         // Alignments on a copy with strain alleles (SetAlleleScores), and of them those with a site shift; the reads protal was
         // unsure about (SettleBySites), and of them those whose best species the shifts changed; over all calls.
         size_t m_allele_scored = 0;
@@ -247,6 +249,7 @@ namespace protal {
         void JoinCounts(SimpleAlignmentHandler const& other) {
             m_attempted_alignments += other.m_attempted_alignments;
             m_adaptive_alignments += other.m_adaptive_alignments;
+            m_adaptive_capped += other.m_adaptive_capped;
             m_allele_scored += other.m_allele_scored;
             m_allele_shifted += other.m_allele_shifted;
             m_unsure_reads += other.m_unsure_reads;
@@ -1019,6 +1022,18 @@ namespace protal {
                 }
                 tried++;
                 m_adaptive_alignments++;
+            }
+            // The cap reached with another eligible anchor left: counted (Align.cpp logs it), the read's records the same.
+            if (tried == m_adaptive_candidates) {
+                size_t i = 0;
+                for (auto const& anchor : anchors) {
+                    if (i++ < taken) continue;
+                    auto const taxid = static_cast<uint32_t>(anchor.taxid);
+                    if (static_cast<double>(anchor.total_length) < kCrowdedLength * static_cast<double>(longest) || GenusOf(taxid) != genus) continue;
+                    if (std::any_of(m_attempted.begin(), m_attempted.end(), [taxid](FailedCandidate const& c) { return c.taxid == taxid; })) continue;
+                    m_adaptive_capped++;
+                    break;
+                }
             }
         }
 

@@ -337,15 +337,17 @@ TEST(BuildSettings, SparseFirstGatesParsedWrittenAndReadBack) {
     written.sparse_first = *some;
     written.sparse_first_score = 13;
     written.sparse_first_hits = 2;
+    written.sparse_first_min_picks = 6;
     std::stringstream file;
     build_settings::Write(file, written);
     EXPECT_NE(file.str().find("sparse_first_pe\t1\nsparse_first_pb\t8\nsparse_first_ont\t0\nsparse_first_score\t13\n"
-                              "sparse_first_hits\t2\n"), std::string::npos) << file.str();
+                              "sparse_first_hits\t2\nsparse_first_min_picks\t6\n"), std::string::npos) << file.str();
     build_settings::Settings read;
     EXPECT_EQ(build_settings::Read(file, read), "");
     EXPECT_EQ(read.sparse_first, *some);
     EXPECT_EQ(read.sparse_first_score, size_t{13});
     EXPECT_EQ(read.sparse_first_hits, size_t{2});
+    EXPECT_EQ(read.sparse_first_min_picks, size_t{6});
 
     build_settings::Settings later;
     std::istringstream unknown("sparse_first_xr\t4\nsparse_first_se\t16\n");
@@ -356,7 +358,8 @@ TEST(BuildSettings, SparseFirstGatesParsedWrittenAndReadBack) {
     EXPECT_EQ(build_settings::Read(older, none), "");
     EXPECT_EQ(none.sparse_first, SparseFirstGates());
     EXPECT_FALSE(none.sparse_first_score);
-    for (char const* bad : { "sparse_first_pe\t3\n", "sparse_first_score\t17\n", "sparse_first_hits\t0\n" }) {
+    EXPECT_FALSE(none.sparse_first_min_picks);  // a database built before: 0, every read at the gate's stride
+    for (char const* bad : { "sparse_first_pe\t3\n", "sparse_first_score\t17\n", "sparse_first_hits\t0\n", "sparse_first_min_picks\tsix\n" }) {
         std::istringstream is(bad);
         build_settings::Settings settings;
         EXPECT_NE(build_settings::Read(is, settings).find("line 1"), std::string::npos) << bad;

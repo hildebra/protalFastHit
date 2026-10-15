@@ -151,6 +151,8 @@ namespace protal {
         options.SetSparseFirst(gates, options.SparseFirstScoreGiven().value_or(recorded_score),
                                options.SparseFirstHitsGiven().value_or(recorded_hits));
         options.SetSparseFirstPick(picks);
+        size_t const recorded_min_picks = settings.sparse_first_min_picks.value_or(0);
+        options.SetSparseFirstMinPicks(options.SparseFirstMinPicksGiven().value_or(recorded_min_picks));
         if (options.SparseSeeding()) {
             for (auto index : options.GetRange()) {
                 if (options.GetSparseFirst(index) <= 1 || options.GetSparseFirstPick(index) != SparseFirstPick::Stride) continue;
@@ -202,15 +204,16 @@ namespace protal {
             }
         }
         bool const score_differs = options.AnySparseFirst() && !sams_given &&
-                                   (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
+                                   (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits ||
+                                    options.GetSparseFirstMinPicks() != recorded_min_picks);
         bool const gates_given = options.SparseFirstGiven() != SparseFirstGates();
         bool const picks_given = options.SparseFirstPickGiven() != SparseFirstPicks();
         std::string const given = gates_given && picks_given ? " (--sparse_first, --sparse_first_pick)" :
                                   gates_given ? " (--sparse_first)" : picks_given ? " (--sparse_first_pick)" : "";
         out << "sparse first: " << run << given
-            << ", score " << options.GetSparseFirstScore() << ", " << options.GetSparseFirstHits() << " hit(s)"
-            << "; the database's models were trained with " << database << ", score " << recorded_score << ", "
-            << recorded_hits << " hit(s)" << std::endl;
+            << ", score " << options.GetSparseFirstScore() << ", " << options.GetSparseFirstHits() << " hit(s), least picks "
+            << options.GetSparseFirstMinPicks() << "; the database's models were trained with " << database << ", score "
+            << recorded_score << ", " << recorded_hits << " hit(s), least picks " << recorded_min_picks << std::endl;
         if (others > 0 || score_differs) {
             std::cerr << "Warning: " << (others > 0 ? std::to_string(others) + " sample(s) of this run (e.g. " + example +
                                                       (sams_given ? ") were aligned gated otherwise (their SAM "
@@ -399,6 +402,7 @@ namespace protal {
             if (level && *level > 0) {
                 with_gate.emplace_back(s::kScore, std::to_string(settings.sparse_first_score.value_or(14)));
                 with_gate.emplace_back(s::kHits, std::to_string(settings.sparse_first_hits.value_or(1)));
+                if (settings.sparse_first_min_picks) with_gate.emplace_back(s::kMinPicks, std::to_string(*settings.sparse_first_min_picks));
             }
             auto const differences = b::Differences(with_gate, *fields, [](std::string const&) { return true; });
             if (differences.empty()) continue;

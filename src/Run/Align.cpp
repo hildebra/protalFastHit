@@ -43,6 +43,7 @@ namespace protal {
         add(s::kPick, std::string(SparseFirstPickName(options.GetSparseFirstPick(index))));
         add(s::kScore, std::to_string(options.GetSparseFirstScore()));
         add(s::kHits, std::to_string(options.GetSparseFirstHits()));
+        add(s::kMinPicks, std::to_string(options.GetSparseFirstMinPicks()));
         add(s::kUniqueKmers, std::string(unique_cores ? build_settings::kUniqueCores : build_settings::kUniqueAnchors));
         add(s::kTraceback, std::string(WfaTracebackName(options.GetWfaTraceback())));
         if (short_reads) add(s::kAlleleScores, build_settings::OnOff(*run.allele_scores));
@@ -76,6 +77,11 @@ namespace protal {
                   << handler.m_anchored_alignments
                   << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
+        if (auto const mismatched = handler.UniqueCoresMismatched(); mismatched > 0) {
+            std::cerr << "Warning: sample " << options.GetSampleId(index) << ": the cores of " << mismatched << " gene(s) did not fit "
+                      << "their rows of " << Options::PROTAL_UNIQUE_CORES_FILE << " (not the build's k-mers?): their records "
+                      << "counted ZS, ZU and ZT from the anchor's seeds" << std::endl;
+        }
         // And what the seeding did (SeedingCounts): the k-mer lookups, the value blocks scanned and their sizes.
         std::cout << "Sample " << options.GetSampleId(index) << " seeding: " << seeding.Text() << std::endl;
         if (seeding.sparse_reads > 0) {  // --sparse_first: the reads given up after their sampled lookups
@@ -96,7 +102,8 @@ namespace protal {
         if (handler.m_adaptive_alignments > 0) {
             std::cout << "Sample " << options.GetSampleId(index) << " adaptive candidates: " << handler.m_adaptive_alignments
                       << " of the candidate alignments tried beyond --align_top on congeners of divergent reads' best "
-                      << "alignment (--adaptive_candidates)" << std::endl;
+                      << "alignment (--adaptive_candidates); " << handler.m_adaptive_capped
+                      << " read(s) had more such congeners than --adaptive_candidates tried" << std::endl;
         }
         if (handler.m_allele_scored > 0) {
             std::cout << "Sample " << options.GetSampleId(index) << " strain alleles: " << handler.m_allele_scored
@@ -282,6 +289,16 @@ namespace protal {
                 }
                 std::cout << std::endl;
             }
+            // The database's unique cores, if they fit its genes (UniqueCores.h RowsMismatch): a table of another database is
+            // not used, so that the whole run counts ZS, ZU and ZT from the anchors' seeds rather than a mix of the two.
+            if (auto const cores = genomes.UniqueCores()) {
+                if (auto const problem = unique_cores::RowsMismatch(*cores, genomes); !problem.empty()) {
+                    std::cerr << "Warning: " << Options::PROTAL_UNIQUE_CORES_FILE << " does not fit this database's genes (" << problem
+                              << ": another database's table?): ZS, ZU and ZT from each record's anchor's seeds for the whole run"
+                              << std::endl;
+                    genomes.SetUniqueCores(nullptr);
+                }
+            }
             // The seed expectation of the grid levels a sample is seeded from alone (a sparse index, --sparse_index emulate, or
             // --sparse_seeding with the grid pick), for its SAM's header (SeedExpectations). None with the database's unique
             // cores (UniqueCores.h): ZS, ZU and ZT count the cores each alignment covers, as the whole index's seeds would.
@@ -361,6 +378,7 @@ namespace protal {
                     anchor_finder.SetSparseFirst(static_cast<uint8_t>(__builtin_ctzll(sparse_first)),
                                                  static_cast<uint32_t>(options.GetSparseFirstScore()),
                                                  options.GetSparseFirstPick(index) == SparseFirstPick::Stride, grid, grid_whole);
+                    anchor_finder.SetSparseMinPicks(static_cast<uint32_t>(options.GetSparseFirstMinPicks()));
                     // --sparse_seeding: the reads kept seeded from those cores alone, as an index of only them would.
                     if (options.SparseSeeding()) anchor_finder.SetSeedLevel(static_cast<uint8_t>(__builtin_ctzll(sparse_first)));
                     anchor_finder.SetSingleSeedAnchors(sparse_first > 1 && grid && !grid_whole && !IsLongReadType(read_type) &&
@@ -603,6 +621,14 @@ namespace protal {
                         std::cerr << "Warning: sample " << options.GetSampleId(index) << ": the mates of " << reader.NameMismatches()
                                   << " read pair(s) have different names (e.g. " << reader.FirstNameMismatch()
                                   << "); are " << read_files << " in the same order?" << std::endl;
+                    }
+                    // Most pairs named apart: the files are not in the same order (or hold no mates of each other), and every
+                    // pair would be two unrelated reads; the sample fails (F1 audit L11). A few, the warning above alone.
+                    if (read_success && !truncated && protal_stats.reads > 0 && 2 * reader.NameMismatches() > protal_stats.reads) {
+                        read_success = false;
+                        read_problem = ": the mates of " + std::to_string(reader.NameMismatches()) + " of its " +
+                                       std::to_string(protal_stats.reads) + " read pairs have different names (e.g. " +
+                                       reader.FirstNameMismatch() + "): the two files are not in the same order";
                     }
                     is1.close();
                     is2.close();

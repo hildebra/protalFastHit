@@ -380,14 +380,17 @@ namespace protal {
         // A key with one value keeps its entry's unique flag, marked `single`: only the core was compared, so the anchor
         // compares the rest of the k-mer with the gene before it counts the seed (ChainAnchorFinder::CountUniques). No
         // other value has the core, so such a value is unique at distance two whenever it is unique. Before, these
-        // never counted (at GTDB r226 5.1M of the index's 2.13 billion unique values; more of a small database's).
+        // never counted (at GTDB r226 5.1M of the index's 2.13 billion unique values; more of a small database's). An index from
+        // before 78f7a92 never checked single values against the full reference (Seedmap::ChecksSingleEntryUniques): there
+        // they count as not unique, as its models saw them (F1 audit L7).
         PROTAL_CLONE_V3 inline bool GetFromLookup(LookupList& result, LookupPointer& pointers) {
             if (pointers.flex == nullptr) {
                 m_last_best = 0;
                 for (uint32_t i = 0; i < pointers.size; i++) {
                     if (!AtLevel(pointers, i)) continue;
                     Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                    result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
+                    bool const single_unique = m_unique && m_sm.ChecksSingleEntryUniques();
+                    result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, single_unique, single_unique, single_unique );
                 }
                 return true;
             }
@@ -406,7 +409,8 @@ namespace protal {
                     for (uint32_t i = 0; i < size; i++) {
                         if (m_sm.EntryLevel(pointers, i) < pointers.min_level) continue;
                         Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
+                        bool const single_unique = m_unique && m_sm.ChecksSingleEntryUniques();
+                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, single_unique, single_unique, single_unique );
                     }
                     return true;
                 }

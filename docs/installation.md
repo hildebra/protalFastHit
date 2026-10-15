@@ -97,7 +97,10 @@ same on every CPU.
   Lake (2019) or AMD Zen 4 (2022) and later (F, CD, BW, VL, DQ, VBMI, VBMI2, VPOPCNTDQ,
   BITALG); earlier AVX-512 CPUs use the AVX2 ones. `PROTAL_SIMD=avx2` (or `scalar`) in the
   environment caps the level, for comparing runs or for a virtual machine that reports
-  instructions it cannot run; `auto`, the default, uses the CPU's highest.
+  instructions it cannot run; `auto`, the default, uses the CPU's highest. One kernel has never run on AVX-512
+  hardware: the flex scan with an indel per flank (`--flex_indels`, opt-in), whose AVX-512 version matches the scalar
+  scan in unit tests that skip without AVX-512 (`FlexScan.Avx512ScoresAndTiesAsTheScalarScan`). Until a run on such a
+  CPU checks it, use `PROTAL_SIMD=avx2` with `--flex_indels` there for outputs the same as elsewhere (F1 audit L9).
 - ISA-L, zlib-ng and zstd choose their own. The gzip that protal writes (`.sam.gz`, the simulator's
   `.fq.gz`) is the same byte for byte for one ISA-L version on CPUs with SSE4.2 (Intel since 2008,
   AMD since 2011) up to AVX2, as checked (AVX-512 CPUs were not checked; CPUs without SSE4.2 write
@@ -109,7 +112,7 @@ same on every CPU.
   `-DCMAKE_CXX_FLAGS=-DPROTAL_NO_CLONES`, they are compiled once, for x86-64.
 
 WFA2-lib is built for plain x86-64, because its AVX2 kernels were not faster in protal's use and
-change which of equally good ends-free alignments it reports
+change which of equally good ends-free alignments it reports (since 2026-10-15 also when `CMAKE_C_FLAGS` or `CMAKE_CXX_FLAGS` say `-march=native`: it is compiled at the baseline after them, F1 audit L12)
 ([report](claude/2026-10-02-wfa-avx2/README.md)). Since 2026-10-11 `lib/wfa2-lib` is T. Mokveld's
 fork of WFA2-lib v2.3.6, which adds the Singletrack traceback (`--wfa_traceback`); its source and
 commit are in `lib/wfa2-lib.cmake`, with protal's changes to it. Among them, wf-adaptive's distance

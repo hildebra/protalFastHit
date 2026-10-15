@@ -10,6 +10,7 @@
 #include <iostream>
 #include <iterator>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unistd.h>
@@ -184,6 +185,41 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
         }
     }
     EXPECT_GT(compared, 100u);
+}
+
+// A key of one value counts as unique only on an index whose build checked single values against the full reference
+// (Seedmap::ChecksSingleEntryUniques; F1 audit L7): one built before 78f7a92 never did, and its models never saw such
+// values count. The same index with an older build's header (its features without kFeatureCheckedSingleEntries).
+TEST(PackedIndex, SingleValuesCountAsUniqueOnlyWhereTheBuildCheckedThem) {
+    auto const values = SmallValues(11, 700);
+    Seedmap map(kCoreBases);
+    Fill(map, values);
+    map.Pack(Seedmap::PackedLayout::For(143614, 168, 12883 + 16), 2);
+    ASSERT_TRUE(map.ChecksSingleEntryUniques());
+    // Key 0 has one value (SmallValues: every 7th key), unique (Fill clears the flag of every second entry only).
+    auto single_unique = [&]() {
+        protal::KmerLookupSM lookup(map, 256);
+        protal::LookupList results;
+        size_t kmer = values[0].key;
+        lookup.Get(results, kmer, 7);
+        EXPECT_EQ(results.size(), 1u);
+        return !results.empty() && results[0].unique && results[0].single;
+    };
+    EXPECT_TRUE(single_unique());
+
+    std::stringstream header;
+    map.SaveHeader(header);
+    std::string bytes = header.str();
+    uint32_t features = 0;
+    size_t const at = sizeof(uint64_t) + 3 * sizeof(uint32_t);  // after the magic and the version
+    std::memcpy(&features, bytes.data() + at, sizeof(features));
+    features &= ~Seedmap::kFeatureCheckedSingleEntries;
+    std::memcpy(bytes.data() + at, &features, sizeof(features));
+    std::istringstream older(bytes);
+    map.LoadHeader(older);
+    ASSERT_FALSE(map.ChecksSingleEntryUniques());
+    ASSERT_TRUE(map.UsesFullSyncmerMask());
+    EXPECT_FALSE(single_unique());
 }
 
 // With --flex_indels (KmerLookupSM::SetFlexIndels) a lookup's seeds are the entries whose cells have the best
