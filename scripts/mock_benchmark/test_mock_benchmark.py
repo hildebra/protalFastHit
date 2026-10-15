@@ -375,6 +375,23 @@ for line in lines[2:]:
         named = subprocess.run(command + ["--run-name", "trial"], capture_output=True, text=True)
         self.assertEqual(named.returncode, 0, named.stderr)
         self.assertTrue(os.path.exists(os.path.join(reads, "trial", "a", "profiles", "a_1.profile")))
+        # --scratch: no SAM named, so that protal writes the SAMs into its --scratch_dir folder (removed once
+        # profiled); with --strains they are named, kept in alignments/ for strain MSAs
+        scratch = os.path.join(self.tmp.name, "node_disk")
+        for strains, header in (([], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tPROFILE"),
+                                (["--strains"], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE")):
+            name = "scratch" + "".join(strains)
+            result = subprocess.run(command + ["--run-name", name, "--scratch", scratch] + strains,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(os.path.join(reads, name, "a", "map.tsv")) as fh:
+                lines = fh.read().splitlines()
+            self.assertEqual(lines[1], header)
+            if not strains:
+                self.assertEqual(lines[2], "a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.profile")
+            with open(calls) as fh:
+                self.assertIn(f"--scratch_dir {scratch}", fh.read().splitlines()[-1])
+            self.assertTrue(os.path.exists(os.path.join(reads, name, "a", "profiles", "a_2.profile")))
 
     def test_run_with_a_stand_in_sylph(self):
         """Sample p (two lanes, joined for sylph) gets E. coli 60 % and a genome the taxonomy lacks 40 %; sample l
@@ -472,6 +489,18 @@ with open(out, "w") as fh, open({seen!r}, "a") as log:
         self.assertEqual(rerun.returncode, 0, rerun.stderr)
         self.assertEqual(calls_made(), 6)  # set a's paired and single samples, set b's single one
         self.assertEqual(len(sc.profiles_of(os.path.join(reads, "sylph_0.9.0_gtdb-r226-c200-dbv1"))), 3)
+        # --scratch: the lanes are joined there, and the joined files removed afterwards
+        scratch = os.path.join(self.tmp.name, "node_disk")
+        joined = subprocess.run(command + ["--rerun", "--run-name", "sylph_scratch", "--scratch", scratch],
+                                capture_output=True, text=True)
+        self.assertEqual(joined.returncode, 0, joined.stderr)
+        with open(seen) as fh:
+            self.assertEqual(fh.read().splitlines()[-1], "@a|AC|+|II|@b|GT|+|II|")
+        with open(calls) as fh:  # set a's paired samples, set a's single, set b's single
+            self.assertIn(os.path.join(scratch, "score_mocks_joined_"), fh.read().splitlines()[-3])
+        self.assertEqual(os.listdir(scratch), [])
+        self.assertFalse(os.path.exists(os.path.join(reads, "sylph_scratch", "a", "joined")))
+        self.assertEqual(len(sc.profiles_of(os.path.join(reads, "sylph_scratch"))), 3)
 
 
 class PrepareTest(unittest.TestCase):
