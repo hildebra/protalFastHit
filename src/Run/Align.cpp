@@ -31,6 +31,29 @@ namespace protal {
     // Alignments are written under a temporary name ("<sam>.partial", compressed already as the name
     // asks; SamOutput) and only get their final name once complete, so an interrupted run never leaves
     // a truncated SAM that a rerun would skip and reuse. This moves a finished file into place.
+    sam_settings::Fields AlignmentSettings(Options const& options, size_t index, bool unique_cores) {
+        namespace s = sam_settings;
+        auto const type = options.GetReadType(index);
+        bool const short_reads = !IsLongReadType(type);
+        auto const run = options.RunSettingsInUse();
+        s::Fields fields;
+        auto add = [&fields](std::string_view key, std::string value) { fields.emplace_back(std::string(key), std::move(value)); };
+        add(s::kReadType, Info(type).token);
+        add(s::kGate, std::to_string(options.GetSparseFirst(index)));
+        add(s::kPick, std::string(SparseFirstPickName(options.GetSparseFirstPick(index))));
+        add(s::kScore, std::to_string(options.GetSparseFirstScore()));
+        add(s::kHits, std::to_string(options.GetSparseFirstHits()));
+        add(s::kUniqueKmers, std::string(unique_cores ? build_settings::kUniqueCores : build_settings::kUniqueAnchors));
+        add(s::kTraceback, std::string(WfaTracebackName(options.GetWfaTraceback())));
+        if (short_reads) add(s::kAlleleScores, build_settings::OnOff(*run.allele_scores));
+        if (short_reads) add(s::kWeightedSiteShift, build_settings::OnOff(*run.weighted_site_shift));
+        if (type == ReadType::Paired) add(s::kMateGuidance, *run.mate_guidance);
+        add(s::kAlignTop, std::to_string(options.GetAlignTop()));
+        if (short_reads) add(s::kAdaptiveCandidates, std::to_string(options.GetAdaptiveCandidates()));
+        add(s::kMaxScoreAni, build_settings::Decimal(options.GetMaxScoreAni(type)));
+        return fields;
+    }
+
     static void FinishSamFile(Options& options, int index, std::string const& partial) {
         auto [sam, _] = options.SamFile(index);
         std::error_code ec;
@@ -371,7 +394,9 @@ namespace protal {
 
                 options.SetCurrentIndex(index);
                 std::string const sam_partial = sam + ".partial";  // renamed by FinishSamFile
-                std::string const read_type_line = kSamReadTypeComment + Info(read_type).token + '\n';
+                // The read type, and how the sample was aligned (SamSettings.h; --profile_only reads it).
+                std::string const read_type_line = kSamReadTypeComment + Info(read_type).token + '\n' +
+                                                   sam_settings::SamSettingsLine(AlignmentSettings(options, index, genomes.UniqueCores() != nullptr));
                 // The alignment threads compress the records as the name asks (.gz, .zst). The header
                 // lists the genes that the records name, so it is written once they are complete;
                 // --full_sam_header lists every gene of the database, written first.

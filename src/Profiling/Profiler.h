@@ -31,6 +31,7 @@
 #include "SampleContext.h"
 #include "Composition.h"
 #include "ExactSum.h"
+#include "FeatureRanges.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -2993,6 +2994,7 @@ namespace protal {
             std::map<int, double> m_depth_knobs;  // see DepthKnob: an older model's knobs by decade of the sample's fragments
             DepthKnobCurve m_depth_knob_curve;    // see DepthKnob
             FalseCallModel m_false_calls;         // see FalseCalls
+            std::shared_ptr<feature_ranges::Ranges const> m_feature_ranges;  // see FeatureRanges
 
             mutable std::unordered_map<std::string, std::string> m_sample;
 
@@ -3006,7 +3008,8 @@ namespace protal {
 
             TaxonFilterForest(const TaxonFilterForest& other) :
                     m_model(other.m_model), m_knob(other.m_knob), m_depth_knobs(other.m_depth_knobs),
-                    m_depth_knob_curve(other.m_depth_knob_curve), m_false_calls(other.m_false_calls), m_sample() {
+                    m_depth_knob_curve(other.m_depth_knob_curve), m_false_calls(other.m_false_calls),
+                    m_feature_ranges(other.m_feature_ranges), m_sample() {
             }
 
             TaxonFilterForest(const TaxonFilterForest&& other) :
@@ -3015,8 +3018,14 @@ namespace protal {
                     m_depth_knobs(other.m_depth_knobs),
                     m_depth_knob_curve(other.m_depth_knob_curve),
                     m_false_calls(other.m_false_calls),
+                    m_feature_ranges(other.m_feature_ranges),
                     m_sample(other.m_sample) {
             }
+
+            // The ranges of the model's features in its training (FeatureRanges.h; the header's protal_feature_ranges),
+            // or null for a model without them.
+            void SetFeatureRanges(std::shared_ptr<feature_ranges::Ranges const> ranges) { m_feature_ranges = std::move(ranges); }
+            std::shared_ptr<feature_ranges::Ranges const> const& FeatureRanges() const { return m_feature_ranges; }
 
             // Returns the model's probability for TRUE (0–1).
             double Score(Taxon const& taxon) const {
@@ -3919,6 +3928,12 @@ namespace protal {
                 m_seed_expectation = expectation;
             }
 
+            // Per taxon, its features outside the model's training range (FeatureRanges.h, comma-separated; RunProtal's
+            // profiling checks them), for the .profile.log column outside_training_range; empty for the others.
+            void SetOutsideTrainingRange(std::unordered_map<uint32_t, std::string> outside) {
+                m_outside_training_range = std::move(outside);
+            }
+
             // The fragments the MAPQ and length filters keep, plus each fragment they drop whose best record is on the
             // taxon (fragments_all - kept) by the share the read EM leaves the taxon of the dropped records: of its best
             // records the EM leaves it em_all, of the kept em_kept, so of the dropped (em_all x records - em_kept x kept)
@@ -4741,7 +4756,8 @@ namespace protal {
 
                 if (os_total) {
                     *os_total << "Predicted\tProbability\tRepGenome\tLineage\tAbundance\tVCovStdDev\tGeneVariance\tGeneVariance5\t"
-                              << "Name\tTaxID\tSummary\tVCov\tLowIdentityShare\tMeanGeneCov\tMeanGeneCovRatio\tGenomeSize\tGenomeFragments";
+                              << "Name\tTaxID\tSummary\tVCov\tLowIdentityShare\tMeanGeneCov\tMeanGeneCovRatio\tGenomeSize\tGenomeFragments"
+                              << "\toutside_training_range";
                     for (size_t id = 0; id <= max_gene_id; id++) *os_total << "\tGeneCov" << id;
                     for (size_t id = 0; id <= max_gene_id; id++) *os_total << "\tGeneCovRatio" << id;
                     *os_total << '\n';
@@ -4826,6 +4842,8 @@ namespace protal {
                         double const size = taxon.Priors().genome_size;
                         total << '\t' << composition::Value(size > 0 ? size : composition::kNaN, 15) << '\t'
                               << composition::Value(m_composition ? std::round(m_composition->FragmentsOf(vcov, size)) : composition::kNaN, 15);
+                        auto const outside = m_outside_training_range.find(key);
+                        total << '\t' << (outside == m_outside_training_range.end() ? std::string() : outside->second);
                         total << gene_covs_str << gene_cov_ratios_str << '\n';
                     }
                     lines[k].filtered = filtered.str();
@@ -4871,6 +4889,7 @@ namespace protal {
             size_t m_singleton_congener = context::kSingletonCongener;  // see SetSingletonCongener
             bool m_soft_fragments = false;  // see SetSoftFragments
             SeedExpectation m_seed_expectation;  // see SetSeedExpectation
+            std::unordered_map<uint32_t, std::string> m_outside_training_range;  // see SetOutsideTrainingRange
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
 

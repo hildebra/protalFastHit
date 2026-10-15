@@ -21,6 +21,8 @@
 #include "Benchmark.h"
 #include "BuildInfo.h"
 #include "CpuLog.h"
+#include "FeatureRanges.h"
+#include "FeatureVersions.h"
 #include "MemoryUse.h"
 #include "RunStatus.h"
 #include "ScratchSpace.h"
@@ -97,7 +99,12 @@ namespace protal {
     // --sparse_seeding stands for an index of the hash pick's cores: a sample it would seed with the stride pick stops
     // the run (exit 2). With a kind of models asked for (--model_kind), the gates are those the read type has models of
     // that kind at (KindModels); a read type of the run's samples with none stops the run (exit 2).
-    static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, std::ostream& out = std::cout) {
+    // With --profile_only, `sam_gates` holds the gate and pick each sample's SAM was aligned with, where its header says
+    // (SamSettings.h; CheckSamSettings): those samples are warned as a run's would be, the others (an older protal's SAMs)
+    // are not, as before.
+    using SamGates = std::vector<std::optional<std::pair<size_t, SparseFirstPick>>>;
+    static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, SamGates const& sam_gates,
+                                 std::ostream& out = std::cout) {
         std::array<size_t, kReadTypeCount> gates{};
         std::array<SparseFirstPick, kReadTypeCount> picks{};
         std::array<SparseFirstPick, kReadTypeCount> database_picks{};
@@ -179,17 +186,21 @@ namespace protal {
         }
         for (auto index : options.GetRange()) {
             size_t const t = static_cast<size_t>(options.GetReadType(index));
-            size_t const gate = options.GetSparseFirst(index);
+            // --profile_only: the gate its SAM was aligned at, where its header says; else nothing to say, as before.
+            auto const& aligned = index < sam_gates.size() ? sam_gates[index] : std::nullopt;
+            if (options.ProfileOnly() && !aligned) continue;
+            size_t const gate = aligned ? aligned->first : options.GetSparseFirst(index);
+            SparseFirstPick const pick = aligned ? aligned->second : options.GetSparseFirstPick(index);
             // At C 1 both picks look up every core: the pick then makes no difference.
-            bool const same_pick = gate <= 1 || options.GetSparseFirstPick(index) == database_picks[t];
+            bool const same_pick = gate <= 1 || pick == database_picks[t];
             if (gate == options.ModelGate(index) && same_pick) continue;
             if (others++ == 0) {
                 example = options.GetSampleId(index);
-                example_gates = example + " gated at " + level(gate, options.GetSparseFirstPick(index)) +
+                example_gates = example + (options.ProfileOnly() ? " aligned gated at " : " gated at ") + level(gate, pick) +
                                 ", its model at " + level(options.ModelGate(index), database_picks[t]);
             }
         }
-        bool const score_differs = options.AnySparseFirst() &&
+        bool const score_differs = options.AnySparseFirst() && !options.ProfileOnly() &&
                                    (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
         bool const gates_given = options.SparseFirstGiven() != SparseFirstGates();
         bool const picks_given = options.SparseFirstPickGiven() != SparseFirstPicks();
@@ -199,17 +210,208 @@ namespace protal {
             << ", score " << options.GetSparseFirstScore() << ", " << options.GetSparseFirstHits() << " hit(s)"
             << "; the database's models were trained with " << database << ", score " << recorded_score << ", "
             << recorded_hits << " hit(s)" << std::endl;
-        if ((others > 0 || score_differs) && !options.ProfileOnly()) {
+        if (others > 0 || score_differs) {
             std::cerr << "Warning: " << (others > 0 ? std::to_string(others) + " sample(s) of this run (e.g. " + example +
-                                                      ") are gated otherwise (--sparse_first, --sparse_first_pick or the map's "
-                                                      "SPARSE_FIRST or SPARSE_FIRST_PICK)"
+                                                      (options.ProfileOnly() ? ") were aligned gated otherwise (their SAM "
+                                                                               "headers say)"
+                                                                             : ") are gated otherwise (--sparse_first, "
+                                                                               "--sparse_first_pick or the map's SPARSE_FIRST "
+                                                                               "or SPARSE_FIRST_PICK)")
                                                     : std::string("this run's sparse-first gates score otherwise"))
                       << " than the database's models were trained with" << (others > 0 ? " (" + example_gates + ")" : "")
                       << ": the reads a gate gives up count no failed "
-                      << "candidates, so their calls are not those of training. Leave out --sparse_first and "
-                      << "--sparse_first_pick (auto) to gate as they were trained, or gate at a gate the database has a "
-                      << "model of." << std::endl;
+                      << "candidates, so their calls are not those of training. "
+                      << (options.ProfileOnly() ? "Align them again on this database with --sparse_first and --sparse_first_pick "
+                                                  "left out (auto), or at a gate the database has a model of."
+                                                : "Leave out --sparse_first and --sparse_first_pick (auto) to gate as they were "
+                                                  "trained, or gate at a gate the database has a model of.") << std::endl;
         }
+    }
+
+    // A run setting's place (RunSettings, by its build_settings.tsv name): the alignment's, or the profiling's.
+    static bool ProfilingSetting(std::string_view name) {
+        return name == build_settings::kKeepForeignGenes || name == build_settings::kKeepSuspectCopies ||
+               name == build_settings::kDepthIdentityMargin;
+    }
+
+    // Whether run setting `name` changes anything for this run's samples: the profiling's unless --no_profile; the
+    // alignment's unless --profile_only (whose SAMs' own are checked, CheckSamSettings), each for the read types it acts on
+    // (the allele scores, the site shift and the adaptive candidates short reads, mate guidance paired-end reads, a read
+    // type's identity floor its reads).
+    static bool SettingApplies(Options const& options, std::string const& name) {
+        namespace b = build_settings;
+        if (ProfilingSetting(name)) return !options.NoProfile();
+        if (options.ProfileOnly()) return false;
+        bool const short_reads = options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single);
+        if (name == b::kAlleleScores || name == b::kWeightedSiteShift || name == b::kAdaptiveCandidates) return short_reads;
+        if (name == b::kMateGuidance) return options.AnySample(ReadType::Paired);
+        if (name.starts_with(b::kMaxScoreAni)) {
+            auto const type = ReadTypeFromToken(name.substr(b::kMaxScoreAni.size()));
+            return type && options.AnySample(*type);
+        }
+        return std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
+    }
+
+    // The unique k-mers' scheme the database's models were trained with: as build_settings.tsv records it, else cores if it
+    // has unique_cores.bin (since 2026-10-14 every build writes it unless --no_unique_cores), else nothing (anchors, as
+    // before).
+    static std::optional<std::string> DatabaseUniqueKmers(Options const& options, build_settings::Settings const& settings) {
+        if (settings.run.unique_kmers) return settings.run.unique_kmers;
+        if (options.UniqueCoresDbFile().Exists()) return std::string(build_settings::kUniqueCores);
+        return std::nullopt;
+    }
+
+    // The run settings (BuildSettings.h RunSettings, recorded since 2026-10-15): each not given (auto) as the database
+    // records it, else protal's default (Options::FollowDatabaseRunSettings). Prints each with the database's; warns once
+    // for those this run is told otherwise than the database's models were trained with (SettingApplies), and apart for a
+    // run with --no_unique_cores on a database whose models counted the unique k-mers from its unique cores. A mode the
+    // database records that this protal does not know (a later protal's mate guidance) is warned and left at protal's
+    // default. A database built before records none: one note, and protal's defaults.
+    static void ApplyRunSettings(Options& options, build_settings::Settings const& settings, std::ostream& out) {
+        namespace b = build_settings;
+        auto const& recorded = settings.run;
+        if (recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance)) {
+            std::cerr << "Warning: the database records mate_guidance '" << *recorded.mate_guidance << "' (" << b::kFileName
+                      << "), a mode this protal does not know (a later protal's?): paired-end reads are guided as protal's "
+                      << "default (" << b::kMateGuidanceOn << "), which the database's models may not have been trained with. "
+                      << "Profile them with the protal that built the database." << std::endl;
+        }
+        if (recorded.unique_kmers && *recorded.unique_kmers != b::kUniqueCores && *recorded.unique_kmers != b::kUniqueAnchors) {
+            std::cerr << "Warning: the database records unique_kmers '" << *recorded.unique_kmers << "' (" << b::kFileName
+                      << "), which this protal does not know: it counts ZS, ZU and ZT "
+                      << (options.UniqueCoresDbFile().Exists() && !options.NoUniqueCores() ? "from the cores each alignment covers"
+                                                                                         : "from each record's anchor's seeds")
+                      << ", as it would on any database." << std::endl;
+        }
+        options.FollowDatabaseRunSettings(recorded);
+        auto used = options.RunSettingsInUse();
+        used.unique_kmers = std::string(options.UniqueCoresDbFile().Exists() && !options.NoUniqueCores() ? b::kUniqueCores : b::kUniqueAnchors);
+        auto database = recorded;
+        database.unique_kmers = DatabaseUniqueKmers(options, settings);
+        auto const used_fields = b::RunFields(used);
+        auto const database_fields = b::RunFields(database);
+        auto const given = b::RunFields(options.RunSettingsGiven());
+
+        // The block: each setting, this run's value (given or auto) and the database's.
+        out << "Run settings (" << b::kFileName << "; a setting left at auto takes the database's, else protal's default):\n"
+            << "  " << std::left << std::setw(26) << "setting" << std::setw(28) << "this run" << "the database's models" << '\n';
+        std::vector<std::string> unrecorded;
+        for (auto const& [name, value] : used_fields) {
+            auto const db_value = b::FieldValue(database_fields, name);
+            bool const alignment_only = options.ProfileOnly() && !ProfilingSetting(name);
+            std::string const run_value = alignment_only ? std::string("(the SAMs')")
+                                                        : value + (b::FieldValue(given, name) ? " (given)" : " (auto)");
+            out << "  " << std::setw(26) << name << std::setw(28) << run_value << db_value.value_or("not recorded") << '\n';
+            if (!db_value && SettingApplies(options, name)) unrecorded.push_back(name);
+        }
+        out << std::right << std::flush;
+        if (!unrecorded.empty()) {
+            std::string list;
+            for (auto const& name : unrecorded) list += (list.empty() ? "" : ", ") + name;
+            out << "Note: the database records no " << list << " (built before 2026-10-15): this run uses protal's defaults "
+                << "for them (or the options given), which may not be what its models were trained with" << std::endl;
+        }
+
+        // --no_unique_cores on a database whose models were trained on the unique cores.
+        bool const cores_unread = !options.ProfileOnly() && options.NoUniqueCores() &&
+                                  database.unique_kmers == std::string(b::kUniqueCores);
+        if (cores_unread) {
+            std::cerr << "Warning: this run counts each record's ZS, ZU and ZT from its anchor's seeds (--no_unique_cores), but "
+                      << "the database's models were trained on runs that counted them from the cores each alignment covers "
+                      << "(unique_kmers cores: " << Options::PROTAL_UNIQUE_CORES_FILE << "): their unique k-mer features (lu, "
+                      << "lsu, lu_per_kb, lsu_per_kb, the lu and lsu gene rates, unique_seed_share, unique_seed_enrichment, "
+                      << "...) differ from those of training, and so do their calls. Leave out --no_unique_cores." << std::endl;
+        }
+        bool const mode_unknown = recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance);  // warned above
+        auto const differences = b::Differences(database_fields, used_fields, [&](std::string const& name) {
+            return name != b::kUniqueKmers && !(name == b::kMateGuidance && mode_unknown) && SettingApplies(options, name);
+        });
+        if (!differences.empty()) {
+            std::string list;
+            for (auto const& d : differences) list += (list.empty() ? "" : ", ") + d;
+            std::cerr << "Warning: this run is told otherwise than the database's models were trained (" << b::kFileName << "): "
+                      << list << ". Its alignments and features, and so its calls, are not those of training. Leave these "
+                      << "options out (auto) to run as the models were trained." << std::endl;
+        }
+    }
+
+    // --profile_only: each SAM's settings line (SamSettings.h). Its gate and pick choose the sample's model, as a map's
+    // SPARSE_FIRST would (Options::SetSampleGate), unless --sparse_first (of its read type) or the map's SPARSE_FIRST gives
+    // the sample's own; and `sam_gates` gets them for ApplySparseFirst's warning. One warning for the SAMs aligned
+    // otherwise than the database's models were trained (the traceback, the gates' score and hits, the unique k-mers'
+    // scheme, the allele scores, the site shift, mate guidance, --align_top, --adaptive_candidates, the identity floor),
+    // with the first one's differences. A SAM without the line (an older protal's) is profiled as before.
+    static SamGates CheckSamSettings(Options& options, build_settings::Settings const& settings, std::ostream& out) {
+        namespace b = build_settings;
+        namespace s = sam_settings;
+        SamGates sam_gates;
+        if (!options.ProfileOnly()) return sam_gates;
+        // What the database's models were trained with, as the SAM line names it (only what it records).
+        auto expected = [&](ReadType type) {
+            s::Fields fields;
+            fields.emplace_back(s::kTraceback, std::string(WfaTracebackName(ResolveWfaTraceback(std::nullopt, settings.wfa_traceback))));
+            if (auto const unique = DatabaseUniqueKmers(options, settings)) fields.emplace_back(s::kUniqueKmers, *unique);
+            auto const run = b::RunFields(settings.run);
+            auto copy = [&](std::string_view sam_key, std::string const& name) {
+                if (auto value = b::FieldValue(run, name)) fields.emplace_back(std::string(sam_key), *value);
+            };
+            copy(s::kAlleleScores, std::string(b::kAlleleScores));
+            copy(s::kWeightedSiteShift, std::string(b::kWeightedSiteShift));
+            copy(s::kMateGuidance, std::string(b::kMateGuidance));
+            copy(s::kAlignTop, std::string(b::kAlignTop));
+            copy(s::kAdaptiveCandidates, std::string(b::kAdaptiveCandidates));
+            copy(s::kMaxScoreAni, std::string(b::kMaxScoreAni) + Info(type).token);
+            return fields;
+        };
+        size_t lines = 0, otherwise = 0;
+        std::string example;
+        for (auto index : options.GetRange()) {
+            auto const sam = options.SamFile(index).first;
+            if (!std::filesystem::exists(sam)) continue;  // reported when it is profiled
+            std::optional<s::Fields> fields;
+            try {
+                SamInput input(sam);
+                if (input.IsOpen()) fields = s::ReadSamSettings(input.Stream());
+            } catch (std::exception const&) {}  // reported when it is profiled
+            if (!fields) continue;
+            lines++;
+            if (index >= sam_gates.size()) sam_gates.resize(index + 1);
+            auto const gate = s::Get(*fields, s::kGate);
+            auto const level = gate ? ParseSparseFirstLevel(*gate) : std::nullopt;
+            auto const pick_text = s::Get(*fields, s::kPick);
+            auto const pick = pick_text ? ParseSparseFirstPick(*pick_text) : std::nullopt;
+            auto const type = options.GetReadType(index);
+            if (level) {
+                sam_gates[index] = std::make_pair(*level, pick.value_or(SparseFirstPick::Stride));
+                options.SetSampleGate(index, *level, pick);  // unless --sparse_first or the map's SPARSE_FIRST says
+            }
+            // Of its other settings, those that differ from the database's (its own read type's floor; score and hits only
+            // where it was gated).
+            auto const sam_type = s::Get(*fields, s::kReadType);
+            auto const recorded = expected(sam_type ? ReadTypeFromToken(*sam_type).value_or(type) : type);
+            auto with_gate = recorded;
+            if (level && *level > 0) {
+                with_gate.emplace_back(s::kScore, std::to_string(settings.sparse_first_score.value_or(14)));
+                with_gate.emplace_back(s::kHits, std::to_string(settings.sparse_first_hits.value_or(1)));
+            }
+            auto const differences = b::Differences(with_gate, *fields, [](std::string const&) { return true; });
+            if (differences.empty()) continue;
+            if (otherwise++ == 0) {
+                example = sam + ": ";
+                for (size_t d = 0; d < differences.size(); d++) example += (d ? ", " : "") + differences[d];
+            }
+        }
+        if (lines > 0) {
+            out << "SAM settings: " << lines << " of " << options.GetRange().size() << " SAM file(s) say how they were "
+                << "aligned (@CO protal settings); their gates choose their models" << std::endl;
+        }
+        if (otherwise > 0) {
+            std::cerr << "Warning: " << otherwise << " SAM file(s) of this run were aligned otherwise than the database's "
+                      << "models were trained (e.g. " << example << "): their features, and so their calls, are not those "
+                      << "of training. Align their reads again on this database, with these options left out (auto)."
+                      << std::endl;
+        }
+        return sam_gates;
     }
 
     // The database's build_settings.tsv (none: every setting unsaid); exits 8 if it cannot be read.
@@ -269,7 +471,9 @@ namespace protal {
                       << "calls are not those of training. Leave out --fragment_count (auto) to count as they were trained."
                       << std::endl;
         }
-        ApplySparseFirst(options, settings, out);
+        ApplyRunSettings(options, settings, out);
+        auto const sam_gates = CheckSamSettings(options, settings, out);
+        ApplySparseFirst(options, settings, sam_gates, out);
     }
 
     static size_t GetTotalSystemMemory()
@@ -277,6 +481,38 @@ namespace protal {
         long pages = sysconf(_SC_PHYS_PAGES);
         long page_size = sysconf(_SC_PAGE_SIZE);
         return pages * page_size;
+    }
+
+    // The versions of the model's features' definitions it records (FeatureVersions.h; the trainer's
+    // protal_feature_versions) against this protal's: one warning naming those of other definitions, or one note for a
+    // model that records none. And its features' ranges in training (FeatureRanges.h; protal_feature_ranges), which the
+    // profiling checks the taxa near the knob against; malformed ones are warned about and left unused.
+    static void CheckModelFeatures(db::DbFile const& file, std::string const& xml, profiler::TaxonFilterObj& model) {
+        if (profiler::IsPlaceholderModel(xml)) return;  // it scores every taxon 0 whatever its features
+        auto const active = feature_ranges::ModelActiveFeatures(xml);
+        if (auto const versions = profiler::HeaderExtension(xml, feature_versions::kExtension); !versions) {
+            std::cout << "Note: the model " << file.Name() << " does not record its features' versions ("
+                      << feature_versions::kExtension << ", which the trainer writes since 2026-10-15): protal cannot "
+                      << "tell whether it was trained on this protal's definitions of its features (protal --feature_versions)"
+                      << std::endl;
+        } else {
+            feature_versions::Recorded recorded;
+            if (auto const error = feature_versions::Parse(*versions, recorded); !error.empty()) {
+                std::cerr << "Warning: the model " << file.Name() << ": " << error << "; its features' versions are not checked"
+                          << std::endl;
+            } else if (auto const warning = feature_versions::Mismatch(file.Name(), recorded, active); !warning.empty()) {
+                std::cerr << "Warning: " << warning << std::endl;
+            }
+        }
+        if (auto const text = profiler::HeaderExtension(xml, feature_ranges::kExtension)) {
+            feature_ranges::Ranges ranges;
+            if (auto const error = feature_ranges::Parse(*text, ranges); !error.empty()) {
+                std::cerr << "Warning: the model " << file.Name() << ": " << error << "; its taxa are not checked against "
+                          << "its training range" << std::endl;
+            } else {
+                model.SetFeatureRanges(std::make_shared<feature_ranges::Ranges const>(feature_ranges::Restricted(ranges, active)));
+            }
+        }
     }
 
     // Loads the PMML presence model and its depth knobs (ParseDepthKnobCurve, or an older model's ParseDepthKnobs) and
@@ -315,6 +551,7 @@ namespace protal {
         model->SetDepthKnobs(std::move(depth_knobs));
         model->SetDepthKnobCurve(std::move(depth_knob_curve));
         model->SetFalseCalls(std::move(false_calls));
+        CheckModelFeatures(file, *xml, *model);
         if (profiler::IsPlaceholderModel(*xml)) {
             std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
                       << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "

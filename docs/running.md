@@ -340,6 +340,72 @@ Since 0.7.6 a profile does not depend on the order of the SAM's records, which m
 alignment varies from run to run: repeated runs on the same reads and database give the same
 profile, to the last digit.
 
+## What a run takes from its database and models
+
+A database's models are trained on runs of one protal with one set of options, and their features change with the
+options that change the alignments. Since 2026-10-15 protal records those options with the database, writes them into
+every SAM, and checks the models' features against its own.
+
+**Run settings in `build_settings.tsv`.** `--build` records, beside the WFA2 traceback, the fragment count and the
+sparse-first gates, the settings below as it was given them (else protal's defaults), and a run whose option is left
+at `auto` (or not given) takes the database's:
+
+| Setting (`build_settings.tsv`) | Option | protal's default |
+|---|---|---|
+| `weighted_site_shift` on/off | `--weighted_site_shift`, `--no_weighted_site_shift` | off |
+| `allele_scores` on/off | `--no_allele_scores`, `--allele_scores` | on |
+| `align_top` N | `-c, --align_top` | 3 |
+| `adaptive_candidates` N | `--adaptive_candidates` | 7 |
+| `mate_guidance` on/off | `--no_mate_guidance` | on |
+| `max_score_ani_pe`, `_se`, `_pb`, `_ont` | `-a, --max_score_ani` (given: every read type's) | 0.9, ONT 0.85 |
+| `unique_kmers` cores/anchors | `--no_unique_cores` | cores where the database has `unique_cores.bin` |
+| `keep_foreign_genes` on/off | `--keep_foreign_genes`, `--keep_foreign_genes=off` | off |
+| `keep_suspect_copies` on/off | `--keep_suspect_copies`, `--keep_suspect_copies=off` | off |
+| `depth_identity_margin` | `--depth_identity_margin` | 0.08 |
+
+- After the options, the log prints a block of every setting with this run's value (`given` or `auto`) and the
+  database's. A run told otherwise than the database records gets one warning listing those settings, of the
+  settings that act on its samples (the allele scores, the site shift and the adaptive candidates on short reads,
+  mate guidance on paired-end reads, a read type's floor on its reads, the profiling's three unless `--no_profile`).
+- `--no_unique_cores` on a database whose models counted `ZS`, `ZU` and `ZT` from its unique cores (`unique_kmers
+  cores`, or a database with `unique_cores.bin` that records nothing) gets a warning of its own: the unique k-mer
+  features then differ from the models' training.
+- A database built before 2026-10-15 records none of them: one note lists those that matter for the run, which takes
+  protal's defaults (or the options given), as before. A mate guidance mode this protal does not know (a later
+  protal's) is warned about and left at protal's default.
+- protal before 2026-10-15 reads the new file and skips the settings it does not know.
+
+**The SAM says how it was aligned.** Every SAM's header has one line
+`@CO protal settings: read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack
+allele_scores=on weighted_site_shift=off mate_guidance=on align_top=3 adaptive_candidates=7 max_score_ani=0.9`
+(the values the sample was aligned with; `allele_scores`, `weighted_site_shift` and `adaptive_candidates` for short
+reads only, `mate_guidance` for paired-end reads only). `--profile_only` reads it:
+- the sample is profiled with the database's model trained at the gate nearest the SAM's (as a map's `SPARSE_FIRST`
+  would; `--sparse_first` of its read type or the map's `SPARSE_FIRST` still chooses), and a sample aligned at
+  another gate than its model's is warned, as a run gated otherwise is;
+- the SAMs aligned otherwise than the database's models were trained (traceback, the gates' score and hits, the
+  unique k-mers, allele scores, site shift, mate guidance, `align_top`, `adaptive_candidates`, the identity floor)
+  get one warning with the first one's differences. The log's `SAM settings:` line says how many SAMs have the line;
+  a SAM without it (an older protal's) is profiled as before.
+
+**Feature versions.** `protal --feature_versions` prints every feature of the presence model with the version of its
+definition in this protal, the date of its last change and a note (TSV: `feature`, `version`, `changed`, `note`).
+The trainer stores the table in each model it writes (`<Extension name="protal_feature_versions"
+value="name:version,..."/>`). A run that loads a model warns once per model when some of its features were defined
+otherwise when it was trained ("the model X was trained on other definitions of feature(s) a, b (versions in the model
+...; in this protal ...): retrain it, or expect calls that differ from its training"), and notes a model that records
+no versions (one trained before 2026-10-15).
+
+**Features outside the training range.** A model whose trainer stored its features' ranges in training
+(`<Extension name="protal_feature_ranges" value="name:min:p01:p99:max,..."/>`) has each sample's taxa that are called,
+within 0.2 below the knob, or of 100 fragments or more checked against them. When a taxon has a feature outside
+[min, max], protal warns once for the sample: `Sample S: K of M taxa near or above the knob have features outside the
+model's training range (feature: n taxa, ... the five most frequent); their probabilities are extrapolated`, with the
+number of taxa beyond the central 98% (`[p01, p99]`). A tree scores such a value as the training's most extreme rows,
+so the probability is a guess (placeholder base qualities do this to the long-read models' strongest feature). The
+`.profile.log` column `outside_training_range` (after `GenomeFragments`) lists each taxon's features outside [min, max],
+comma-separated, empty otherwise; the `.profile` is unchanged. A model without the extension is not checked.
+
 ## Exit status
 
 | Exit code | Meaning |
@@ -363,8 +429,8 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--singleton_congener` | 0 | veto a single-fragment species beside a congener of at least this many fragments when its read looks like the congener's; 0: no rule ([databases.md](databases.md#the-singleton-rule)) |
 | `--no_unknown_share` | off | abundances as shares of the called species' summed depth (adding up to 1), without the profile's last line `?`, the share of the genomes the called species do not explain ([above](#what-the-called-species-explain-the-unknown-share)) |
 | `--ncbi_taxids` | off | two more columns on every profile line: the species' NCBI species taxid and NCBI's name of it, from the database's `ncbi_taxids.tsv` (the taxid most of the species' GTDB genomes have; [databases.md](databases.md#ncbi-taxids)), e.g. `GCF_003697165.2  d__Bacteria;...;s__Escherichia coli  0.412  562  Escherichia coli`. Most GTDB species have only an NCBI placeholder ("uncultured Lachnospiraceae bacterium"), which several species can share: the lineage column still tells them apart. `NA NA` for a species the table lacks, `? ?` on the `?` line. A database without the table stops the run before it aligns; one converted before 2026-10-11 gets it with `gtdb_to_protal_db.py --priors_only` and `--add_tables` |
-| `--keep_suspect_copies` | off | count reads on the database's suspect gene copies (near-identical to another genus's copy: contamination or a transferred gene) as evidence; by default they are left out, and the log says how many per sample ([databases.md](databases.md#2-build-the-index)) |
-| `--depth_identity_margin` | 0.08 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. The margin is the same on every gene unless `--gene_conservation` scales it. The default counts the reads of strains up to about 5% from the reference; 0.04, the earlier default, dropped up to 40% of the reads of strains 3–5% away and undercounted those strains ([report](claude/2026-09-30-depth-margin-stress/README.md), [scaled per gene](claude/2026-10-01-gene-scaled-margin/README.md)). 1 lets every read count. The depth counts each base a fragment covers on a gene once: where a pair's mates overlap there, the second mate adds only what the first did not cover, as the strain MSA counts them ([report](claude/2026-10-02-fragment-depth/README.md)) |
+| `--keep_suspect_copies` | `auto` (off) | count reads on the database's suspect gene copies (near-identical to another genus's copy: contamination or a transferred gene) as evidence; by default they are left out, and the log says how many per sample ([databases.md](databases.md#2-build-the-index)); `--keep_suspect_copies=off` leaves them out on any database. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
+| `--depth_identity_margin` | `auto` (0.08) | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. The margin is the same on every gene unless `--gene_conservation` scales it. The default counts the reads of strains up to about 5% from the reference; 0.04, the earlier default, dropped up to 40% of the reads of strains 3–5% away and undercounted those strains ([report](claude/2026-09-30-depth-margin-stress/README.md), [scaled per gene](claude/2026-10-01-gene-scaled-margin/README.md)). 1 lets every read count. The depth counts each base a fragment covers on a gene once: where a pair's mates overlap there, the second mate adds only what the first did not cover, as the strain MSA counts them ([report](claude/2026-10-02-fragment-depth/README.md)). `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `--gene_conservation` | `none` | scale `--depth_identity_margin` per gene by its conservation factor: `db` for the database's, or a file of `geneid<TAB>factor`; a gene's margin is then 0.03 plus the rest times its factor. `none` did best over three simulated worlds ([report](claude/2026-10-01-gene-scaled-margin/README.md)). The model's conservation features use the factors either way |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [databases.md](databases.md#the-presence-model) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
@@ -373,7 +439,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--scratch_dir` | none | a folder for the run's intermediate files, best on the machine's own disk (e.g. `$TMPDIR` on a cluster node) when the outputs go to a network file system. protal makes a folder of its own in it (`protal_<host>_<pid>_<time>`) and removes it at the end of the run, also when the run fails (a killed run leaves it). In it: each sample's strain evidence, read back per species ([strains.md](strains.md#strain-msas-over-several-runs); this replaces `--strain_spill`, which still works and means the same); with `--no_strains`, the SAM files protal names (with `-1`/`-2`, or a map without a `SAM` column), removed once their sample is profiled, as nothing after the run reads them (writing and closing a SAM on a network file system took 1-7 s of a 32-thread r226 run); the records of a `--sam_format gz` or `sam` SAM before its header is written; qcMSA's working files. Without `--no_strains` the SAMs stay in the output folder, for strain MSAs over several runs, and a SAM an earlier run left there is profiled as before |
 | `--one_sample` | off | the files of `-1` (and `-2`) are one sample's, its lanes or runs, read one after the other ([Several files of one sample](#several-files-of-one-sample)); in a map, a `FIRST` and `SECOND` cell lists a sample's files, comma-separated |
 | `--no_strains` | off | no MSAs or SNP tables (profiles are the same). The other strain options are in [strains.md](strains.md#options) |
-| `--keep_foreign_genes` | off | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way |
+| `--keep_foreign_genes` | `auto` (off) | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way; `--keep_foreign_genes=off` leaves them out on any database. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [databases.md](databases.md#the-files-of-a-database) |
 | `--verbose` | off | more progress output |
 
@@ -384,15 +450,15 @@ calibrated with; change them for experiments, not for production profiles.
 
 | Option | Default | |
 |---|---|---|
-| `-c, --align_top` | 3 | candidate anchors aligned per read, best first. MAPQ depends on it: with `-c 1` far more reads look unique |
+| `-c, --align_top` | `auto` (3) | candidate anchors aligned per read, best first. MAPQ depends on it: with `-c 1` far more reads look unique. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `-m, --max_out` | 1 | alignments written per read. Profiles are the same with more, SAMs larger |
 | `-u, --max_key_ubiquity` | 256 | skip seeds whose best-matching flex-key occurs more often than this |
 | `-s, --max_seed_size` | 128 | seeding stops at this many seeds, if `-w` lookups have succeeded |
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
-| `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
+| `-a, --max_score_ani` | `auto` (0.9, ONT 0.85) | give up an alignment once it diverges below about this identity; given, for every read type. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 | `--wfa_traceback` | `auto` | how WFA2 recovers each alignment's operations: `classic` (WFA2's high-memory mode, which keeps every wavefront) or `singletrack` (keeps only the match wavefronts and recomputes a gap's steps while tracing back; López-Villellas et al. 2025). Both give the same alignment scores, but among equally good alignments they may choose differently, so SAM records, and the features a model was trained on, can differ. `auto` aligns as the database was built: `--build` aligns with `singletrack` unless told otherwise (`classic` before protal 0.8.2) and records its traceback in `build_settings.tsv` ([databases.md](databases.md#2-build-the-index)); a database without the file was built with `classic`. A run that aligns otherwise than its database was built gets a warning ([report](claude/2026-10-11-singletrack/README.md)) |
-| `--no_mate_guidance` | off | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below) |
+| `--no_mate_guidance` | off (`auto`) | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below). `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `--no_alignment_screen` | off | align every candidate with WFA2. By default a candidate whose read and gene window share too few k-mers for any alignment within the score budget is refused before WFA2 (exact: it changes no alignment; at r226 it took the paired-end alignment from 62 to 39 s); also turns off the indel bound below. For measuring |
 | `--no_indel_bound` | off | ONT reads: screen the candidates by their k-mers, as other reads (and ONT reads before 2026-10-09). By default ONT reads are screened by their indel distance instead: a candidate whose read and gene window are too far apart by it for any alignment within the score budget is refused before WFA2. At ONT's identity floor of 0.85 the k-mer screen refuses next to nothing, while most failing candidates are unrelated sequence; PacBio reads keep the k-mer screen, as the candidates it passes mostly align and the bound cost more than it saved there. Exact: neither changes an alignment. The `P_runtime.tsv` row "Indel bound" times it. For measuring |
 | `--flex_indels TYPES` | `none` | score the flex cells of every seed lookup (the 8 bases either side of the k-mer's 15-base core, against the read's) allowing one insertion or deletion in each flank, for reads of these types (`ont`, `pb,ont`, `all`; a map's optional `FLEX_INDELS` column, `1`, `0` or `-`, sets one sample's). Without it an indel in a flank shifts the bases beyond it, which then match only by chance: one next to the core costs ~6 of the flank's 8 bases, and a relative's cell may take the seed. With it a single indel costs one base, as a mismatch does; only an exact match still scores 16, so the unique seeds are the same. Each flank scores the most of its bases equal in place and, from its first differing base on, the read's bases one place in or out. Meant for ONT reads, whose errors are mostly indels, and for gated runs (`--sparse_first`, `--sparse_seeding`), where each lookup counts more; the gate's `--sparse_first_score` counts the bases so too. The scan takes ~3-4 times the instructions per cell. It changes seeds, records and the models' features, and the database's models are trained without it ([report](claude/2026-10-13-flex-indels/README.md)) |

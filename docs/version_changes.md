@@ -55,6 +55,25 @@ for this page.
   - **Grid's sparse index at C 4:** an absent species' mean rate on the strain world rises only from 0.155 to 0.163
     (0.340 on the whole index), and its calls do not change. The rest of the fall is in the failures themselves: a
     relative's read meets the taxon there on a single grid seed.
+- **The run settings recorded with the database** (2026-10-15). `--build` records in `build_settings.tsv` the
+  settings the models' features depend on: the weighted site shift, the allele scores, `--align_top`,
+  `--adaptive_candidates`, mate guidance, each read type's identity floor (`-a`), the unique k-mers' scheme (`cores`
+  or `anchors`), `--keep_foreign_genes`, `--keep_suspect_copies` and `--depth_identity_margin`. Their options default to
+  `auto`: a run takes the database's, prints them beside its own, and is warned when told otherwise; `--no_unique_cores`
+  on a database with unique cores gets a warning of its own. A database built before records none (a note; protal's
+  defaults, as before). New: `--allele_scores`, `--keep_foreign_genes=off`, `--keep_suspect_copies=off`
+  ([running.md](running.md#what-a-run-takes-from-its-database-and-models); F1 audit C1).
+- **The SAM says how it was aligned** (2026-10-15): `@CO protal settings: read_type=pe gate=4 pick=stride ...`.
+  `--profile_only` takes the model of the SAM's gate and warns for SAMs aligned otherwise than the database's models
+  were trained; a SAM without the line is profiled as before.
+- **Feature versions** (2026-10-15). `protal --feature_versions` prints each feature's definition version, its date and
+  a note (`src/Profiling/FeatureVersions.h`); a model that records its features' versions (`protal_feature_versions`)
+  is warned about when some were defined otherwise in its training, one that records none gets a note. The unique
+  k-mer features counted from `unique_cores.bin` and the failed-candidate rates without single-seed anchors are
+  version 2.
+- **Features outside the training range** (2026-10-15). With a model that stores its features' training ranges
+  (`protal_feature_ranges`), a sample whose taxa near the knob have features outside them gets one warning, and
+  `.profile.log` a column `outside_training_range` with each taxon's (F1 audit C3/C4, section 5 item 7).
 - **protal compiles in parallel** (2026-10-14; building from source only: protal runs the same). `main.cpp` was all of
   protal in one translation unit, 97-125 s on one core and compiled again whole after any edit. A run's stages are now
   units of their own in `src/Run/`, and the options' parsing is in `src/Options.cpp`

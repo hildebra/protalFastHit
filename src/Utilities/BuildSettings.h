@@ -5,13 +5,17 @@
 // 2026-10-12; mapq when not said); and the sparse-first gate of each read type (--sparse_first, since 2026-10-12; off
 // when not said) and its pick (--sparse_first_pick, since 2026-10-13; when not said hash if the gate is said, else
 // stride: DatabasePick): the reads it gives up count no failed candidates, so the models are trained on runs gated
-// alike. A
+// alike. Since 2026-10-15 also the run settings the models' features depend on (RunSettings: the site shift, the allele
+// scores, --align_top, --adaptive_candidates, mate guidance, the identity floor of each read type, the unique k-mers'
+// scheme, foreign genes, suspect copies, the depth identity margin), which runs follow when their options are left at
+// auto and are warned about otherwise (Run.cpp ApplyRunSettings). A
 // database built before 2026-10-11 has no build_settings.tsv; it was built with the classic traceback.
 #pragma once
 
 #include <array>
 #include <bit>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <istream>
@@ -19,6 +23,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "ReadType.h"
@@ -162,6 +167,42 @@ namespace protal::build_settings {
     // protal from before skips these lines (no read type "pick_pe") and gates by hash.
     inline constexpr std::string_view kSparseFirstPick = "sparse_first_pick_";
 
+    // The run settings (since 2026-10-15), one line each: on/off, a whole number, a decimal (the shortest text that reads
+    // back to the same double), or a mode's name. A protal from before skips them as settings it does not know.
+    inline constexpr std::string_view kWeightedSiteShift = "weighted_site_shift";      // on, off
+    inline constexpr std::string_view kAlleleScores = "allele_scores";                 // on, off
+    inline constexpr std::string_view kAlignTop = "align_top";                         // N
+    inline constexpr std::string_view kAdaptiveCandidates = "adaptive_candidates";     // N
+    inline constexpr std::string_view kMateGuidance = "mate_guidance";                 // on, off (a later protal's modes too)
+    inline constexpr std::string_view kMaxScoreAni = "max_score_ani_";                 // + pe, se, pb, ont: the identity floor
+    inline constexpr std::string_view kUniqueKmers = "unique_kmers";                   // cores, anchors
+    inline constexpr std::string_view kKeepForeignGenes = "keep_foreign_genes";        // on, off
+    inline constexpr std::string_view kKeepSuspectCopies = "keep_suspect_copies";      // on, off
+    inline constexpr std::string_view kDepthIdentityMargin = "depth_identity_margin";  // decimal
+    // unique_kmers: ZS, ZU and ZT from the gene's cores an alignment covers (unique_cores.bin), or from its anchor's seeds.
+    inline constexpr std::string_view kUniqueCores = "cores";
+    inline constexpr std::string_view kUniqueAnchors = "anchors";
+    // The mate guidance modes this protal knows; a mode of a later protal is kept as text (KnownMateGuidance).
+    inline constexpr std::string_view kMateGuidanceOn = "on";
+    inline constexpr std::string_view kMateGuidanceOff = "off";
+
+    // The settings of a run that change its alignments or the features its models read: those --build ran with
+    // (build_settings.tsv), those a run was given (nothing: auto, the database's), or those it uses. Each is nothing where
+    // not said. mate_guidance and unique_kmers are kept as text, so that a later protal's modes read without an error.
+    struct RunSettings {
+        std::optional<bool> weighted_site_shift;
+        std::optional<bool> allele_scores;
+        std::optional<size_t> align_top;
+        std::optional<size_t> adaptive_candidates;
+        std::optional<std::string> mate_guidance;
+        std::array<std::optional<double>, kReadTypeCount> max_score_ani{};  // the identity floor (-a) of each read type
+        std::optional<std::string> unique_kmers;
+        std::optional<bool> keep_foreign_genes;
+        std::optional<bool> keep_suspect_copies;
+        std::optional<double> depth_identity_margin;
+        bool operator==(RunSettings const&) const = default;
+    };
+
     struct Settings {
         std::optional<WfaTraceback> wfa_traceback;    // nothing if the file does not say
         std::optional<FragmentCount> fragment_count;  // nothing if the file does not say (mapq)
@@ -169,7 +210,142 @@ namespace protal::build_settings {
         std::optional<size_t> sparse_first_score;     // nothing if the file does not say (14)
         std::optional<size_t> sparse_first_hits;      // nothing if the file does not say (1)
         SparseFirstPicks sparse_first_pick;           // per read type; nothing if the file does not say (DatabasePick)
+        RunSettings run;                              // each nothing if the file does not say (built before 2026-10-15)
     };
+
+    // A decimal as the shortest text that reads back to the same double, in the C locale ("0.9", "0.85").
+    inline std::string Decimal(double value) {
+        char buffer[64];
+        auto const [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
+        return error == std::errc() ? std::string(buffer, end) : std::string("nan");
+    }
+
+    // A finite decimal, or nothing.
+    inline std::optional<double> ParseDecimal(std::string_view text) {
+        double value = 0;
+        auto const [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (text.empty() || error != std::errc() || end != text.data() + text.size() || !std::isfinite(value)) return std::nullopt;
+        return value;
+    }
+
+    inline std::optional<bool> ParseOnOff(std::string_view text) {
+        if (text == "on") return true;
+        if (text == "off") return false;
+        return std::nullopt;
+    }
+
+    inline std::string OnOff(bool on) {
+        return on ? "on" : "off";
+    }
+
+    // Whether this protal knows mate guidance mode `mode` (on, off).
+    inline bool KnownMateGuidance(std::string_view mode) {
+        return mode == kMateGuidanceOn || mode == kMateGuidanceOff;
+    }
+
+    // The run settings that are said, as build_settings.tsv names them and their values as text, in the file's order:
+    // what Write writes, and what runs and databases are compared by (Differences).
+    using Fields = std::vector<std::pair<std::string, std::string>>;
+
+    inline Fields RunFields(RunSettings const& s) {
+        Fields fields;
+        auto add = [&fields](std::string_view key, std::string value) { fields.emplace_back(std::string(key), std::move(value)); };
+        if (s.weighted_site_shift) add(kWeightedSiteShift, OnOff(*s.weighted_site_shift));
+        if (s.allele_scores) add(kAlleleScores, OnOff(*s.allele_scores));
+        if (s.align_top) add(kAlignTop, std::to_string(*s.align_top));
+        if (s.adaptive_candidates) add(kAdaptiveCandidates, std::to_string(*s.adaptive_candidates));
+        if (s.mate_guidance) add(kMateGuidance, *s.mate_guidance);
+        for (auto const& info : kReadTypes) {
+            auto const& floor = s.max_score_ani[static_cast<size_t>(info.type)];
+            if (floor) add(std::string(kMaxScoreAni) + info.token, Decimal(*floor));
+        }
+        if (s.unique_kmers) add(kUniqueKmers, *s.unique_kmers);
+        if (s.keep_foreign_genes) add(kKeepForeignGenes, OnOff(*s.keep_foreign_genes));
+        if (s.keep_suspect_copies) add(kKeepSuspectCopies, OnOff(*s.keep_suspect_copies));
+        if (s.depth_identity_margin) add(kDepthIdentityMargin, Decimal(*s.depth_identity_margin));
+        return fields;
+    }
+
+    // Every run setting's name, in the file's order (max_score_ani_ with each read type).
+    inline std::vector<std::string> RunSettingNames() {
+        std::vector<std::string> names = { std::string(kWeightedSiteShift), std::string(kAlleleScores), std::string(kAlignTop),
+                                           std::string(kAdaptiveCandidates), std::string(kMateGuidance) };
+        for (auto const& info : kReadTypes) names.push_back(std::string(kMaxScoreAni) + info.token);
+        for (auto name : { kUniqueKmers, kKeepForeignGenes, kKeepSuspectCopies, kDepthIdentityMargin }) names.emplace_back(name);
+        return names;
+    }
+
+    // The value of `key` in `fields`, or nothing.
+    inline std::optional<std::string> FieldValue(Fields const& fields, std::string_view key) {
+        for (auto const& [name, value] : fields) {
+            if (name == key) return value;
+        }
+        return std::nullopt;
+    }
+
+    // The settings of `used` whose values differ from those `recorded` says (a setting not recorded is not compared), as
+    // "name value (the database's: value)", for the keys `compared` admits.
+    template<typename Compared>
+    std::vector<std::string> Differences(Fields const& recorded, Fields const& used, Compared const& compared) {
+        std::vector<std::string> differences;
+        for (auto const& [name, value] : used) {
+            if (!compared(name)) continue;
+            auto const database = FieldValue(recorded, name);
+            if (database && *database != value) differences.push_back(name + " " + value + " (the database's: " + *database + ")");
+        }
+        return differences;
+    }
+
+    // A run setting's line into `run`: the error text of a value it cannot be, or "" (also for a name that is no run
+    // setting: then `known` is false).
+    inline std::string ReadRunSetting(std::string_view name, std::string_view value, RunSettings& run, bool& known) {
+        known = true;
+        auto on_off = [&](std::optional<bool>& target) -> std::string {
+            target = ParseOnOff(value);
+            return target ? "" : std::string(name) + " is on or off, not '" + std::string(value) + "'";
+        };
+        auto count = [&](std::optional<size_t>& target) -> std::string {
+            size_t number = 0;
+            auto const [end, error] = std::from_chars(value.data(), value.data() + value.size(), number);
+            if (value.empty() || error != std::errc() || end != value.data() + value.size()) {
+                return std::string(name) + " is a whole number, not '" + std::string(value) + "'";
+            }
+            target = number;
+            return "";
+        };
+        auto decimal = [&](std::optional<double>& target) -> std::string {
+            target = ParseDecimal(value);
+            if (!target || *target < 0) {
+                target.reset();
+                return std::string(name) + " is a decimal of 0 or more, not '" + std::string(value) + "'";
+            }
+            return "";
+        };
+        auto text = [&](std::optional<std::string>& target) -> std::string {
+            if (value.empty()) return std::string(name) + " has no value";
+            target = std::string(value);
+            return "";
+        };
+        if (name == kWeightedSiteShift) return on_off(run.weighted_site_shift);
+        if (name == kAlleleScores) return on_off(run.allele_scores);
+        if (name == kAlignTop) return count(run.align_top);
+        if (name == kAdaptiveCandidates) return count(run.adaptive_candidates);
+        if (name == kMateGuidance) return text(run.mate_guidance);
+        if (name == kUniqueKmers) return text(run.unique_kmers);
+        if (name == kKeepForeignGenes) return on_off(run.keep_foreign_genes);
+        if (name == kKeepSuspectCopies) return on_off(run.keep_suspect_copies);
+        if (name == kDepthIdentityMargin) return decimal(run.depth_identity_margin);
+        if (name.substr(0, kMaxScoreAni.size()) == kMaxScoreAni) {
+            auto const type = ReadTypeFromToken(std::string(name.substr(kMaxScoreAni.size())));
+            if (!type) {  // a later version's read type
+                known = false;
+                return "";
+            }
+            return decimal(run.max_score_ani[static_cast<size_t>(*type)]);
+        }
+        known = false;
+        return "";
+    }
 
     // The pick a database's runs of reads of type index `t` gate with by default, and its models were trained with: as
     // build_settings.tsv records it. A database that records the type's gate but not its pick was built in the two
@@ -202,6 +378,11 @@ namespace protal::build_settings {
             if (tab == std::string::npos) return "line " + std::to_string(number) + ": no tab between name and value";
             std::string_view const name = std::string_view(line).substr(0, tab);
             std::string_view const value = std::string_view(line).substr(tab + 1);
+            bool run_setting = false;
+            if (std::string const problem = ReadRunSetting(name, value, settings.run, run_setting); run_setting) {
+                if (!problem.empty()) return "line " + std::to_string(number) + ": " + problem;
+                continue;
+            }
             if (name == kWfaTraceback) {
                 auto const traceback = ParseWfaTraceback(value);
                 if (!traceback) {
@@ -261,5 +442,6 @@ namespace protal::build_settings {
             auto const& pick = settings.sparse_first_pick[static_cast<size_t>(info.type)];
             if (pick) os << kSparseFirstPick << info.token << '\t' << SparseFirstPickName(*pick) << '\n';
         }
+        for (auto const& [name, value] : RunFields(settings.run)) os << name << '\t' << value << '\n';
     }
 }
