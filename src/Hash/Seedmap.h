@@ -518,7 +518,8 @@ namespace protal {
                 std::snprintf(load, sizeof(load), "%.3f", m_hashed->Load());
                 return s + "; key map " + gb(m_hashed->Bytes()) + " (hashed: " + std::to_string(m_hashed->UsedCores()) + " cores with values in 2^" +
                        std::to_string(m_hashed->LineBits()) + " lines, load " + load + ", " + std::to_string(m_hashed->PastHome()) +
-                       " past their home line; --direct_keys: " + gb(keymap_size_total * sizeof(KeyMap_t)) + ")";
+                       " past their home line, " + (m_hashed->NextLineFetched() ? "the next line fetched too" : "the home line fetched alone") +
+                       "; --direct_keys: " + gb(keymap_size_total * sizeof(KeyMap_t)) + ")";
             }
             if (m_compact) {
                 return s + "; key map " + gb(m_compact->Bytes()) + " (compact: " + std::to_string(m_compact->UsedCores()) + " cores with values of " +

@@ -124,6 +124,8 @@ TEST(HashedKeys, TheSameTableOnAnyNumberOfThreads) {
     ASSERT_TRUE(four.Build(compact, bits, 4));
     ASSERT_EQ(one.Bytes(), four.Bytes());
     EXPECT_EQ(std::memcmp(one.LineData(), four.LineData(), one.Bytes()), 0);
+    EXPECT_EQ(one.PastHome(), four.PastHome());
+    EXPECT_EQ(one.MaxDisplacement(), four.MaxDisplacement());
     ExpectSameSlots(compact, four, cores);
 }
 

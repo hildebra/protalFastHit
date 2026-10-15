@@ -14,7 +14,7 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -125,26 +125,51 @@ namespace protal {
             }
             std::vector<uint64_t>().swap(offset);
 
-            // Each partition filled on its own; the cores that would lie past it kept for after.
+            // Each partition filled on its own; the cores that would lie past it kept for after. Each partition tallies its
+            // cores' places itself: one counter for all threads, written at every core, held the r226 build at 3.6 s on 32
+            // threads (the threads queued on its cache line; docs/claude/2026-10-15-perf-0.8.4a, section 11).
             std::vector<std::vector<uint32_t>> spilled(parts);
-            std::atomic<bool> fits{ true };
+            std::vector<std::array<uint64_t, kMaxDisp + 1>> tally(parts);
+            std::vector<uint8_t> part_fits(parts, 1);
 #pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
             for (int64_t p = 0; p < static_cast<int64_t>(parts); p++) {
-                uint64_t const end_line = (static_cast<uint64_t>(p) + 1) << part_shift;
-                for (uint64_t i = part_first[static_cast<uint64_t>(p)]; i < part_first[static_cast<uint64_t>(p) + 1]; i++) {
+                uint64_t const part = static_cast<uint64_t>(p), end_line = (part + 1) << part_shift;
+                auto& counts_of = tally[part];
+                counts_of.fill(0);
+                // A partition's cores lie anywhere in the compact map: each one's presence line and then its start are
+                // fetched ahead (kAhead and kAhead / 2 cores), as the seeding fetches a read's keys, or each Put waits for
+                // two lines in turn (~150 ns a core on one thread, locally).
+                uint64_t const first = part_first[part], last = part_first[part + 1];
+                for (uint64_t i = first; i < std::min(last, first + kAhead); i++) compact.Prefetch(by_part[i]);
+                for (uint64_t i = first; i < last; i++) {
+                    if (i + kAhead < last) compact.Prefetch(by_part[i + kAhead]);
+                    if (i + kAhead / 2 < last) compact.PrefetchStart(by_part[i + kAhead / 2]);
                     int const put = Put(compact, by_part[i], end_line);
-                    if (put < 0) fits = false;
-                    else if (put == 0) spilled[static_cast<uint64_t>(p)].push_back(by_part[i]);
+                    if (put == kSpill) spilled[part].push_back(by_part[i]);
+                    else if (put < 0) part_fits[part] = 0;
+                    else counts_of[static_cast<uint64_t>(put)]++;
                 }
+            }
+            bool fits = std::all_of(part_fits.begin(), part_fits.end(), [](uint8_t f) { return f != 0; });
+            std::array<uint64_t, kMaxDisp + 1> by_disp{};
+            for (auto const& counts_of : tally) {
+                for (uint64_t d = 0; d <= kMaxDisp; d++) by_disp[d] += counts_of[d];
             }
             for (auto const& cores_spilled : spilled) {
                 for (uint32_t core : cores_spilled) {
-                    if (Put(compact, core, m_lines_total) <= 0) fits = false;
+                    int const put = Put(compact, core, m_lines_total);
+                    if (put < 0) fits = false;
+                    else by_disp[static_cast<uint64_t>(put)]++;
                 }
             }
             if (!fits) return Fail();
-            m_max_disp = m_max_disp_seen.load();
-            for (uint64_t d = 1; d <= kMaxDisp; d++) m_past += m_by_disp[d].load();
+            for (uint64_t d = 0; d <= kMaxDisp; d++) {
+                if (by_disp[d] > 0) m_max_disp = d;
+                if (d > 0) m_past += by_disp[d];
+            }
+            // PROTAL_HASHED_NEXT_LINE=0: a lookup fetches its home line alone (see Prefetch).
+            char const* const next_line = std::getenv("PROTAL_HASHED_NEXT_LINE");
+            m_next_line = !(next_line && std::strcmp(next_line, "0") == 0);
             return true;
         }
 
@@ -172,8 +197,16 @@ namespace protal {
             }
         }
 
-        // The line of a core's home (a lookup's one read, mostly).
-        [[gnu::always_inline]] inline void Prefetch(uint64_t core) const { __builtin_prefetch(m_lines + (Mix(core) >> m_tag_bits) * kEntries); }
+        // The line of a core's home (a lookup's one read, mostly) and the next one: a core one line past its home (4.5% at
+        // r226, load 0.735) is then read without a wait of its own, at one more line fetched (the same DRAM page). With
+        // PROTAL_HASHED_NEXT_LINE=0 in the environment the home line alone (for comparison).
+        [[gnu::always_inline]] inline void Prefetch(uint64_t core) const {
+            uint64_t const* const w = m_lines + (Mix(core) >> m_tag_bits) * kEntries;
+            __builtin_prefetch(w);
+            if (m_next_line) __builtin_prefetch(w + kEntries);
+        }
+
+        bool NextLineFetched() const { return m_next_line; }
 
         uint64_t UsedCores() const { return m_used; }
         uint64_t Bytes() const { return m_lines_total * 64; }
@@ -184,26 +217,27 @@ namespace protal {
         uint64_t const* LineData() const { return m_lines; }
 
     private:
-        // Core `core` (used in `compact`) into the first line from its home with an empty entry, before line `end_line`:
-        // 1 put, 0 not before end_line (put later), -1 never (more than kMaxDisp lines past its home, or its start too
-        // large for its entry). Lines of a partition are written by its thread alone; the cores put after them by one.
+        static constexpr uint64_t kAhead = 16;  // Build: cores whose compact-map lines are fetched ahead of the one put
+        static constexpr int kSpill = -1;   // Put: not before end_line (put later)
+        static constexpr int kNever = -2;   // Put: more than kMaxDisp lines past its home, or its start too large for its entry
+
+        // Core `core` (used in `compact`) into the first line from its home with an empty entry, before line `end_line`: the
+        // lines past its home it lies in (0 to kMaxDisp), or kSpill, or kNever. Lines of a partition are written by its
+        // thread alone; the cores put after them by one.
         int Put(CompactKeys const& compact, uint64_t core, uint64_t end_line) {
             uint64_t start = 0, slots = 0;
-            if (!compact.Locate(core, start, slots) || slots == 0 || slots >= (uint64_t{1} << (64 - kCountShift)) || start > m_start_mask) return -1;
+            if (!compact.Locate(core, start, slots) || slots == 0 || slots >= (uint64_t{1} << (64 - kCountShift)) || start > m_start_mask) return kNever;
             uint64_t const p = Mix(core), home = p >> m_tag_bits, tag = p & m_tag_mask;
             for (uint64_t d = 0; d <= kMaxDisp; d++) {
-                if (home + d >= end_line) return 0;
+                if (home + d >= end_line) return kSpill;
                 uint64_t* const w = m_lines + (home + d) * kEntries;
                 for (uint64_t e = 0; e < kEntries; e++) {
                     if (w[e] != 0) continue;
                     w[e] = tag | d << m_tag_bits | start << m_start_shift | slots << kCountShift;
-                    m_by_disp[d].fetch_add(1, std::memory_order_relaxed);
-                    uint64_t seen = m_max_disp_seen.load(std::memory_order_relaxed);
-                    while (d > seen && !m_max_disp_seen.compare_exchange_weak(seen, d, std::memory_order_relaxed)) {}
-                    return 1;
+                    return static_cast<int>(d);
                 }
             }
-            return -1;
+            return kNever;
         }
 
         bool Fail() {
@@ -227,15 +261,12 @@ namespace protal {
             std::free(m_lines);
             m_lines = nullptr;
             m_used = m_home_lines = m_lines_total = m_past = m_max_disp = 0;
-            m_max_disp_seen = 0;
-            for (auto& n : m_by_disp) n = 0;
         }
 
         uint64_t* m_lines = nullptr;
         unsigned m_core_bits = 0, m_bits = 0, m_tag_bits = 0, m_start_shift = 0;
         uint64_t m_core_mask = 0, m_tag_mask = 0, m_start_mask = 0, m_low_mask = 0;
         uint64_t m_used = 0, m_home_lines = 0, m_lines_total = 0, m_past = 0, m_max_disp = 0;
-        std::atomic<uint64_t> m_max_disp_seen{ 0 };
-        std::atomic<uint64_t> m_by_disp[kMaxDisp + 1]{};
+        bool m_next_line = true;  // Prefetch fetches the home line's next one too (PROTAL_HASHED_NEXT_LINE=0: not)
     };
 }
