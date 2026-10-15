@@ -105,6 +105,7 @@ namespace protal {
     using SamGates = std::vector<std::optional<std::pair<size_t, SparseFirstPick>>>;
     static void ApplySparseFirst(Options& options, build_settings::Settings const& settings, SamGates const& sam_gates,
                                  std::ostream& out = std::cout) {
+        bool const sams_given = ProfilesExistingSams(options);  // their gates, as their headers say (sam_gates)
         std::array<size_t, kReadTypeCount> gates{};
         std::array<SparseFirstPick, kReadTypeCount> picks{};
         std::array<SparseFirstPick, kReadTypeCount> database_picks{};
@@ -188,7 +189,7 @@ namespace protal {
             size_t const t = static_cast<size_t>(options.GetReadType(index));
             // --profile_only: the gate its SAM was aligned at, where its header says; else nothing to say, as before.
             auto const& aligned = index < sam_gates.size() ? sam_gates[index] : std::nullopt;
-            if (options.ProfileOnly() && !aligned) continue;
+            if (sams_given && !aligned) continue;
             size_t const gate = aligned ? aligned->first : options.GetSparseFirst(index);
             SparseFirstPick const pick = aligned ? aligned->second : options.GetSparseFirstPick(index);
             // At C 1 both picks look up every core: the pick then makes no difference.
@@ -196,11 +197,11 @@ namespace protal {
             if (gate == options.ModelGate(index) && same_pick) continue;
             if (others++ == 0) {
                 example = options.GetSampleId(index);
-                example_gates = example + (options.ProfileOnly() ? " aligned gated at " : " gated at ") + level(gate, pick) +
+                example_gates = example + (sams_given ? " aligned gated at " : " gated at ") + level(gate, pick) +
                                 ", its model at " + level(options.ModelGate(index), database_picks[t]);
             }
         }
-        bool const score_differs = options.AnySparseFirst() && !options.ProfileOnly() &&
+        bool const score_differs = options.AnySparseFirst() && !sams_given &&
                                    (options.GetSparseFirstScore() != recorded_score || options.GetSparseFirstHits() != recorded_hits);
         bool const gates_given = options.SparseFirstGiven() != SparseFirstGates();
         bool const picks_given = options.SparseFirstPickGiven() != SparseFirstPicks();
@@ -212,7 +213,7 @@ namespace protal {
             << recorded_hits << " hit(s)" << std::endl;
         if (others > 0 || score_differs) {
             std::cerr << "Warning: " << (others > 0 ? std::to_string(others) + " sample(s) of this run (e.g. " + example +
-                                                      (options.ProfileOnly() ? ") were aligned gated otherwise (their SAM "
+                                                      (sams_given ? ") were aligned gated otherwise (their SAM "
                                                                                "headers say)"
                                                                              : ") are gated otherwise (--sparse_first, "
                                                                                "--sparse_first_pick or the map's SPARSE_FIRST "
@@ -221,7 +222,7 @@ namespace protal {
                       << " than the database's models were trained with" << (others > 0 ? " (" + example_gates + ")" : "")
                       << ": the reads a gate gives up count no failed "
                       << "candidates, so their calls are not those of training. "
-                      << (options.ProfileOnly() ? "Align them again on this database with --sparse_first and --sparse_first_pick "
+                      << (sams_given ? "Align them again on this database with --sparse_first and --sparse_first_pick "
                                                   "left out (auto), or at a gate the database has a model of."
                                                 : "Leave out --sparse_first and --sparse_first_pick (auto) to gate as they were "
                                                   "trained, or gate at a gate the database has a model of.") << std::endl;
@@ -235,13 +236,14 @@ namespace protal {
     }
 
     // Whether run setting `name` changes anything for this run's samples: the profiling's unless --no_profile; the
-    // alignment's unless --profile_only (whose SAMs' own are checked, CheckSamSettings), each for the read types it acts on
+    // alignment's unless the run profiles SAMs it does not align (`sams_given`: --profile_only or reused SAMs, whose own
+    // are checked, CheckSamSettings), each for the read types it acts on
     // (the allele scores, the site shift and the adaptive candidates short reads, mate guidance paired-end reads, a read
     // type's identity floor its reads).
-    static bool SettingApplies(Options const& options, std::string const& name) {
+    static bool SettingApplies(Options const& options, std::string const& name, bool sams_given) {
         namespace b = build_settings;
         if (ProfilingSetting(name)) return !options.NoProfile();
-        if (options.ProfileOnly()) return false;
+        if (sams_given) return false;
         bool const short_reads = options.AnySample(ReadType::Paired) || options.AnySample(ReadType::Single);
         if (name == b::kAlleleScores || name == b::kWeightedSiteShift || name == b::kAdaptiveCandidates) return short_reads;
         if (name == b::kMateGuidance) return options.AnySample(ReadType::Paired);
@@ -269,6 +271,7 @@ namespace protal {
     // default. A database built before records none: one note, and protal's defaults.
     static void ApplyRunSettings(Options& options, build_settings::Settings const& settings, std::ostream& out) {
         namespace b = build_settings;
+        bool const sams_given = ProfilesExistingSams(options);
         auto const& recorded = settings.run;
         if (recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance)) {
             std::cerr << "Warning: the database records mate_guidance '" << *recorded.mate_guidance << "' (" << b::kFileName
@@ -298,11 +301,11 @@ namespace protal {
         std::vector<std::string> unrecorded;
         for (auto const& [name, value] : used_fields) {
             auto const db_value = b::FieldValue(database_fields, name);
-            bool const alignment_only = options.ProfileOnly() && !ProfilingSetting(name);
+            bool const alignment_only = sams_given && !ProfilingSetting(name);
             std::string const run_value = alignment_only ? std::string("(the SAMs')")
                                                         : value + (b::FieldValue(given, name) ? " (given)" : " (auto)");
             out << "  " << std::setw(26) << name << std::setw(28) << run_value << db_value.value_or("not recorded") << '\n';
-            if (!db_value && SettingApplies(options, name)) unrecorded.push_back(name);
+            if (!db_value && SettingApplies(options, name, sams_given)) unrecorded.push_back(name);
         }
         out << std::right << std::flush;
         if (!unrecorded.empty()) {
@@ -316,7 +319,7 @@ namespace protal {
         }
 
         // --no_unique_cores on a database whose models were trained on the unique cores.
-        bool const cores_unread = !options.ProfileOnly() && options.NoUniqueCores() &&
+        bool const cores_unread = !sams_given && options.NoUniqueCores() &&
                                   database.unique_kmers == std::string(b::kUniqueCores);
         if (cores_unread) {
             std::cerr << "Warning: this run counts each record's ZS, ZU and ZT from its anchor's seeds (--no_unique_cores), but "
@@ -327,7 +330,7 @@ namespace protal {
         }
         bool const mode_unknown = recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance);  // warned above
         auto const differences = b::Differences(database_fields, used_fields, [&](std::string const& name) {
-            return name != b::kUniqueKmers && !(name == b::kMateGuidance && mode_unknown) && SettingApplies(options, name);
+            return name != b::kUniqueKmers && !(name == b::kMateGuidance && mode_unknown) && SettingApplies(options, name, sams_given);
         });
         if (!differences.empty()) {
             std::string list;
@@ -348,7 +351,7 @@ namespace protal {
         namespace b = build_settings;
         namespace s = sam_settings;
         SamGates sam_gates;
-        if (!options.ProfileOnly()) return sam_gates;
+        if (!ProfilesExistingSams(options)) return sam_gates;
         // What the database's models were trained with, as the SAM line names it (only what it records).
         auto expected = [&](ReadType type) {
             s::Fields fields;
@@ -453,7 +456,7 @@ namespace protal {
                                   (settings.wfa_traceback ? "" : " (it has no " + Options::PROTAL_BUILD_SETTINGS_FILE + ": built before 2026-10-11)");
         out << "WFA2 traceback: " << WfaTracebackName(traceback) << (given ? " (--wfa_traceback)" : "")
             << "; the database was built with " << built << std::endl;
-        if (traceback != database && !options.ProfileOnly()) {
+        if (traceback != database && !ProfilesExistingSams(options)) {
             std::cerr << "Warning: this run aligns with the " << WfaTracebackName(traceback) << " WFA2 traceback (--wfa_traceback "
                       << WfaTracebackName(traceback) << "), but the database was built with " << built << ". The two give the "
                       << "same alignment scores, but among equally good alignments they may choose differently, so the SAM "

@@ -86,10 +86,18 @@ namespace protal::feature_ranges {
 
     // The features of a taxon outside the training range: hard, outside [min, max]; soft, outside [p01, p99] (the hard
     // ones too). Each value as the model is given it (a subnormal value is 0, profiler::FeatureString); a value that is
-    // no number is not compared. In the order of `features`.
+    // no number is not compared. In the order of `features`. The trainer writes the bounds to 9 significant digits
+    // (model_pmml.py, %.9g), so a value at a bound of training may lie up to half a unit of the 9th digit beyond the
+    // bound as written: such a value counts as inside (Beyond).
     struct Outside {
         std::vector<std::string> hard, soft;
     };
+
+    // Whether `value` lies below `low` or above `high` by more than the bounds' rounding to 9 significant digits.
+    inline bool Beyond(double value, double low, double high) {
+        auto slack = [](double bound) { return std::fabs(bound) * 1e-8; };
+        return value < low - slack(low) || value > high + slack(high);
+    }
 
     template<typename FeatureList>
     Outside Check(Ranges const& ranges, FeatureList const& features) {
@@ -101,8 +109,8 @@ namespace protal::feature_ranges {
             if (std::isnan(value)) continue;
             if (std::fabs(value) < std::numeric_limits<double>::min()) value = 0;
             auto const& r = it->second;
-            if (value < r.min || value > r.max) outside.hard.emplace_back(name);
-            if (value < r.p01 || value > r.p99) outside.soft.emplace_back(name);
+            if (Beyond(value, r.min, r.max)) outside.hard.emplace_back(name);
+            if (Beyond(value, r.p01, r.p99)) outside.soft.emplace_back(name);
         }
         return outside;
     }

@@ -64,6 +64,19 @@ namespace protal {
         return false;
     }
 
+    // Whether the run profiles SAMs it does not align: --profile_only, or a run that finds every sample's SAM there
+    // already and reuses it (no --force, no piped reads; RunProtal's skip_alignment). Their headers then say how they
+    // were aligned (CheckSamSettings), and the run's own alignment options act on nothing.
+    inline bool ProfilesExistingSams(Options const& options) {
+        if (options.BuildMode()) return false;
+        if (options.ProfileOnly()) return true;
+        auto const sam_files = options.SamFiles();
+        if (sam_files.empty() || options.SamFile(0).first.empty() || options.Force()) return false;
+        if (!std::all_of(sam_files.begin(), sam_files.end(), [](std::string const& file) { return Utils::exists(file); })) return false;
+        auto const range = options.GetRange();
+        return std::none_of(range.begin(), range.end(), [&options](auto index) { return ReadsArePiped(options, static_cast<int>(index)); });
+    }
+
     // The tables only profiling reads (gene conservation, suspect copies, species priors, NCBI taxids, species neighbours,
     // congener gaps, foreign rates, ancestry sites, and the strain alleles and column weights unless the alignment scores
     // short reads with them), loading on threads of their own beside the alignment (Run, a concurrent start-up that aligns): the first

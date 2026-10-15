@@ -333,6 +333,14 @@ TEST(FeatureRanges, ParsedAndChecked) {
     EXPECT_TRUE(outside.hard.empty());
     EXPECT_EQ(outside.soft, std::vector<std::string>{ "depth" });  // 0, below p01 0.5
     EXPECT_EQ(feature_ranges::Joined({}), "");
+    // A value at a bound of training is inside, though the trainer wrote the bound to 9 digits (%.9g): 2/3 as
+    // 0.666666667 (above it), 1/3 as 0.333333333 (below it); a value beyond the rounding is outside.
+    feature_ranges::Ranges rounded;
+    ASSERT_EQ(feature_ranges::Parse("share:0.666666667:0.7:0.8:0.9,rate:0:0.1:0.2:0.333333333", rounded), "");
+    features = { { "share", 2.0 / 3.0 }, { "rate", 1.0 / 3.0 } };
+    EXPECT_TRUE(feature_ranges::Check(rounded, features).hard.empty());
+    features = { { "share", 0.6666666 }, { "rate", 0.3333334 } };
+    EXPECT_EQ(feature_ranges::Check(rounded, features).hard, (std::vector<std::string>{ "share", "rate" }));
 
     EXPECT_TRUE(feature_ranges::NearKnob(0.31, 0.5, 0));
     EXPECT_FALSE(feature_ranges::NearKnob(0.29, 0.5, 99));

@@ -888,6 +888,31 @@ TEST(MateGuidance, BothMatesVote) {
         ASSERT_EQ(records.size(), 1u);
         EXPECT_EQ(std::stoi(records[0][4]), MAPQv2(40, 0));
     }
+    // Mate 1 fits two places of taxon 1 (genes 1 and 2), mate 2 aligned nowhere and is not found: no other taxon, but
+    // the mate is no surer of its place than its margin within the taxon. Equal: MAPQ 0 (as MAPQv1 gave it); one
+    // mismatch at the other place: that margin; the same place twice (two candidates): no bound.
+    {
+        RecordingHandler handler;
+        handler.fail = true;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        PairedAlignmentResultList tied{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { OnTaxon(1, 2, 0, true), AlignmentResult() } };
+        ASSERT_TRUE(VoteMates(tied, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, MAPQv2(40, 0));  // against the next taxon: none
+        EXPECT_EQ(vote.mate_mapq[0], 0);
+        auto const records = write(tied, &vote);
+        ASSERT_FALSE(records.empty());
+        EXPECT_EQ(records[0][4], "0");
+
+        PairedAlignmentResultList next{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { OnTaxon(1, 2, 0, true, 1), AlignmentResult() } };
+        ASSERT_TRUE(VoteMates(next, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(vote.mate_mapq[0], std::min(MAPQv2(40, 0), MAPQv2(40, 35)));
+
+        PairedAlignmentResultList twice{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { OnTaxon(1, 1, 0, true), AlignmentResult() } };
+        ASSERT_TRUE(VoteMates(twice, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(vote.mate_mapq[0], MAPQv2(40, 0));
+    }
     // No vote where the best candidate is a pair.
     {
         PairedAlignmentResultList paired{ { OnTaxon(1, 1, 0, true), OnTaxon(1, 1, 24, false) }, { AlignmentResult(), OnTaxon(2, 1, 24, false) } };

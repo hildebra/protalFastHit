@@ -1276,6 +1276,11 @@ namespace protal {
             count("align_top", given.align_top);
             count("adaptive_candidates", given.adaptive_candidates);
             if (result.count("no_mate_guidance")) {
+                if (text("mate_guidance") != "auto" && text("mate_guidance") != build_settings::kMateGuidanceOff) {
+                    std::cerr << "Error: --no_mate_guidance and --mate_guidance " << text("mate_guidance") << " contradict each other"
+                              << std::endl;
+                    exit(2);
+                }
                 given.mate_guidance = std::string(build_settings::kMateGuidanceOff);
             } else if (text("mate_guidance") != "auto") {
                 if (!ParseMateGuidance(text("mate_guidance"))) bad("mate_guidance", "consensus, guide or off", text("mate_guidance"));

@@ -407,7 +407,9 @@ at `auto` (or not given) takes the database's:
 `@CO protal settings: read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack
 allele_scores=on weighted_site_shift=off mate_guidance=consensus align_top=3 adaptive_candidates=7 max_score_ani=0.9`
 (the values the sample was aligned with; `allele_scores`, `weighted_site_shift` and `adaptive_candidates` for short
-reads only, `mate_guidance` for paired-end reads only). `--profile_only` reads it:
+reads only, `mate_guidance` for paired-end reads only). `--profile_only` reads it, and so does a run that finds every
+sample's SAM there already and profiles it again (without `--force`); its own alignment options then act on nothing
+and are not compared with the database's:
 - the sample is profiled with the database's model trained at the gate nearest the SAM's (as a map's `SPARSE_FIRST`
   would; `--sparse_first` of its read type or the map's `SPARSE_FIRST` still chooses), and a sample aligned at
   another gate than its model's is warned, as a run gated otherwise is;

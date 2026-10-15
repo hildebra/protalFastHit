@@ -310,6 +310,8 @@ namespace protal {
     //    either of them (a mate aligned to neither scores the same on both): mates that disagree get a low MAPQ, and a
     //    mate found on the winner does not double the pair's score against its competitors. As for a pair on one gene,
     //    a mate that fits both taxa equally well is part of the sums, and lowers the MAPQ of the other mate's margin.
+    //  - A mate's MAPQ is also at most its margin within the winner: its best alignment there against its next one at
+    //    another place of the taxon (a paralog, another gene), as MAPQv1 bounded it over the candidates (2026-10-15).
     //  - Each mate is written at its best alignment of the winner, its own or one found, with the vote's MAPQ; unless
     //    its own best alignment, of another taxon, is clearly better (MAPQ kVoteClearlyBetterMapq or more between the
     //    two): then it keeps that one with MAPQ 0, as does a mate without an alignment of the winner, so that it counts
@@ -331,6 +333,8 @@ namespace protal {
             uint32_t taxid = 0;
             std::array<int, 2> score{ kNone, kNone };            // each mate's best score on the taxon
             std::array<size_t, 2> index{ SIZE_MAX, SIZE_MAX };   // the candidate holding it (SIZE_MAX: found by the vote)
+            std::array<int, 2> next{ kNone, kNone };             // each mate's next score on the taxon, at another place
+            std::array<std::pair<uint32_t, int32_t>, 2> place{};  // the gene and position of its best
             // The sum of the mates' scores, a mate without an alignment of the taxon scoring `missing`.
             int Sum(std::array<int, 2> const& missing = { kVoteUnaligned, kVoteUnaligned }) const {
                 return (score[0] == kNone ? missing[0] : score[0]) + (score[1] == kNone ? missing[1] : score[1]);
@@ -354,9 +358,14 @@ namespace protal {
                 auto it = std::find_if(taxa.begin(), taxa.end(), [taxid](Taxon const& t) { return t.taxid == taxid; });
                 if (it == taxa.end()) it = taxa.insert(taxa.end(), Taxon{ taxid });
                 int const score = vote_score(ar);
+                std::pair<uint32_t, int32_t> const place{ ar.GeneId(), ar.GenePos() };
                 if (score > it->score[m]) {
+                    if (it->score[m] != kNone && it->place[m] != place) it->next[m] = it->score[m];
                     it->score[m] = score;
                     it->index[m] = i;
+                    it->place[m] = place;
+                } else if (place != it->place[m] && score > it->next[m]) {
+                    it->next[m] = score;
                 }
                 if (score > own_score[m]) {
                     own_score[m] = score;
@@ -459,7 +468,10 @@ namespace protal {
                                  MAPQv2(own_score[m], std::max(0, on)) >= kVoteClearlyBetterMapq;
             if (on != kNone && !clearly) {
                 on_winner[m] = true;
-                mate_mapq[m] = mapq;
+                // At most its margin within the winner: a read that fits two places of the taxon equally well (a
+                // paralog, another gene) is no surer of its place than MAPQv1 made it before the vote.
+                mate_mapq[m] = winner.next[m] == kNone || on <= 0 ? mapq
+                                                                 : std::min(mapq, MAPQv2(on, std::clamp(winner.next[m], 0, on)));
                 index[m] = winner.index[m];  // SIZE_MAX: the mate found (below)
             } else if (own_index[m] != SIZE_MAX) {
                 index[m] = own_index[m];

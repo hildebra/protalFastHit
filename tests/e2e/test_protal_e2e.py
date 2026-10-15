@@ -4523,6 +4523,17 @@ class RunSettingsTest(WorkDir):
         log, _ = self.align("kept", "--keep_foreign_genes", "--keep_suspect_copies=off")
         self.assertNotIn("is told otherwise", log)
 
+    def test_a_rerun_checks_the_sams_it_reuses(self):
+        # SAMs aligned with -c 3 against a database that records 4: a rerun without --force profiles them again, so their
+        # headers are checked as --profile_only checks them, and its own alignment options (-c 5) act on nothing.
+        self.align("reused", "-c", "3")
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", "reused",
+                      "-o", "reused", "-t", "2", "--no_strains", "--no_profile", "-c", "5")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("All alignments are present.", log)
+        self.assertIn("SAM file(s) of this run were aligned otherwise than the database's", log)
+        self.assertNotIn("is told otherwise", log)
+
     def test_a_database_built_before_records_none(self):
         old = self.path("old")
         rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", old, "-t", "2")
