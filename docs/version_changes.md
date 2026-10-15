@@ -26,11 +26,11 @@ for this page.
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 | 0.8.3 | `23bacd9` | 2026-10-13 | 31 | sparse-first gates per read type, recorded by the database and followed by runs (at r226 −35% of the paired-end alignment's time at C = 1, −62% of HiFi's at C = 8); GTDB builds gated by default, `--test-c-gates`; gzip input in pieces on several threads (system ISA-L); a sample's lanes as one sample; F1 over the species the marker genes see; the weighted site shift off again |
 | 0.8.4 | `e990c69` | 2026-10-14 | 35 | the stride pick by default with gates pe:4, se:4, pb:16, ont:8 and models at other gates (r226 v27); the identity against each read's best strain allele; features that do not change with the read length or a sparse index (`length_free`, `read_length`, `ZS`; at the knob a sparse index at C 4 calls as ungated, 75 bp reads still call more false positives); GTDB builds on 75-250 bp paired-end, single-end Illumina and Ultima reads, random forests by default, both kinds of models in the database; opt-in a grid sparse index and a compact key map; zstd and many-member gzip input on several threads |
-| 0.8.5 | `c48a126` | 2026-10-15 | 31 | what a run takes from its database and models (run settings recorded and followed, a settings line in every SAM, feature versions and training ranges in the models); the mates of a pair voting on its taxon; spike mode for libraries with carried-over PCR products; ONT reads from SRA/ENA; the key map hashed (one line a lookup); GTDB builds that check the finished database and report the marker truth with samples and species held out |
+| 0.8.5 | `dd05e2c` | 2026-10-15 | 32 | what a run takes from its database and models (run settings recorded and followed, a settings line in every SAM, feature versions and training ranges in the models); the mates of a pair voting on its taxon; spike mode for libraries with carried-over PCR products; ONT reads from SRA/ENA; the key map hashed (one line a lookup); GTDB builds that check the finished database and report the marker truth with samples and species held out |
 
 ## What 0.8.5 adds
 
-0.8.5 collects the 30 commits after 0.8.4, most of them the follow-up of the
+0.8.5 collects the 31 commits after 0.8.4, most of them the follow-up of the
 [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md). The changes:
 - **What a run takes from its database and models:** the run settings the models were trained with, recorded in
   `build_settings.tsv` and followed unless given otherwise; a settings line in every SAM; feature versions and the
@@ -53,10 +53,13 @@ the anchors where it has no `unique_cores.bin`); spike mode and the read-type fi
   cores with values alone as it loads the index (~0.45 GB at r226 instead of the file's 3.2 GB; the sparse and compact
   loads no longer decode the file's key map, and a grid's sparse index loads 2.5-3x faster), and since 2026-10-15 makes
   it a hash table of 64-byte lines once loaded (~1.07 GB at r226), so that a lookup reads one line where the compact
-  map reads two that depend on each other. The records are the same with each. At r226 the compact map alone cost
-  ~25 ns a lookup (the 0.8.4a cluster run: a paired-end run gated at C 4 took 21.2 s against 19.9 s with the direct
-  map); the hashed one took 14.3 ns a lookup on synthetic reads (compact 47.3, direct 4.5) and is still to be measured
-  at r226. `--compact_keys` keeps the compact map, `--direct_keys` the direct one
+  map reads two that depend on each other, and fetches the next line with it (`PROTAL_HASHED_NEXT_LINE=0`: the home line
+  alone). The records are the same with each. At r226 (32 threads) the compact map alone cost ~25 ns a lookup (a
+  paired-end run gated at C 4 took 21.2 s against 19.9 s with the direct map); the hashed map's first version seeded a
+  paired-end sample in 12.4 s a thread (compact 13.7, direct 11.6) but took 3.6 s to build, more than that gained. Its
+  build now tallies per partition and fetches the compact map ahead (locally 7.5 to 3.3 s on 4 threads at r226's size,
+  55f850d); at r226 it is still to be measured, and the default rests on that. `--compact_keys` keeps the compact map,
+  `--direct_keys` the direct one
   ([running.md](running.md#developer-options), [report](claude/2026-10-15-perf-0.8.4a/README.md)).
 
 - **Spike genes left out of the evidence** (2026-10-15). In a real D6331 mock sample (SRR38158090) every species of the
