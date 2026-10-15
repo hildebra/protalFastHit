@@ -293,12 +293,23 @@ The shares add up to 1 together with a `?` row: the members protal cannot place,
 **Running.** `score_mocks.py run` puts each run in a folder of its own, `$MOCKS/<run>/<set>/`, and skips samples that
 already have a profile there. Each run folder's `versions.tsv` notes, per sample profiled, the tool, its version, the
 database, and when and where it ran.
-- **protal** (the default): a map per set, run with `--no_strains`. The run folder is named from the binary's
-  `--version`, `<version>_<commit>`, e.g. `0.8.3_1dcc325`, with `-modified` appended when it was built with uncommitted
-  changes. Another build or commit therefore gets its own folder. `--run-name` names one, e.g. for `--protal-args`
-  variants.
+- **Folders:** `--out DIR` puts the run folders and `scores/` there instead of in `--reads`. Give `run` and `score`
+  the same `--out`: `score` scores the run folders in it, and a sylph run reuses the sylph run folder it finds there.
+  `--scratch DIR`, a folder on the node's own disk (e.g. `$TMPDIR`, escaped as `\$TMPDIR` inside `sbatch --wrap "..."`),
+  takes the intermediate files: protal's SAMs and sylph's joined read files.
+- **protal** (the default; `--protal` names the binary, else `protal` on `PATH`): a map per set, run with
+  `--no_strains`. The run folder is named from the binary's `--version`, `<version>_<commit>`, e.g. `0.8.3_1dcc325`,
+  with `-modified` appended when it was built with uncommitted changes. Another build or commit therefore gets its own
+  folder. `--run-name` names one, e.g. for `--protal-args` variants.
+  - **SAMs:** kept in `alignments/` by default. With `--scratch` (protal 0.8.3 and later), protal gets `--scratch_dir`
+    and the map names no SAM, so protal writes each SAM into its folder there and removes it once the sample is
+    profiled. Only the profiles and logs stay. The SAMs of a set (or chunk) are all there at once, since protal
+    profiles after aligning every sample (unless `--protal-args --profile_ahead`). With `--strains` the SAMs stay in
+    `alignments/`, for strain MSAs.
 - **sylph** (`--tool sylph --sylph-db DB --gtdb DIR[,DIR]`): `sylph profile` per set, of the paired samples and of the
   single-read ones; a sample of several files is joined for it. Its run folder is `sylph_<version>_<database>`.
+  `--gtdb` is not the truth (that is `truth/`) but the GTDB taxonomy that turns sylph's genomes into species: a folder
+  with `bac120_taxonomy_r226.tsv.gz` and `ar53_taxonomy_r226.tsv.gz`, or the release's `_metadata_` files.
   - **Run once** (since 2026-10-14): sylph is the fixed comparison, so each sample is profiled once per database.
     - **The run folder is reused:** a later `run --tool sylph` uses the database's existing sylph run folder, whatever
       sylph is installed then, and runs only the samples without a profile there. With every sample profiled it
@@ -330,13 +341,14 @@ side by side:
 ```bash
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --dry-run
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --sets d6331_dna,meslier,d6331_hifi,d6331_ont --jobs 8
-sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS --db $DB -t 32 \
-    --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
+sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS --out $RESULTS \
+    --protal $PROTAL --db $DB -t 32 --scratch \$TMPDIR --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
 sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS \
-    --db $DB -t 16 --sets hcom2_invitro --chunks 10"
+    --out $RESULTS --protal $PROTAL --db $DB -t 16 --scratch \$TMPDIR --sets hcom2_invitro --chunks 10"
 sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph --reads $MOCKS \
-    --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb $GTDB/r226,$GTDB/r232 -t 32 --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
-python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS
+    --out $RESULTS --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb $GTDB/r226,$GTDB/r232 -t 32 --scratch \$TMPDIR \
+    --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
+python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS --out $RESULTS
 ```
 
 ## Continuous integration

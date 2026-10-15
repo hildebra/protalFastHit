@@ -9,11 +9,15 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
            --tool protal  (default) a protal map per set (map.tsv) and one protal run on it (protal.log, misc/), with
                           --no_strains unless --strains; --protal-args adds options (quoted). The run folder is
                           <version>_<commit> of the binary's --version (e.g. 0.8.3_1dcc325, "-modified" when built
-                          with uncommitted changes), unless --run-name names it
+                          with uncommitted changes), unless --run-name names it. The SAMs go to alignments/, or with
+                          --scratch DIR (protal's --scratch_dir, protal 0.8.3 on) into protal's folder in DIR, each
+                          removed once profiled, so only the profiles and logs stay (with --strains they stay in
+                          alignments/, for strain MSAs)
            --tool sylph   sylph profile of the set's paired samples and of its single-read samples (sylph/*.tsv,
-                          sylph.log; a sample of several files is joined first), against --sylph-db. Each genome is
-                          given its species by accession in the GTDB taxonomy of --gtdb (the truth's release first,
-                          so a database of another release is scored in the truth's names; then, comma-separated,
+                          sylph.log; a sample of several files is joined first, in --scratch if given), against
+                          --sylph-db. Each genome is given its species by accession in the GTDB taxonomy of --gtdb
+                          (a folder of a release's taxonomy or metadata files, not the truth; the truth's release
+                          first, so a database of another release is scored in the truth's names; then, comma-separated,
                           the database's release for the genomes the truth's lacks; a genome neither has is kept
                           under its accession), and its Taxonomic_abundance (a share of cells) is summed per species
                           into a profile in protal's format, without "?".
@@ -45,7 +49,8 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
 
 Usage on a SLURM cluster (protal at r226 needs ~40 GB of memory):
   sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads /scratch/mocks \\
-      --db /path/protal_db -t 32 --sets d6331_dna,meslier,d6331_hifi"
+      --out /path/results --protal /path/protal --db /path/protal_db -t 32 --scratch \\$TMPDIR \\
+      --sets d6331_dna,meslier,d6331_hifi"
   sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run \\
       --reads /scratch/mocks --db /path/protal_db -t 16 --sets hcom2_invitro --chunks 10"
   sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph \\
@@ -68,6 +73,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -128,7 +134,7 @@ def version_lines(command):
     try:
         result = subprocess.run([command, "--version"], capture_output=True, text=True, timeout=300)
     except OSError as err:
-        sys.exit(f"{command} --version failed ({err})")
+        sys.exit(f"{command} --version failed ({err}); --protal or --sylph names the binary")
     return (result.stdout + result.stderr).strip().splitlines()
 
 
@@ -228,14 +234,20 @@ def run_command(command, folder, log_name):
 
 def run_protal(args, folder, todo):
     map_path = os.path.join(folder, "map.tsv")
+    # SAM and PROFILE named, so that they go to alignments/ and profiles/ (without them protal writes
+    # <PREFIX>.sam.zst and <PREFIX>.profile into #OUTPUT_DIR itself). With --scratch and without --strains no SAM
+    # named: protal names it and writes it into its folder in --scratch_dir, and removes it once profiled.
+    keep_sams = not args.scratch or args.strains
     with open(map_path, "w") as fh:
-        # SAM and PROFILE named, so that they go to alignments/ and profiles/ (without them protal writes
-        # <PREFIX>.sam.zst and <PREFIX>.profile into #OUTPUT_DIR itself)
-        fh.write(f"#OUTPUT_DIR\t{folder}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE\n")
+        columns = ["SAMPLEID", "PREFIX", "FIRST", "SECOND", "READ_TYPE"] + (["SAM"] if keep_sams else []) + ["PROFILE"]
+        fh.write(f"#OUTPUT_DIR\t{folder}\n#" + "\t".join(columns) + "\n")
         for s in todo:
-            fh.write(f"{s['sample']}\t{s['sample']}\t{s['first']}\t{s['second']}\t{s['read_type']}\t"
-                     f"{s['sample']}.sam.zst\t{s['sample']}.profile\n")
+            row = [s["sample"], s["sample"], s["first"], s["second"], s["read_type"]]
+            row += ([s["sample"] + ".sam.zst"] if keep_sams else []) + [s["sample"] + ".profile"]
+            fh.write("\t".join(row) + "\n")
     command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
+    if args.scratch:
+        command += ["--scratch_dir", args.scratch]
     if not args.strains:
         command.append("--no_strains")
     command.append("--force")  # a SAM without its profile may be a killed run's
@@ -317,8 +329,12 @@ def sylph_profiles(tsvs, sample_of_file, lineages, profiles):
 
 
 def run_sylph(args, folder, todo, lineages):
-    merged = os.path.join(folder, "joined")
-    os.makedirs(merged, exist_ok=True)
+    if args.scratch:
+        os.makedirs(args.scratch, exist_ok=True)
+        merged = tempfile.mkdtemp(prefix="score_mocks_joined_", dir=args.scratch)
+    else:
+        merged = os.path.join(folder, "joined")
+        os.makedirs(merged, exist_ok=True)
     paired, single = [], []
     for s in todo:
         if args.dry_run:  # the commands only: no files joined
@@ -390,9 +406,12 @@ def run(args):
     lineages = None
     if args.tool == "sylph":
         if not args.sylph_db or not args.gtdb:
-            sys.exit("--tool sylph needs --sylph-db and --gtdb (the folder of the truth's GTDB taxonomy)")
+            sys.exit("--tool sylph needs --sylph-db and --gtdb (a folder of GTDB r226's bac120/ar53_taxonomy_r226.tsv"
+                     ".gz or _metadata_, the truth's release; the truth tables themselves come with the script)")
         lineages = load_taxonomy([os.path.expanduser(f) for f in args.gtdb.split(",") if f])
     out = os.path.abspath(args.out or args.reads)
+    if args.scratch:
+        args.scratch = os.path.abspath(os.path.expanduser(args.scratch))
     version = None  # the installed tool's, asked for once a sample is to be run
     if args.run_name:
         name = args.run_name
@@ -720,6 +739,10 @@ def main():
                            "sylph_<installed version>_<database>, not the run folder it has)")
             p.add_argument("--dry-run", "--map-only", dest="dry_run", action="store_true",
                            help="write protal's maps and print the commands, run nothing")
+            p.add_argument("--scratch", default="", help="a folder on the node's own disk (e.g. $TMPDIR) for "
+                           "intermediate files: protal's SAMs (its --scratch_dir, protal 0.8.3 on; removed once "
+                           "profiled, kept in alignments/ only with --strains) and sylph's joined read files "
+                           "(default: none, SAMs kept in alignments/)")
             g = p.add_argument_group("protal")
             g.add_argument("--db", default="", help="the protal database")
             g.add_argument("--protal", default="protal", help="the protal binary (default: protal on PATH)")
