@@ -683,6 +683,223 @@ TEST(MateGuidance, ASureMateGuidesTheOther) {
     }
 }
 
+namespace {
+    // BestDiagonal as it was before 2026-10-15 (the window's k-mers sorted, the read's looked up in them).
+    mate_guidance::Diagonal SortedWindowDiagonal(std::string_view read, std::string_view window, int64_t window_start, size_t k) {
+        std::vector<std::pair<uint32_t, uint32_t>> window_kmers, read_kmers;
+        std::vector<std::pair<int64_t, uint32_t>> diagonals;
+        mate_guidance::Kmers(window, k, window_kmers);
+        std::sort(window_kmers.begin(), window_kmers.end());
+        mate_guidance::Kmers(read, k, read_kmers);
+        for (auto const& [code, readpos] : read_kmers) {
+            for (auto const& [wcode, wpos] : window_kmers) {
+                if (wcode == code) diagonals.emplace_back(window_start + static_cast<int64_t>(wpos) - static_cast<int64_t>(readpos), readpos);
+            }
+        }
+        std::sort(diagonals.begin(), diagonals.end());
+        mate_guidance::Diagonal best;
+        for (size_t i = 0; i < diagonals.size();) {
+            size_t j = i;
+            while (j < diagonals.size() && diagonals[j].first == diagonals[i].first) j++;
+            if (j - i > best.hits) best = { diagonals[i].first, j - i, diagonals[i].second };
+            i = j;
+        }
+        return best;
+    }
+}
+
+TEST(MateGuidance, TheDiagonalIsTheSameWhicheverSideIsSorted) {
+    std::mt19937 rng(7);
+    std::uniform_int_distribution<int> base(0, 3), length(1, 400), change(0, 9);
+    for (int round = 0; round < 300; round++) {
+        // A window of repeats now and then (several diagonals tie), a read from it with changes, or a random one.
+        std::string window = test::RandomSequence(static_cast<size_t>(length(rng)) + 20, rng);
+        if (round % 5 == 0) window += window.substr(0, window.size() / 2);
+        std::string read;
+        if (round % 7 == 0) {
+            read = test::RandomSequence(static_cast<size_t>(length(rng)), rng);
+        } else {
+            size_t const from = static_cast<size_t>(rng() % window.size());
+            read = window.substr(from, static_cast<size_t>(length(rng)));
+            for (auto& c : read) {
+                if (change(rng) == 0) c = "ACGT"[base(rng)];
+            }
+            if (round % 3 == 0) read = read + read;  // longer than the window at times
+        }
+        int64_t const start = static_cast<int64_t>(rng() % 1000);
+        auto const now = mate_guidance::BestDiagonal(read, window, start, 12);
+        auto const before = SortedWindowDiagonal(read, window, start, 12);
+        ASSERT_EQ(now.hits, before.hits) << round;
+        if (before.hits == 0) continue;
+        EXPECT_EQ(now.offset, before.offset) << round;
+        EXPECT_EQ(now.readpos, before.readpos) << round;
+    }
+}
+
+TEST(MateGuidance, BothMatesVote) {
+    TwoTaxaReference ref;  // taxa 1 and 2 have the same genes
+    auto r1 = Record("frag/1", ref.gene.substr(0, 20));
+    auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.gene.substr(24, 20)));
+    std::string const rev1 = KmerUtils::ReverseComplement(r1.sequence), rev2 = KmerUtils::ReverseComplement(r2.sequence);
+    auto write = [&](PairedAlignmentResultList results, PairVote const* vote) {
+        std::ostringstream os;
+        SamStreamSink sink(os);
+        {
+            ProtalPairedOutputHandler<false> handler(sink, 1, 0, 1 << 16, *ref.loader);
+            handler(results, r1, r2, 0, true, {}, {}, vote);
+        }
+        std::vector<std::vector<std::string>> records;
+        std::istringstream in(os.str());
+        std::string line;
+        std::vector<std::string> tokens;
+        while (std::getline(in, line)) {
+            LineSplitter::Split(line, "\t", tokens);
+            records.push_back(tokens);
+        }
+        return records;
+    };
+
+    // Mate 1 aligned to taxon 1 only, mate 2 to taxon 2 only, and each is found on the other's taxon as well as on its
+    // own: the sums tie (40 + 40), so the fragment goes to the better candidate's taxon with MAPQ 0, its mates as a pair.
+    // Guidance instead completes taxon 1's pair and doubles its score against taxon 2's lone mate.
+    {
+        PairedAlignmentResultList pairs{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { AlignmentResult(), OnTaxon(2, 1, 24, false) } };
+        RecordingHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        ASSERT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(handler.seen.size(), 2u);  // mate 2 on taxon 1, mate 1 on taxon 2
+        EXPECT_EQ(counts.vote_looked_for, 2u);
+        EXPECT_EQ(counts.vote_found, 2u);
+        EXPECT_EQ(counts.vote_disagreed, 1u);
+        ASSERT_TRUE(vote.decided);
+        EXPECT_FALSE(vote.split);
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, 0);
+        ASSERT_TRUE(pairs[0].first.IsSet() && pairs[0].second.IsSet());
+        EXPECT_EQ(pairs[0].second.Taxid(), 1u);
+        EXPECT_EQ(pairs[0].second.GetAlignmentInfo().gene_alignment_start, 24);
+        auto const records = write(pairs, &vote);
+        ASSERT_EQ(records.size(), 2u);
+        EXPECT_EQ(records[0][2], "1_1");
+        EXPECT_EQ(records[1][2], "1_1");
+        EXPECT_EQ(records[0][4], "0");
+        EXPECT_EQ(records[1][4], "0");
+
+        PairedAlignmentResultList guided{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { AlignmentResult(), OnTaxon(2, 1, 24, false) } };
+        RecordingHandler guide_handler;
+        ASSERT_TRUE(GuideMate(guided, {}, {}, r1, r2, rev1, rev2, guide_handler, *ref.loader, counts));
+        auto const guided_records = write(guided, nullptr);
+        ASSERT_EQ(guided_records.size(), 2u);
+        EXPECT_EQ(std::stoi(guided_records[0][4]), MAPQv2(80, 40));
+    }
+    // Neither mate is found on the other's taxon: each scores there as an alignment of its 20 bases at the identity
+    // floor (0.9: 1.5 a base, 30), at most its best (40, 35). Taxon 1 (40 + 30) against taxon 2 (30 + 35). Mate 2 has
+    // no alignment of taxon 1: it keeps its own of taxon 2, with MAPQ 0; the two mates are written apart.
+    {
+        PairedAlignmentResultList pairs{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { AlignmentResult(), OnTaxon(2, 1, 24, false, 1) } };
+        RecordingHandler handler;
+        handler.fail = true;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        ASSERT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(counts.vote_found, 0u);
+        ASSERT_TRUE(vote.decided);
+        EXPECT_TRUE(vote.split);
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, MAPQv2(70, 65));
+        EXPECT_EQ(vote.mate_mapq[0], MAPQv2(70, 65));
+        EXPECT_EQ(vote.mate_mapq[1], 0);
+        EXPECT_EQ(counts.vote_kept, 1u);
+        auto const records = write(pairs, &vote);
+        ASSERT_EQ(records.size(), 2u);
+        EXPECT_EQ(records[0][2], "1_1");
+        EXPECT_EQ(std::stoi(records[0][4]), MAPQv2(70, 65));
+        EXPECT_EQ(records[1][2], "2_1");
+        EXPECT_EQ(records[1][4], "0");
+
+        // A mate the reference of the right taxon lacks: mate 1 fits taxon 1 perfectly and taxon 2 with 2 mismatches
+        // (30); mate 2 aligned to taxon 2's gene 2 only, with 2 mismatches (30), and is not found on taxon 1. Its
+        // absence there counts as an alignment at the floor (30), so taxon 1 (40 + 30) keeps the fragment against
+        // taxon 2 (30 + 30), as the sure mate says; counted as 0, taxon 2's two poor mates would have won (60 to 40).
+        PairedAlignmentResultList lacking{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { OnTaxon(2, 1, 0, true, 2), AlignmentResult() },
+                                           { AlignmentResult(), OnTaxon(2, 2, 0, false, 2) } };
+        ASSERT_TRUE(VoteMates(lacking, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, MAPQv2(70, 60));
+        EXPECT_EQ(vote.mate_mapq[1], 0);  // mate 2 keeps taxon 2's alignment, with MAPQ 0
+    }
+    // Both mates aligned to both taxa: no mate is looked for. Taxon 1 wins (40 + 35 against 25 + 40); mate 2's own
+    // alignment of taxon 2 is better by one mismatch only, not clearly (MAPQ under kVoteClearlyBetterMapq), so it is
+    // written on taxon 1 too, both with the vote's MAPQ.
+    {
+        PairedAlignmentResultList pairs{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { AlignmentResult(), OnTaxon(2, 2, 0, false) },
+                                         { AlignmentResult(), OnTaxon(1, 2, 0, false, 1) }, { OnTaxon(2, 1, 0, true, 3), AlignmentResult() } };
+        RecordingHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        ASSERT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_TRUE(handler.seen.empty());
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, MAPQv2(75, 65));
+        EXPECT_TRUE(vote.split);  // mates on two genes
+        EXPECT_EQ(vote.mate_mapq[0], vote.mapq);
+        EXPECT_EQ(vote.mate_mapq[1], vote.mapq);
+        EXPECT_EQ(pairs[vote.index[1]].second.Taxid(), 1u);
+        EXPECT_EQ(pairs[vote.index[1]].second.GeneId(), 2u);
+    }
+    // Mate 2's own alignment of taxon 2 is clearly better than its alignment of the winner (40 against 25, MAPQ 25):
+    // it keeps it, with MAPQ 0, and mate 1 alone stands for taxon 1 (40 + 25 against 20 + 40).
+    {
+        PairedAlignmentResultList pairs{ { OnTaxon(1, 1, 0, true), AlignmentResult() }, { AlignmentResult(), OnTaxon(2, 2, 0, false) },
+                                         { AlignmentResult(), OnTaxon(1, 2, 0, false, 3) }, { OnTaxon(2, 1, 0, true, 4), AlignmentResult() } };
+        RecordingHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        ASSERT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_TRUE(handler.seen.empty());
+        EXPECT_EQ(vote.taxid, 1u);
+        EXPECT_EQ(vote.mapq, MAPQv2(65, 60));
+        ASSERT_TRUE(vote.split);
+        EXPECT_EQ(pairs[vote.index[1]].second.Taxid(), 2u);
+        EXPECT_EQ(vote.mate_mapq[0], vote.mapq);
+        EXPECT_EQ(vote.mate_mapq[1], 0);
+    }
+    // Mate 2 aligned nowhere and is found on mate 1's gene: the pair is completed, with the MAPQ of taxon 1's sum
+    // against nothing. Not found: mate 1 alone, with the MAPQ of its score.
+    {
+        PairedAlignmentResultList pairs{ { OnTaxon(1, 1, 0, true), AlignmentResult() } };
+        RecordingHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        ASSERT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_FALSE(vote.split);
+        ASSERT_EQ(pairs.size(), 1u);
+        EXPECT_TRUE(pairs[0].second.IsSet());
+        EXPECT_EQ(vote.mapq, MAPQv2(80, 0));
+
+        PairedAlignmentResultList alone{ { OnTaxon(1, 1, 0, true), AlignmentResult() } };
+        handler.fail = true;
+        ASSERT_TRUE(VoteMates(alone, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_FALSE(vote.split);
+        EXPECT_FALSE(alone[0].second.IsSet());
+        EXPECT_EQ(vote.mate_mapq[0], MAPQv2(40, 0));
+        auto const records = write(alone, &vote);
+        ASSERT_EQ(records.size(), 1u);
+        EXPECT_EQ(std::stoi(records[0][4]), MAPQv2(40, 0));
+    }
+    // No vote where the best candidate is a pair.
+    {
+        PairedAlignmentResultList paired{ { OnTaxon(1, 1, 0, true), OnTaxon(1, 1, 24, false) }, { AlignmentResult(), OnTaxon(2, 1, 24, false) } };
+        RecordingHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        EXPECT_FALSE(VoteMates(paired, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_FALSE(vote.decided);
+        EXPECT_EQ(counts.voted, 0u);
+    }
+}
+
 TEST(PairedOutputHandler, TagsBothMatesOfTheBestPair) {
     TinyReference ref;
     auto r1 = Record("frag/1", ref.gene.substr(0, 20));

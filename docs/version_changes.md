@@ -63,6 +63,20 @@ for this page.
     53-111 s (96-149 s), from scratch 86-90 s (105-157 s) ([report](claude/2026-10-14-compile-time/README.md#implementation)).
   - **Cost:** the units together do 1.6 times the old compile's work, and the binary's code is 12% larger. The
     outputs and the alignment's and profiling's instructions are the same (within 1%).
+- **The mates of a pair vote on its taxon** (2026-10-15). `--mate_guidance consensus` is the default; `guide` is the
+  guidance of 0.7.1-0.8.4, and `off` (`--no_mate_guidance`) is neither
+  ([running.md](running.md#alignment-options)).
+  - **The vote:** a pair whose mates did not align together as its best candidate is scored on every taxon either
+    mate aligned to by the sum of both mates' scores. A mate without an alignment there is looked for, and where it
+    is not found it scores as an alignment at the identity floor. The MAPQ comes from the margin over the next taxon.
+  - **Why:** guidance completed the pair on a sure mate's taxon without weighing the other mate's own alignment, and
+    doubled its MAPQ (audit L1).
+  - **Effect, with the models trained on `guide`:** on the reduced r226 database's simulated test sets the calls are
+    the same within 1-2 species (its own test set: F1 0.9597 to 0.9618), and on six paired-end mocks they are
+    identical. Fragments counted for a wrong species fall by 0.3-0.4%, those for the right one by 0.02-0.05%.
+  - **Cost:** +2.65% of the paired-end alignment loop's instructions against `guide` (200,000 pairs of a real sample).
+  - **Databases:** a database should record the mode its models were trained with (`build_settings.tsv`); the
+    databases built up to now used `guide` ([report](claude/2026-10-15-mate-consensus/README.md)).
 
 ## What 0.8.4 adds
 

@@ -1,0 +1,13 @@
+sample	taxon	taxon_name	truth	in	prediction	probability
+rl150_p10000_s_1	636	s__Geomonas bemidjiensis	0	guide	0	0.09375
+rl150_p10000_s_3	428	s__Vescimonas cirricatena	0	guide	0	0.015625
+rl150_p100000_s_2	573	s__Alistipes senegalensis	0	guide	0	0
+rl150_p100000_s_2	718	s__Kosakonia oryzae	0	guide	0	0.03125
+rl150_p100000_s_8	677	s__Ruegeria_B alba	0	guide	0	0.03125
+rl150_p1000000_s_10	264	s__Bariatricus comes_A	0	guide	0	0
+rl150_p1000000_s_4	288	s__Clostridium_AP sp000509125	0	guide	0	0
+rl150_p1000000_s_4	381	s__Roseburia_C sp023390555	0	guide	0	0
+rl150_p1000000_s_5	80	s__Bifidobacterium catenulatum	0	guide	0	0
+rl150_p1000000_s_9	690	s__Paraburkholderia sp900996235	0	guide	0	0
+rl150_p1000000_s_9	753	s__Thermotoga neapolitana	0	guide	0	0.015625
+rl250_p100000_s_10	415	s__Hominicoprocola sp017458025	0	guide	0	0.125

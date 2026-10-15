@@ -39,7 +39,8 @@ namespace protal {
                 ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and --weighted_site_shift has nothing to weigh by. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
                 ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
-                ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
+                ("mate_guidance", "Paired-end reads whose mates did not align together as their best candidate: consensus (both mates vote: every taxon either mate aligned to is scored by the sum of the two mates' best scores on it, a mate without an alignment there looked for on the other mate's gene or its neighbours, or from its own anchor of the taxon, else scored as an alignment at the identity floor, at most its best elsewhere; the best sum wins, with the MAPQ of its margin over the next taxon's), guide (a mate sure of its alignment, MAPQ 20 or more, makes the other one align to its taxon; protal 0.7.1 to 0.8.4), or off (neither). The database's models are trained with one of them.", cxxopts::value<std::string>()->default_value(std::string(MateGuidanceName(kDefaultMateGuidance))))
+                ("no_mate_guidance", "The same as --mate_guidance off (kept for older command lines).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
                 ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy).")
                 ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default foreign genes are left out of both; .profile.genes.log lists them either way.")
@@ -246,6 +247,7 @@ namespace protal {
                                                   m_build ? "mapq (auto)" : "auto (the database's)") << '\n';
         result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
         result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
+        result_str << "mate guidance:       " << MateGuidanceName(m_mate_guidance) << '\n';
         if (long_reads) {
             result_str << "indel bound:         " << (m_no_alignment_screen ? "off (--no_alignment_screen)" :
                                                       m_no_indel_bound ? "off (--no_indel_bound: ONT reads screened by their k-mers)" :
@@ -1228,7 +1230,12 @@ namespace protal {
         }
 
         bool no_strains = result.count("no_strains");
-        bool no_mate_guidance = result.count("no_mate_guidance");
+        auto const mate_guidance = result.count("no_mate_guidance") ? std::optional(MateGuidanceMode::Off)
+                                                                    : ParseMateGuidance(result["mate_guidance"].as<std::string>());
+        if (!mate_guidance) {
+            std::cerr << "Error: --mate_guidance must be consensus, guide or off, not '" << result["mate_guidance"].as<std::string>() << "'" << std::endl;
+            exit(2);
+        }
         bool no_gene_neighbours = result.count("no_gene_neighbours");
         bool keep_foreign_genes = result.count("keep_foreign_genes");
         bool keep_suspect_copies = result.count("keep_suspect_copies");
@@ -1701,7 +1708,7 @@ namespace protal {
         d.no_profile               = no_profile;
         d.profile_only             = profile_only;
         d.no_strains               = no_strains;
-        d.no_mate_guidance         = no_mate_guidance;
+        d.mate_guidance            = *mate_guidance;
         d.no_gene_neighbours       = no_gene_neighbours;
         d.keep_foreign_genes       = keep_foreign_genes;
         d.no_phasing               = no_phasing;

@@ -1,0 +1,4 @@
+right_lost	310
+right_gained	53
+wrong_gained	42
+wrong_lost	61

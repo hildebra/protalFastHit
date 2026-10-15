@@ -686,16 +686,25 @@ namespace protal {
         // Writes both mates of a fragment whose mates align only separately: to two genes (e.g.
         // neighbouring genes of an operon; candidates pair mates only within one gene) or to one gene
         // in the wrong orientation. Each mate is written at its best alignment of the pair's consensus
-        // taxon (SettleMatesByPair), flagged paired but not properly paired. Ranking the two
+        // taxon (SettleMatesByPair), flagged paired but not properly paired, or, after the mates voted
+        // (`vote`, VoteMates), at the candidate and with the MAPQ the vote gave it. Ranking the two
         // single-mate candidates against each other instead gave MAPQ ~0 and lost the fragment. Returns
         // false, writing nothing, when only one mate aligned or an alignment is unusable; the caller then
         // writes the candidates as usual. Only these two primary records are written, also with -m > 1.
         bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname,
-                             std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {}) {
-            auto best1 = BestOfMate(results, true);
-            auto best2 = BestOfMate(results, false);
-            if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
-            SettleMatesByPair(results, best1, best2);
+                             std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {},
+                             PairVote const* vote = nullptr) {
+            MateBest best1, best2;
+            if (vote) {
+                best1 = { vote->index[0], vote->mate_mapq[0] };
+                best2 = { vote->index[1], vote->mate_mapq[1] };
+                if (best1.index >= results.size() || best2.index >= results.size()) return false;
+            } else {
+                best1 = BestOfMate(results, true);
+                best2 = BestOfMate(results, false);
+                if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
+                SettleMatesByPair(results, best1, best2);
+            }
             auto& ar1 = results[best1.index].first;
             auto& ar2 = results[best2.index].second;
             if (CigarANI(ar1.Cigar()) < m_min_cigar_ani || CigarANI(ar2.Cigar()) < m_min_cigar_ani) return false;
@@ -754,8 +763,12 @@ namespace protal {
         // failed: the taxa either mate seeded on but neither aligned to (FailedCandidates), the fragment's ZF tag; on
         // its first record, or on an unmapped record when the fragment has no record. crowding: the taxa each mate's
         // seeds could not tell apart (SimpleAlignmentHandler::Crowding), each mate's ZN tag on its primary record.
+        // vote: how the mates voted (--mate_guidance consensus, VoteMates): the first candidate, or two mates on two
+        // candidates, with the vote's MAPQs.
         PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true,
-                                          std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {}) {
+                                          std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {},
+                                          PairVote const* vote = nullptr) {
+            if (vote && !vote->decided) vote = nullptr;
             m_last = { false, 0 };
             if (alignment_results.empty()) {
                 WriteUnmapped(record1, record2, failed);
@@ -775,7 +788,8 @@ namespace protal {
             m_last = { true, static_cast<uint32_t>(anchor.Taxid()) };
 
             auto const qname = PairQName(record1.id, record2.id);
-            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed, crowding)) {
+            if (vote ? vote->split && WriteSplitMates(alignment_results, record1, record2, qname, failed, crowding, vote)
+                     : !(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed, crowding)) {
                 return;
             }
 
@@ -788,7 +802,8 @@ namespace protal {
             std::string alignment_data_str = "";
 
 
-            int mapq = MAPQv1(alignment_results);
+            // After a vote, the first candidate's MAPQ is the vote's (0 for a mate that kept another taxon's alignment).
+            int mapq = vote ? vote->mate_mapq[best.first.IsSet() ? 0 : 1] : MAPQv1(alignment_results);
 
             auto& any = best.first.IsSet() ? best.first : best.second;
 

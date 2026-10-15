@@ -5,7 +5,9 @@
 // relatives). A read is one organism, so its parts are given one taxon: the read's consensus.
 
 #include <algorithm>
+#include <array>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -16,6 +18,18 @@ namespace protal {
     struct PartCandidate {
         uint32_t taxid = 0;
         int score = 0;
+    };
+
+    // How a pair's mates are written after they voted (--mate_guidance consensus, VoteMates in MateGuidance.h): one
+    // candidate, the first (a pair, or a mate whose other mate aligned nowhere), or each mate on a candidate of its own
+    // (`split`, ProtalPairedOutputHandler::WriteSplitMates).
+    struct PairVote {
+        bool decided = false;  // the vote settled the fragment
+        bool split = false;    // the mates are written on two candidates
+        uint32_t taxid = 0;    // the vote's taxon
+        int mapq = 0;          // the vote's MAPQ: its taxon's sum of the mates' scores against the next taxon's
+        std::array<size_t, 2> index{ SIZE_MAX, SIZE_MAX };  // each mate's candidate (SIZE_MAX: none)
+        std::array<int, 2> mate_mapq{ 0, 0 };  // each mate's MAPQ: the vote's on its taxon, 0 on another taxon
     };
 
     struct ReadConsensus {
