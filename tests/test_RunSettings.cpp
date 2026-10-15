@@ -33,6 +33,7 @@ namespace {
         s.keep_foreign_genes = true;
         s.keep_suspect_copies = false;
         s.depth_identity_margin = 0.08;
+        s.gene_end_clips = "credit";
         return s;
     }
 }
@@ -48,7 +49,7 @@ TEST(RunSettings, WrittenAndReadBack) {
     for (auto const* line : { "weighted_site_shift\ton\n", "allele_scores\toff\n", "align_top\t5\n", "adaptive_candidates\t0\n",
                               "mate_guidance\toff\n", "max_score_ani_pe\t0.9\n", "max_score_ani_ont\t0.85\n",
                               "unique_kmers\tcores\n", "keep_foreign_genes\ton\n", "keep_suspect_copies\toff\n",
-                              "depth_identity_margin\t0.08\n" }) {
+                              "depth_identity_margin\t0.08\n", "gene_end_clips\tcredit\n" }) {
         EXPECT_NE(text.find(line), std::string::npos) << line;
     }
     build_settings::Settings read;
@@ -73,12 +74,20 @@ TEST(RunSettings, OlderFilesSayNothingLaterOnesAreTolerated) {
 
     build_settings::Settings later;
     std::istringstream after("max_score_ani_hifi\t0.95\nmate_guidance\tvote\nunique_kmers\tgrid\nnew_setting\t1\n"
-                             "allele_scores\ton\n");
+                             "allele_scores\ton\ngene_end_clips\tpartial\n");
     ASSERT_EQ(build_settings::Read(after, later), "");
     EXPECT_EQ(later.run.mate_guidance, std::optional<std::string>("vote"));
     EXPECT_FALSE(build_settings::KnownMateGuidance(*later.run.mate_guidance));
     for (auto const* mode : { "consensus", "guide", "off" }) EXPECT_TRUE(build_settings::KnownMateGuidance(mode)) << mode;
     EXPECT_FALSE(build_settings::KnownMateGuidance("on"));
+    // gene_end_clips (after 0.8.5): credit or off, a later protal's value kept as text; none recorded is off.
+    EXPECT_EQ(later.run.gene_end_clips, std::optional<std::string>("partial"));
+    EXPECT_FALSE(build_settings::KnownGeneEndClips(*later.run.gene_end_clips));
+    EXPECT_EQ(build_settings::ParseGeneEndClips("credit"), std::optional<bool>(true));
+    EXPECT_EQ(build_settings::ParseGeneEndClips("off"), std::optional<bool>(false));
+    EXPECT_FALSE(build_settings::ParseGeneEndClips("on"));
+    EXPECT_EQ(build_settings::DatabaseGeneEndClips(older.run), "off");
+    EXPECT_EQ(build_settings::DatabaseGeneEndClips(later.run), "partial");
     EXPECT_EQ(later.run.unique_kmers, std::optional<std::string>("grid"));
     EXPECT_EQ(later.run.allele_scores, std::optional<bool>(true));
     for (auto const& floor : later.run.max_score_ani) EXPECT_FALSE(floor);
@@ -87,7 +96,7 @@ TEST(RunSettings, OlderFilesSayNothingLaterOnesAreTolerated) {
 
     for (auto const* bad : { "allele_scores\tyes\n", "align_top\tthree\n", "adaptive_candidates\t-1\n",
                              "depth_identity_margin\t-0.1\n", "max_score_ani_ont\tnan\n", "keep_foreign_genes\t1\n",
-                             "mate_guidance\t\n" }) {
+                             "mate_guidance\t\n", "gene_end_clips\t\n" }) {
         build_settings::Settings settings;
         std::istringstream is(std::string("# a comment\n") + bad);
         EXPECT_NE(build_settings::Read(is, settings).find("line 2"), std::string::npos) << bad;
@@ -155,17 +164,38 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     EXPECT_EQ(used.mate_guidance, std::optional<std::string>("off"));
     EXPECT_EQ(used.max_score_ani[index(ReadType::PacBio)], std::optional<double>(0.88));
     EXPECT_EQ(used.unique_kmers, std::optional<std::string>("cores"));
+    EXPECT_TRUE(options.GeneEndClips());  // the database's credit
+    EXPECT_EQ(used.gene_end_clips, std::optional<std::string>("credit"));
 
     // A mode this protal does not know leaves its default.
     Options plain{ OptionsData() };
+    EXPECT_FALSE(plain.GeneEndClips());  // off by default
+    EXPECT_EQ(plain.RunSettingsInUse().gene_end_clips, std::optional<std::string>("off"));
     recorded.mate_guidance = "vote";
+    recorded.gene_end_clips = "partial";
     plain.FollowDatabaseRunSettings(recorded);
     EXPECT_EQ(plain.GetMateGuidance(), kDefaultMateGuidance);
-    // A database that records no mode (built before 2026-10-15) trained its models with guide; a mode given stays.
+    EXPECT_FALSE(plain.GeneEndClips());
+    // A database that records no mode (built before 2026-10-15) trained its models with guide; a mode given stays. One
+    // that records no gene_end_clips was trained with off.
     Options older{ OptionsData() };
     older.FollowDatabaseRunSettings(build_settings::RunSettings());
     EXPECT_EQ(older.GetMateGuidance(), MateGuidanceMode::Guide);
     EXPECT_EQ(older.RunSettingsInUse().mate_guidance, std::optional<std::string>("guide"));
+    EXPECT_FALSE(older.GeneEndClips());
+    OptionsData off_given;
+    off_given.run_settings_given.gene_end_clips = "off";
+    Options told_off{ off_given };
+    recorded.gene_end_clips = "credit";
+    told_off.FollowDatabaseRunSettings(recorded);
+    EXPECT_FALSE(told_off.GeneEndClips());
+    OptionsData credit_given;
+    credit_given.run_settings_given.gene_end_clips = "credit";
+    credit_given.gene_end_clips = true;
+    Options told_credit{ credit_given };
+    told_credit.FollowDatabaseRunSettings(build_settings::RunSettings());
+    EXPECT_TRUE(told_credit.GeneEndClips());
+    EXPECT_EQ(told_credit.RunSettingsInUse().gene_end_clips, std::optional<std::string>("credit"));
     OptionsData consensus_given;
     consensus_given.run_settings_given.mate_guidance = "consensus";
     consensus_given.mate_guidance = MateGuidanceMode::Consensus;

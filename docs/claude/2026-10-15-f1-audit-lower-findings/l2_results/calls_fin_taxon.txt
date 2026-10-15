@@ -1,0 +1,8 @@
+sample	TP/FP/FN kept	TP/FP/FN rule	changes
+rl150_p1000000_s_1	47/0/2	48/0/1	4 taxa moved; calls changed: s__Coprococcus sp963600665 (truth 1) P 0.484 -> 0.500
+rl150_p100000_s_7	41/0/2	41/1/1	4 taxa moved; calls changed: s__Veillonella sp900549845 (truth 0) P 0.484 -> 0.500
+rl150_p100000_s_9	43/0/1	44/0/1	4 taxa moved; calls changed: s__Methanococcus voltae_C (truth 1) P nan -> 0.500
+rl250_p10000_s_1	29/0/1	30/0/0	1 taxa moved; calls changed: s__Herpetosiphon giganteus (truth 1) P 0.453 -> 0.516
+# mock: kept TP/FP/FN 0/0/0 F1 0.0000; rule 0/0/0 F1 0.0000
+# sim: kept TP/FP/FN 1669/11/30 F1 0.9879; rule 1672/12/27 F1 0.9885
+# samples with any probability moved: 39

@@ -1,0 +1,5 @@
+sample	TP/FP/FN kept	TP/FP/FN rule	changes
+rl150_p100000_s_8	34/0/0	34/1/0	6 taxa moved; calls changed: s__Mitsuokella jalaludinii (truth 0) P nan -> 0.500
+# mock: kept TP/FP/FN 0/0/0 F1 0.0000; rule 0/0/0 F1 0.0000
+# sim: kept TP/FP/FN 1089/25/58 F1 0.9633; rule 1089/26/57 F1 0.9633
+# samples with any probability moved: 42

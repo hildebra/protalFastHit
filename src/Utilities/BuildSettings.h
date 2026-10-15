@@ -7,8 +7,8 @@
 // stride: DatabasePick): the reads it gives up count no failed candidates, so the models are trained on runs gated
 // alike. Since 2026-10-15 also the run settings the models' features depend on (RunSettings: the site shift, the allele
 // scores, --align_top, --adaptive_candidates, mate guidance, the identity floor of each read type, the unique k-mers'
-// scheme, foreign genes, suspect copies, the depth identity margin), which runs follow when their options are left at
-// auto and are warned about otherwise (Run.cpp ApplyRunSettings). A
+// scheme, foreign genes, suspect copies, the depth identity margin; after 0.8.5 the credit of clips past gene ends),
+// which runs follow when their options are left at auto and are warned about otherwise (Run.cpp ApplyRunSettings). A
 // database built before 2026-10-11 has no build_settings.tsv; it was built with the classic traceback.
 #pragma once
 
@@ -180,6 +180,11 @@ namespace protal::build_settings {
     inline constexpr std::string_view kKeepForeignGenes = "keep_foreign_genes";        // on, off
     inline constexpr std::string_view kKeepSuspectCopies = "keep_suspect_copies";      // on, off
     inline constexpr std::string_view kDepthIdentityMargin = "depth_identity_margin";  // decimal
+    // gene_end_clips (after 0.8.5): credit, off (a later protal's values too); a database that records none was trained
+    // with off, the ranking of every protal before (DatabaseGeneEndClips).
+    inline constexpr std::string_view kGeneEndClips = "gene_end_clips";
+    inline constexpr std::string_view kGeneEndClipsCredit = "credit";
+    inline constexpr std::string_view kGeneEndClipsOff = "off";
     // unique_kmers: ZS, ZU and ZT from the gene's cores an alignment covers (unique_cores.bin), or from its anchor's seeds.
     inline constexpr std::string_view kUniqueCores = "cores";
     inline constexpr std::string_view kUniqueAnchors = "anchors";
@@ -188,7 +193,8 @@ namespace protal::build_settings {
 
     // The settings of a run that change its alignments or the features its models read: those --build ran with
     // (build_settings.tsv), those a run was given (nothing: auto, the database's), or those it uses. Each is nothing where
-    // not said. mate_guidance and unique_kmers are kept as text, so that a later protal's modes read without an error.
+    // not said. mate_guidance, unique_kmers and gene_end_clips are kept as text, so that a later protal's modes read
+    // without an error.
     struct RunSettings {
         std::optional<bool> weighted_site_shift;
         std::optional<bool> allele_scores;
@@ -200,6 +206,7 @@ namespace protal::build_settings {
         std::optional<bool> keep_foreign_genes;
         std::optional<bool> keep_suspect_copies;
         std::optional<double> depth_identity_margin;
+        std::optional<std::string> gene_end_clips;
         bool operator==(RunSettings const&) const = default;
     };
 
@@ -243,6 +250,27 @@ namespace protal::build_settings {
         return ParseMateGuidance(mode).has_value();
     }
 
+    // gene_end_clips: credit is true, off false; nothing for another value (a later protal's).
+    inline std::optional<bool> ParseGeneEndClips(std::string_view value) {
+        if (value == kGeneEndClipsCredit) return true;
+        if (value == kGeneEndClipsOff) return false;
+        return std::nullopt;
+    }
+
+    inline bool KnownGeneEndClips(std::string_view value) {
+        return ParseGeneEndClips(value).has_value();
+    }
+
+    inline std::string GeneEndClipsName(bool credit) {
+        return std::string(credit ? kGeneEndClipsCredit : kGeneEndClipsOff);
+    }
+
+    // What a database's models were trained with: as its build_settings.tsv records it, else off (every database built
+    // before the setting was).
+    inline std::string DatabaseGeneEndClips(RunSettings const& recorded) {
+        return recorded.gene_end_clips.value_or(std::string(kGeneEndClipsOff));
+    }
+
     // The run settings that are said, as build_settings.tsv names them and their values as text, in the file's order:
     // what Write writes, and what runs and databases are compared by (Differences).
     using Fields = std::vector<std::pair<std::string, std::string>>;
@@ -263,6 +291,7 @@ namespace protal::build_settings {
         if (s.keep_foreign_genes) add(kKeepForeignGenes, OnOff(*s.keep_foreign_genes));
         if (s.keep_suspect_copies) add(kKeepSuspectCopies, OnOff(*s.keep_suspect_copies));
         if (s.depth_identity_margin) add(kDepthIdentityMargin, Decimal(*s.depth_identity_margin));
+        if (s.gene_end_clips) add(kGeneEndClips, *s.gene_end_clips);
         return fields;
     }
 
@@ -271,7 +300,7 @@ namespace protal::build_settings {
         std::vector<std::string> names = { std::string(kWeightedSiteShift), std::string(kAlleleScores), std::string(kAlignTop),
                                            std::string(kAdaptiveCandidates), std::string(kMateGuidance) };
         for (auto const& info : kReadTypes) names.push_back(std::string(kMaxScoreAni) + info.token);
-        for (auto name : { kUniqueKmers, kKeepForeignGenes, kKeepSuspectCopies, kDepthIdentityMargin }) names.emplace_back(name);
+        for (auto name : { kUniqueKmers, kKeepForeignGenes, kKeepSuspectCopies, kDepthIdentityMargin, kGeneEndClips }) names.emplace_back(name);
         return names;
     }
 
@@ -335,6 +364,7 @@ namespace protal::build_settings {
         if (name == kKeepForeignGenes) return on_off(run.keep_foreign_genes);
         if (name == kKeepSuspectCopies) return on_off(run.keep_suspect_copies);
         if (name == kDepthIdentityMargin) return decimal(run.depth_identity_margin);
+        if (name == kGeneEndClips) return text(run.gene_end_clips);
         if (name.substr(0, kMaxScoreAni.size()) == kMaxScoreAni) {
             auto const type = ReadTypeFromToken(std::string(name.substr(kMaxScoreAni.size())));
             if (!type) {  // a later version's read type

@@ -1,0 +1,8 @@
+sample	mates	taxon_changed	mapq_up	mapq_down	counted_lost	counted_gained	counted_moved	counted_lost_moved	counted_gained_moved
+d6331_auckland_SRR33710519	88988	130	74	371	32	15	45	48	19
+d6331_dna_SRR38158090	116017	19	20	73	8	0	3	3	7
+d6331_hku_SRR23926922	91911	113	102	358	35	24	32	46	16
+hcom1a_SRR24799833	53307	48	44	185	21	3	11	15	12
+hcom2_SRR21819229	72189	51	121	200	22	8	26	8	8
+treichel_ERR14788576	27191	20	19	94	14	1	4	7	3
+all	449603	381	380	1281	132	51	121	127	65
