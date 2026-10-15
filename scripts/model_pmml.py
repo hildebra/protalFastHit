@@ -32,9 +32,15 @@ normalization: P(TRUE) = 1 / (1 + exp(-sum))). Again bit for bit:
   comparison false) reaches. protal never gives a missing value.
 protal's contract check reads every MiningField of the file: the chained outputs are no
 MiningFields, and the trees' schemas name only features.
+
+The header of either model holds Extensions that protal reads and cPMML skips: the knob curve over the sample's depth,
+the calls at a target share of false calls, the version of each feature's code (protal_feature_versions) and the range
+of each feature in the training rows (protal_feature_ranges); read_depth_knob_curve, read_false_calls,
+read_feature_versions and read_feature_ranges read them back.
 """
 
 import math
+import re
 import sys
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import quoteattr
@@ -94,6 +100,20 @@ DEPTH_KNOBS_EXTENSION = "protal_depth_knobs"
 CALIBRATION_EXTENSION = "protal_calibration"
 PRIOR_EXTENSION = "protal_prior"
 FDR_EXTENSION = "protal_fdr"
+# The version of the code that computed each of a model's features, from `protal --feature_versions` (a TSV: feature,
+# version, changed, note; machine_learning_cmdline.py --feature-versions): "name:version,name:version", the model's
+# features the file names, in the model's order (since 2026-10-15). protal compares them with its own and warns when one
+# differs (the audit's C1, docs/claude/2026-10-15-f1-audit-since-0.6.0a.md).
+FEATURE_VERSIONS_EXTENSION = "protal_feature_versions"
+# The range of each of a model's features over the rows its model was fitted on (all of them, unweighted):
+# "name:min:p01:p99:max,...", every model feature in the model's order, each number C's "%.9g" (std::from_chars and strtod
+# read it), so that protal can say which features of a sample lie outside what the model was trained on (C4; since
+# 2026-10-15). machine_learning_cmdline.py writes it into every model.
+FEATURE_RANGES_EXTENSION = "protal_feature_ranges"
+# A feature's name in these extensions (and protal's names): letters, digits and "_", so that ",", ":" separate; a
+# version: those and ".", "+", "-".
+FEATURE_NAME = re.compile(r"[A-Za-z0-9_]+")
+FEATURE_VERSION = re.compile(r"[A-Za-z0-9_.+-]+")
 
 
 def write_placeholder(path, read_type):
@@ -123,10 +143,11 @@ def write_placeholder(path, read_type):
         fh.write(text)
 
 
-def _write_head(w, features, annotations, depth_knob_curve, false_calls):
+def _write_head(w, features, annotations, depth_knob_curve, false_calls, feature_versions=None, feature_ranges=None):
     """The XML declaration, header (extensions protal reads, annotations), data dictionary (truth: FALSE/TRUE, then the
     features as doubles, without intervals, which cPMML would enforce) of a model -> its top MiningSchema, the target and
-    every feature (cPMML reads the inputs only there)."""
+    every feature (cPMML reads the inputs only there). cPMML's Header reads only its own attributes, so it skips the
+    Extensions, however long."""
     w('<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n')
     w(' <Header description="protal presence model: probability that a taxon is present">\n')
     if depth_knob_curve:
@@ -135,6 +156,11 @@ def _write_head(w, features, annotations, depth_knob_curve, false_calls):
         w(f'  <Extension name="{CALIBRATION_EXTENSION}" value="{format_calibration(false_calls["curve"])}"/>\n')
         w(f'  <Extension name="{PRIOR_EXTENSION}" value="{float(false_calls["prior"])!r}"/>\n')
         w(f'  <Extension name="{FDR_EXTENSION}" value="{float(false_calls["fdr"])!r}"/>\n')
+    versions = format_feature_versions(feature_versions, features) if feature_versions else ""
+    if versions:  # none without the features' versions, or none of the model's features among them
+        w(f'  <Extension name="{FEATURE_VERSIONS_EXTENSION}" value="{versions}"/>\n')
+    if feature_ranges is not None:
+        w(f'  <Extension name="{FEATURE_RANGES_EXTENSION}" value="{format_feature_ranges(feature_ranges, features)}"/>\n')
     w('  <Application name="protal scripts/machine_learning_cmdline.py"/>\n')
     for note in annotations:
         w(f'  <Annotation>{_text(note)}</Annotation>\n')
@@ -165,11 +191,14 @@ def float32_split(threshold):
     return middle if even else float(np.nextafter(middle, -np.inf))
 
 
-def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
+def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, false_calls=None, feature_versions=None,
+                 feature_ranges=None):
     """Write a fitted RandomForestClassifier with classes 0/1 (or False/True), trained on the
     columns `features` in this order, as PMML for protal. `annotations` go into the header, and
     `depth_knob_curve` ([(log10 fragments, knob)], see DEPTH_KNOB_CURVE_EXTENSION), if any, as an Extension
-    protal reads; so do `false_calls`, {"curve": [(score, probability)], "prior": p, "fdr": f} (CALIBRATION_EXTENSION)."""
+    protal reads; so do `false_calls`, {"curve": [(score, probability)], "prior": p, "fdr": f} (CALIBRATION_EXTENSION),
+    `feature_versions` ({feature: version}, FEATURE_VERSIONS_EXTENSION) and `feature_ranges` ({feature: (min, p01, p99,
+    max)} of every feature, FEATURE_RANGES_EXTENSION; feature_ranges_of)."""
     try:
         classes = [int(c) for c in forest.classes_]
     except (TypeError, ValueError):
@@ -180,7 +209,7 @@ def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, 
         raise ValueError(f"the forest has {forest.n_features_in_} inputs, not {len(features)} features")
     out = []
     w = out.append
-    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls)
+    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls, feature_versions, feature_ranges)
     w(f' <MiningModel functionName="classification">\n  {schema}\n  <Segmentation multipleModelMethod="average">\n')
     names = [quoteattr(f) for f in features]
     for i, estimator in enumerate(forest.estimators_):
@@ -232,17 +261,19 @@ def is_boosted(model):
     return hasattr(model, "_predictors") and hasattr(model, "_baseline_prediction")
 
 
-def write_model(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
+def write_model(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None, feature_versions=None,
+                feature_ranges=None):
     """Write a fitted RandomForestClassifier (write_forest) or HistGradientBoostingClassifier (write_boosted)."""
     writer = write_boosted if is_boosted(model) else write_forest
-    writer(model, features, path, annotations, depth_knob_curve, false_calls)
+    writer(model, features, path, annotations, depth_knob_curve, false_calls, feature_versions, feature_ranges)
 
 
-def write_boosted(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
+def write_boosted(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None, feature_versions=None,
+                  feature_ranges=None):
     """Write a fitted binary HistGradientBoostingClassifier (classes 0/1 or False/True), trained on the columns
     `features` in this order without categorical features, as PMML for protal (see above): a chain of one regression
-    TreeModel per round into a logit RegressionModel. `annotations`, `depth_knob_curve` and `false_calls` as for
-    write_forest."""
+    TreeModel per round into a logit RegressionModel. `annotations`, `depth_knob_curve`, `false_calls`,
+    `feature_versions` and `feature_ranges` as for write_forest."""
     try:
         classes = [int(c) for c in model.classes_]
     except (TypeError, ValueError):
@@ -259,7 +290,7 @@ def write_boosted(model, features, path, annotations=(), depth_knob_curve=None, 
     trees = [round_trees[0] for round_trees in model._predictors]
     out = []
     w = out.append
-    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls)
+    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls, feature_versions, feature_ranges)
     w(f' <MiningModel functionName="classification">\n  {schema}\n  <Segmentation multipleModelMethod="modelChain">\n')
     names = [quoteattr(f) for f in features]
     for i, tree in enumerate(trees):
@@ -346,6 +377,115 @@ def read_depth_knobs(path):
     """An older model's depth knobs ({bin: knob}) in the header of the PMML model at `path`; {} without them."""
     value = _header_extension(path, DEPTH_KNOBS_EXTENSION)
     return {int(b): float(k) for b, k in (item.split(":") for item in (value or "").split(",") if item)}
+
+
+def check_feature_name(name):
+    """ValueError unless `name` is a feature name the feature extensions can hold (FEATURE_NAME: letters, digits, "_")."""
+    if not FEATURE_NAME.fullmatch(str(name)):
+        raise ValueError(f"feature name {name!r}: only letters, digits and '_' (the model's header separates the features "
+                         "by ',' and their numbers by ':')")
+
+
+def feature_ranges_of(X, features):
+    """{feature: (minimum, 1st percentile, 99th percentile, maximum)} of the columns of X (rows x features, in this
+    order): of the rows a model is fitted on, all of them and unweighted (FEATURE_RANGES_EXTENSION). The percentiles are
+    numpy's (linear between the order statistics)."""
+    X = np.asarray(X, dtype=np.float64)
+    if X.ndim != 2 or X.shape[1] != len(features) or not len(X):
+        raise ValueError(f"expected rows of the {len(features)} features, got an array of shape {X.shape}")
+    low, high = X.min(axis=0), X.max(axis=0)
+    p01, p99 = np.quantile(X, [0.01, 0.99], axis=0)
+    return {f: (float(low[i]), float(p01[i]), float(p99[i]), float(high[i])) for i, f in enumerate(features)}
+
+
+def _g9(value):
+    """A number as C's printf("%.9g") in the C locale (Python's % formatting ignores the locale)."""
+    return "%.9g" % float(value)
+
+
+def format_feature_ranges(ranges, features):
+    """{feature: (min, p01, p99, max)} as FEATURE_RANGES_EXTENSION's value, every feature of the model in its order:
+    "name:min:p01:p99:max,..." with "%.9g"; ValueError for a feature without its four finite numbers or a name the
+    extension cannot hold (check_feature_name)."""
+    items = []
+    for f in features:
+        check_feature_name(f)
+        values = [float(v) for v in ranges.get(f, ())]
+        if len(values) != 4 or not all(math.isfinite(v) for v in values):
+            raise ValueError(f"feature {f}: expected its minimum, 1st and 99th percentile and maximum as finite numbers, "
+                             f"got {ranges.get(f)!r}")
+        items.append(":".join([f] + [_g9(v) for v in values]))
+    return ",".join(items)
+
+
+def read_feature_ranges(path):
+    """{feature: (min, p01, p99, max)} in the header of the PMML model at `path` (FEATURE_RANGES_EXTENSION), in the
+    model's order; {} without them."""
+    value = _header_extension(path, FEATURE_RANGES_EXTENSION)
+    ranges = {}
+    for item in filter(None, (value or "").split(",")):
+        name, *numbers = item.split(":")
+        if len(numbers) != 4:
+            raise ValueError(f"{path}: malformed feature range {item!r} (name:min:p01:p99:max)")
+        ranges[name] = tuple(float(v) for v in numbers)
+    return ranges
+
+
+def read_feature_versions_file(path):
+    """{feature: version} of a `protal --feature_versions` table: tab-separated, a header line naming its columns
+    (feature, version, changed, note; a leading '#' of it is dropped, other columns are ignored), then a feature a line
+    (empty lines and lines starting with '#' skipped). ValueError for a name or version the extension cannot hold
+    (FEATURE_NAME, FEATURE_VERSION) or a feature given twice with other versions."""
+    header, versions = None, {}
+    with open(path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, 1):
+            line = line.rstrip("\r\n")
+            if not line.strip():
+                continue
+            fields = [f.strip() for f in line.split("\t")]
+            if header is None:
+                fields[0] = fields[0].lstrip("#").strip()
+                if "feature" not in fields or "version" not in fields:
+                    raise ValueError(f"{path}: its header line names no 'feature' and 'version' columns: {line!r}")
+                header = (fields.index("feature"), fields.index("version"))
+                continue
+            if line.startswith("#"):
+                continue
+            if len(fields) <= max(header):
+                raise ValueError(f"{path} line {number}: no feature and version: {line!r}")
+            name, version = fields[header[0]], fields[header[1]]
+            try:
+                check_feature_name(name)
+            except ValueError as error:
+                raise ValueError(f"{path} line {number}: {error}") from None
+            if not FEATURE_VERSION.fullmatch(version):
+                raise ValueError(f"{path} line {number}: version {version!r} of {name}: only letters, digits and '_.+-'")
+            if versions.get(name, version) != version:
+                raise ValueError(f"{path} line {number}: {name} has versions {versions[name]} and {version}")
+            versions[name] = version
+    if header is None:
+        raise ValueError(f"{path}: empty (no header line)")
+    return versions
+
+
+def format_feature_versions(versions, features):
+    """{feature: version} as FEATURE_VERSIONS_EXTENSION's value: "name:version,..." for the model's features in their
+    order that `versions` has (the others left out); "" for none."""
+    items = []
+    for f in features:
+        if f in versions:
+            check_feature_name(f)
+            version = str(versions[f])
+            if not FEATURE_VERSION.fullmatch(version):
+                raise ValueError(f"version {version!r} of {f}: only letters, digits and '_.+-'")
+            items.append(f"{f}:{version}")
+    return ",".join(items)
+
+
+def read_feature_versions(path):
+    """{feature: version} in the header of the PMML model at `path` (FEATURE_VERSIONS_EXTENSION); {} without them."""
+    value = _header_extension(path, FEATURE_VERSIONS_EXTENSION)
+    return dict(item.split(":", 1) for item in (value or "").split(",") if item)
 
 
 def _header_extension(path, name):

@@ -757,7 +757,10 @@ class GtdbBuildTest(unittest.TestCase):
         for t, names in (("", ("gut", "moderate", "soil", "soil_shallow", "host")), ("_se", ("gut", "host"))):
             report = self.text("scenarios", "model_logs", f"trained_model{t}.report.txt")
             self.assertIn("## Scenarios: hold-in and hold-out samples", report)
-            self.assertIn("## Feature set chosen (--features auto, species held out)", report)
+            self.assertIn("## Feature set chosen (--features auto, samples and species held out)", report)
+            self.assertTrue(report.startswith("# protal presence model"))
+            self.assertIn("\n## Headline: F1 over every species the marker genes can see", report)
+            self.assertLess(report.index("## Headline"), report.index("## Feature set chosen"))
             self.assertRegex(report, r"scenario host: hold-out F1 [0-9.-]+ \(FP rate [0-9.-]+%, FN rate [0-9.-]+%, "
                                      r"1 samples\); hold-in with species held out F1")
             with open(os.path.join(self.tmp.name, "scenarios", "model_logs", f"trained_model{t}.metrics.json")) as fh:
@@ -785,6 +788,17 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertTrue(any(r["meta_marker_reads"] not in ("", "0") for r in present))
         self.assertTrue(all(r["meta_marker_reads"] == "" for r in rows if r not in present))
         self.assertIn("## Marker truth", self.text("scenarios", "model_logs", "trained_model.report.txt"))
+        # The headline (since 2026-10-15): the marker-truth F1, first in metrics.json; and every model's header holds its
+        # features' ranges over the training rows.
+        import model_pmml
+        with open(os.path.join(self.tmp.name, "scenarios", "model_logs", "trained_model.metrics.json")) as fh:
+            metrics = json.load(fh)
+        self.assertEqual(next(iter(metrics)), "headline")
+        self.assertEqual(metrics["headline"]["measure"], "marker truth")
+        for key in ("held_out", "held_out_species", "test"):
+            self.assertIsNotNone(metrics["headline"][key]["marker_truth_f1"], key)
+        model = os.path.join(self.tmp.name, "scenarios", "model_logs", "trained_model.xml")
+        self.assertEqual(list(model_pmml.read_feature_ranges(model)), model_pmml.load_model(model).features)
         self.assertIn("FP rate  FN rate", summary)
         self.assertRegex(summary, r"Feature sets chosen \(--features auto\):\n  pe: normalized\S*: F1 ")
         metadata = self.metadata("scenarios")

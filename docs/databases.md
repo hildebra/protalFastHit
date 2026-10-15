@@ -1681,6 +1681,52 @@ compare. `gradient_boosted_cmdline.py` and
 needs Java), which `machine_learning_cmdline.py --model gbm` replaces; the R scripts are the older caret
 pipeline.
 
+### The headline, the decisions' folds and the features' ranges (since 2026-10-15)
+
+Three changes from the [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md) (E2-E4, C1, C4). Where the paragraphs
+above say otherwise (the knob, the knob curve, the calibrated calls and `--features auto` chosen with species held out;
+a knob dropped when it lost on the test set), this section holds.
+
+**The headline F1.** The first section of `<prefix>.report.txt` (after the run's description) and the first key of
+`metrics.json` (`headline`) give the F1 over every truth species the marker genes can see, as protal calls by default:
+a present species whose genomes gave reads on a marker gene counts, found or missed, also when protal reported nothing
+of it and so wrote it no row (`<table>.unseen.tsv`); every absent taxon called is a false positive. The row-based F1
+(the taxa with a row only, which such a species does not lower) stands beside it, labelled so, as do the summary's other
+F1s. `headline` holds `held_out` (the decisions' scheme), `held_out_species` (species held out alone, for comparison
+with earlier builds) and `test` (the independent test set), each with `marker_truth_f1`, `marker_truth_tp`,
+`marker_truth_fp`, `marker_truth_fn`, `unseen`, and `rows_f1`, `rows_tp`, `rows_fp`, `rows_fn`, `rows_scored`. A table
+without the marker counts (`meta_marker_reads`), or a missing unseen table, is named in `headline.notes` and the report.
+
+**Samples and species held out together** (`--cv-scheme samples+species`, the default). By species alone a row's
+sample stays in training with its other taxa, and the six sample-level features (one value per sample) let trees learn
+the sample. The trainer deals the samples and the species into `--folds` groups each (balanced by rows, drawn by
+`--seed`); fold (i, j) scores the rows of sample group i and species group j by a model fitted on the rows of neither.
+A rotation pairs each sample group with one species group: `--folds` fits that score 1/`--folds` of the rows.
+`--cv-rotations` (2) rotations score 2/`--folds` of the rows (40% at 5 folds) at twice the fits of species held out,
+each on 64% of the rows (80% by species). This estimate chooses the knob, the knob curve, the calibrated calls and the
+feature set. Unseen species count in the cells it scores (by the taxon of their name, or a seeded hash). Species held
+out alone is still computed and reported beside it (`evaluation.species`, the knob it would choose in
+`global_knob.species_only`); `--cv-scheme species` makes the decisions with it, as before.
+
+**No veto by the test set.** The knob comes from the cross-validation alone; the test set's F1 at the chosen knob and
+at `--knob` is reported (`global_knob.test`) and decides nothing. `--features auto` chooses by the F1 with the rows
+weighted as in the fits (the scenarios' by `--scenario-weight`); `F1 unweighted` stands beside it.
+
+**Feature versions and ranges in the model.** Every model's PMML header holds each feature's range over the rows the
+model was fitted on (all of them, unweighted): `<Extension name="protal_feature_ranges"
+value="name:min:p01:p99:max,..."/>`, every feature in the model's order, each number C's `%.9g`. With
+`--feature-versions FILE` (the table of `protal --feature_versions`: feature, version, changed, note, with a header
+line) it also holds `<Extension name="protal_feature_versions" value="name:version,..."/>` for the model's features
+in the file; the others are left out and named in the report. Feature names may hold only letters, digits and `_`.
+cPMML skips header extensions; `model_pmml.read_feature_ranges` and `read_feature_versions` read them back.
+
+| Option | Default | |
+|---|---|---|
+| `--cv-scheme` | `samples+species` | the held-out estimate of the decisions; `species`: species held out alone, as before 2026-10-15 |
+| `--cv-rotations` | 2 | the crossed folds' rotations (at most `--folds`) |
+| `--feature-versions` | | protal's feature versions table, written into the model's header |
+| `--unseen-file`, `--test-unseen-file` | `auto` | the present species without a row (`<table>.unseen.tsv` beside the table); `none`: not counted |
+
 ### Species and clades the database lacks
 
 The report's section "False positives and false negatives by taxonomic rank" (and the same for the test
