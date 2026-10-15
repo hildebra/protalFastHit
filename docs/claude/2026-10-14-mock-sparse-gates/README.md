@@ -140,6 +140,60 @@ does:
 - **For the model default:** on these samples the forest's long-read false positives and the GBM's missed abundant
   paired-end species weigh about the same; the mock benchmark at r226 should decide.
 
+## Follow-up (2026-10-15): which false negatives had reads on their own genes
+
+The user asked how many of the missed species had any alignment to their own genes.
+
+**Method.**
+- **The misses:** the 80 false negatives of the database-gates run with the forest models, the host-DNA control left
+  out.
+- **The reads:** [fn_alignments.py](fn_alignments.py) counts, in each sample's SAM, every missed species' best records
+  on its own genes, those the profiler keeps (MAPQ ≥ 4), and the reads that list it as an alternative (ZA).
+  - **The SAMs:** of the GBM run; the alignment does not depend on the model kind.
+- **The model's view:** [reprofile.sh](reprofile.sh) profiles the SAMs again with the forest models. That gives every
+  taxon's probability, and the calls are the same as in the scored run.
+- **For a truth of abundances:** the depth expected from the species' share, the sample's median depth per share over
+  its true positives.
+
+Per species in [results/fn_alignments.tsv](results/fn_alignments.tsv).
+
+| What protal saw | Missed species | hCom2 | D6331 pe | Others |
+|---|---|---|---|---|
+| no record on its genes | 58 | 50 | 6 | 2 |
+| records, all below MAPQ 4 | 6 | 5 | 1 | 0 |
+| records kept, the model said no | 16 | 9 | 4 | 3 |
+
+**58 of the 80 missed species have no read aligned best to their own genes:**
+- **hCom2 (50):** the truth lists the 117 strains of the inoculum, and this is a culture after two passages. 37 of the
+  50 have no read even as an alternative within 5 edits, so they are most likely gone from the culture.
+- **D6331 (8):** *Enterococcus faecalis* (1×10⁻⁵ of the cells) and *Sarcina perfringens* (9×10⁻⁷), expected at
+  5×10⁻⁵ to 9×10⁻⁴× depth on their marker genes: below a single read at 1M pairs or 1 Gb.
+- **Only as alternatives:** 13 of the 58 appear in `ZA` within 5 edits of reads assigned to a congener (1-10 reads
+  each), 4 of them as good.
+
+**The 22 with records.** Most hold a handful of reads:
+- **Thin:** 1-30 reads at 0.001-0.03× depth. For example *Salmonella enterica* in D6331 pe, at 0.01× (as its share
+  predicts); its 12-17 reads mostly fit *E. coli* as well (112-121 reads list it as an equal alternative).
+- **Kept records, near the knob:**
+  - **Treichel *Bacteroides ovatus*:** 71 reads on 44 genes, 30 kept, P 0.469.
+  - **Dohlman D6331 DNA *Akkermansia muciniphila*:** 1,112 reads on 38 genes, 2.3× deep, P 0.484.
+  - **Dohlman D6331 DNA *E. coli*:** 981 reads on 62 genes, 1.1× deep against 6.9× expected (the sample's known
+    shortfall), P 0.375.
+- **hCom2, reads mostly given to a congener:** *Bacteroides rodentium* has 99 reads on 44 genes, only 7 of them at
+  MAPQ ≥ 4. *Phocaeicola vulgatus* has 20 reads of its own, but 1,772 reads list it within 5 edits (443 as good).
+
+**F1 over the species with reads.** Counting only the species with at least one record as present (as the builds'
+"marker truth" rows do):
+
+| Counted as present | FN | F1 |
+|---|---|---|
+| every species of the truth | 80 | 0.816 |
+| species with a record on their genes | 22 | 0.927 |
+| species with a record kept (MAPQ ≥ 4) | 16 | 0.940 |
+
+Most of the "missed" species left no read to find. Of those protal saw, three are near-misses with real evidence
+(Akkermansia, *B. ovatus*, the Dohlman *E. coli*); the rest have too few reads to call.
+
 ## Files
 
 | File | What it does |
@@ -148,6 +202,8 @@ does:
 | [measure.sh](measure.sh) | `measure_performance.sh --test_sparse` (levels `0 4s 4g`) per mock sample |
 | [collect.py](collect.py) | the levels' resources side by side, their profiles into run folders, the scores |
 | [gbm_runs.sh](gbm_runs.sh) | the GBM models at `dbgates`, `C0` and `C4g`, and the scores of all seven runs |
+| [reprofile.sh](reprofile.sh), [fn_alignments.py](fn_alignments.py) | the follow-up: the SAMs profiled again with the forest models, and what protal saw of each missed species |
+| [results/fn_alignments.tsv](results/fn_alignments.tsv) | per missed species: records on its genes, kept, as an alternative; probability, depth, expected depth |
 | [results/resources.tsv](results/resources.tsv) | per sample and level: time, memory, records, reads given up, species against `dbgates` |
 | [results/scores.tsv](results/scores.tsv) | per sample and level (forest): calls, F1, L1 and Bray-Curtis against the truth |
 | [results/samples_by_run_all.tsv](results/samples_by_run_all.tsv), [results/summary_by_run_all.tsv](results/summary_by_run_all.tsv) | all seven runs' scores (`score_mocks.py`) |
