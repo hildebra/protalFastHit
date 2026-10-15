@@ -29,6 +29,7 @@
 #include <vector>
 #include "Options.h"
 #include "ProtalDB.h"
+#include "SamSettings.h"
 
 namespace protal {
 
@@ -141,6 +142,9 @@ namespace protal {
     // Align.cpp: aligns the samples (RunWrapper; --build: the index, RunBuild). `sample_done` (if any) is called with a
     // sample's index once its SAM file is complete, or when the sample is skipped because its SAM exists.
     void RunAlignment(Options& options, ProtalDB& db, std::function<void(size_t)> const& sample_done);
+    // How sample `index` is aligned, for its SAM's header (SamSettings.h); `unique_cores`: the database's unique_cores.bin
+    // is read (ZS, ZU and ZT from the cores each alignment covers).
+    sam_settings::Fields AlignmentSettings(Options const& options, size_t index, bool unique_cores);
 
     // BuildStage.cpp: --build's index, and the database maintenance modes (--compress_db, --decompress_db, --unpack_db,
     // --write_species_neighbours, --add_tables, --add_model; returns the run's exit code, each exits 8 on failure).

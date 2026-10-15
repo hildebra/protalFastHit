@@ -2534,11 +2534,15 @@ namespace protal::build {
 
     // build_settings.tsv (BuildSettings.h): the WFA2 traceback the build aligns with, how the models' `fragments`
     // feature is to count (--fragment_count) and each read type's sparse-first gate (--sparse_first) and its pick
-    // (--sparse_first_pick), which runs on the database follow (auto) or are warned about. Exits 8 if
-    // it cannot be written.
-    static void WriteBuildSettings(protal::Options const& options) {
+    // (--sparse_first_pick), which runs on the database follow (auto) or are warned about; and since 2026-10-15 the run
+    // settings the models' features depend on (Options::RunSettingsInUse: given, else protal's defaults), with
+    // unique_kmers cores where `unique_cores` (unique_cores.bin is written; Run writes the file again with anchors when
+    // WriteUniqueCores writes none after all, `tell` false). Exits 8 if it cannot be written.
+    static void WriteBuildSettings(protal::Options const& options, bool unique_cores, bool tell = true) {
         std::string const target = options.GetBuildSettingsFile();
         build_settings::Settings settings;
+        settings.run = options.RunSettingsInUse();
+        settings.run.unique_kmers = std::string(unique_cores ? build_settings::kUniqueCores : build_settings::kUniqueAnchors);
         settings.wfa_traceback = options.GetWfaTraceback();
         settings.fragment_count = options.GetFragmentCount();
         // The sparse-first gates given (--sparse_first; auto: none, the runs ungated), with their score and hits.
@@ -2559,6 +2563,10 @@ namespace protal::build {
             std::cerr << "Cannot write " << target << std::endl;
             exit(8);
         }
+        if (!tell) return;
+        std::string run;
+        for (auto const& [name, value] : build_settings::RunFields(settings.run)) run += (run.empty() ? "" : ", ") + name + " " + value;
+        std::cout << "Run settings recorded for the database's runs: " << run << std::endl;
         std::cout << "WFA2 traceback: " << WfaTracebackName(options.GetWfaTraceback()) << ", fragment count: "
                   << FragmentCountName(options.GetFragmentCount()) << ", sparse-first gates: "
                   << SparseFirstGatesText(settings.sparse_first)
@@ -2667,8 +2675,9 @@ namespace protal::build {
     // threads, the first counting each copy's cores, the second looking each core's entry up. A core without an entry (a
     // window over an ambiguous base, which the index leaves out, or a key with too many values) is not unique. None with
     // --no_unique_cores; an earlier build's is removed.
+    // Returns whether it wrote the table.
     template<typename KmerHandler>
-    static void WriteUniqueCores(protal::Options const& options, Seedmap const& map, GenomeLoader& genomes,
+    static bool WriteUniqueCores(protal::Options const& options, Seedmap const& map, GenomeLoader& genomes,
                                  Seedmap::GeneRows const& rows, KmerHandler const& handler) {
         namespace fs = std::filesystem;
         std::string const target = options.GetUniqueCoresFile();
@@ -2676,7 +2685,7 @@ namespace protal::build {
         fs::remove(target, ec);
         if (options.NoUniqueCores()) {
             std::cout << "Unique cores: none (--no_unique_cores): a run counts ZU and ZT from its anchors' seeds" << std::endl;
-            return;
+            return false;
         }
         Benchmark bm("Unique cores");
         bm.Start();
@@ -2711,7 +2720,7 @@ namespace protal::build {
         if (!unique_cores::Table::Fits(cores)) {
             std::cout << "Unique cores: none (the cores' flags would not fit the table's 32-bit offsets): a run counts ZU and ZT "
                       << "from its anchors' seeds" << std::endl;
-            return;
+            return false;
         }
         unique_cores::Table table(rows.first_row, cores);
         uint64_t looked_up = 0, without_entry = 0;
@@ -2764,6 +2773,7 @@ namespace protal::build {
                   << "; " << HumanBytes(fs::file_size(target, ec)) << ": " << target << std::endl;
         bm.Stop();
         bm.PrintResults();
+        return true;
     }
 
     // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once
@@ -2771,7 +2781,7 @@ namespace protal::build {
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
     static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes,
                           bool reference_is_mapped) {
-        WriteBuildSettings(options);
+        WriteBuildSettings(options, !options.NoUniqueCores());
 
         // The tables made from the genes alone first (conservation factors, congeners, suspect copies) and the checks
         // of the gene neighbours and positions: none needs the index, so they run before it is allocated. The
@@ -3328,7 +3338,10 @@ namespace protal::build {
         std::cout << "Distance-two flags: " << totals.comparisons << " flex parts compared" << std::endl;
 
         // Every copy's cores with their final flags (unique_cores.bin), read from the genes, which are still loaded.
-        WriteUniqueCores(options, putter.GetMap(), genomes, gene_rows, kmer_handler_global);
+        // build_settings.tsv's unique_kmers says anchors where no table was written after all (too large for it).
+        if (!WriteUniqueCores(options, putter.GetMap(), genomes, gene_rows, kmer_handler_global) && !options.NoUniqueCores()) {
+            WriteBuildSettings(options, false, false);
+        }
 
         // No gene is read from here on: their sequences go before the index is written (~4 GB at r226). Until
         // 2026-10-14 they went before the k-mer statistics (which need only how many genes each taxon has); the

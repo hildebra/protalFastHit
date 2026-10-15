@@ -1772,6 +1772,84 @@ class GradientBoostedModelTest(DbTest):
         np.testing.assert_allclose(model.predict(X), [float(row["probability"]) for row in rows], rtol=0, atol=1e-12)
 
 
+class ModelFeatureChecksTest(DbTest):
+    """What a run checks of a model's features (2026-10-15): the versions of their definitions it records
+    (protal_feature_versions, against protal --feature_versions: one warning naming those defined otherwise, a note
+    without them) and their ranges in training (protal_feature_ranges: a line for a sample whose taxa near the knob lie
+    outside them, and each taxon's in the .profile.log column outside_training_range; the .profile unchanged). On the
+    baseline's SAM of sa with GradientBoostedModelTest's model, its header given the extensions."""
+
+    MODEL = os.path.join(DATA, "model_gbm_small.xml")
+    FEATURES = GradientBoostedModelTest.FEATURES
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.sam = baseline().sam("sa")
+        rc, log = run(cls.work, "--feature_versions")
+        if rc != 0:
+            raise RuntimeError("protal --feature_versions failed:\n" + log[-3000:])
+        cls.table = log
+        cls.versions = {line.split("\t")[0]: int(line.split("\t")[1]) for line in log.splitlines()[1:] if line.strip()}
+
+    def model(self, name, extensions):
+        text = read_text(self.MODEL)
+        lines = "".join(f'  <Extension name="{key}" value="{value}"/>\n' for key, value in extensions.items())
+        self.assertIn(" </Header>", text)
+        path = self.path(name)
+        with open(path, "w") as fh:
+            fh.write(text.replace(" </Header>", lines + " </Header>", 1))
+        return path
+
+    def profile(self, out, model):
+        rc, log = profile_only(self.work, self.path(out), [self.sam], "--model", model, prefixes=["sa"])
+        self.assertEqual(rc, 0, log[-3000:])
+        return log
+
+    def test_the_versions_table(self):
+        lines = self.table.splitlines()
+        self.assertEqual(lines[0], "feature\tversion\tchanged\tnote")
+        self.assertTrue(all(len(line.split("\t")) == 4 for line in lines[1:]))
+        for feature in ("lu_per_kb", "lsu_per_kb", "unique_seed_enrichment", "failed_candidate_rate", "failed_gene_share"):
+            self.assertGreaterEqual(self.versions[feature], 2, feature)
+        self.assertTrue(set(self.FEATURES) <= set(self.versions))
+
+    def test_a_model_trained_on_other_definitions_is_warned(self):
+        own = ",".join(f"{f}:{self.versions[f]}" for f in self.FEATURES)
+        log = self.profile("own", self.model("own.xml", {"protal_feature_versions": own}))
+        self.assertNotIn("other definitions", log)
+        self.assertNotIn("does not record its features' versions", log)
+        older = ",".join(f"{f}:{self.versions[f] + (f == 'identity')}" for f in self.FEATURES)
+        log = self.profile("older", self.model("older.xml", {"protal_feature_versions": older}))
+        self.assertIn(f"was trained on other definitions of feature(s) identity (versions in the model "
+                      f"{self.versions['identity'] + 1}; in this protal {self.versions['identity']}, protal "
+                      "--feature_versions): retrain it, or expect calls that differ from its training", log)
+        self.assertEqual(log.count("other definitions"), 1)
+        log = self.profile("none", self.MODEL)
+        self.assertIn("does not record its features' versions (protal_feature_versions", log)
+
+    def test_features_outside_the_training_range(self):
+        plain = self.profile("plain", self.MODEL)
+        self.assertNotIn("training range", plain)
+        rows = read_dicts(self.path("plain", "sa.profile.log"))
+        self.assertTrue(rows and all(row["outside_training_range"] == "" for row in rows))
+        # Every taxon of sa has more than 5 fragments: outside [0, 5] (and its 98%, [0, 1]); the other ranges hold all.
+        ranges = ",".join(["fragments:0:0:1:5", "hit_gene_fraction:0:0:1:1", "identity:0:0:1:1", "sample_log_fragments:0:0:9:9"])
+        log = self.profile("ranges", self.model("ranges.xml", {"protal_feature_ranges": ranges}))
+        found = re.search(r"Warning: Sample sa: (\d+) of (\d+) taxa near or above the knob have features outside the model's "
+                          r"training range \(fragments: (\d+) taxa\); their probabilities are extrapolated \((\d+) have", log)
+        self.assertIsNotNone(found, log[-3000:])
+        outside, checked, fragments, soft = map(int, found.groups())
+        self.assertEqual((outside, fragments, soft), (checked, checked, checked))
+        rows = read_dicts(self.path("ranges", "sa.profile.log"))
+        self.assertEqual(sum(row["outside_training_range"] == "fragments" for row in rows), outside)
+        self.assertEqual(read_text(self.path("ranges", "sa.profile")), read_text(self.path("plain", "sa.profile")))
+        # Malformed ranges: warned, not used.
+        log = self.profile("bad", self.model("bad.xml", {"protal_feature_ranges": "fragments:0:5"}))
+        self.assertIn("its feature ranges are malformed ('fragments:0:5'", log)
+        self.assertNotIn("near or above the knob have features outside", log)
+
+
 class BuildIndexTest(ProtalTest):
     """--build of a few genes: it checks every k-mer against the full reference, also those whose core occurs once in the
     index; ambiguous bases (N, IUPAC codes) do not go into the index: k-mers whose window holds one are left out of the
@@ -3837,7 +3915,8 @@ class OntTest(ReadTypeTest):
         self.assertIn("Model of ONT reads: " + os.path.join(self.runs.db, "model_ONT.xml"), log)
         self.assertIn("@CO\tprotal read type: ont\n", sam_text(self.runs.sam("oa")))
         # The options summary shows the values the ONT reads get.
-        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000)\n", log)
+        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000) (auto: the database's, else this)\n", log)
+        self.assertRegex(log, r"max_score_ani_ont\s+0\.85 \(auto\)\s+0\.85\n")  # the database's floor (build_settings.tsv)
         self.assertIn("snp min af:          0.150000 (ONT reads: 0.200000)\n", log)
         self.assertIn("x-drop:              1000 (short reads; long reads: none)\n", log)
 
@@ -4350,6 +4429,131 @@ class WfaTracebackTest(WorkDir):
         self.assertIn("--wfa_traceback must be auto, classic or singletrack, not 'fast'", log)
 
 
+class RunSettingsTest(WorkDir):
+    """The run settings a database's models depend on (2026-10-15): --build records them in build_settings.tsv (the site
+    shift, the allele scores, --align_top, --adaptive_candidates, mate guidance, each read type's identity floor, the
+    unique k-mers' scheme, foreign genes, suspect copies, the depth margin); a run leaves them at auto to follow the
+    database and is warned when told otherwise, --no_unique_cores apart; a database built before records none (a note).
+    Every SAM says how it was aligned (@CO protal settings), and --profile_only takes its gate for the model and warns
+    for a SAM aligned otherwise than the database's models were trained. On the operon release's inputs (OperonRelease),
+    built again with other settings. (Needs protal, not the test database.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        release = operon_release()
+        cls.plain_db, cls.reads, cls.plain_log = release.db, release.reads, release.build_log
+        cls.db = os.path.join(cls.work, "set")
+        shutil.copytree(release.inputs, cls.db)
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
+                                "--reference", os.path.join(cls.db, "reference.fna"), "--weighted_site_shift", "-c", "4",
+                                "-a", "0.92", "--keep_suspect_copies")
+        if rc != 0:
+            raise RuntimeError("protal --build with run settings failed:\n" + cls.build_log[-3000:])
+
+    def settings(self, db, name):
+        unpacked = self.path(name)
+        rc, log = run(self.work, "--unpack_db", "--db", db, "--unpack_dir", unpacked, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        return read_text(os.path.join(unpacked, "build_settings.tsv"))
+
+    def align(self, name, *extra, db=None):
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.reads[0], "-2", self.reads[1], "--prefix", name,
+                      "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        line = [l for l in sam_text(self.path(name, f"{name}.sam")).splitlines() if l.startswith("@CO\tprotal settings: ")]
+        self.assertEqual(len(line), 1, "one settings line in the SAM header")
+        return log, dict(field.split("=", 1) for field in line[0][len("@CO\tprotal settings: "):].split(" "))
+
+    def test_the_build_records_its_run_settings(self):
+        expected = {"weighted_site_shift": "on", "allele_scores": "on", "align_top": "4", "adaptive_candidates": "7",
+                    "mate_guidance": "on", "max_score_ani_pe": "0.92", "max_score_ani_ont": "0.92", "unique_kmers": "cores",
+                    "keep_foreign_genes": "off", "keep_suspect_copies": "on", "depth_identity_margin": "0.08"}
+        recorded = dict(line.split("\t") for line in self.settings(self.db, "unpacked").splitlines() if not line.startswith("#"))
+        for key, value in expected.items():
+            self.assertEqual(recorded.get(key), value, key)
+        self.assertIn("Run settings recorded for the database's runs: weighted_site_shift on, allele_scores on, align_top 4",
+                      self.build_log)
+        # The defaults: ONT's own floor, the site shift off.
+        recorded = dict(line.split("\t") for line in self.settings(self.plain_db, "unpacked_plain").splitlines()
+                        if not line.startswith("#"))
+        for key, value in (("weighted_site_shift", "off"), ("align_top", "3"), ("max_score_ani_pe", "0.9"),
+                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off")):
+            self.assertEqual(recorded.get(key), value, key)
+
+    def test_a_run_follows_the_database_and_is_warned_otherwise(self):
+        log, sam = self.align("auto")
+        self.assertRegex(log, r"align_top\s+4 \(auto\)\s+4\n")
+        self.assertRegex(log, r"weighted_site_shift\s+on \(auto\)\s+on\n")
+        self.assertIn("Align the paired-end reads of sample auto (-a 0.92)", log)
+        self.assertNotIn("is told otherwise than the database's models were trained", log)
+        self.assertNotIn("Note: the database records no", log)
+        for key, value in (("read_type", "pe"), ("gate", "0"), ("unique_kmers", "cores"), ("traceback", "singletrack"),
+                           ("allele_scores", "on"), ("weighted_site_shift", "on"), ("mate_guidance", "on"),
+                           ("align_top", "4"), ("adaptive_candidates", "7"), ("max_score_ani", "0.92")):
+            self.assertEqual(sam.get(key), value, key)
+        log, sam = self.align("told", "-c", "3", "--no_weighted_site_shift", "-a", "0.92")
+        self.assertIn("Warning: this run is told otherwise than the database's models were trained (build_settings.tsv): "
+                      "weighted_site_shift off (the database's: on), align_top 3 (the database's: 4).", log)
+        self.assertEqual((sam["align_top"], sam["weighted_site_shift"]), ("3", "off"))
+        log, sam = self.align("anchors", "--no_unique_cores")
+        self.assertIn("Warning: this run counts each record's ZS, ZU and ZT from its anchor's seeds (--no_unique_cores), "
+                      "but the database's models were trained", log)
+        self.assertEqual(sam["unique_kmers"], "anchors")
+        # The profiling's settings are compared only where it profiles: --no_profile here.
+        log, _ = self.align("kept", "--keep_foreign_genes", "--keep_suspect_copies=off")
+        self.assertNotIn("is told otherwise", log)
+
+    def test_a_database_built_before_records_none(self):
+        old = self.path("old")
+        rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", old, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        path = os.path.join(old, "build_settings.tsv")
+        kept = [line for line in read_text(path).splitlines(True)
+                if line.startswith(("#", "wfa_traceback", "fragment_count", "sparse_first"))]
+        with open(path, "w") as fh:
+            fh.writelines(kept)
+        log, sam = self.align("old", db=old)
+        # (the unique k-mers' scheme it has: its unique_cores.bin)
+        self.assertIn("Note: the database records no weighted_site_shift, allele_scores, align_top, adaptive_candidates, "
+                      "mate_guidance, max_score_ani_pe (built before 2026-10-15)", log)
+        self.assertNotIn("is told otherwise", log)
+        self.assertEqual((sam["align_top"], sam["weighted_site_shift"], sam["max_score_ani"]), ("3", "off", "0.9"))
+        # Its unique cores still tell how its models counted the unique k-mers.
+        log, _ = self.align("old_anchors", "--no_unique_cores", db=old)
+        self.assertIn("Warning: this run counts each record's ZS, ZU and ZT from its anchor's seeds", log)
+
+    def test_profile_only_reads_the_sams_settings(self):
+        self.align("po_auto")
+        self.align("po_told", "-c", "3")
+        sams = {name: find_sams(self.path(name, f"{name}.sam"))[0] for name in ("po_auto", "po_told")}
+        rc, log = profile_only(self.work, self.path("po_out_auto"), [sams["po_auto"]], db=self.db)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("SAM settings: 1 of 1 SAM file(s) say how they were aligned", log)
+        self.assertNotIn("were aligned otherwise", log)
+        self.assertNotIn("is told otherwise", log)
+        rc, log = profile_only(self.work, self.path("po_out_told"), [sams["po_told"]], db=self.db)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Warning: 1 SAM file(s) of this run were aligned otherwise than the database's models were trained "
+                      f"(e.g. {sams['po_told']}: align_top 3 (the database's: 4))", log)
+        # A SAM whose header says it was gated (as another run's would): warned, as the database has no model at that
+        # gate; a SAM without the line (an older protal's) as before.
+        text = sam_text(sams["po_auto"])
+        gated, older = self.path("gated.sam"), self.path("older.sam")
+        with open(gated, "w") as fh:
+            fh.write(text.replace(" gate=0 ", " gate=4 "))
+        with open(older, "w") as fh:
+            fh.writelines(line for line in text.splitlines(True) if not line.startswith("@CO\tprotal settings: "))
+        rc, log = profile_only(self.work, self.path("po_out_gated"), [gated], db=self.db)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Warning: 1 sample(s) of this run (e.g. gated) were aligned gated otherwise (their SAM headers say) "
+                      "than the database's models were trained with (gated aligned gated at 4 stride, its model at off)", log)
+        rc, log = profile_only(self.work, self.path("po_out_older"), [older], db=self.db)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertNotIn("SAM settings:", log)
+        self.assertNotIn("gated otherwise", log)
+
+
 class SparseFirstGatesTest(WorkDir):
     """--sparse_first per read type (2026-10-12): --build records its gates (and their score and hits) in
     build_settings.tsv; a run on the database gates each read type as it records, unless --sparse_first says otherwise,
@@ -4437,7 +4641,9 @@ class SparseFirstGatesTest(WorkDir):
                           "--no_profile", *extra)
             self.assertEqual(rc, 0, log[-3000:])
             text = sam_text(self.path(name, f"{name}.sam"))
-            header = [line for line in text.splitlines() if line.startswith("@") and not line.startswith("@PG")]
+            # (the settings line says gate=1 against gate=0: the gates differ, not what they kept)
+            header = [line for line in text.splitlines() if line.startswith("@") and not line.startswith("@PG") and
+                      not line.startswith("@CO\tprotal settings: ")]
             return log, header, sorted(sam_records(self.path(name, f"{name}.sam")))
         for mode, reads in (("pe", ("-1", self.reads[0], "-2", self.reads[1])), ("se", ("-1", self.reads[0]))):
             _, plain_header, plain_records = sam(f"{mode}_plain", reads)

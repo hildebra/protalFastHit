@@ -220,6 +220,7 @@ namespace protal {
         size_t x_drop = DEFAULT_X_DROP;
         std::optional<WfaTraceback> wfa_traceback;  // --wfa_traceback; nothing: auto
         std::optional<FragmentCount> fragment_count;  // --fragment_count; nothing: auto
+        build_settings::RunSettings run_settings_given;  // the run settings given; nothing: auto (the database's)
         size_t max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -408,6 +409,10 @@ namespace protal {
         WfaTraceback m_wfa_traceback = WfaTraceback::Singletrack;      // what aligns: given, else --build's singletrack, or the database's (SetWfaTraceback)
         std::optional<FragmentCount> m_fragment_count_given;          // --fragment_count; nothing: auto
         FragmentCount m_fragment_count = FragmentCount::Mapq;          // given, else --build's mapq, or the database's (SetFragmentCount)
+        // The run settings given (BuildSettings.h RunSettings; nothing: auto), and the identity floors the database records
+        // (FollowDatabaseRunSettings), which -a not given takes.
+        build_settings::RunSettings m_run_settings_given;
+        std::array<std::optional<double>, kReadTypeCount> m_database_max_score_ani{};
         size_t m_max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t m_max_seed_size = DEFAULT_MAX_SEED_SIZE;
         size_t m_min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
@@ -638,6 +643,7 @@ namespace protal {
                 m_qcmsa_args(std::move(d.qcmsa_args)) {
             m_input_errors = std::move(d.input_errors);
             m_input_notes = std::move(d.input_notes);
+            m_run_settings_given = std::move(d.run_settings_given);
             m_scratch_dir = std::move(d.scratch_dir);
             m_sams_named = d.sams_named;
             if (d.samplename_list.empty()) {
@@ -1985,10 +1991,28 @@ namespace protal {
             return m_max_score_ani;
         }
 
-        // -a for reads of `type`: the read type's default unless it is given (ReadTypeInfo).
+        // -a for reads of `type`: given, else (auto) the database's floor of the type (build_settings.tsv, since
+        // 2026-10-15), else the read type's default (ReadTypeInfo).
         double GetMaxScoreAni(ReadType type) const {
+            if (!m_max_score_ani_given && m_database_max_score_ani[static_cast<size_t>(type)]) {
+                return *m_database_max_score_ani[static_cast<size_t>(type)];
+            }
             return !m_max_score_ani_given && Info(type).max_score_ani ? *Info(type).max_score_ani : m_max_score_ani;
         }
+
+        // The run settings given (BuildSettings.h RunSettings; nothing: auto, the database's); what --build records of
+        // them (RunSettingsInUse) and what a run takes from the database where not given (FollowDatabaseRunSettings,
+        // RunProtal: ApplyRunSettings). Options.cpp.
+        build_settings::RunSettings const& RunSettingsGiven() const {
+            return m_run_settings_given;
+        }
+        void FollowDatabaseRunSettings(build_settings::RunSettings const& recorded);
+        // The run settings this run uses (--build: given, else protal's defaults); unique_kmers as the options ask (cores
+        // unless --no_unique_cores), whether or not the database has unique_cores.bin.
+        build_settings::RunSettings RunSettingsInUse() const;
+        // --profile_only: sample `index`'s SAM was aligned gated at `gate` with `pick` (its header's settings line,
+        // SamSettings.h), so that its model is the one nearest that gate (ModelGate); as a map's SPARSE_FIRST.
+        void SetSampleGate(size_t index, size_t gate, std::optional<SparseFirstPick> pick);
 
         void PrintHelp(bool show_dev=false);
 

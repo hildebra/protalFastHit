@@ -4,6 +4,7 @@
 
 #include <cxxopts.hpp>
 #include "Options.h"
+#include "FeatureVersions.h"
 
 namespace protal {
     static cxxopts::Options CxxOptions() {
@@ -32,22 +33,23 @@ namespace protal {
 
         // Alignment / algorithm options
         options.add_options("Alignment")
-                ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
-                ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling).", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ADAPTIVE_CANDIDATES)))
-                ("weighted_site_shift", "Short reads, with column weights in the database (column_weights.tsv): the site shift of a read protal is unsure about (--no_allele_scores) also takes half a difference off for each of the candidate's substitutions at a column the family's genera change freely (below 3 nats of conservation among the genus references; StrainAlleles.h ShiftOf), so that the columns that reliably differ settle the read. Off by default again since 2026-10-12: at r226 (v24b) it lowered the short-read species' depth by 1-2% with no F1 gain measurable, and on a small real world, with the same samples, it lowered 19-22% of the called species' depths (docs/claude/2026-10-12-r226-v24b). On by default 2026-10-11 to 2026-10-12: a database built then (r226 v24b, build_metadata.tsv: weighted_site_shift on) trained its models with it, so profile it with this option for the calls of its training. ~1% of the alignment's instructions.")
+                ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor. auto (default): the database's (build_settings.tsv), else " + std::to_string(DEFAULT_ALIGN_TOP) + "; a run told otherwise than its database is warned, as for every setting --build records (docs/running.md).", cxxopts::value<std::string>()->default_value("auto"))
+                ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling). auto (default): the database's, else " + std::to_string(DEFAULT_ADAPTIVE_CANDIDATES) + ".", cxxopts::value<std::string>()->default_value("auto"))
+                ("allele_scores", "Short reads: score candidates with the database's strain alleles (the default; see --no_allele_scores), also on a database built with --no_allele_scores (build_settings.tsv), whose runs otherwise follow it.")
+                ("weighted_site_shift", "Short reads, with column weights in the database (column_weights.tsv): the site shift of a read protal is unsure about (--no_allele_scores) also takes half a difference off for each of the candidate's substitutions at a column the family's genera change freely (below 3 nats of conservation among the genus references; StrainAlleles.h ShiftOf), so that the columns that reliably differ settle the read. Off by default again since 2026-10-12: at r226 (v24b) it lowered the short-read species' depth by 1-2% with no F1 gain measurable, and on a small real world, with the same samples, it lowered 19-22% of the called species' depths (docs/claude/2026-10-12-r226-v24b). On by default 2026-10-11 to 2026-10-12: a database built then (r226 v24b, build_metadata.tsv: weighted_site_shift on) trained its models with it, so profile it with this option for the calls of its training. ~1% of the alignment's instructions. Neither this nor --no_weighted_site_shift given (auto): as the database's build_settings.tsv records (since 2026-10-15), else off.")
                 ("no_weighted_site_shift", "Short reads: the site shift without the column weights' discount, the default (again since 2026-10-12; kept for the command lines of 2026-10-11). Wins over --weighted_site_shift.")
                 ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and --weighted_site_shift has nothing to weigh by. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
-                ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run.")
+                ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run. Neither this nor --allele_scores given (auto): as the database's build_settings.tsv records, else on.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
-                ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
+                ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end). Without it (auto): as the database's build_settings.tsv records, else on.")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
                 ("spike_genes", "Spike mode: whether a sample's spike genes are left out of the evidence of their species, as if their reads had not aligned. A spike gene's reads pile far beyond what the rest of its taxon's genes explain (50 reads or more, 50 times the depth of the taxon's genes outside its 3 deepest, the spikes together half of the taxon's reads or more): a PCR product or a fragment of one gene carried over into the library. auto (default): before a sample is profiled its reads per gene are counted, and the sample is in spike mode if at least 2 of its 10 taxa with the most reads have spike genes and the spikes hold 5% of its reads or more, the pattern of carried-over products (a relative's reads also pile on a few genes of an absent congener, a thin taxon, which this leaves alone); on: every sample (also a relative's piles are taken, which can make such a congener look present); off: none, and no counting. In a real D6331 mock sample every species had such a gene and two were missed without spike mode (docs/claude/2026-10-15-mock-near-misses). The log gives each sample's check; <profile>.spike_genes.tsv lists the genes left out.", cxxopts::value<std::string>()->default_value("auto"))
-                ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy).")
-                ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default foreign genes are left out of both; .profile.genes.log lists them either way.")
+                ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy). Without it (auto): as the database's build_settings.tsv records, else left out; --keep_suspect_copies=off leaves them out on any database.", cxxopts::value<std::string>()->default_value("auto")->implicit_value("on"))
+                ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default (auto) foreign genes are left out of both, unless the database's build_settings.tsv records them kept; --keep_foreign_genes=off leaves them out on any database. .profile.genes.log lists them either way.", cxxopts::value<std::string>()->default_value("auto")->implicit_value("on"))
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
-                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
+                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; auto (default): each read type's floor the database records (build_settings.tsv), else 0.9 and for ONT reads 0.85 (their indels count twice).", cxxopts::value<std::string>()->default_value("auto"))
                 ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)))
                 ("wfa_traceback", "How WFA2 recovers each alignment's operations: classic (WFA2's high-memory mode, which keeps every wavefront), singletrack (keeps only the match wavefronts and recomputes a gap's steps while tracing back: less memory to touch, and faster), or auto (default): the database's. Both give the same scores, but among equally good alignments they may choose differently, so SAM records and the model's features can differ. --build records its choice (auto: singletrack; classic before protal 0.8.2) in the database's build_settings.tsv and aligns its strain alleles, congener gaps and column weights with it; a run that aligns otherwise than its database was built is warned. A database built before 2026-10-11 was built with classic.", cxxopts::value<std::string>()->default_value("auto"));
 
@@ -58,7 +60,7 @@ namespace protal {
                 ("fdr", "Expected share of false calls, 0 to 1, for a model with calibrated calls (machine_learning_cmdline.py --fdr-calls; build_gtdb_database.py --call-mode fdr): each sample reports its highest-scoring taxa as long as the mean of their 1 - probability stays at or below this, the model's scores made probabilities by its calibration and adjusted to the share of present taxa among the sample's candidates (a deep sample, with many more absent candidates, needs higher scores). Off by default: without --fdr the model's knob curve or --knob applies even to a model with calibrated calls (at GTDB r226 they called 0.001-0.007 F1 below the curve for every read type). --fdr F uses them at F; 0: off. Not with --knob.", cxxopts::value<double>())
                 ("fragment_count", "How the model's `fragments` feature counts a taxon's fragments: mapq, those the MAPQ and length filters keep (as before 2026-10-12); soft, those plus each filtered one (a read whose best record is on the taxon) by the share the read EM leaves the taxon of the filtered records (em_own_share of the records the filters drop), so that a divergent strain whose reads tie with a congener's reference (MAPQ 0) is not counted as nothing; or auto (default): the database's. --build records its choice (auto: mapq) in build_settings.tsv, and its models must be trained on runs that count so (build_gtdb_database.py --fragment-count); a run that counts otherwise than its database is warned. Only the feature changes: the profile's fragments, depth, the sample's depth and the singleton rule keep the filters' count.", cxxopts::value<std::string>()->default_value("auto"))
                 ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. 0 (default): no such rule; on GTDB r226 training data the model called none of the taxa the rule would have vetoed, so it is off (docs/claude/2026-10-03-false-positive-anatomy). The training dump's prediction column and the trainer (machine_learning_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("0"))
-                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count. auto (default): the database's (build_settings.tsv), else 0.08.", cxxopts::value<std::string>()->default_value("auto"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples, trained at the database's sparse-first gate; a sample gated otherwise (--sparse_first) takes the database's model trained at the gate nearest its own where it has models of other gates (model_pe_c1.xml, model_PB_c32.xml, ...). --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -143,7 +145,7 @@ namespace protal {
                 ("column_weights", "With --build: how conserved each column of every marker gene is in the species' family (column_weights.tsv, ColumnWeights.h): up to this many genera per family, chosen by hash, vote on the consensus of their references (the first gives the family's reference copy, whose columns the family's copies map onto), and every genus's species vote on their genus reference, averaged over genera; per column the weights -log(1 - p) of the two (half nats, 4 bits) and of the amino acid per codon, with the family's consensus base. For the 'weights' features (mismatches at conserved columns are errors or reads from afar, a strain's mutations avoid them) and the polarised ancestry sites of a species with fewer than three congeners (--no_site_weights at run time). 0: no table.", cxxopts::value<size_t>()->default_value("10"))
                 ("column_weights_alignment", "With --build and --column_weights: where the family columns come from. auto (default): msa if the database folder has GTDB's alignments and tree (column_msa/, species_tree.nwk: gtdb_to_protal_db.py writes them from the release's *_msa_marker_genes_reps archive and tree), else aa. msa (since 2026-10-10): no alignment, each copy's residues placed on its row of GTDB-Tk's alignment of the marker, every genus of a family voting through its ancestral sequence (Fitch parsimony on GTDB's tree), the family's ancestral base polarising small genera. aa: the copies translated in frame and their proteins aligned (WFA2, up to 0.3 of the amino acids different within a genus, 0.5 among genera), each aligned amino-acid pair mapping its codon's bases. nt: the bases aligned (up to 0.2 and 0.4), which fails for most copies of GTDB's wide genera (docs/claude/2026-10-10-real-ancestry).", cxxopts::value<std::string>()->default_value("auto"))
                 ("no_ancestry_sites", "With --build: do not store every gene copy's ancestry sites (ancestry_sites.bin, AncestrySites.h: where its copy differs from the consensus of its congeners' copies, the ancestry features' sites), computed by default from the species neighbours, congener gaps and column weights the build writes, as a run would compute them on a copy's first record. Without the table a run computes them there, as before 2026-10-11, at ~0.3 M instructions plus ~0.6 M per congener compared for every copy its records touch (half of the profiling of a sample built at r226 v23, docs/claude/2026-10-11-r226-v23); the features are the same.")
-                ("no_unique_cores", "With --build: do not store which of every gene copy's index cores are unique (unique_cores.bin, UniqueCores.h: two bits a core, ~0.7 GB at GTDB r226). With the table a run counts each record's ZS, ZU and ZT from the gene's cores its alignment covers with exact k-mers, the same on the whole index, a sparse index or with --sparse_seeding; without it (or with this option in a run) from the seeds of the record's anchor, as before 2026-10-14, which a sparse index finds a quarter of at C 4.")
+                ("no_unique_cores", "With --build: do not store which of every gene copy's index cores are unique (unique_cores.bin, UniqueCores.h: two bits a core, ~0.7 GB at GTDB r226). With the table a run counts each record's ZS, ZU and ZT from the gene's cores its alignment covers with exact k-mers, the same on the whole index, a sparse index or with --sparse_seeding; without it (or with this option in a run) from the seeds of the record's anchor, as before 2026-10-14, which a sparse index finds a quarter of at C 4. --build records which (build_settings.tsv unique_kmers: cores or anchors); a run with this option on a database built with the table is warned: the models' unique k-mer features (ZS, ZU, ZT) were trained on the cores.")
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "With --build: a file of the gene ids (the numbers of reference.map / gene2geneid.tsv, one per line, # lines are comments) to build the database from; the other genes of --reference stay in reference.fna but get no k-mers, no unique k-mer row, no conservation factor and no suspect copies, and their copies in --full_reference are skipped. Refused when the folder has gene_neighbours.tsv (counted over every gene): derive a folder of the subset with scripts/mini_db/gtdb_to_protal_db.py --from_db --genes, which also leaves the other genes' sequences out (docs/databases.md, reduced marker sets).", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -156,6 +158,7 @@ namespace protal {
         // General options
         options.add_options("General")
                 ("v,version", "Output version information")
+                ("feature_versions", "Print the presence model's features with the version of each one's definition in this protal, the date of its last change and a note (TSV: feature, version, changed, note), and exit. The trainer stores them in the models it writes (protal_feature_versions), and a run warns when a model was trained on other definitions.")
                 ("h,help", "Print help.")
                 ("full_help", "Get help for developer options.")
                 ("map_help", "Get help how to format the map file.")
@@ -234,13 +237,17 @@ namespace protal {
         if (!m_scratch_dir.empty()) result_str << "scratch dir:         " << m_scratch_dir << '\n';
         result_str << "preload genomes:     " << (m_preload_genomes ? "yes" : "no") << '\n';
         result_str << "----- Alignment -----" << std::string(30, '-') << '\n';
-        result_str << "align top:           " << std::to_string(m_align_top) << '\n';
-        result_str << "adaptive candidates: " << std::to_string(m_adaptive_candidates) << '\n';
-        result_str << "allele scores:       " << (m_no_allele_scores ? "off (--no_allele_scores)" : "the database's strain alleles, if it has them") << '\n';
-        result_str << "weighted site shift: " << (m_weighted_site_shift ? "with the database's column weights, if it has them (--weighted_site_shift)" : "off (--weighted_site_shift turns it on)") << '\n';
+        // A run setting not given (auto) follows the database's build_settings.tsv where it records one (the block
+        // ApplyRunSettings prints after these options); here protal's default.
+        auto const& g = m_run_settings_given;
+        auto run_auto = [this](bool is_given) { return is_given || m_build ? "" : " (auto: the database's, else this)"; };
+        result_str << "align top:           " << std::to_string(m_align_top) << run_auto(g.align_top.has_value()) << '\n';
+        result_str << "adaptive candidates: " << std::to_string(m_adaptive_candidates) << run_auto(g.adaptive_candidates.has_value()) << '\n';
+        result_str << "allele scores:       " << (m_no_allele_scores ? "off (--no_allele_scores)" : "the database's strain alleles, if it has them") << run_auto(g.allele_scores.has_value()) << '\n';
+        result_str << "weighted site shift: " << (m_weighted_site_shift ? "with the database's column weights, if it has them (--weighted_site_shift)" : "off (--weighted_site_shift turns it on)") << run_auto(g.weighted_site_shift.has_value()) << '\n';
         result_str << "max key ubiquity:    " << std::to_string(m_max_key_ubiquity) << '\n';
         result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
-        result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
+        result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << run_auto(m_max_score_ani_given) << '\n';
         result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
         result_str << "WFA2 traceback:      " << (m_wfa_traceback_given ? std::string(WfaTracebackName(*m_wfa_traceback_given)) :
                                                   m_build ? "singletrack (auto)" : "auto (the database's)") << '\n';
@@ -279,8 +286,8 @@ namespace protal {
         result_str << "msa identity margin: " << std::to_string(m_msa_identity_margin) << '\n';
         result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
         result_str << "phasing:             " << (m_no_phasing ? "no" : "long-read samples") << '\n';
-        result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << '\n';
-        result_str << "suspect gene copies: " << (m_keep_suspect_copies ? "kept" : "left out of the evidence") << '\n';
+        result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << run_auto(g.keep_foreign_genes.has_value()) << '\n';
+        result_str << "suspect gene copies: " << (m_keep_suspect_copies ? "kept" : "left out of the evidence") << run_auto(g.keep_suspect_copies.has_value()) << '\n';
         result_str << "spike genes:         " << (m_spike_mode == spike_genes::Mode::kAuto ? "left out in spike mode (auto: samples whose coverage shows carried-over products)"
                                                   : m_spike_mode == spike_genes::Mode::kOn ? "left out of every sample's evidence (on)" : "kept (off)") << '\n';
         if (m_add_model.empty()) {
@@ -1222,6 +1229,11 @@ namespace protal {
             exit(2);
         }
 
+        if (result.count("feature_versions")) {  // FeatureVersions.h
+            feature_versions::WriteTable(std::cout);
+            exit(0);
+        }
+
         bool show_help = result.count("help");
         bool show_help_dev = result.count("full_help");
         bool show_map_help = result.count("map_help");
@@ -1231,11 +1243,51 @@ namespace protal {
             return { show_help, show_map_help, show_version, show_help_dev };
         }
 
+        // The run settings --build records (BuildSettings.h RunSettings): each as given, nothing for auto (the database's;
+        // RunProtal ApplyRunSettings). A value that is none exits 2.
+        build_settings::RunSettings given;
+        {
+            auto bad = [](std::string const& option, std::string const& expected, std::string const& value) {
+                std::cerr << "Error: --" << option << " must be auto or " << expected << ", not '" << value << "'" << std::endl;
+                exit(2);
+            };
+            auto text = [&result](std::string const& option) { return result[option].as<std::string>(); };
+            auto count = [&](std::string const& option, std::optional<size_t>& target) {
+                if (text(option) == "auto") return;
+                target = build_settings::ParseCount(text(option));
+                if (!target) bad(option, "a whole number", text(option));
+            };
+            auto decimal = [&](std::string const& option, std::optional<double>& target) {
+                if (text(option) == "auto") return;
+                target = build_settings::ParseDecimal(text(option));
+                if (!target || *target < 0) bad(option, "a decimal of 0 or more", text(option));
+            };
+            auto on_off = [&](std::string const& option, std::optional<bool>& target) {
+                if (text(option) == "auto") return;
+                target = build_settings::ParseOnOff(text(option));
+                if (!target) bad(option, "on or off", text(option));
+            };
+            if (result.count("no_weighted_site_shift")) given.weighted_site_shift = false;
+            else if (result.count("weighted_site_shift")) given.weighted_site_shift = true;
+            if (result.count("no_allele_scores")) given.allele_scores = false;
+            else if (result.count("allele_scores")) given.allele_scores = true;
+            count("align_top", given.align_top);
+            count("adaptive_candidates", given.adaptive_candidates);
+            if (result.count("no_mate_guidance")) given.mate_guidance = std::string(build_settings::kMateGuidanceOff);
+            std::optional<double> identity_floor;
+            decimal("max_score_ani", identity_floor);
+            given.max_score_ani.fill(identity_floor);
+            if (result.count("no_unique_cores")) given.unique_kmers = std::string(build_settings::kUniqueAnchors);
+            on_off("keep_foreign_genes", given.keep_foreign_genes);
+            on_off("keep_suspect_copies", given.keep_suspect_copies);
+            decimal("depth_identity_margin", given.depth_identity_margin);
+        }
+
         bool no_strains = result.count("no_strains");
-        bool no_mate_guidance = result.count("no_mate_guidance");
+        bool no_mate_guidance = given.mate_guidance == std::string(build_settings::kMateGuidanceOff);
         bool no_gene_neighbours = result.count("no_gene_neighbours");
-        bool keep_foreign_genes = result.count("keep_foreign_genes");
-        bool keep_suspect_copies = result.count("keep_suspect_copies");
+        bool keep_foreign_genes = given.keep_foreign_genes.value_or(false);
+        bool keep_suspect_copies = given.keep_suspect_copies.value_or(false);
         auto const spike_mode = spike_genes::ParseMode(result["spike_genes"].as<std::string>());
         if (!spike_mode) {
             std::cerr << "Error: --spike_genes must be auto, on or off, not '" << result["spike_genes"].as<std::string>() << "'" << std::endl;
@@ -1250,7 +1302,7 @@ namespace protal {
         bool verbose = result.count("verbose");
 
         size_t threads = result["threads"].as<size_t>();
-        size_t align_top = result["align_top"].as<size_t>();
+        size_t align_top = given.align_top.value_or(DEFAULT_ALIGN_TOP);
         size_t x_drop = result["x_drop"].as<size_t>();
         std::optional<WfaTraceback> wfa_traceback;
         if (auto const name = result["wfa_traceback"].as<std::string>(); name != "auto") {
@@ -1271,7 +1323,7 @@ namespace protal {
         size_t max_key_ubiquity = result["max_key_ubiquity"].as<size_t>();
         size_t min_successful_lookups = result["min_successful_lookups"].as<size_t>();
         size_t max_seed_size = result["max_seed_size"].as<size_t>();
-        double max_score_ani = result["max_score_ani"].as<double>();
+        double max_score_ani = given.max_score_ani.front().value_or(DEFAULT_MAX_SCORE_ANI);  // -a: every read type's
         size_t msa_min_hcov = result["msa_min_hcov"].as<size_t>();
         size_t msa_min_depth = result["msa_min_depth"].as<size_t>();
         size_t max_out = result["max_out"].as<size_t>();
@@ -1768,11 +1820,11 @@ namespace protal {
         d.output_dir               = output_dir;
         d.threads                  = threads;
         d.align_top                = align_top;
-        d.adaptive_candidates      = result["adaptive_candidates"].as<size_t>();
-        d.no_allele_scores         = result["no_allele_scores"].as<bool>();
+        d.adaptive_candidates      = given.adaptive_candidates.value_or(DEFAULT_ADAPTIVE_CANDIDATES);
+        d.no_allele_scores         = !given.allele_scores.value_or(true);
         d.max_out                  = max_out;
         d.max_score_ani            = max_score_ani;
-        d.max_score_ani_given      = result.count("max_score_ani") > 0;
+        d.max_score_ani_given      = given.max_score_ani.front().has_value();
         d.msa_min_hcov             = msa_min_hcov;
         d.msa_min_depth            = msa_min_depth;
         d.msa_species              = std::move(msa_species);
@@ -1823,7 +1875,7 @@ namespace protal {
         if (result.count("fdr")) d.fdr = result["fdr"].as<double>();
         d.singleton_congener       = result["singleton_congener"].as<size_t>();
         if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
-        d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
+        d.depth_identity_margin    = given.depth_identity_margin.value_or(0.08);
         d.keep_suspect_copies      = keep_suspect_copies;
         d.spike_mode               = *spike_mode;
         d.suspect_copy_distance    = result["suspect_copy_distance"].as<double>();
@@ -1843,7 +1895,8 @@ namespace protal {
         d.no_unique_cores          = result.count("no_unique_cores") > 0;
         d.no_site_weights          = result.count("no_site_weights") > 0;
         // Off by default (it was on 2026-10-11 to 2026-10-12); --no_weighted_site_shift wins.
-        d.weighted_site_shift      = result.count("weighted_site_shift") > 0 && result.count("no_weighted_site_shift") == 0;
+        d.weighted_site_shift      = given.weighted_site_shift.value_or(false);
+        d.run_settings_given       = given;
         d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
         d.gene_conservation        = result["gene_conservation"].as<std::string>();
         d.model                    = result["model"].as<std::string>();
@@ -1865,5 +1918,52 @@ namespace protal {
         }
 
         return options;
+    }
+
+    void Options::FollowDatabaseRunSettings(build_settings::RunSettings const& recorded) {
+        auto const& g = m_run_settings_given;
+        if (!g.weighted_site_shift && recorded.weighted_site_shift) m_weighted_site_shift = *recorded.weighted_site_shift;
+        if (!g.allele_scores && recorded.allele_scores) m_no_allele_scores = !*recorded.allele_scores;
+        if (!g.align_top && recorded.align_top) m_align_top = *recorded.align_top;
+        if (!g.adaptive_candidates && recorded.adaptive_candidates) m_adaptive_candidates = *recorded.adaptive_candidates;
+        // A mode this protal does not know (a later protal's) leaves its default (ApplyRunSettings warns).
+        if (!g.mate_guidance && recorded.mate_guidance && build_settings::KnownMateGuidance(*recorded.mate_guidance)) {
+            m_no_mate_guidance = *recorded.mate_guidance == build_settings::kMateGuidanceOff;
+        }
+        m_database_max_score_ani = recorded.max_score_ani;  // GetMaxScoreAni: where -a is not given
+        if (!g.keep_foreign_genes && recorded.keep_foreign_genes) m_keep_foreign_genes = *recorded.keep_foreign_genes;
+        if (!g.keep_suspect_copies && recorded.keep_suspect_copies) m_keep_suspect_copies = *recorded.keep_suspect_copies;
+        if (!g.depth_identity_margin && recorded.depth_identity_margin) m_depth_identity_margin = *recorded.depth_identity_margin;
+        // unique_kmers: a run reads the database's unique_cores.bin where it has one, unless --no_unique_cores.
+    }
+
+    build_settings::RunSettings Options::RunSettingsInUse() const {
+        build_settings::RunSettings s;
+        s.weighted_site_shift = m_weighted_site_shift;
+        s.allele_scores = !m_no_allele_scores;
+        s.align_top = m_align_top;
+        s.adaptive_candidates = m_adaptive_candidates;
+        s.mate_guidance = std::string(m_no_mate_guidance ? build_settings::kMateGuidanceOff : build_settings::kMateGuidanceOn);
+        for (auto const& info : kReadTypes) s.max_score_ani[static_cast<size_t>(info.type)] = GetMaxScoreAni(info.type);
+        s.unique_kmers = std::string(m_no_unique_cores ? build_settings::kUniqueAnchors : build_settings::kUniqueCores);
+        s.keep_foreign_genes = m_keep_foreign_genes;
+        s.keep_suspect_copies = m_keep_suspect_copies;
+        s.depth_identity_margin = m_depth_identity_margin;
+        return s;
+    }
+
+    void Options::SetSampleGate(size_t index, size_t gate, std::optional<SparseFirstPick> pick) {
+        size_t const samples = m_prefix_list.size();
+        if (index >= samples) return;
+        // --sparse_first (--sparse_first_pick) of its read type, or the map's SPARSE_FIRST (SPARSE_FIRST_PICK), wins.
+        size_t const t = static_cast<size_t>(GetReadType(index));
+        if (!m_sparse_first_given[t] && !(index < m_sparse_first_list.size() && m_sparse_first_list[index])) {
+            if (m_sparse_first_list.size() < samples) m_sparse_first_list.resize(samples);
+            m_sparse_first_list[index] = gate;
+        }
+        if (pick && !m_sparse_first_pick_given[t] && !(index < m_sparse_first_pick_list.size() && m_sparse_first_pick_list[index])) {
+            if (m_sparse_first_pick_list.size() < samples) m_sparse_first_pick_list.resize(samples);
+            m_sparse_first_pick_list[index] = pick;
+        }
     }
 }

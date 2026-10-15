@@ -268,6 +268,24 @@ namespace protal {
             bm_score.Start();
             if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
             bm_score.Stop();
+            // The taxa near or above the knob whose features lie outside the model's training range (FeatureRanges.h; a
+            // model with the trainer's protal_feature_ranges): a line for the sample, and each taxon's in its .profile.log.
+            if (auto const& ranges = filter.FeatureRanges()) {
+                feature_ranges::SampleSummary summary;
+                std::unordered_map<uint32_t, std::string> outside;
+                for (auto const taxid : profile.SortedTaxa()) {
+                    auto const& taxon = profile.GetTaxa().at(taxid);
+                    if (!feature_ranges::NearKnob(filter.Score(taxon), filter.GetKnob(), taxon.Fragments())) continue;
+                    auto const found = feature_ranges::Check(*ranges, profiler::TaxonFeatures(taxon));
+                    summary.Add(found);
+                    if (!found.hard.empty()) outside.emplace(taxid, feature_ranges::Joined(found.hard));
+                }
+                profile.SetOutsideTrainingRange(std::move(outside));
+                if (auto const line = summary.Line(sample_name); !line.empty()) {
+                    #pragma omp critical(print)
+                    std::cerr << "Warning: " << line << std::endl;
+                }
+            }
             if (profiler.RejectedReads() > 0) {
                 #pragma omp critical(print)
                 std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
