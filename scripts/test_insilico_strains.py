@@ -68,8 +68,10 @@ class InsilicoStrains(unittest.TestCase):
                 fh.write(f"GCF_000000001.1\t1\tcontig1\t{len(cls.genome)}\t1\t{gene}\t{s}\t{e}\t{strand}\texact\t1\n")
         cls.out = os.path.join(d, "strains")
         cls.output = os.path.join(d, "genomes_simulated.tsv")
+        # Substitutions only (--indel-share 0): the tests below compare the strain with its representative base for
+        # base; CodonIndels tests the indels.
         ins.main(["--genome-table", cls.table, "--output", cls.output, "--out-dir", cls.out, "--positions",
-                  cls.positions, "--ani", "96-96", "--marker-scale", "1", "-t", "1"])
+                  cls.positions, "--ani", "96-96", "--marker-scale", "1", "--indel-share", "0", "-t", "1"])
         name = ins.strain_name("GCF_000000001.1")
         cls.strain = ins.read_fasta(os.path.join(cls.out, name + ".fna.gz"))[0][1].decode()
 
@@ -295,7 +297,7 @@ class CongenerSites(unittest.TestCase):
         with open(clouds, "w") as fh:
             fh.write("1\t2:0.033\n")  # the congener's species lists none
         common = ["--genome-table", table, "--positions", positions, "--taxonomy", taxonomy, "--ani", "96-96",
-                  "--marker-scale", "1", "--omega", "0.15", "-t", "1"]
+                  "--marker-scale", "1", "--omega", "0.15", "--indel-share", "0", "-t", "1"]
         name = ins.strain_name("GCF_000000001.1")
         cls.strains = {}
         for share in ("0", "0.5"):
@@ -345,6 +347,111 @@ class CongenerSites(unittest.TestCase):
                 codon = alt[i:i + 3]
                 index = 16 * "ACGT".index(codon[0]) + 4 * "ACGT".index(codon[1]) + "ACGT".index(codon[2])
                 self.assertFalse(ins.STOP[index], (s, strand, i))
+
+
+class CodonIndels(unittest.TestCase):
+    """--indel-share: codon indels in the marker genes, in pairs that keep each gene's length and frame; the strain's
+    substitutions those of --indel-share 0, and the same strain at the same seed."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(17)
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = cls.tmp.name
+        parts, cls.genes = [], []
+        pos = 0
+        for k in range(40):
+            spacer = "".join(rng.choice(list("ACGT"), size=150))
+            gene = coding_sequence(rng, 300) + "TAA"  # a stop codon ends each frame
+            strand = "+" if k % 2 == 0 else "-"
+            parts += [spacer, gene if strand == "+" else reverse_complement(gene)]
+            start = pos + len(spacer) + 1
+            cls.genes.append((start, start + len(gene) - 1, strand, k + 1))
+            pos += len(spacer) + len(gene)
+        cls.genome = "".join(parts)
+        single = os.path.join(d, "GCF_000000001.1_genomic.fna")
+        with open(single, "w") as fh:
+            fh.write(">contig1\n" + cls.genome + "\n")
+        table = os.path.join(d, "genomes.tsv")
+        with open(table, "w") as fh:
+            fh.write(f"GCF_000000001.1\td__Bacteria;s__Solo one\t{single}\t{len(cls.genome)}\n")
+        positions = os.path.join(d, "gene_positions.tsv")
+        with open(positions, "w") as fh:
+            fh.write("accession\ttaxid\tcontig\tcontig_length\tcircular\tgene\tstart\tend\tstrand\tplaced\tkmer_share\n")
+            for s, e, strand, gene in cls.genes:
+                fh.write(f"GCF_000000001.1\t1\tcontig1\t{len(cls.genome)}\t1\t{gene}\t{s}\t{e}\t{strand}\texact\t1\n")
+        name = ins.strain_name("GCF_000000001.1")
+        cls.strains, cls.summary = {}, {}
+        for label, share in (("none", "0"), ("some", "0.1"), ("again", "0.1")):
+            out = os.path.join(d, "strains_" + label)
+            ins.main(["--genome-table", table, "--output", os.path.join(d, f"simulated_{label}.tsv"), "--out-dir", out,
+                      "--positions", positions, "--ani", "96-96", "--marker-scale", "1", "--omega", "0.15",
+                      "--indel-share", share, "--seed", "4", "-t", "1"])
+            cls.strains[label] = ins.read_fasta(os.path.join(out, name + ".fna.gz"))[0][1].decode()
+            with open(os.path.join(out, ins.SUMMARY)) as fh:
+                rows = [line.rstrip("\n").split("\t") for line in fh]
+            cls.summary[label] = dict(zip(rows[0], rows[1]))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def reading(self, seq, s, e, strand):
+        gene = seq[s - 1:e]
+        return reverse_complement(gene) if strand == "-" else gene
+
+    def test_genes_keep_length_frame_and_ends(self):
+        none, some = self.strains["none"], self.strains["some"]
+        self.assertEqual(len(some), len(self.genome))  # every pair keeps its gene's length
+        changed = 0
+        for s, e, strand, _ in self.genes:
+            before, after = self.reading(none, s, e, strand), self.reading(some, s, e, strand)
+            changed += before != after
+            self.assertEqual(after[:3], before[:3])  # the first codon
+            self.assertEqual(after[-3:], before[-3:])  # the last (the stop)
+            for i in range(0, len(after) - 3, 3):
+                codon = after[i:i + 3]
+                index = 16 * "ACGT".index(codon[0]) + 4 * "ACGT".index(codon[1]) + "ACGT".index(codon[2])
+                self.assertFalse(ins.STOP[index], (s, strand, i))
+        # 0.1 indels per substitution, ~36 substitutions a gene (4% of 903 bases): ~1.8 pairs a gene, most genes have one.
+        self.assertGreater(changed, 25)
+        indels = int(self.summary["some"]["codon_indels"])
+        self.assertEqual(indels % 2, 0)
+        self.assertTrue(80 <= indels <= 220, indels)
+        self.assertEqual(self.summary["none"]["codon_indels"], "0")
+
+    def test_the_same_substitutions_and_strain(self):
+        none, some = self.strains["none"], self.strains["some"]
+        in_genes = np.zeros(len(self.genome), bool)
+        for s, e, _, _ in self.genes:
+            in_genes[s - 1:e] = True
+        a, b = np.frombuffer(none.encode(), np.uint8), np.frombuffer(some.encode(), np.uint8)
+        self.assertTrue((a[~in_genes] == b[~in_genes]).all())  # outside the genes, base for base
+        self.assertEqual(self.summary["none"]["substitutions"], self.summary["some"]["substitutions"])
+        self.assertEqual(self.strains["again"], some)  # reproducible by seed
+
+    def test_the_bases_between_an_insertion_and_its_deletion_are_shifted(self):
+        # Base for base against the representative, a gene with a pair differs at more bases than without it: the codons
+        # between its insertion and its deletion sit 3-12 bases from their place.
+        more = 0
+        for s, e, strand, _ in self.genes:
+            rep = self.reading(self.genome, s, e, strand)
+            plain, shifted = self.reading(self.strains["none"], s, e, strand), self.reading(self.strains["some"], s, e, strand)
+            more += sum(a != b for a, b in zip(rep, shifted)) > sum(a != b for a, b in zip(rep, plain)) + 20
+        self.assertGreater(more, 20)
+
+    def test_codon_indels_unit(self):
+        # A gene of 40 codons on the plus strand, 20 indels expected (~10 pairs): its length and its first and last codons
+        # kept; nothing for a gene whose length is no multiple of 3, or with nothing expected.
+        rng = np.random.default_rng(1)
+        codes = ins.CODE[np.frombuffer(("AC" + coding_sequence(rng, 39) + "TAG" + "GT").encode(), np.uint8)].copy()
+        before = codes.copy()
+        made = ins.codon_indels(codes, 2, 2 + 120 - 1, "+", 20.0, np.random.default_rng(3))
+        self.assertGreater(made, 0)
+        self.assertEqual(len(codes), len(before))
+        self.assertTrue((codes[:5] == before[:5]).all() and (codes[-5:] == before[-5:]).all())
+        self.assertEqual(ins.codon_indels(codes.copy(), 2, 2 + 119 - 1, "+", 20.0, np.random.default_rng(3)), 0)
+        self.assertEqual(ins.codon_indels(codes.copy(), 2, 2 + 120 - 1, "+", 0.0, np.random.default_rng(3)), 0)
 
 
 if __name__ == "__main__":

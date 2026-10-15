@@ -390,6 +390,15 @@ unchanged, and simulated samples are reused when their design is the same
 F1 and false positives per sample, with species held out in training and on the independent test
 set. The r226 build of 2026-10-04 scored F1 0.963 (paired-end), 0.960 (single-end), 0.968 (PacBio)
 and 0.969 (Nanopore) on its test set ([report](claude/2026-10-04-r226-v10-evaluation/README.md)).
+Since 2026-10-15 `summary.txt` leads with each model's F1 over every species present in the samples whose marker genes
+got reads, as protal calls (the marker truth below: a present species without any row counts as missed), on the test
+set and held out in training: the trainer's `headline` where its `.metrics.json` has one (its `test` and `held_out`
+estimates' `marker_truth_f1`, with its measure and notes), else the marker truth's test-set and species-held-out rows,
+else the F1 over the rows, each line saying which. The
+table's F1s count only the taxa with a row, so a change that strips a present species of all its records raises them
+([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), E3). Then it names the test set's seed, and after the table
+come the [final check on the finished database](#the-final-check-on-the-finished-database) and, with `--share-logs`, the
+allele scores' effect.
 Each model's full report is `trained_model*.report.txt`. Start with these sections:
 
 - **Independent test set**: the score per depth, and the threshold with the highest F1. A test score
@@ -475,10 +484,10 @@ with `--scratch`, and about 1,400 with `--share-logs`, whose error-read SAMs are
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/` | the database: `database.protal` with its models of both kinds; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes. Since 2026-10-13 `database.protal` holds these three too ([the notes](#the-notes-a-database-carries)): it alone is the database |
-| `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
+| `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; `final_db_check.tsv`, the final check on the finished database, and with `--share-logs` `no_allele_scores.tsv`, the allele scores' effect ([above](#the-final-check-on-the-finished-database)); `feature_versions.tsv`, the feature code's versions of the protal the models were trained with (`protal --feature_versions`, where protal has it; given to every trainer, `--feature-versions`, where the trainer takes it); what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
 | `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the parity checks, run side by side, each after a `==> parity_<read type>[_c<C>][_<kind>] <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
 | `console.log` | the console's lines, of every run into the folder |
-| `work/` | what a rerun reuses, not needed to use the database: `stages/` (what a rerun may skip), `genomes.tsv` (the genomes simulated from: accession, taxonomy, FASTA, length) and `genomes_simulated.tsv` (with the in-silico strains), `internal_taxonomy.dmp`, `gene2geneid.tsv`, `foreign_rates/` (the finished database's scan, stored in it), and `training/`, `test/`: one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`), to retrain a model. Without `--scratch` also the samples, their profiles, the training database, the genome store and the in-silico strains (with `--scratch` these are on the scratch disk) |
+| `work/` | what a rerun reuses, not needed to use the database: `stages/` (what a rerun may skip, and `test_seed.json`, the test set's seed), `genomes.tsv` (the genomes simulated from: accession, taxonomy, FASTA, length) and `genomes_simulated.tsv` (with the in-silico strains), `internal_taxonomy.dmp`, `gene2geneid.tsv`, `foreign_rates/` (the finished database's scan, stored in it), and `training/`, `test/`: one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`), to retrain a model; with `--scratch` also `final_check/` and `no_allele_scores/`, the tables of the checks' runs. Without `--scratch` also the samples, their profiles, the training database, the genome store and the in-silico strains (with `--scratch` these are on the scratch disk) |
 | `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
 
 The in-silico strains (`insilico_strains/`: a FASTA per strain, 9,030 at r226 v17, and
@@ -540,7 +549,15 @@ sample or missed a fifth of the strains.
   species gets a strain (`scripts/insilico_strains.py`; `--insilico-strains`, the share given one; default `auto`
   since 2026-10-11: as many as keep the real strains at `--min-real-strains`, 0.5, of the simulated strains or more;
   until then 1, and in r226 v23 the in-silico strains were 40% of the simulated species against 13.3% real ones):
-  - a copy of the representative with substitutions only;
+  - a copy of the representative with substitutions and, since 2026-10-15, codon indels in its marker genes
+    (`--insilico-indels`, 0.02 per substitution; `--indel-share` in the script): pairs of an insertion and a deletion
+    of 1-4 whole codons at codon boundaries of their own inside a gene, so that the gene keeps its length, frame and
+    positions (the simulator counts the marker genes' reads at the representative's) and gains no stop codon. With
+    substitutions only, every in-silico strain's read aligned without a gap, which no real strain's does
+    ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), C4). 0.02 is the share of codon indels among the mutations
+    of the synthetic release (`scripts/mini_db/simulate_gtdb_release.py`): no report here measures real strains' indels,
+    and in-frame indels in conserved single-copy genes are rarer than substitutions by one to two orders of magnitude.
+    The substitutions are those of `--insilico-indels 0` (the indels draw from a stream of their own);
   - as far from it as the table's real strains are from theirs (marker genes from the k-mer traces
     in `gene_positions.tsv`), each marker gene by its conservation factor;
   - the genome at that divergence / 0.45, at most 5% (95% ANI; `--insilico-ani MIN-MAX` draws the
@@ -595,11 +612,13 @@ The samples are as complex as real ones:
 - about a quarter of the species in groups of 2-5 congeners (`--congeners`), which the relatives
   features need;
 - abundances lognormal with sigma 1.3 and 2.0;
-- 100 bp (HiSeq 2000), 150 bp (HiSeq X Ten) and 250 bp (MiSeq) reads, made by
-  `simulate_metagenomes`'s own model of each instrument (no ART; `NovaSeq` and `HS25` are there too,
-  [below](#illumina-reads)).
-- depths from 1,000 to 30M read pairs (`--read-pairs`). A model with the sample's depth as a feature
-  cannot extrapolate beyond its deepest training sample, and real samples are 5-50M pairs.
+- 75 bp (HiSeq 2500), 100 bp (HiSeq 2000), 150 bp (HiSeq X Ten) and 250 bp (MiSeq) reads, and since 2026-10-15
+  150 bp NovaSeq reads whose qualities overstate their accuracy (`--read-setups`' `CALIBRATION` 2, [below](#illumina-reads)),
+  made by `simulate_metagenomes`'s own model of each instrument (no ART);
+- depths from 1,000 to 30M read pairs (`--read-pairs`), and since 2026-10-15 one sample of 60M pairs of the 150 bp
+  HiSeq X setup (`60000000:1:150:HSXt`: `DEPTH:SAMPLES:LENGTH[:INSTRUMENT]` makes a depth of those setups only). A
+  model with the sample's depth as a feature cannot extrapolate beyond its deepest training sample, and real samples
+  are 5-50M pairs and more; the scenarios reach ~40M.
 
 #### One model per read type
 
@@ -608,13 +627,13 @@ communities:
 
 | read type | how the reads are made |
 |---|---|
-| `pe` | Illumina paired-end reads by `simulate_metagenomes`'s instrument models ([below](#illumina-reads)): 75, 100, 150 and 250 bp (`--read-setups`; 100, 150 and 250 before 2026-10-14) |
-| `se` | the first mates of the Illumina setups of `--se-read-setups` (150 and 250 bp), profiled as single-end, and Ultima reads (`--se-ultima-setup`, 300 bp, SD 50, cut at 320 bases; a unit a depth replaying its communities, since 2026-10-14; the scenarios' before) |
+| `pe` | Illumina paired-end reads by `simulate_metagenomes`'s instrument models ([below](#illumina-reads)): 75, 100, 150 and 250 bp, and 150 bp NovaSeq with qualities 3 Phred too high since 2026-10-15 (`--read-setups`; 100, 150 and 250 before 2026-10-14) |
+| `se` | the first mates of the Illumina setups of `--se-read-setups` (75, 100, 150 and 250 bp; 150 and 250 from 2026-10-14 to 2026-10-15), profiled as single-end, and Ultima reads (`--se-ultima-setup`, 300 bp, SD 50, cut at 320 bases; a unit a depth replaying its communities, since 2026-10-14; the scenarios' before) |
 | `pb` | PacBio HiFi reads by `hifi_reads.py`'s model (`--pb-setup`: 15 kb, quality by length, Q50 at 5 kb to Q20 at 50 kb) |
 | `ont` | Nanopore reads by [pbsim3](https://github.com/yukiteruono/pbsim3)'s quality-score model (`--ont-setup`: the high-quality model at 97%, 8 kb) |
 
-The long-read samples (`--long-read-bases`, 300 kb to 6 Gb; `--long-read-samples` 36 per point) replay
-the paired-end communities of the same depth. `simulate_metagenomes --long_samples` makes them in
+The long-read samples (`--long-read-bases`, 300 kb to 6 Gb, and since 2026-10-15 one sample of 20 Gb; `--long-read-samples`
+36 per point) replay the paired-end communities of the same depth. `simulate_metagenomes --long_samples` makes them in
 process, one run per design point: it draws the reads' templates and writes each read as it is made,
 compressed, with no template or pbsim3 files on the disk. Once the training database is built, the samples are
 profiled as they are simulated, in protal runs of at least `--profile-blocks` GB of reads (20) and at
@@ -659,6 +678,20 @@ The curves are InSilicoSeq's (Gourlé et al. 2019); the sources and the fit are 
 --sequencer X --read_length L` prints an instrument's qualities by cycle and error rates;
 `--mean_quality Q` shifts each read's qualities (and errors) to average Q, as the scenarios do.
 
+**Miscalibrated qualities** (since 2026-10-15). A read setup may end in a calibration,
+`LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD:CALIBRATION` (`simulate_metagenomes --calibration`): a base is miscalled
+with its hidden quality's error probability times this, the qualities written are the instrument's. Without it a setup
+is the instrument's own (1; `MSv3` 1.5, whose high qualities overstate its accuracy), and its design points keep their
+names; a setup with one is named `_cal<X>` (`rl150_NovaSeq_cal2_p...`). The default `--read-setups` has
+`150:NovaSeq:350:50:2`: its qualities overstate the reads' accuracy by 3 Phred (a written Q37 base is right as often as
+a Q34 one): `--illumina_report 20000 --calibration 2` gives the same written qualities (Q37 96.4% / 90.3%) and
+substitutions of 0.36% (R1) and 0.82% (R2), against 0.20% and 0.43% at 1. The `excess_*` features measure divergence
+beyond what the qualities predict, so real runs whose qualities are too high (common on binned instruments;
+recalibration often moves Q37 to the low 30s) shift them for every species; the calibrated setups alone never showed
+the models that ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), C4). 2 is beyond MiSeq's 1.5 and puts R1 at the
+upper end of NovaSeq's PhiX error rates (0.14-0.35%, Illumina's notes) and R2 a little above them (0.20-0.61%): a poor
+but ordinary run.
+
 #### An independent test set
 
 Cross-validation only judges the model on what the training design contains: a model trained from
@@ -666,6 +699,61 @@ Cross-validation only judges the model on what the training design contains: a m
 F1 0.997 ([report](claude/2026-09-30-clade-holdouts.md)). So every build also profiles a test set of
 another design: depths of 500 to 5M pairs, 10-300 species, more uneven abundances (sigma 2.0), more
 mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
+
+**A test seed per build** (since 2026-10-15). The test set's seed was `--seed` + 1000, so every build of a genome
+table and design tested on the same communities, and the defaults chosen on test-set differences of 0.001-0.003 fitted
+those ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), E2). Now each build draws its own, from a hash of the
+release, the `--outdir`'s name and the date of its first run (1001 to 999,999, at least 1000 from `--seed`), kept in
+`work/stages/test_seed.json`: a rerun or resume into the same `--outdir` takes the same test samples. `--test-seed N`
+fixes it (and replaces the kept one). The console, `summary.txt` and `build_metadata.tsv` (`test_seed`) name it and how it
+was chosen.
+
+#### The final check on the finished database
+
+Every model is trained and tested on the training database. Users run the finished database, which differs:
+- it has the held-out species and clades (30% of the species, `--holdout`), which the training database lacks;
+- its strain alleles come from every genome (`--final-allele-genome-share 1`), the training database's from half;
+- a k-mer a kept species shares only with a held-out congener is unique in one and not in the other.
+
+About 30 of the models' features describe the database in use, so a sample's features shift on the finished database
+against everything the models were trained and tested on ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), E1).
+Since 2026-10-15 the build ends with a check (a step after the models go in; `--no-final-check` leaves it out):
+- the test collection's samples written to the disk are simulated again (the same samples: the simulator's draws
+  depend on its seeds) and profiled on the finished database, with its default models at their gates
+  (`collect_training_data.py --leave_out_streamed` into `SCRATCH/final_check`; the deepest samples, which the build
+  streamed into protal, are left out, and the read types without written samples are said to be unchecked);
+- the rows of the species that were not held out (neither the held-out species nor those of the held-out clades) are
+  scored on both databases: on the training database the trainer's calls (`trained_model*.calls.tsv.gz`, the test
+  rows), on the finished database protal's own calls for the default kind (the dumps' `prediction`) and the model file's
+  for the other kinds (`database_check.py`: the probabilities, the singleton veto and the knob curve as protal applies
+  them); where both are there, the rows whose protal and model-file calls differ are counted (a parity check on the
+  database that ships);
+- `model_logs/final_db_check.tsv`, per read type, kind and rows (`species not held out`, and of them those without a
+  held-out congener in the sample, `meta_novel_congener` 0: on the finished database a held-out species' reads go to
+  it, not to its congeners): `samples`, then for `training_db_*` and `finished_db_*` the `rows`, `TP`, `FP`, `FN`, `F1`
+  and the marker truth's `marker_TP`, `marker_FN`, `marker_F1` (present species without a row, `<table>.unseen.tsv`,
+  counted as missed), `F1_change` and `marker_F1_change` (finished - training), the flips
+  (`flips_to_called_present`, `flips_to_called_absent`, `flips_to_not_called_present`, `flips_to_not_called_absent`: a
+  row of one database only counts as not called in the other) and `calls_unlike_the_model_file`;
+- a section of `summary.txt` and a console line per row; a `WARNING` where the F1 over the species not held out moves by
+  more than 0.002 (about one refit's noise), or where protal's calls differ from the model file's.
+
+Its cost is the test samples' simulation again (minutes) and one protal run over the written ones at the database's gate:
+at most the test collection's profiling at one gate (~8% of a build's alignment work when nothing is streamed: the test
+collection is ~26% of the simulated bases, and the collections profile every sample at three model gates), much less
+with the deepest samples streamed (at `--stream-above 2` the written test samples are 26 of 78 Gb of pe and 2 of 64 Gb of
+each long-read type). A rerun keeps the check (its stage) while the finished database's build key, its models and the
+samples are the same; one stopped in the middle profiles again.
+
+**The allele scores' effect** (with `--share-logs`, since 2026-10-15; the f1 audit's B1). The strain-allele scores
+only ever help a species with alleles, so they may pull an unsure read of a one-genome species to a congener with
+alleles. The short-read (`pe`, `se`) test samples written to the disk are profiled once more on the training database
+with protal's `--no_allele_scores` (`SCRATCH/no_allele_scores`) and every kind's model file calls them;
+`model_logs/no_allele_scores.tsv` gives per read type, kind and species (`all`, `with strain alleles`, `without strain
+alleles`: a species with `allele_copy_share` above 0 in any row) the `samples`, `taxa`, the `rows`, `TP`, `FP`, `FN`
+and `F1` with the allele scores (the trainer's calls) and without them, `allele_scores_F1_gain` and the flips; and a
+section of `summary.txt`. The share archive carries it with `model_logs/`. Cost: the short-read test samples'
+simulation and one protal run.
 
 #### Choosing the sparse-first gates
 
@@ -1003,6 +1091,26 @@ needs the memory of a build beside protal's. `--one-build-at-a-time` builds the 
 the training instead. The models go into the finished database right after the parity check; the
 reports of what their errors rest on (`trace_relatives.py`, `error_reads.py`) follow, side by side.
 
+**The design's widening of 2026-10-15** ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), C4) adds simulated
+bases, and the profiling time grows about with them (the defaults' units, `collect_training_data.units_of`):
+
+| default | training collection | test collection |
+|---|---|---|
+| `150:NovaSeq:350:50:2` in `--read-setups` | pe +8.4% | pe and se, its share likewise |
+| 75 and 100 bp in `--se-read-setups` | se +8.0% (first reads of points simulated anyway) | |
+| `60000000:1:150:HSXt` in `--read-pairs` | pe +9.3%, se +23% (9 Gb of first reads and the depth's Ultima unit, 60M reads, 18 Gb) | |
+| `20000000000:1` in `--long-read-bases` | pb and ont +12.9% | |
+| all together | pe 193 -> 227 Gb (+18%), se 117 -> 154 Gb (+31%), pb and ont 155 -> 175 Gb (+13%) | pe +6%, se +6% |
+
+Weighted by the read types' shares of the collections' alignment at r226 v21 (ONT 63%, PacBio 15%, pe 13%, se 10%;
+[report](claude/2026-10-09-r226-v21-cpu.md)), that is about +11% of the collections' alignment, ~15 min on v21's 2:01
+collection on 120 cores. The final check adds at most ~8% more (less with the deepest test samples streamed), the
+allele scores' run with `--share-logs` the short-read test samples' share of that. The in-silico strains' codon indels
+cost nothing to speak of. The new deep samples are streamed whenever the room on the samples' disk asks for it (the
+pe sample of 60M pairs is ~14 GB of reads, the Ultima one ~20 GB, the long-read ones ~22 GB). To keep a build to its
+former cost, give the earlier values (`--read-setups`, `--se-read-setups`, `--read-pairs` and `--long-read-bases` as in
+[the options](#options), without the new items).
+
 The marker genes of every genome (`full_reference.fna.zst`, 86 GB uncompressed at r226) are written
 compressed and removed once each build has used them. The finished database is compressed at
 `--final-db-level` (9), the training database at `--training-db-level` (3).
@@ -1056,27 +1164,30 @@ keeps the finished database.
 | `--holdout-complex-distance`, `--species-clouds` | 0.01, | species within this distance of a congener on their references' marker genes form a complex that the training database leaves out or keeps whole, never torn (0: species drawn one by one, as before 2026-10-08); the distances come from `species_clouds.tsv`, which the build makes with `protal --write_species_neighbours` on the converted release, or from the table given ([below](#species-and-clades-the-database-lacks)) |
 | `--novel-clades-per-sample` | 1 | species of held-out clades per sample and rank |
 | `--insilico-strains`, `--min-real-strains`, `--insilico-multi`, `--insilico-ani` | `auto`, 0.5, 0.25, | share of one-genome species given an in-silico strain (`auto`: as many as keep the real strains at `--min-real-strains` of the simulated strains or more); share of the species with real strains given one too; or their ANI drawn from `MIN-MAX` |
-| `--weighted-site-shift` | off | the collections' protal runs with the weighted site shift (`protal --weighted_site_shift`), and the database's users should profile with it too (`build_metadata.tsv` says so); the default from 2026-10-11 to 2026-10-12, off again since it lowered r226 v24b's short-read depths by 1-2% without a measurable F1 gain |
+| `--insilico-indels` | 0.02 | codon indels in the in-silico strains' marker genes per substitution, in pairs that keep a gene's length (since 2026-10-15; 0: substitutions only, [above](#training-data-like-real-samples)) |
+| `--weighted-site-shift` | off | the collections' protal runs with the weighted site shift (`protal --weighted_site_shift`), and the database's users should profile with it too (`build_metadata.tsv` says so; since 2026-10-15 both `protal --build`s get it as well, for a protal that records the run options in `build_settings.tsv` and follows them; the build's other runs use protal's defaults, and the checks' diagnostic runs, `--no_allele_scores`, are never given to a build); the default from 2026-10-11 to 2026-10-12, off again since it lowered r226 v24b's short-read depths by 1-2% without a measurable F1 gain |
 | `--samples` | 9 | samples per design point (12 before 2026-10-14, with three paired-end setups) |
-| `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples (`2000000:4,10000000:2` before 2026-10-14) |
-| `--read-setups` | `75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | the paired-end reads: read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD; 75 bp since 2026-10-14 |
-| `--se-read-setups` | `150:HSXt:350:50,250:MSv3:550:50` | the single-end Illumina reads (the first reads of these setups' simulations; a setup in both lists is simulated once); since 2026-10-14, `--read-setups`' before |
+| `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1,60000000:1:150:HSXt` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples (`2000000:4,10000000:2` before 2026-10-14); `DEPTH:SAMPLES:LENGTH[:INSTRUMENT]` for a depth of those setups only (the 60M sample since 2026-10-15, [time](#time-and-memory)) |
+| `--read-setups` | `75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,150:NovaSeq:350:50:2,250:MSv3:550:50` | the paired-end reads: read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD [: calibration]; 75 bp since 2026-10-14, the miscalibrated NovaSeq setup since 2026-10-15 |
+| `--se-read-setups` | `75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | the single-end Illumina reads (the first reads of these setups' simulations; a setup in both lists is simulated once); 75 and 100 bp since 2026-10-15, 150 and 250 from 2026-10-14, `--read-setups`' before |
 | `--se-ultima-setup` | `ultima:300:50:25:2` | single-end Ultima reads of the design besides the Illumina ones, a unit a depth of that many reads and the depth's samples, drawn from the depth's communities ([Ultima reads](#scenarios-kinds-of-studies): cut at 320 bases, the last 100 poor, indels); since 2026-10-14; empty for none |
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
 | `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
 | `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn; a continuous long tail, no species below 1/1000 of the median, every species a read pair or more), `poisson_lognormal:SIGMA` (Poisson counts + 1, the lognormal before 2026-10-07: ~40-45% of the species at the lowest weight), `powerlaw:ALPHA` or `negbin:R:P` |
 | `--read-types` | `pe,se,pb,ont` | the read types to train, each once; a design point that no pe or se unit reads, but whose communities the long-read or Ultima samples replay, is simulated without reads (since 2026-10-15) |
-| `--long-read-bases`, `--long-read-samples` | 300 kb to 6 Gb, 36 | long-read depths and samples per point |
+| `--long-read-bases`, `--long-read-samples` | 300 kb to 6 Gb and one sample of 20 Gb (since 2026-10-15), 36 | long-read depths and samples per point |
 | `--pb-setup`, `--ont-setup`, `--pbsim`, `--pbsim-models` | | how long reads are made ([above](#one-model-per-read-type)) |
 | `--test-samples` | 4 | test-set samples per design point; 0 for none |
+| `--test-seed` | the build's own | the test set's seed (since 2026-10-15; `--seed` + 1000 before): drawn from the release, `--outdir`'s name and the date of the first run, kept in `work/stages/test_seed.json` ([above](#an-independent-test-set)) |
+| `--no-final-check` | | leave out the [final check on the finished database](#the-final-check-on-the-finished-database) (since 2026-10-15) |
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
 | `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `moderate`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
 | `--scenario-samples`, `--scenario-test-samples` | 10, 4 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 6 and 3 before 2026-10-07, 3 and 2 before 2026-10-06 |
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
-| `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
+| `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), measure the allele scores' effect (`no_allele_scores.tsv`, since 2026-10-15, [above](#the-final-check-on-the-finished-database)), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), in 0.8.1 the column weights (`weights`), and since 2026-10-13 the identities against the best strain allele (`strain_identity`), and since 2026-10-14 `length_free` and `read_length` (features that do not change with the read length or a sparse index in place of those that do, and the sample's read length), which need a protal of 2026-10-14 or later (2026-10-13 for `strain_identity`, 0.8.1 for `weights`, 0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `forest,gbm` | the kinds of models, comma-separated: `forest`, a random forest (the default again since 2026-10-14), `gbm`, gradient-boosted trees (the default from 2026-10-06 to 2026-10-14; [below](#training)); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_gbm.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13 (`gbm,forest` to 2026-10-14), `gbm` alone before |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items; `--maxnodes` for `--model`'s first kind, the others their defaults) |

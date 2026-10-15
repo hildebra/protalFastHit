@@ -100,11 +100,16 @@ def parse_args(argv=None):
                    help="samples per design point (default: 4; 0: no design points, only the scenarios)")
     p.add_argument("--read_pairs", default="1000,5000,20000,100000,500000",
                    help="comma-separated read pairs per sample, one design point each; DEPTH:SAMPLES gives a point other "
-                        "samples than --samples (e.g. 10000000:2 for deep samples)")
+                        "samples than --samples (e.g. 10000000:2 for deep samples); DEPTH:SAMPLES:LENGTH[:INSTRUMENT] "
+                        "makes the depth's points of those setups only (60000000:1:150:HSXt: one sample of the 150 bp "
+                        "HiSeq X setup)")
     p.add_argument("--read_setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
-                   help="comma-separated LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point each; "
-                        "INSTRUMENT: HS20 (HiSeq 2000), HS25 (HiSeq 2500), HSXt (HiSeq X Ten), NovaSeq or MSv3 "
-                        "(MiSeq v3), simulate_metagenomes's models of them (docs/databases.md#illumina-reads)")
+                   help="comma-separated LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD[:CALIBRATION], one design point "
+                        "each; INSTRUMENT: HS20 (HiSeq 2000), HS25 (HiSeq 2500), HSXt (HiSeq X Ten), NovaSeq or MSv3 "
+                        "(MiSeq v3), simulate_metagenomes's models of them (docs/databases.md#illumina-reads); "
+                        "CALIBRATION: the errors at the hidden quality's probability times this, the qualities "
+                        "unchanged (simulate_metagenomes --calibration; default the instrument's, 1, MSv3 1.5): above "
+                        "1 the qualities overstate the reads' accuracy, as a miscalibrated run's do (points _cal<X>)")
     p.add_argument("--se_read_setups", default="",
                    help="the single-end units' Illumina setups (their first reads), as --read_setups; empty (default): those "
                         "of --read_setups. The paired-end units take --read_setups' points, the single-end ones these; a "
@@ -189,6 +194,17 @@ def parse_args(argv=None):
                    help="protal --weighted_site_shift in this collection's protal runs: an unsure read's site shift also "
                         "discounts its differences at the columns its family's genera change freely (column_weights.tsv); "
                         "off by default, as in protal (its default 2026-10-11 to 2026-10-12)")
+    p.add_argument("--no_allele_scores", action="store_true",
+                   help="protal --no_allele_scores in this collection's protal runs: each candidate alignment scored "
+                        "against the reference alone, not its species' strain alleles (short reads; "
+                        "build_gtdb_database.py --share-logs measures the allele scores' effect so, beside the test set's "
+                        "own runs)")
+    p.add_argument("--leave_out_streamed", action="store_true",
+                   help="leave out the units whose simulations --stream_above would stream into protal (but those of "
+                        "--write_simulations): neither simulated nor profiled nor in the tables, their paired-end points "
+                        "simulated without reads where other units replay their communities. For a collection that "
+                        "profiles another's samples again at little cost (build_gtdb_database.py's final check on the "
+                        "finished database: the samples it wrote to the disk, not the deepest, streamed ones)")
     p.add_argument("--sparse_first_levels", type=sparse_first_levels, default={},
                    metavar="READ_TYPE:C/C/...,...",
                    help="sparse-first gates (protal --sparse_first) to profile every sample of these read types at too, "
@@ -866,18 +882,29 @@ def record_cpu(opts, run, measured, threads, stages):
 # paired-end point (se profiles its first reads); pb and ont units have points of their own, whose samples
 # replay the communities of a paired-end point.
 
-def depths_and_samples(text, what):
+def depths_and_samples(text, what, setups=False):
     """A comma-separated list of DEPTH or DEPTH:SAMPLES (--read_pairs, --long_read_bases) -> [(depth as given,
-    samples, or None where a depth gives none)]: deep points can have fewer samples than the others."""
+    samples, or None where a depth gives none)]: deep points can have fewer samples than the others. With setups
+    (--read_pairs, since 2026-10-15) an item may end in the setups it is made of, DEPTH:SAMPLES:LENGTH[:INSTRUMENT]
+    (60000000:1:150:HSXt: one sample of 60M pairs, of the 150 bp HiSeq X setup only), -> [(depth, samples, (length,
+    instrument or None) or None for every setup)]."""
     out = []
     for item in text.split(","):
-        depth, _, n = item.strip().partition(":")
+        fields = item.strip().split(":")
+        depth, n = fields[0], fields[1] if len(fields) > 1 else ""
+        chosen = None
         try:
-            if float(depth) <= 0 or (n and int(n) <= 0):
+            if float(depth) <= 0 or (n and int(n) <= 0) or len(fields) > (4 if setups else 2):
                 raise ValueError
+            if len(fields) > 2:
+                if not n or not fields[2].isdigit() or (len(fields) == 4 and fields[3] not in INSTRUMENTS):
+                    raise ValueError
+                chosen = (fields[2], fields[3] if len(fields) == 4 else None)
         except ValueError:
-            sys.exit(f"{what} {text!r}: expected DEPTH or DEPTH:SAMPLES, comma-separated, both positive")
-        out.append((depth, int(n) if n else None))
+            sys.exit(f"{what} {text!r}: expected DEPTH or DEPTH:SAMPLES" +
+                     (", or DEPTH:SAMPLES:LENGTH[:INSTRUMENT] for the setups of that read length (and instrument: "
+                      f"{', '.join(INSTRUMENTS)}) only" if setups else "") + ", comma-separated, both positive")
+        out.append((depth, int(n) if n else None, chosen) if setups else (depth, int(n) if n else None))
     return out
 
 
@@ -885,22 +912,39 @@ def depths_and_samples(text, what):
 INSTRUMENTS = ("HS20", "HS25", "HSXt", "NovaSeq", "MSv3")
 
 
+def parse_setups(text, what):
+    """--read_setups or --se_read_setups: LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD[:CALIBRATION], comma-separated
+    -> [[length, instrument, fragment mean, fragment SD, calibration or ""]]. CALIBRATION (since 2026-10-15): the reads'
+    errors at their hidden quality's probability times this, the qualities written the instrument's (simulate_metagenomes
+    --calibration; the instrument's own without it: 1, MSv3 1.5), so that above 1 the qualities overstate the reads'
+    accuracy, as a miscalibrated run's do. A setup without it is the setup of before."""
+    setups = [s.split(":") for s in text.split(",")]
+    for s in setups:
+        if len(s) == 5:
+            try:
+                if not 0 < float(s[4]) <= 20:
+                    raise ValueError
+            except ValueError:
+                sys.exit(f"{what} {text!r}: CALIBRATION is a factor above 0 and at most 20, not {s[4]!r}")
+            s[4] = f"{float(s[4]):g}"
+    if any(len(s) not in (4, 5) for s in setups):
+        sys.exit(f"{what} {text!r}: expected LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD[:CALIBRATION], comma-separated")
+    return [s + [""] * (5 - len(s)) for s in setups]
+
+
 def design_points(opts):
     """Paired-end design points: read setups x depths, each depth with its samples (--read_pairs DEPTH[:SAMPLES],
-    --samples by default). A setup's instrument is one of INSTRUMENTS, simulate_metagenomes's models (--sequencer).
-    The setups are --read_setups' and then --se_read_setups' not among them; a point says whether its paired-end
-    (for_pe) and its single-end unit (for_se) are collected."""
-    def parse(text, what):
-        setups = [s.split(":") for s in text.split(",")]
-        if any(len(s) != 4 for s in setups):
-            sys.exit(f"{what} {text!r}: expected LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
-        return setups
-    pe_setups = parse(opts.read_setups, "--read_setups")
-    se_setups = parse(opts.se_read_setups, "--se_read_setups") if getattr(opts, "se_read_setups", "") else pe_setups
-    depth_samples = [(d, n or opts.samples) for d, n in depths_and_samples(opts.read_pairs, "--read_pairs")]
-    depths = [d for d, _ in depth_samples]
-    for what, values in (("--read_setups", [":".join(s) for s in pe_setups]), ("--se_read_setups", [":".join(s) for s in se_setups]),
-                         ("--read_pairs", depths)):
+    --samples by default; DEPTH:SAMPLES:LENGTH[:INSTRUMENT] a depth of those setups only). A setup's instrument is one
+    of INSTRUMENTS, simulate_metagenomes's models (--sequencer), its calibration optional (parse_setups). The setups are
+    --read_setups' and then --se_read_setups' not among them; a point says whether its paired-end (for_pe) and its
+    single-end unit (for_se) are collected."""
+    pe_setups = parse_setups(opts.read_setups, "--read_setups")
+    se_setups = parse_setups(opts.se_read_setups, "--se_read_setups") if getattr(opts, "se_read_setups", "") else pe_setups
+    depth_samples = [(d, n or opts.samples, chosen)
+                     for d, n, chosen in depths_and_samples(opts.read_pairs, "--read_pairs", setups=True)]
+    depths = [d for d, _, _ in depth_samples]
+    for what, values in (("--read_setups", [":".join(s).rstrip(":") for s in pe_setups]),
+                         ("--se_read_setups", [":".join(s).rstrip(":") for s in se_setups]), ("--read_pairs", depths)):
         twice = sorted(v for v, n in collections.Counter(values).items() if n > 1)
         if twice:  # their points would share a folder
             sys.exit(f"{what} lists {', '.join(twice)} more than once")
@@ -909,29 +953,40 @@ def design_points(opts):
     if unknown:  # ART's file= profiles among them: gone with ART
         sys.exit(f"--read_setups: unknown instrument {', '.join(unknown)}; simulate_metagenomes models "
                  f"{', '.join(INSTRUMENTS)} (IlluminaSimulator.h)")
-    # A point's name tells its setup from the others of its read length (instrument, then fragment size).
+    for depth, _, chosen in depth_samples:
+        if chosen and not any(s[0] == chosen[0] and chosen[1] in (None, s[1]) for s in setups):
+            sys.exit(f"--read_pairs {depth}: no setup of {' '.join(c for c in chosen if c)} among the read setups")
+    # A point's name tells its setup from the others of its read length (instrument, then fragment size), and a setup
+    # with a calibration says it (_cal2), so that the names of the setups without one are those of before.
     lengths = collections.Counter(s[0] for s in setups)
     profiles = collections.Counter((s[0], s[1]) for s in setups)
+    fragments = collections.Counter((s[0], s[1], s[2], s[3]) for s in setups)
     points = []
-    for length, profile, fragment_mean, fragment_sd in setups:
+    for length, profile, fragment_mean, fragment_sd, calibration in setups:
         tag = "" if lengths[length] == 1 else "_" + profile
-        if profiles[(length, profile)] > 1:
+        if profiles[(length, profile)] > fragments[(length, profile, fragment_mean, fragment_sd)]:
             tag += f"_f{fragment_mean}-{fragment_sd}"
-        for depth_index, (pairs, samples) in enumerate(depth_samples):
+        if calibration:
+            tag += f"_cal{calibration}"
+        setup = [length, profile, fragment_mean, fragment_sd, calibration]
+        for depth_index, (pairs, samples, chosen) in enumerate(depth_samples):
+            if chosen and (chosen[0] != length or chosen[1] not in (None, profile)):
+                continue
             points.append({"name": f"rl{length}{tag}_p{pairs}", "read_length": length, "sequencer": profile,
                            "fragment_mean": fragment_mean, "fragment_sd": fragment_sd, "read_pairs": pairs,
                            "samples": samples, "depth_index": depth_index,
-                           "for_pe": [length, profile, fragment_mean, fragment_sd] in pe_setups,
-                           "for_se": [length, profile, fragment_mean, fragment_sd] in se_setups})
+                           **({"calibration": calibration} if calibration else {}),
+                           "for_pe": setup in pe_setups, "for_se": setup in se_setups})
     return points
 
 
-def illumina_args(profile, quality=None):
-    """simulate_metagenomes options for a read setup's instrument (see design_points) and a mean base quality (a
-    scenario's)."""
+def illumina_args(profile, quality=None, calibration=None):
+    """simulate_metagenomes options for a read setup's instrument (see design_points), a mean base quality (a
+    scenario's) and a calibration (a setup's CALIBRATION, parse_setups)."""
     if profile not in INSTRUMENTS:
         sys.exit(f"instrument {profile}: simulate_metagenomes models {', '.join(INSTRUMENTS)} (IlluminaSimulator.h)")
-    return ["--sequencer", profile] + (["--mean_quality", f"{float(quality):g}"] if quality is not None else [])
+    return ["--sequencer", profile] + (["--mean_quality", f"{float(quality):g}"] if quality is not None else []) + \
+        (["--calibration", calibration] if calibration else [])
 
 
 def read_compression(opts):
@@ -1136,16 +1191,23 @@ def units_of(opts):
                 units.append({"type": read_type, "name": name, "setup": setup, "bases": int(float(bases)),
                               "samples": samples, "communities": communities,
                               "point": {"name": name, "read_length": str(setup["length_mean"]), "read_pairs": bases}})
+    scenario_points, more = scenario_units(opts)
+    units += more
+    # --leave_out_streamed: the units of the simulations --stream_above would stream are left out (a collection that
+    # profiles another's written samples again: build_gtdb_database.py's final check).
+    if getattr(opts, "leave_out_streamed", False):
+        streamed = streamed_simulations(units, opts)
+        units = [u for u in units if simulation_of(u) not in streamed]
     # A design point that no unit profiles (neither its pe nor its se reads collected: --read_types without pe, or
-    # without se for a single-end setup of its own) is simulated only for the communities long-read and Ultima units
-    # replay: without reads (reads False: simulate_metagenomes --test, as a scenario's community point), so that no
-    # reads are written that nothing profiles, removes or counts on the disk (since 2026-10-15).
+    # without se for a single-end setup of its own; or left out by --leave_out_streamed) is simulated only for the
+    # communities long-read and Ultima units replay: without reads (reads False: simulate_metagenomes --test, as a
+    # scenario's community point), so that no reads are written that nothing profiles, removes or counts on the disk
+    # (since 2026-10-15). A scenario's community point with paired-end reads likewise.
     profiled_points = {u["point"]["name"] for u in units if not drawn(u)}
-    for point in pe_points:
+    for point in pe_points + scenario_points:
         if point["name"] not in profiled_points:
             point["reads"] = False
-    scenario_points, more = scenario_units(opts)
-    return pe_points + scenario_points, units + more
+    return pe_points + scenario_points, units
 
 
 def needed_points(units):
@@ -1410,7 +1472,7 @@ def simulation_command(point, index, opts, threads, clades):
     command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
                "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
-               *illumina_args(point["sequencer"]), "--fragment_mean", point["fragment_mean"],
+               *illumina_args(point["sequencer"], None, point.get("calibration")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(opts.seed + index),
                "-t", str(threads), "--protal_metafile", profiles, *abundance_args(opts.abundance),
                *reads_compression_args(opts)]
@@ -2015,6 +2077,7 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     measured = run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains",
                            "--no_qcmsa"] + (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []) +
                           (["--weighted_site_shift"] if getattr(opts, "weighted_site_shift", False) else []) +
+                          (["--no_allele_scores"] if getattr(opts, "no_allele_scores", False) else []) +
                           sparse_index_emulate(opts.protal),
                           os.path.join(folder, "protal.log"), len(rows), companions)
     record_cpu(opts, run_label(folder, opts), measured, opts.threads, stages)
@@ -2448,6 +2511,7 @@ def profile_keys(units, opts, keys):
     return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"],
                         **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {}),
                         **({"weighted_site_shift": True} if getattr(opts, "weighted_site_shift", False) else {}),
+                        **({"no_allele_scores": True} if getattr(opts, "no_allele_scores", False) else {}),
                         **({"sparse_first_levels": unit_levels(u, opts)} if unit_levels(u, opts) else {}),
                         **({"model_levels": unit_model_levels(u, opts)} if unit_model_levels(u, opts) else {}),
                         **({"flex_indels_levels": unit_flex_levels(u, opts)} if unit_flex_levels(u, opts) else {}),

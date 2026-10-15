@@ -29,6 +29,23 @@ for this page.
 
 ## Since 0.8.4
 
+- **The GTDB build checks the finished database, and widens its training** (2026-10-15; `build_gtdb_database.py`,
+  [databases.md](databases.md#the-final-check-on-the-finished-database); the [f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md)'s
+  E1-E3, B1, C1 and C4):
+  - **Final check:** once the finished database has its models, the test samples written to the disk are profiled on
+    it again and the rows of the species not held out scored beside the training database's
+    (`model_logs/final_db_check.tsv`, a `WARNING` beyond 0.002 of F1); `--no-final-check` leaves it out.
+  - **Allele scores:** with `--share-logs`, the short-read test samples also without the allele scores
+    (`protal --no_allele_scores`; `model_logs/no_allele_scores.tsv`, by species with and without strain alleles).
+  - **Test seed:** each build draws its own (kept in `work/stages/test_seed.json`; `--test-seed`), not `--seed` + 1000.
+  - **Headline:** `summary.txt` leads with the marker truth's F1 (present species without a row counted as missed).
+  - **Feature versions:** `protal --feature_versions` saved to `model_logs/feature_versions.tsv` and passed to the
+    trainers (`--feature-versions`) where both have them.
+  - **Wider training:** 75 and 100 bp single-end reads; a 150 bp NovaSeq setup whose qualities overstate its accuracy
+    (read setups take an optional `:CALIBRATION`; `simulate_metagenomes --calibration`); one deeper sample per read type
+    (60M pairs of the 150 bp setup, `DEPTH:SAMPLES:LENGTH[:INSTRUMENT]`, and 20 Gb of long reads); codon indels in the
+    in-silico strains (`--insilico-indels`, 0.02 per substitution). About +11% of the collections' alignment, the final
+    check up to ~8% more ([databases.md](databases.md#time-and-memory)).
 - **Unique k-mers counted from the alignment** (2026-10-14). `--build` stores which of every gene copy's index cores
   are unique (`unique_cores.bin`, two bits a core, ~0.7 GB at r226; `--no_unique_cores`: none), and a run counts a
   record's `ZS`, `ZU` and `ZT` from the gene's cores its alignment covers with exact k-mers instead of from its

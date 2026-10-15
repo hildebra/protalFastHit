@@ -880,6 +880,209 @@ class BuildFunctionsTest(unittest.TestCase):
         self.assertTrue(any("keeping a core busy" in r["running"] for r in timeline_rows))
         self.assertTrue(any(float(r["cores_busy"]) > 0 for r in timeline_rows))
 
+    def test_a_job_that_need_not_stop_the_run(self):
+        # Job(fatal=False): a check once the database is finished fails without stopping the build; its exit code kept.
+        job = build.Job([sys.executable, "-c", "raise SystemExit(3)"], os.path.join(self.tmp.name, "check.log"),
+                        fatal=False).finish()
+        self.assertEqual(job.rc, 3)
+        self.assertNotIn(job, build.Job.running)
+
+
+class F1AuditTest(unittest.TestCase):
+    """What build_gtdb_database.py does since the f1 audit (docs/claude/2026-10-15-f1-audit-since-0.6.0a): a test seed of
+    each build's own (E2), the feature code's versions for the trainers (C1), the marker truth's F1 first in the summary
+    (E3), and the scoring of the final check on the finished database (E1) and of the run without the allele scores (B1),
+    database_check.py, on tables of a few rows."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_a_test_seed_per_build(self):
+        # Drawn from the release, OUTDIR's name and the date; kept by a rerun into the OUTDIR; --test-seed replaces it.
+        a = build.derive_test_seed("226", "/x/r226_v29", "2026-10-15", 1)
+        self.assertEqual(a, build.derive_test_seed("226", "/y/r226_v29/", "2026-10-15", 1))
+        self.assertNotEqual(a, build.derive_test_seed("226", "/x/r226_v30", "2026-10-15", 1))
+        self.assertNotEqual(a, build.derive_test_seed("226", "/x/r226_v29", "2026-10-16", 1))
+        for seed in (1, a, a + 5, 999_999):  # in range, and never within TEST_SEED_GAP of --seed
+            value = build.derive_test_seed("226", "/x/r226_v29", "2026-10-15", seed)
+            self.assertTrue(build.TEST_SEED_RANGE[0] <= value < build.TEST_SEED_RANGE[1], value)
+            self.assertGreaterEqual(abs(value - seed), build.TEST_SEED_GAP)
+        stages = build.Stages(os.path.join(self.tmp.name, "stages"))
+        first, how = build.test_seed(stages, None, "226", "/x/r226_v29", 1)
+        self.assertTrue(how.startswith("drawn for this build from r226, r226_v29 and "), how)
+        again, how = build.test_seed(stages, None, "226", "/x/r226_v29", 1)
+        self.assertEqual(again, first)
+        self.assertTrue(how.startswith("kept from an earlier run into this OUTDIR (drawn"), how)
+        given, how = build.test_seed(stages, 1001, "226", "/x/r226_v29", 1)
+        self.assertEqual(given, 1001)
+        self.assertIn(f"this OUTDIR's runs before had {first}", how)
+        self.assertEqual(build.test_seed(stages, None, "226", "/x/r226_v29", 1)[0], 1001)
+
+    def test_feature_versions_for_the_trainers(self):
+        # protal --feature_versions saved and passed on (--feature-versions) where the trainer takes it; an older protal
+        # or trainer is noted and skipped.
+        new_protal, old_protal = (os.path.join(self.tmp.name, n) for n in ("protal_new", "protal_old"))
+        with open(new_protal, "w") as fh:
+            fh.write('#!/bin/sh\nif [ "$1" = "--feature_versions" ]; then\n'
+                     "printf 'feature\\tversion\\tchanged\\tnote\\nfragments\\t2\\t2026-10-15\\tcounted from the "
+                     "alignment\\nidentity\\t1\\t2026-08-10\\t\\n'\nexit 0\nfi\nexit 1\n")
+        with open(old_protal, "w") as fh:
+            fh.write("#!/bin/sh\necho \"Option 'feature_versions' does not exist\" >&2\nexit 1\n")
+        for path in (new_protal, old_protal):
+            os.chmod(path, 0o755)
+        trainers = {}
+        for name, option in (("new", "--feature-versions FILE"), ("old", "")):
+            trainers[name] = os.path.join(self.tmp.name, f"trainer_{name}.py")
+            with open(trainers[name], "w") as fh:
+                fh.write(f"print('usage: trainer --truth-file T {option}')\n")
+        path = os.path.join(self.tmp.name, "feature_versions.tsv")
+        options, said = build.feature_versions(new_protal, path, trainers["new"])
+        self.assertEqual(options, ["--feature-versions", path])
+        self.assertIn("of 2 features", said)
+        with open(path) as fh:
+            self.assertEqual(fh.readline(), "feature\tversion\tchanged\tnote\n")
+        options, said = build.feature_versions(new_protal, path, trainers["old"])
+        self.assertEqual(options, [])
+        self.assertIn("this trainer takes no --feature-versions", said)
+        options, said = build.feature_versions(old_protal, os.path.join(self.tmp.name, "none.tsv"), trainers["new"])
+        self.assertEqual(options, [])
+        self.assertIn("has no --feature_versions", said)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "none.tsv")))
+
+    def test_the_headline_is_the_marker_truth(self):
+        # summary.txt's first lines: the trainer's "headline" (its held_out and test estimates' marker_truth_f1, with its
+        # measure and notes) if its metrics have it, else the marker truth's F1 markers of the test set and with species
+        # held out, else the F1 over the rows.
+        rows = {"marker_truth": {"rows": [
+            {"set": "species held out", "scenario": "(all)", "F1 markers": 0.91},
+            {"set": "independent test set", "scenario": "(design)", "F1 markers": 0.88},
+            {"set": "hold-out", "scenario": "gut", "F1 markers": 0.5}]},
+            "evaluation": {"species": {"F1": 0.95}}, "test": {"this one": {"F1": 0.94}}}
+        self.assertEqual(build.marker_headline(rows),
+                         ("marker truth", [("independent test set", 0.88), ("held out", 0.91)], ""))
+        head = {"knob": "knob curve", "measure": "marker truth", "scheme": "species and sample", "notes": ["a", "b"],
+                "held_out": {"marker_truth_f1": 0.89, "rows_f1": 0.93}, "held_out_species": {"marker_truth_f1": 0.9},
+                "test": {"marker_truth_f1": 0.87, "rows_f1": 0.92}}
+        self.assertEqual(build.marker_headline({**rows, "headline": head}),
+                         ("marker truth", [("independent test set", 0.87), ("held out", 0.89)], "a; b"))
+        rows_only = {**head, "measure": "rows", "notes": "no gene positions",
+                     "test": {"marker_truth_f1": None, "rows_f1": 0.92}}
+        self.assertEqual(build.marker_headline({"headline": rows_only}),
+                         ("rows", [("independent test set", 0.92), ("held out", 0.93)], "no gene positions"))
+        self.assertEqual(build.marker_headline({k: v for k, v in rows.items() if k != "marker_truth"}),
+                         ("rows", [("independent test set", 0.94), ("held out", 0.95)],
+                          "no marker truth: collected without gene positions?"))
+        self.assertEqual(build.marker_headline({})[1], [])
+        prefixes = {t: os.path.join(self.tmp.name, f"model_{t}") for t in ("pe", "se")}
+        with open(prefixes["pe"] + ".metrics.json", "w") as fh:
+            json.dump({"headline": head, **rows}, fh)
+        lines = build.headline_lines(["pe", "se"], prefixes)
+        self.assertTrue(lines[0].startswith("Headline F1, over every species present"))
+        self.assertEqual(lines[1:3], ["  pe: independent test set 0.8700, held out 0.8900 (marker truth; a; b)",
+                                      "  se: - (no metrics)"])
+
+    def write(self, name, header, rows, gz=False):
+        path = os.path.join(self.tmp.name, name)
+        with (gzip.open(path, "wt") if gz else open(path, "w")) as fh:
+            fh.write("\t".join(header) + "\n")
+            fh.writelines("\t".join(str(v) for v in row) + "\n" for row in rows)
+        return path
+
+    def calls_file(self, name, rows):
+        """A PREFIX.calls.tsv.gz of rows (sample, taxon, truth, call, novel congener, marker reads, set)."""
+        return self.write(name, ["meta_sample", "meta_scenario", "meta_novel_congener", "meta_marker_reads", "taxon",
+                                 "taxon_name", "truth", "set", "p", "knob", "call"],
+                          [(s, "", nc, m, 0, t, truth, st, 0.5, 0.5, call) for s, t, truth, call, nc, m, st in rows], gz=True)
+
+    def table_file(self, name, rows, extra=()):
+        """A collector table of rows (sample, taxon, truth, prediction, novel congener, marker reads, *extra values)."""
+        return self.write(name, ["meta_sample", "meta_scenario", "meta_novel_congener", "meta_marker_reads", "truth",
+                                 "prediction", "probability", "taxon", "taxon_name", *extra],
+                          [(s, "", nc, m, truth, pred, 0.5, 0, t, *more) for s, t, truth, pred, nc, m, *more in rows])
+
+    def test_the_final_check(self):
+        import database_check
+        heldout = os.path.join(self.tmp.name, "heldout_species.txt")
+        with open(heldout, "w") as fh:
+            fh.write("s__H\tspecies\ts__H\n")
+        # The trainer's calls on the training database: s1 A found, B a false positive, s2 A missed; another sample and
+        # the training rows are not compared.
+        calls = self.calls_file("model.calls.tsv.gz", [
+            ("s1", "s__A", 1, 1, 0, 5, "test"), ("s1", "s__B", 0, 1, 1, "", "test"), ("s2", "s__A", 1, 0, 0, 5, "test"),
+            ("s2", "s__B", 0, 0, 0, "", "test"), ("s3", "s__A", 1, 0, 0, 5, "test"), ("t1", "s__A", 1, 0, 0, 5, "training")])
+        # On the finished database: both A found, B rejected, the held-out H found (left out), D called (a row of its own).
+        table = self.table_file("final.tsv", [
+            ("s1", "s__A", 1, 1, 0, 5), ("s1", "s__B", 0, 0, 1, ""), ("s2", "s__A", 1, 1, 0, 5), ("s2", "s__B", 0, 0, 0, ""),
+            ("s1", "s__H", 1, 1, 0, 9), ("s2", "s__D", 0, 1, 0, "")])
+        # The training database missed C in s1 without a row (unseen), the finished database none.
+        unseen = self.write("test.unseen.tsv", ["meta_design", "meta_sample", "meta_scenario", "taxon_name", "marker_reads"],
+                            [("d", "s1", "", "s__C", 4), ("d", "s3", "", "s__C", 4), ("d", "s1", "", "s__H", 4)])
+        out = os.path.join(self.tmp.name, "final_db_check.tsv")
+        rows, missing = database_check.final_check(
+            ["pe", "se"], {"pe": table}, {"pe": (unseen, None)}, {("pe", "forest"): calls}, {}, "forest",
+            database_check.read_species(heldout), out)
+        self.assertEqual(missing, ["se"])
+        main, congener = rows
+        self.assertEqual((main["rows_of"], main["calls"], main["samples"]), ("species not held out", "protal", 2))
+        self.assertEqual([main[f"training_db_{c}"] for c in ("rows", "TP", "FP", "FN")], [4, 1, 1, 1])
+        self.assertEqual([main[f"finished_db_{c}"] for c in ("rows", "TP", "FP", "FN")], [5, 2, 1, 0])
+        self.assertAlmostEqual(main["training_db_F1"], 0.5)
+        self.assertAlmostEqual(main["finished_db_F1"], 0.8)
+        self.assertAlmostEqual(main["F1_change"], 0.3)
+        self.assertEqual((main["training_db_marker_FN"], main["finished_db_marker_FN"]), (2, 0))  # C unseen in s1
+        self.assertAlmostEqual(main["training_db_marker_F1"], 0.4)
+        self.assertEqual([main[f] for f in database_check.FLIPS], [1, 1, 0, 1])
+        # Without a held-out congener in the sample: s1's B left out on both.
+        self.assertEqual((congener["training_db_rows"], congener["training_db_FP"], congener["finished_db_rows"]), (3, 0, 4))
+        with open(out) as fh:
+            self.assertEqual(fh.readline().rstrip("\n").split("\t"), database_check.FINAL_COLUMNS)
+        kept = database_check.read_rows(out)
+        self.assertEqual(kept[0]["training_db_TP"], 1)
+        lines, warnings = database_check.final_check_lines(kept, missing, "forest")
+        self.assertTrue(lines[0].startswith("pe forest (default), species not held out: F1 0.5000 -> 0.8000 (+0.3000;"),
+                        lines[0])
+        self.assertIn("no samples written to the disk of se", lines[-1])
+        self.assertEqual(len(warnings), 1)  # the subset without congeners is no warning of its own
+        self.assertIn("beyond a refit's noise of 0.002", warnings[0])
+
+    def test_model_calls_and_the_allele_scores(self):
+        import numpy as np
+        import database_check
+        from sklearn.ensemble import RandomForestClassifier
+        # A forest of one split: present above identity 0.95, written as protal reads it, with a knob of 0.5.
+        X = np.array([[10, 0.9], [10, 0.92], [10, 0.97], [10, 0.99]])
+        forest = RandomForestClassifier(n_estimators=1, max_depth=1, bootstrap=False, random_state=0).fit(X, [0, 0, 1, 1])
+        model = os.path.join(self.tmp.name, "model.xml")
+        model_pmml.write_forest(forest, ["fragments", "identity"], model)
+        # Normal run (the trainer's calls): A called in both samples, B called in s1 (a false positive), C missed.
+        calls = self.calls_file("model.calls.tsv.gz", [
+            ("s1", "s__A", 1, 1, 0, 5, "test"), ("s1", "s__B", 0, 1, 0, "", "test"), ("s2", "s__A", 1, 1, 0, 5, "test"),
+            ("s2", "s__C", 1, 0, 0, 5, "test")])
+        # Without the allele scores: A drops below 0.95 in s2 (missed), B too (rejected), C as before; A has alleles.
+        table = self.table_file("no_alleles.tsv", [
+            ("s1", "s__A", 1, 0, 0, 5, 10, 0.99, 0.6), ("s1", "s__B", 0, 0, 0, "", 10, 0.90, 0),
+            ("s2", "s__A", 1, 0, 0, 5, 10, 0.93, 0.6), ("s2", "s__C", 1, 0, 0, 5, 10, 0.91, 0)],
+            extra=("fragments", "identity", "allele_copy_share"))
+        frame = database_check._frame(table)
+        self.assertEqual(database_check.model_calls(frame, model).tolist(), [1, 0, 0, 0])
+        out = os.path.join(self.tmp.name, "no_allele_scores.tsv")
+        rows, missing = database_check.allele_check(["pe"], {"pe": table}, {"pe": None}, {("pe", "forest"): calls},
+                                                    {("pe", "forest"): model}, out)
+        self.assertEqual(missing, [])
+        every, with_alleles, without = rows
+        self.assertEqual((every["species"], with_alleles["species"], without["species"]),
+                         ("all", "with strain alleles", "without strain alleles"))
+        self.assertEqual([every[f"with_allele_scores_{c}"] for c in ("TP", "FP", "FN")], [2, 1, 1])
+        self.assertEqual([every[f"without_allele_scores_{c}"] for c in ("TP", "FP", "FN")], [1, 0, 2])
+        self.assertAlmostEqual(every["allele_scores_F1_gain"], 2 * 2 / 6 - 2 / 4)
+        self.assertEqual((with_alleles["taxa"], with_alleles["with_allele_scores_TP"], with_alleles["without_allele_scores_FN"]),
+                         (1, 2, 1))
+        self.assertEqual((without["taxa"], without["with_allele_scores_FP"], without["without_allele_scores_FP"]), (2, 1, 0))
+        lines = database_check.allele_check_lines(rows, missing)
+        self.assertTrue(lines[0].startswith("pe forest, all (3 taxa): F1 0.5000 without the allele scores -> 0.6667 with them"),
+                        lines[0])
+
 
 class CladeHoldoutTest(unittest.TestCase):
     """The species build_gtdb_database.py leaves out of the training database (whole clades, then single species),
