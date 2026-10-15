@@ -40,7 +40,7 @@ databases are in [development.md](development.md).
 | `column_weights.bin`, `strain_alleles.bin` | only in `database.protal` (since 2026-10-11), beside the text tables they are made from: the same tables as a run holds them (the column weights' codes packed, ~1.5 bytes a column), read straight into memory on several threads without parsing. At r226 the column weights' text took 12 s of every run on one thread and ~7.6 GB more while it was read ([report](claude/2026-10-11-performance-audit/README.md)). Each records the size of its text table; one made from another text (`--add_tables` of the text alone, by an older protal) is not used, and the text is read |
 | `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
 | `model_pe_c1.xml`, `model_PB_c32.xml`, ... | since 2026-10-13: models trained at other sparse-first gates than the database's (`--add_model --model_gate`, [`--model-gates`](#choosing-the-sparse-first-gates)), which runs gated nearer that gate are profiled with |
-| `model_pe_gbm.xml`, `model_pe_c1_gbm.xml` (or `..._forest.xml`), ... | since 2026-10-13: each of those models of the other kind (`..._gbm.xml` where the default is a forest, as builds make it since 2026-10-14; `..._forest.xml` beside boosted trees, as from 2026-10-13 to 2026-10-14; `--add_model --model_kind`), which runs given `--model_kind` of that kind are profiled with ([below](#kinds-of-models)) |
+| `model_pe_gbm.xml`, `model_pe_c1_gbm.xml` (or `..._forest.xml`), ... | since 2026-10-13: each of those models of the other kind (`..._forest.xml` beside boosted trees, as builds make them since 2026-10-15 and from 2026-10-13 to 2026-10-14; `..._gbm.xml` where the default is a forest, as on 2026-10-14; `--add_model --model_kind`), which runs given `--model_kind` of that kind are profiled with ([below](#kinds-of-models)) |
 | `build_metadata.tsv`, `gene2geneid.tsv`, `genome2tiid.tsv` | optional (since 2026-10-13): notes no run reads, so that `database.protal` holds the whole database: what it was built from and with and its models' scores, the gene ids, the genomes by name ([below](#the-notes-a-database-carries)) |
 
 A database without an optional table works; the features that need it are then fixed values (0, or
@@ -141,9 +141,14 @@ Since 2026-10-13 a database may hold its models in two kinds: gradient-boosted t
 random forest (`forest`). The read types' files (`model_pe.xml`, `model_pe_c1.xml`, ...) hold the
 database's default kind; a model of the other kind sits beside each as `model_pe_forest.xml`,
 `model_pe_c1_forest.xml`, ... (or `..._gbm.xml` where the default is a forest). A GTDB build trains
-both at every gate it trains (`build_gtdb_database.py --model forest,gbm`, the default since 2026-10-14): the
-random forest is the default again, the boosted trees go beside it (`gbm,forest`, boosting the default, from
-2026-10-13 to 2026-10-14). A run picks the kind with `--model_kind`:
+both at every gate it trains (`build_gtdb_database.py --model gbm,forest`, the default since 2026-10-15): the
+boosted trees are the default, the random forest goes beside them (as from 2026-10-13 to 2026-10-14; on 2026-10-14
+`forest,gbm` made the forest the default). Both kinds scored within noise of each other on the reduced r226
+database's test sets and the local mock samples, with errors of their own: the forests called the long reads'
+*Escherichia* congeners, the boosted trees missed abundant paired-end species of one D6331 sample
+([report](claude/2026-10-14-mock-sparse-gates/README.md)); with samples and species held out together the boosted
+trees lost 0.003 of F1 against species alone, the forests 0.0003 ([report](claude/2026-10-15-trainer-honest-f1.md)).
+A run picks the kind with `--model_kind`:
 
 ```bash
 protal --db DB -1 r1.fq.gz -2 r2.fq.gz -o out --model_kind forest            # every read type
@@ -362,8 +367,8 @@ numbered line when it starts and indented lines when it ends.
    rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
    Since 2026-10-13 the same models again in the other kind once the default ones are trained (`--model
-   forest,gbm`, the default since 2026-10-14; `classifier_training*_gbm.log`, `trained_model*_gbm.*`), at
-   every gate, for `protal --model_kind gbm` ([kinds of models](#kinds-of-models)); `--model forest` trains
+   gbm,forest`, the default since 2026-10-15; `classifier_training*_forest.log`, `trained_model*_forest.*`), at
+   every gate, for `protal --model_kind forest` ([kinds of models](#kinds-of-models)); `--model gbm` trains
    one kind.
 8. **Parity check** (`parity.log`): protal scores each model exactly as the trainer does; the read
    types' checks side by side (`protal --profile_only`, no index loaded), those of both kinds, and since
@@ -1190,7 +1195,7 @@ keeps the finished database.
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), measure the allele scores' effect (`no_allele_scores.tsv`, since 2026-10-15, [above](#the-final-check-on-the-finished-database)), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), in 0.8.1 the column weights (`weights`), and since 2026-10-13 the identities against the best strain allele (`strain_identity`), and since 2026-10-14 `length_free` and `read_length` (features that do not change with the read length or a sparse index in place of those that do, and the sample's read length), which need a protal of 2026-10-14 or later (2026-10-13 for `strain_identity`, 0.8.1 for `weights`, 0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
-| `--model` | `forest,gbm` | the kinds of models, comma-separated: `forest`, a random forest (the default again since 2026-10-14), `gbm`, gradient-boosted trees (the default from 2026-10-06 to 2026-10-14; [below](#training)); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_gbm.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13 (`gbm,forest` to 2026-10-14), `gbm` alone before |
+| `--model` | `gbm,forest` | the kinds of models, comma-separated: `gbm`, gradient-boosted trees (the default from 2026-10-06 to 2026-10-14 and again since 2026-10-15; [below](#training)), `forest`, a random forest (the default before 2026-10-06 and on 2026-10-14); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_forest.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13 (`forest,gbm` on 2026-10-14), `gbm` alone before |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items; `--maxnodes` for `--model`'s first kind, the others their defaults) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
@@ -1741,7 +1746,7 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
-| `--model` | `forest` | `forest`: a random forest (the default again since 2026-10-14); `gbm`: gradient-boosted trees |
+| `--model` | `gbm` | `gbm`: gradient-boosted trees (the default again since 2026-10-15); `forest`: a random forest (the default before 2026-10-06 and on 2026-10-14) |
 | `--rounds`, `--learning-rate`, `--l2` | 250, 0.1, 1 | boosting's rounds, learning rate and L2 penalty (500 and 0.05 before 2026-10-06) |
 | `--fold-jobs` | 0 | folds fitted side by side (0: as many as there are folds, up to `--threads` / 3; 1: one after another) |
 | `--maxnodes`, `--min-samples-leaf` | 63, 20 for boosting; 256, 1 for a forest | leaves per tree at most (0: no limit), rows a leaf at least (the GTDB build gives forests 512 leaves for short reads, 128 for long reads) |

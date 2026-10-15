@@ -269,10 +269,10 @@ def parse_args(argv=None):
                         "the sets with the priors too); see choose_feature_set")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features (which it "
                                             "overrides, auto included)")
-    p.add_argument("--model", choices=MODELS, default="forest",
-                   help="forest (default, again since 2026-10-14): a random forest, the model before 2026-10-06; gbm: "
-                        "gradient-boosted trees (HistGradientBoostingClassifier), the default from 2026-10-06 to 2026-10-14 "
-                        "(see above)")
+    p.add_argument("--model", choices=MODELS, default="gbm",
+                   help="gbm (default, again since 2026-10-15): gradient-boosted trees (HistGradientBoostingClassifier), "
+                        "also the default from 2026-10-06 to 2026-10-14; forest: a random forest, the model before "
+                        "2026-10-06 and on 2026-10-14 (see above)")
     p.add_argument("--ntree", type=int, default=64, help="the forest's trees (default 64)")
     p.add_argument("--rounds", type=int, default=GBM_ROUNDS, help=f"boosting's rounds, a tree each (default {GBM_ROUNDS})")
     p.add_argument("--learning-rate", type=float, default=GBM_LEARNING_RATE,

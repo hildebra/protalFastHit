@@ -1348,13 +1348,13 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertIn("holds the scenarios' hold-out samples only", stdout)
         self.assertIn(("host", "hold-out"), {(r["scenario"], r["set"]) for r in metrics["scenarios"]})
 
-    def test_the_forest_by_default_and_boosting_on_request(self):
-        # The default model is a random forest again since 2026-10-14 (--model forest), averaged; --model gbm gradient-boosted
-        # trees, written as a chain; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
-        prefix, metrics, stdout = self.train("forest_default", "normalized")
+    def test_boosting_by_default_and_the_forest_on_request(self):
+        # The default model is gradient-boosted trees again since 2026-10-15 (--model gbm), written as a chain; --model forest
+        # a random forest, averaged; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
+        prefix, metrics, stdout = self.train("forest_requested", "normalized", None, "--model", "forest")
         self.assertEqual((metrics["model"]["kind"], metrics["model"]["trees"]), ("forest", 16))
         self.assertIsInstance(load_model(prefix + ".xml"), PmmlForest)
-        prefix, metrics, stdout = self.train("boosted", "normalized", None, "--model", "gbm")
+        prefix, metrics, stdout = self.train("boosted_default", "normalized", None)
         self.assertEqual(metrics["model"]["kind"], "gbm")
         self.assertEqual(metrics["model"]["trees"], 30)
         self.assertEqual((metrics["model"]["pmml_vs_sklearn_max_diff"], metrics["model"]["pmml_vs_sklearn_call_differences"]),

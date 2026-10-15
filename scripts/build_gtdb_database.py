@@ -85,10 +85,10 @@ the test set, and every model's report scores both. The models are trained on th
 default feature set, evaluated with rows, samples and species held out (--features,
 --evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
 set with species held out, and the run then says which set won and why. Every
-model is trained in two kinds (--model, default forest,gbm): a random forest,
-the database's default (model_pe.xml, model_pe_c1.xml, ...), and gradient-boosted
-trees, stored beside them (model_pe_gbm.xml, model_pe_c1_gbm.xml, ...), which
-protal --model_kind gbm profiles with, at every gate. The second kind trains
+model is trained in two kinds (--model, default gbm,forest): gradient-boosted trees,
+the database's default (model_pe.xml, model_pe_c1.xml, ...), and a random forest,
+stored beside them (model_pe_forest.xml, model_pe_c1_forest.xml, ...), which
+protal --model_kind forest profiles with, at every gate. The second kind trains
 after the first (the trainers' memory as with one kind); the summary, and each
 kind's lines on the console, score both.
 
@@ -3545,14 +3545,15 @@ def main():
                         "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
                         "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("forest,gbm"),
+    p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("gbm,forest"),
                    help="the kinds of presence models to train (machine_learning_cmdline.py --model), comma-separated: "
-                        "forest, a random forest (the database's default before 2026-10-06 and again since 2026-10-14); gbm, "
-                        "gradient-boosted trees, which beat the forest on the r226 v13 tables "
-                        "(docs/claude/2026-10-06-r226-v13-soil). "
+                        "gbm, gradient-boosted trees, which beat the forest on the r226 v13 tables "
+                        "(docs/claude/2026-10-06-r226-v13-soil), the database's default from 2026-10-06 to 2026-10-14 and "
+                        "again since 2026-10-15; forest, a random forest (the default before 2026-10-06 and on 2026-10-14). "
                         "The first is the database's default (model_pe.xml, model_pe_c1.xml, ...), each other one is stored "
                         "beside it (model_pe_forest.xml, model_pe_c1_forest.xml, ...: protal --model_kind forest) and trained "
-                        "after it, at the same gates. Default forest,gbm since 2026-10-14 (gbm,forest from 2026-10-13, gbm alone before)")
+                        "after it, at the same gates. Default gbm,forest since 2026-10-15 (forest,gbm on 2026-10-14, "
+                        "gbm,forest from 2026-10-13, gbm alone before)")
     p.add_argument("--ntree", type=int, default=64, help="a forest's trees (default 64)")
     p.add_argument("--rounds", type=int,
                    help=f"boosting's rounds (machine_learning_cmdline.py --rounds; default {TRAINER_ROUNDS})")
