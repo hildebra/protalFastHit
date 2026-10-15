@@ -4457,7 +4457,7 @@ class WfaTracebackTest(WorkDir):
 class RunSettingsTest(WorkDir):
     """The run settings a database's models depend on (2026-10-15): --build records them in build_settings.tsv (the site
     shift, the allele scores, --align_top, --adaptive_candidates, mate guidance, each read type's identity floor, the
-    unique k-mers' scheme, foreign genes, suspect copies, the depth margin; after 0.8.5 --gene_end_clips, off unless
+    unique k-mers' scheme, foreign genes, suspect copies, the depth margin; after 0.8.5 --gene_end_clips, credit unless
     given); a run leaves them at auto to follow the
     database and is warned when told otherwise, --no_unique_cores apart; a database built before records none (a note).
     Every SAM says how it was aligned (@CO protal settings), and --profile_only takes its gate for the model and warns
@@ -4505,7 +4505,7 @@ class RunSettingsTest(WorkDir):
         recorded = dict(line.split("\t") for line in self.settings(self.plain_db, "unpacked_plain").splitlines()
                         if not line.startswith("#"))
         for key, value in (("weighted_site_shift", "off"), ("align_top", "3"), ("max_score_ani_pe", "0.9"),
-                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off"), ("gene_end_clips", "off")):
+                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off"), ("gene_end_clips", "credit")):
             self.assertEqual(recorded.get(key), value, key)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):

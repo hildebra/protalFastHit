@@ -13,7 +13,8 @@ read therefore outranks the read's own taxon whenever its extra mismatches are f
 30 bases aligned and 120 clipped score 60, a covering congener with 3 mismatches 285, MAPQ ~78 for the wrong taxon.
 
 **The answer, in short.**
-- `--gene_end_clips credit|off`, **off by default** (and for every database that records nothing): a candidate's
+- `--gene_end_clips credit|off`, off by default as first committed; since the integration `--build` records `credit`
+  unless given (the user's choice after this measurement), and a database that records nothing stays `off`: a candidate's
   bases clipped past its gene's ends, beyond those of the read's least clipped candidate, score the identity floor's
   rate (1.5 a base at `-a 0.9`) in the ranking and the MAPQ. Off, protal's outputs are byte-identical to 0.8.5's: the
   six mocks' 449,603 records, their profiles and `.truth_annotated` tables are the same as the base binary's; only the
@@ -34,8 +35,8 @@ read therefore outranks the read's own taxon whenever its extra mismatches are f
 - **Calls** (models trained with `off`, not retrained): the same species in all six mocks; on the simulated sets the
   same 4 calls change under both rules, all at the knob (P 0.45-0.52): rows F1 0.9879 → 0.9888 (0.9885 per taxon) on
   the finished database, 0.9633 → 0.9633 (0.9629) on the training database. Within noise.
-- **Recommendation:** keep `off` as the default; a database built with `credit` (the per-taxon rule) needs its models
-  trained on it (the records, MAPQs and so `congener_fit_share` and the MAPQ-based features change).
+- **Default:** `credit` for new databases (`--build`), whose models are trained on it; a database built before keeps
+  `off`, as its models were trained (the records, MAPQs and so `congener_fit_share` and the MAPQ-based features change).
 
 ## 1. The change
 

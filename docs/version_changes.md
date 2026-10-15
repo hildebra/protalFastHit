@@ -32,7 +32,7 @@ for this page.
 
 Not in a release yet.
 
-- **Credit for the bases clipped past a gene's end (`--gene_end_clips credit`, off by default)** (F1 audit L2,
+- **Credit for the bases clipped past a gene's end (`--gene_end_clips credit`, the default of new databases)** (F1 audit L2,
   2026-10-15). A short read that runs past its gene's start or end is aligned with the overhang soft-clipped, and the
   bitscore that ranks the candidates and gives the MAPQ (2 a match, -3 a mismatch) gave those bases 0: a congener whose
   gene covers the whole read outranked the read's own taxon whenever its extra mismatches were fewer than 2/5 of the
@@ -40,8 +40,8 @@ Not in a release yet.
   mate's) least clipped candidate score the identity floor's rate (`5 * a - 3`, 1.5 a base at `-a 0.9`), and they are
   no edits in `ZA` (`congener_fit_share`); equal clips earn nothing (crediting every clipped base, tried with the
   mates' vote, diluted the MAPQs). Long reads are unchanged. `--build` records the value (`gene_end_clips` in
-  `build_settings.tsv`: the one given, else `off`), runs follow it, and a database that records none was trained with
-  `off`; off, the outputs are 0.8.5's. On the reduced r226 database's simulated test set it removes 6% of the
+  `build_settings.tsv`: the one given, else `credit`), runs follow it, and a database that records none was trained with
+  `off` and stays so; off, the outputs are 0.8.5's. On the reduced r226 database's simulated test set it removes 6% of the
   fragments counted for a wrong species, but costs 0.46% of the right ones, mostly reads across two neighbouring genes
   of their own genome whose MAPQ falls under 4, when each candidate is credited by its own clips; the rule committed
   credits every candidate of a taxon as that taxon's least clipped one, which keeps the gain (340 fewer wrong) and

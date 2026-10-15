@@ -13,7 +13,7 @@ a reason; B2 was measured first. L2 was implemented on a branch of its own and m
 | Finding | Still true at 0.8.5 | Done |
 |---|---|---|
 | B2 the gates drop short divergent reads | yes; measured (below): at C 4, 9-12% of 75-100 bp single-end reads 5% from their reference, 3% of 150 bp, 0.1% of 2x150 | **fixed**: `--sparse_first_min_picks` (a short read's stride halved until it has 6 picks; at 5% 1.4-2.0% of those reads dropped instead of 9-12%, for 3x the gate's lookups of a 75 bp read), recorded by `--build`, off for databases built before |
-| L2 clipped bases at a gene end score nothing against a congener's covering gene | yes | **option** `--gene_end_clips credit` (off by default, recorded with the database): the clip beyond the least-clipped candidate's counts at the floor rate ([L2-gene-end-clips.md](L2-gene-end-clips.md)) |
+| L2 clipped bases at a gene end score nothing against a congener's covering gene | yes | **option** `--gene_end_clips credit`, recorded with the database: the default of new databases since the integration, `off` for older ones: the clip beyond the least-clipped candidate's counts at the floor rate ([L2-gene-end-clips.md](L2-gene-end-clips.md)) |
 | L3 adaptive candidates: anchor order, split genera never tried | partly: the order is by exact-match length (taxid only breaks ties); split genera (`Genus_A`) are other genera | **counted**: a log line per sample of the reads with more eligible congeners than `--adaptive_candidates` tried; split genera left (≤1.3% of FN taxa's own fragments landed outside their genus at r226 v15) |
 | L4 exact ties go to the lower internal taxid | yes, for 16 candidates or fewer (libstdc++'s stable insertion sort), introsort's order beyond; MAPQ 0, but the tie's record counts in `fragments_all` and a few rates | **documented** (`Classify.h` SortAlignmentPairs3) |
 | L5 a long read's `fragments` count once per gene segment, not once | yes | **documented** (features.md, the comments; training and runs count alike) |
@@ -102,7 +102,8 @@ boundary fixed and its overhang free (`AlignmentStrategy.h:74-83, 664-665`); WFA
 (`AlignmentUtils.h:727-728`), which the bitscore ranking every candidate and giving the MAPQ (`Score(2,3,1,2)`)
 scores 0. A congener whose gene covers the read wins whenever its extra mismatches are fewer than 2/5 of the clipped
 bases (30 aligned + 120 clipped scores 60 against a covering congener's 285 with 3 mismatches). Now
-`--gene_end_clips credit` (off by default, recorded with the database): each candidate's bases clipped past its gene's
+`--gene_end_clips credit` (recorded with the database; `--build` records `credit` unless given, a database built before
+stays `off`): each candidate's bases clipped past its gene's
 ends, beyond those of the read's least clipped candidate, score the identity floor's rate, every candidate of a taxon
 as that taxon's least clipped one. On the reduced r226 database it removes 6% of the fragments on a wrong species and
 gains a few right ones; crediting each candidate by its own clips had split a read's own candidates at gene junctions
@@ -191,8 +192,8 @@ margin changes the calls, which is why a run takes the database's.
 ## What this does not settle
 
 - **Nothing here ran at GTDB scale.** B2's least picks change what the next build trains on for short reads (its
-  `--test-c-gates` table will show their cost and gain); L2's credit stays off until a build is trained with it, and
-  `build_gtdb_database.py` does not pass `--gene_end_clips` yet.
+  `--test-c-gates` table will show their cost and gain); L2's credit is the default of new builds, so the next build trains with it;
+  its effect at GTDB scale is unmeasured.
 - **L10 acts on databases built before too:** reads with an N lose the k-mers over it, where those databases' models
   were trained on them looked up as A or T. Small (1-2% of simulated reads carry an N, and only the k-mers over it
   change), but not measured.

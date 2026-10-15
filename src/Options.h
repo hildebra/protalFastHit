@@ -408,7 +408,7 @@ namespace protal {
 
         size_t m_align_top = DEFAULT_ALIGN_TOP;
         size_t m_adaptive_candidates = DEFAULT_ADAPTIVE_CANDIDATES;
-        bool m_gene_end_clips = false;  // --gene_end_clips credit (given, else the database's, else off)
+        bool m_gene_end_clips = false;  // --gene_end_clips credit (given, else the database's, else off; --build: credit)
         bool m_no_allele_scores = false;  // --no_allele_scores
         double m_max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool m_max_score_ani_given = false;
@@ -964,9 +964,9 @@ namespace protal {
             return m_weighted_site_shift;
         }
 
-        // --gene_end_clips credit (off by default): short reads' clips past their genes' ends beyond their least clipped
-        // candidate's earn the identity floor's score per base in the ranking and MAPQ (SimpleAlignmentHandler::
-        // SetGeneEndClips).
+        // --gene_end_clips credit (the database's; --build: credit unless given, since 2026-10-15): short reads' clips past their
+        // genes' ends beyond their least clipped candidate's earn the identity floor's score per base in the ranking and MAPQ,
+        // every candidate of a taxon as its least clipped one (SimpleAlignmentHandler::SetGeneEndClips).
         bool GeneEndClips() const {
             return m_gene_end_clips;
         }

@@ -1478,12 +1478,12 @@ runs use protal's defaults, with one note.
 | `keep_foreign_genes` | `on`, `off` | `off` | `--keep_foreign_genes` |
 | `keep_suspect_copies` | `on`, `off` | `off` | `--keep_suspect_copies` |
 | `depth_identity_margin` | decimal | 0.08 | `--depth_identity_margin` |
-| `gene_end_clips` (after 0.8.5) | `credit`, `off` | `off` (runs on a database that records none: `off`) | `--gene_end_clips` |
+| `gene_end_clips` (after 0.8.5) | `credit`, `off` | `credit` (runs on a database that records none: `off`) | `--gene_end_clips` |
 
 A value that is not one of these stops the run (exit 8), as for the keys above; a `mate_guidance` or `gene_end_clips`
 value of a later protal is read, warned about and left at protal's default. `build_gtdb_database.py` gives
-`--build` the run options of the runs its models are trained on, so that the two agree (it has no `--gene_end_clips`
-yet: its databases record `off`). `--spike_genes` is not
+`--build` the run options of the runs its models are trained on, so that the two agree (it gives no `--gene_end_clips`:
+its databases record protal's default, `credit`). `--spike_genes` is not
 recorded: the simulated samples a model is trained on are never in spike mode, so its features are the same under
 `auto` and `off` ([report](claude/2026-10-15-mock-near-misses/README.md)). `protal --add_model FILE --read_type pe --model_gate 1` stores a model trained
 at another gate than the database's as `model_pe_c1.xml`; a run gated at or nearest that gate is
