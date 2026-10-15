@@ -10,9 +10,12 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
                           --no_strains unless --strains; --protal-args adds options (quoted). The run folder is
                           <version>_<commit> of the binary's --version (e.g. 0.8.3_1dcc325, "-modified" when built
                           with uncommitted changes), unless --run-name names it. The SAMs go to alignments/, or with
-                          --scratch DIR (protal's --scratch_dir, protal 0.8.3 on) into protal's folder in DIR, each
-                          removed once profiled, so only the profiles and logs stay (with --strains they stay in
-                          alignments/, for strain MSAs)
+                          --scratch DIR (protal's --scratch_dir) into protal's folder in DIR, each removed once
+                          profiled, so only the profiles and logs stay (with --strains they stay in alignments/, for
+                          strain MSAs). Older versions, by their --version: before 0.8.3 (no --scratch_dir, one file
+                          per map cell) the SAMs go to a folder of their own in --scratch, removed after the run, and
+                          a sample of several files is joined first; before 0.7.0 (0.6.0a says v0.6.0: run folder
+                          0.6.0_nocommit) the samples that are not paired-end are left out, and the SAMs are plain
            --tool sylph   sylph profile of the set's paired samples and of its single-read samples (sylph/*.tsv,
                           sylph.log; a sample of several files is joined first, in --scratch if given), against
                           --sylph-db. Each genome is given its species by accession in the GTDB taxonomy of --gtdb
@@ -232,32 +235,82 @@ def run_command(command, folder, log_name):
     return code, time.time() - start
 
 
-def run_protal(args, folder, todo):
+# What older protal versions lack of the maps and options used here: before 0.7.0 (0.6.0a, whose --version says
+# v0.6.0) paired-end reads only, and plain SAMs whatever their name; before 0.8.3 a map cell of several files (a
+# sample's lanes) and --scratch_dir.
+PAIRED_ONLY_BEFORE = (0, 7, 0)
+LANES_AND_SCRATCH_FROM = (0, 8, 3)
+
+
+def release_of(version):
+    """(major, minor, patch) of protal's <version>_<commit> (protal_version), None for None."""
+    return tuple(int(x) for x in version.split("_")[0].split(".")) if version else None
+
+
+def work_folder(args, folder, name):
+    """A folder for a run's intermediate files, to be removed after it: a new one in --scratch, else <folder>/<name>."""
+    if args.scratch:
+        os.makedirs(args.scratch, exist_ok=True)
+        return tempfile.mkdtemp(prefix=f"score_mocks_{name}_", dir=args.scratch)
+    path = os.path.join(folder, name)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def run_protal(args, folder, todo, release):
+    """One protal run of a set's map. `release` is the binary's (major, minor, patch); None (unknown: --dry-run with
+    --run-name) is taken as the current protal's."""
+    current = release is None or release >= LANES_AND_SCRATCH_FROM
     map_path = os.path.join(folder, "map.tsv")
     # SAM and PROFILE named, so that they go to alignments/ and profiles/ (without them protal writes
     # <PREFIX>.sam.zst and <PREFIX>.profile into #OUTPUT_DIR itself). With --scratch and without --strains no SAM
-    # named: protal names it and writes it into its folder in --scratch_dir, and removes it once profiled.
-    keep_sams = not args.scratch or args.strains
-    with open(map_path, "w") as fh:
-        columns = ["SAMPLEID", "PREFIX", "FIRST", "SECOND", "READ_TYPE"] + (["SAM"] if keep_sams else []) + ["PROFILE"]
-        fh.write(f"#OUTPUT_DIR\t{folder}\n#" + "\t".join(columns) + "\n")
-        for s in todo:
-            row = [s["sample"], s["sample"], s["first"], s["second"], s["read_type"]]
-            row += ([s["sample"] + ".sam.zst"] if keep_sams else []) + [s["sample"] + ".profile"]
-            fh.write("\t".join(row) + "\n")
-    command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
-    if args.scratch:
-        command += ["--scratch_dir", args.scratch]
-    if not args.strains:
-        command.append("--no_strains")
-    command.append("--force")  # a SAM without its profile may be a killed run's
-    command += shlex.split(args.protal_args)
-    print(f"  {' '.join(shlex.quote(c) for c in command)}", file=sys.stderr)
-    if args.dry_run:
-        return 0
-    code, seconds = run_command(command, folder, "protal.log")
-    print(f"  protal exit {code} after {seconds:.0f} s (log: {folder}/protal.log)", file=sys.stderr)
-    return code
+    # named: protal names it and writes it into its folder in --scratch_dir, and removes it once profiled. A protal
+    # without --scratch_dir writes the SAMs into a folder of their own in --scratch (#SAM_OUTPUT_DIR), removed after the
+    # run, and reads a sample of several files joined into one.
+    keep_sams = not (current and args.scratch and not args.strains)
+    sam_ending = ".sam" if release and release < PAIRED_ONLY_BEFORE else ".sam.zst"
+    temporary = []  # folders removed after the run
+    try:
+        sam_folder = None
+        if not current and args.scratch and not args.dry_run:
+            sam_folder = work_folder(args, folder, "sams")
+            temporary.append(sam_folder)
+        lanes = None
+        with open(map_path, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{folder}\n" + (f"#SAM_OUTPUT_DIR\t{sam_folder}\n" if sam_folder else ""))
+            columns = ["SAMPLEID", "PREFIX", "FIRST", "SECOND", "READ_TYPE"] + (["SAM"] if keep_sams else [])
+            fh.write("#" + "\t".join(columns + ["PROFILE"]) + "\n")
+            for s in todo:
+                first, second = s["first"], s["second"]
+                if not current and "," in first + second:
+                    if args.dry_run:  # the map only: no files joined
+                        first, second = first.split(",")[0], second.split(",")[0]
+                    else:
+                        if lanes is None:
+                            lanes = work_folder(args, folder, "joined")
+                            temporary.append(lanes)
+                        first = joined(first, os.path.join(lanes, s["sample"] + "_1.fq.gz"))
+                        second = second if second == "-" else joined(second,
+                                                                     os.path.join(lanes, s["sample"] + "_2.fq.gz"))
+                row = [s["sample"], s["sample"], first, second, s["read_type"]]
+                row += ([s["sample"] + sam_ending] if keep_sams else []) + [s["sample"] + ".profile"]
+                fh.write("\t".join(row) + "\n")
+        command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
+        if args.scratch and current:
+            command += ["--scratch_dir", args.scratch]
+        if not args.strains:
+            command.append("--no_strains")
+        command.append("--force")  # a SAM without its profile may be a killed run's
+        command += shlex.split(args.protal_args)
+        print(f"  {' '.join(shlex.quote(c) for c in command)}", file=sys.stderr)
+        if args.dry_run:
+            return 0
+        code, seconds = run_command(command, folder, "protal.log")
+        print(f"  protal exit {code} after {seconds:.0f} s (log: {folder}/protal.log)", file=sys.stderr)
+        return code
+    finally:
+        for path in temporary:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def joined(files, path):
@@ -329,12 +382,7 @@ def sylph_profiles(tsvs, sample_of_file, lineages, profiles):
 
 
 def run_sylph(args, folder, todo, lineages):
-    if args.scratch:
-        os.makedirs(args.scratch, exist_ok=True)
-        merged = tempfile.mkdtemp(prefix="score_mocks_joined_", dir=args.scratch)
-    else:
-        merged = os.path.join(folder, "joined")
-        os.makedirs(merged, exist_ok=True)
+    merged = work_folder(args, folder, "joined")
     paired, single = [], []
     for s in todo:
         if args.dry_run:  # the commands only: no files joined
@@ -438,18 +486,29 @@ def run(args):
         if not todo:
             print(f"{set_name}: all {len(members)} samples have profiles", file=sys.stderr)
             continue
-        folder = os.path.join(run_folder, set_name)
-        if args.chunks > 1:
-            folder = os.path.join(folder, f"chunk_{chunk}")
-        os.makedirs(folder, exist_ok=True)
-        print(f"{set_name}: {len(todo)} samples", file=sys.stderr)
         if version is None and not args.dry_run:
             version = protal_version(args.protal) if args.tool == "protal" else sylph_version(args.sylph)
             before = sorted({r["version"] for r in held.values() if r["tool"] == args.tool} - {version})
             if before:
                 print(f"note: {args.tool} {version} profiles the new samples; the run folder's others are of "
                       f"{', '.join(before)} (versions.tsv says which; --rerun runs them all again)", file=sys.stderr)
-        code = run_protal(args, folder, todo) if args.tool == "protal" else run_sylph(args, folder, todo, lineages)
+        release = release_of(version) if args.tool == "protal" else None
+        if release and release < PAIRED_ONLY_BEFORE:
+            unpaired = [s for s in todo if s["second"] == "-"]
+            if unpaired:
+                kinds = ", ".join(sorted({s["read_type"] for s in unpaired}))
+                print(f"{set_name}: protal {version} reads paired-end reads only: {len(unpaired)} {kinds} sample(s) "
+                      "left out", file=sys.stderr)
+                todo = [s for s in todo if s["second"] != "-"]
+            if not todo:
+                continue
+        folder = os.path.join(run_folder, set_name)
+        if args.chunks > 1:
+            folder = os.path.join(folder, f"chunk_{chunk}")
+        os.makedirs(folder, exist_ok=True)
+        print(f"{set_name}: {len(todo)} samples", file=sys.stderr)
+        code = (run_protal(args, folder, todo, release) if args.tool == "protal"
+                else run_sylph(args, folder, todo, lineages))
         if args.dry_run:
             continue
         written = [s for s in todo if os.path.exists(os.path.join(folder, "profiles", s["sample"] + ".profile"))]
@@ -740,9 +799,9 @@ def main():
             p.add_argument("--dry-run", "--map-only", dest="dry_run", action="store_true",
                            help="write protal's maps and print the commands, run nothing")
             p.add_argument("--scratch", default="", help="a folder on the node's own disk (e.g. $TMPDIR) for "
-                           "intermediate files: protal's SAMs (its --scratch_dir, protal 0.8.3 on; removed once "
-                           "profiled, kept in alignments/ only with --strains) and sylph's joined read files "
-                           "(default: none, SAMs kept in alignments/)")
+                           "intermediate files: protal's SAMs (its --scratch_dir; removed once profiled, kept in "
+                           "alignments/ only with --strains; before protal 0.8.3 in a folder there removed after the "
+                           "run) and joined read files (default: none, SAMs kept in alignments/)")
             g = p.add_argument_group("protal")
             g.add_argument("--db", default="", help="the protal database")
             g.add_argument("--protal", default="protal", help="the protal binary (default: protal on PATH)")

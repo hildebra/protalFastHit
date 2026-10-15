@@ -393,6 +393,59 @@ for line in lines[2:]:
                 self.assertIn(f"--scratch_dir {scratch}", fh.read().splitlines()[-1])
             self.assertTrue(os.path.exists(os.path.join(reads, name, "a", "profiles", "a_2.profile")))
 
+    def test_run_with_an_old_protal(self):
+        """protal 0.6.0a (--version: v0.6.0) reads paired-end samples only and one file per map cell, and has no
+        --scratch_dir: the ONT sample is left out, the lanes of sample p are joined into one file, and with --scratch
+        its plain SAM (.sam) goes to a folder of its own there (#SAM_OUTPUT_DIR); both are removed after the run."""
+        reads = os.path.join(self.tmp.name, "mocks")
+        lanes = os.path.join(self.tmp.name, "lanes")
+        os.makedirs(lanes)
+        for name, text in (("p_L1_1", "@a\nAC\n+\nII\n"), ("p_L2_1", "@b\nGT\n+\nII\n"),
+                           ("p_L1_2", "@a\nTT\n+\nII\n"), ("p_L2_2", "@b\nCC\n+\nII\n")):
+            with open(os.path.join(lanes, name + ".fq.gz"), "wb") as fh:
+                fh.write(gzip.compress(text.encode()))
+        lane = functools.partial(os.path.join, lanes)
+        write_downloaded(reads, [("a", "p", "pe", lane("p_L1_1.fq.gz") + "," + lane("p_L2_1.fq.gz"),
+                                  lane("p_L1_2.fq.gz") + "," + lane("p_L2_2.fq.gz"), "2", "8", "0"),
+                                 ("a", "l", "ont", "/r/l.fq.gz", "-", "1", "4", "0")])
+        seen = os.path.join(self.tmp.name, "seen.txt")
+        fake = stand_in(os.path.join(self.tmp.name, "protal_060"), f"""import gzip, os, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("protal v0.6.0")
+    sys.exit(0)
+lines = open(args[args.index("--map") + 1]).read().splitlines()
+heads = dict(l.split("\\t")[:2] for l in lines if l.startswith("#") and not l.startswith("#SAMPLEID"))
+columns = next(l for l in lines if l.startswith("#SAMPLEID"))[1:].split("\\t")
+os.makedirs(os.path.join(heads["#OUTPUT_DIR"], "profiles"), exist_ok=True)
+with open({seen!r}, "w") as log:
+    log.write(" ".join(args) + "\\n" + heads.get("#SAM_OUTPUT_DIR", "-") + "\\n")
+    for line in lines:
+        if not line.startswith("#"):
+            row = dict(zip(columns, line.split("\\t")))
+            first = gzip.open(row["FIRST"], "rt").read().replace("\\n", "|")
+            log.write(row["SAMPLEID"] + " " + row["SAM"] + " " + first + "\\n")
+            open(os.path.join(heads["#OUTPUT_DIR"], "profiles", row["PROFILE"]), "w").write("x\\ts__A\\t1\\n")
+""")
+        scratch = os.path.join(self.tmp.name, "node_disk")
+        result = subprocess.run([sys.executable, os.path.join(HERE, "score_mocks.py"), "run", "--reads", reads, "--db",
+                                 "/db060", "--protal", fake, "-t", "2", "--scratch", scratch],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("a: protal 0.6.0_nocommit reads paired-end reads only: 1 ont sample(s) left out", result.stderr)
+        with open(seen) as fh:
+            command, sam_folder, row = fh.read().splitlines()
+        self.assertNotIn("--scratch_dir", command)
+        self.assertIn("--no_strains --force", command)
+        self.assertEqual(os.path.dirname(sam_folder), scratch)
+        self.assertEqual(row, "p p.sam @a|AC|+|II|@b|GT|+|II|")  # the two lanes' first mates, joined
+        self.assertEqual(os.listdir(scratch), [])
+        run_folder = os.path.join(reads, "0.6.0_nocommit")
+        self.assertEqual(sorted(sc.profiles_of(run_folder)), ["p"])
+        self.assertEqual([(r["sample"], r["version"]) for r in read_tsv(os.path.join(run_folder, "versions.tsv"))],
+                         [("p", "0.6.0_nocommit")])
+        self.assertEqual(sc.read_profile(sc.profiles_of(run_folder)["p"])[0], {"s__A": 1.0})
+
     def test_run_with_a_stand_in_sylph(self):
         """Sample p (two lanes, joined for sylph) gets E. coli 60 % and a genome the taxonomy lacks 40 %; sample l
         (long reads) E. coli 100 %, from two genomes of the species."""

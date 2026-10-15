@@ -301,11 +301,22 @@ database, and when and where it ran.
   `--no_strains`. The run folder is named from the binary's `--version`, `<version>_<commit>`, e.g. `0.8.3_1dcc325`,
   with `-modified` appended when it was built with uncommitted changes. Another build or commit therefore gets its own
   folder. `--run-name` names one, e.g. for `--protal-args` variants.
-  - **SAMs:** kept in `alignments/` by default. With `--scratch` (protal 0.8.3 and later), protal gets `--scratch_dir`
-    and the map names no SAM, so protal writes each SAM into its folder there and removes it once the sample is
-    profiled. Only the profiles and logs stay. The SAMs of a set (or chunk) are all there at once, since protal
-    profiles after aligning every sample (unless `--protal-args --profile_ahead`). With `--strains` the SAMs stay in
-    `alignments/`, for strain MSAs.
+  - **SAMs:** kept in `alignments/` by default. With `--scratch`, protal gets `--scratch_dir` and the map names no
+    SAM, so protal writes each SAM into its folder there and removes it once the sample is profiled. Only the profiles
+    and logs stay. The SAMs of a set (or chunk) are all there at once, since protal profiles after aligning every
+    sample (unless `--protal-args --profile_ahead`). With `--strains` the SAMs stay in `alignments/`, for strain MSAs.
+  - **Older versions** (by the binary's `--version`), so that earlier releases can be benchmarked with their own
+    databases:
+    - **Before 0.8.3** (no `--scratch_dir`, one file per map cell): with `--scratch` the SAMs go to a folder of their
+      own there (`#SAM_OUTPUT_DIR`), removed after the run; a sample of several files (lanes) is joined into one file
+      first, in `--scratch` or the set's folder, also removed after the run.
+    - **Before 0.7.0** (0.6.0a, whose `--version` says `v0.6.0`, so its run folder is `0.6.0_nocommit` unless
+      `--run-name` names it, e.g. `0.6.0a`): paired-end reads only, so the single-end and long-read samples are left
+      out with a note, and the SAMs are plain (`.sam`). Its profiles have no `?` line. Compare it with the other runs
+      on the same samples (`samples_by_run.tsv`): the medians of `summary_by_run.tsv` are over the samples each run
+      profiled. Its database must name species as the truth does (GTDB r226); species renamed between releases count
+      as false positives and negatives. Its index is not packed: at GTDB scale give the job more memory (~59 GB at
+      r226 for a database of that time, extrapolated in [the memory profile](claude/2026-09-30-memory-profiling/README.md)).
 - **sylph** (`--tool sylph --sylph-db DB --gtdb DIR[,DIR]`): `sylph profile` per set, of the paired samples and of the
   single-read ones; a sample of several files is joined for it. Its run folder is `sylph_<version>_<database>`.
   `--gtdb` is not the truth (that is `truth/`) but the GTDB taxonomy that turns sylph's genomes into species: a folder
@@ -345,6 +356,8 @@ sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run
     --protal $PROTAL --db $DB -t 32 --scratch \$TMPDIR --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
 sbatch -c 16 --mem 48G --array 0-9 --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS \
     --out $RESULTS --protal $PROTAL --db $DB -t 16 --scratch \$TMPDIR --sets hcom2_invitro --chunks 10"
+sbatch -c 32 --mem 96G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads $MOCKS --out $RESULTS \
+    --protal $PROTAL_060A --db $DB_060A --run-name 0.6.0a -t 32 --scratch \$TMPDIR --sets d6331_dna,meslier"
 sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph --reads $MOCKS \
     --out $RESULTS --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb $GTDB/r226,$GTDB/r232 -t 32 --scratch \$TMPDIR \
     --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
