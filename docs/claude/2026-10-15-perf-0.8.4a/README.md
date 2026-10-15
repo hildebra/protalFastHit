@@ -553,6 +553,82 @@ bash scripts/measure_performance.sh --threads 32 --test_sparse ... OUT_hashed DB
     runs;
   - otherwise the direct map does (option 1), with the compact one kept for sparse indexes and `--compact_keys`.
 
+## 11. The hashed key map at r226 (Perf0.8.4d), and its build made fast
+
+**The run.** `local/Perf0.8.4d`: SLURM 24261407 on q512n12, protal `4d89d86`, `PROTAL_ARGS=--hashed_keys`, the
+same samples and database. This time the run folder was on the node's SSD, so wall times are not comparable with
+the earlier NFS runs; the stage times are. The comparison profiler was not run.
+
+| warm mean | direct (4c) | compact (4a) | hashed (4d) |
+|---|---|---|---|
+| index load, s | 2.76 | 3.07 | **6.70** (the hashed map made in 3.57-3.68 s) |
+| pe seeding, s per thread | 11.56 | 13.72 | 12.44 |
+| pe cache misses (G) | 29.49 | 33.14 | **29.64** |
+| pe aligning, s | 23.4-23.8 | 25.5-25.7 | 24.1-24.2 |
+| pe aligning at C 4, s | 9.02 | 10.00 | 9.22 |
+| gate, ns per sampled lookup, C 1 / C 4 | 121 / 117 | 144 / 164 | 138 / 129 |
+| pb seeding / ont seeding, s per thread | 2.29 / 10.11 | 2.54 / 10.90 | 2.41 / 10.45 |
+| pe user CPU, s | 957 | 1,035 | 1,104 |
+| pe peak memory, GB | 37.6 | 35.1 | 36.0 |
+
+- **The second dependent read is gone.** pe cache misses are those of the direct map.
+- **About half the seeding cost is recovered:** 57% of the compact map's extra pe seeding, and 52-55% for the long
+  reads.
+- **Gated runs come close to direct:** at C 4 the pe alignment is within 0.2 s of the direct map's (90% of the gap
+  closed).
+- **Building the table cost 3.6 s at every start, more than the seeding saved.** It also used 115 s of CPU (most of
+  the +147 s user time against direct).
+- **Memory:** +0.9 GB against compact (1.07 GB table, plus the build's buffer of the cores by partition).
+- **The table at r226:** 98,629,120 cores in 2^24 lines, load 0.735, 4,479,391 (4.5%) past their home line.
+
+**Why the build was slow, and the fixes** (the working tree after `4d89d86`, `HashedKeys.h`):
+1. **A shared counter.** Every insertion added to one counter of all threads (`m_by_disp[d].fetch_add`) and read
+   another next to it. On 32 threads that queues them on one cache line, ~98.7 M times. Each partition now tallies
+   its own cores.
+2. **Two cache misses per insertion.** Each insertion looks its core up in the compact map, at a random place: the
+   presence line, then the start. A partition's cores are now fetched ahead (presence lines 16 cores ahead, starts 8),
+   as the seeding does.
+
+**The build measured locally** at r226's size (synthetic compact map of 98.8 M cores; `hk_build_bench.cpp`, 2 builds
+each, WSL cores 0-3, other sessions loading the machine):
+
+| HashedKeys.h | 1 thread | 2 threads | 4 threads |
+|---|---|---|---|
+| `4d89d86` | 15.6 s | 9.3 s | 7.5-7.6 s |
+| per-partition tallies | 14.2-17.5 s | 8.4-8.7 s | 5.3-6.2 s |
+| and the compact map fetched ahead | **7.9-8.8 s** | **4.9-5.1 s** | **3.3-3.6 s** |
+
+The table is identical in every case (4,842,234 cores past their home line, at most 28). At 32 threads on the EPYC
+the counter was likely most of the 3.6 s: four threads gain only 20-30% from removing it, but 32 threads queue
+8 times as many. Expected: under a second at r226.
+
+**The next line, too.** About half of the remaining ~13 ns a lookup against the direct map should be the 4.5% of
+cores past their home line: their line was never prefetched, so each costs a memory wait (4.5% × ~150 ns ≈ 7 ns).
+- A lookup now prefetches the line after its home line too (one more line, the same DRAM page). That covers 3.6 of
+  the 4.5%.
+- `PROTAL_HASHED_NEXT_LINE=0` in the environment turns it off, so one job can measure both. The index line says
+  which ("the next line fetched too" / "the home line fetched alone").
+
+**Seen on the way** (not the key map): with the run folder on the SSD, the cohort's raw MSAs took 1.4 s summed
+instead of 34-41 s, and the SAM finish 0.03 instead of ~0.7 s. But qcMSA took 8 min summed (2 min in the NFS runs),
+and the strain stage 15.3 s instead of ~6 s. qcMSA is a Python script started once per species, 32 at a time, from an
+environment on NFS; its start-up on that node is the likely cost. One qcMSA process for all species is the lead.
+
+**The next run:** the working tree's binary (after these fixes are committed), with the run folder on the SSD
+again, twice in one job:
+
+```bash
+export PROTAL_ARGS=--hashed_keys RUN_DIR=/nbi/local/ssd/$SLURM_JOB_ID/perf_next
+bash scripts/measure_performance.sh --threads 32 --test_sparse ... OUT_hashed2 DB pe:R1:R2 pb:R ont:R
+export PROTAL_HASHED_NEXT_LINE=0 RUN_DIR=/nbi/local/ssd/$SLURM_JOB_ID/perf_home
+bash scripts/measure_performance.sh --threads 32 --test_sparse ... OUT_hashed2_home DB pe:R1:R2 pb:R ont:R
+```
+
+The rule:
+- With "made in" under ~0.7 s and pe seeding within ~4% of direct (≤ ~12 s a thread), the hashed map becomes the
+  default for whole-index runs (1.6 GB less than direct).
+- Otherwise the direct map does (option 1 of section 9).
+
 ## Files
 
 - **[scripts/](scripts/):** the WSL scripts of the trials (they read from the session's scratch folder, `SP=`), the
@@ -566,6 +642,8 @@ bash scripts/measure_performance.sh --threads 32 --test_sparse ... OUT_hashed DB
   - `keybench_hashed.cpp`: the 2026-10-14 report's `keybench` with the hashed layout (H, Hb, Hp) and an optional values
     array (`KEYBENCH_VALUES_GB`); `build_keybench.sh`, `run_keybench*.sh`: its builds and runs (section 10).
   - `test_hashed.sh`, `validate_real.sh`: the hashed map's tests and the real-read check.
+  - `hk_build_bench.cpp`, `run_build_bench.sh`: the hashed map's build at r226's size, either version of the header
+    (section 11); `test_hashed2.sh`: the fixed version's build and tests.
 - **[results/](results/):** their outputs.
 - **Removed after the trials:** the WSL tree `~/perf085` (the build, ~7 GB of test FASTQ and gzip/zstd copies, the
   callgrind output). The cluster data stays in `local/Perf0.8.4a`, `local/Perf0.8.4b` and `local/Perf0.8.4c` (not in git).

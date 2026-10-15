@@ -658,9 +658,13 @@ gated at C 4 21.2 instead of 19.9 s, for 2.5 GB less memory
 loaded: each core with values has a 64-bit entry (its tag, its place past its home line, its first slot
 and slot count) in lines of eight, its home line chosen by a mix of the core, so that a lookup reads one
 line, as of the direct map, in ~1.07 GB at r226 (load 0.74; ~5% of the cores lie a line or more past
-their home line). The records are the same; given with `--direct_keys`, the run stops. Whether it is as
-fast as the direct map at r226 is to be measured
-([report](claude/2026-10-15-perf-0.8.4a/README.md), section 10).
+their home line). The records are the same; given with `--direct_keys`, the run stops. A lookup also
+fetches the line after its home line, so that a core lying there needs no wait of its own
+(`PROTAL_HASHED_NEXT_LINE=0` in the environment fetches the home line alone, for comparison). At r226
+(32 threads) its first version seeded a paired-end sample in 12.4 s a thread (direct 11.6, compact 13.7)
+with as few cache misses as the direct map, but took 3.6 s to build; the build now tallies per partition
+and fetches the compact map ahead (locally 7.5 → 3.3 s on 4 threads at r226's size). Whether it then
+pays at r226 is to be measured ([report](claude/2026-10-15-perf-0.8.4a/README.md), sections 10 and 11).
 
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
