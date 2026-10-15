@@ -1,4 +1,4 @@
-// protal 0.8.4. In 0.7 (since 0.6.0a):
+// protal 0.8.5. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -161,6 +161,17 @@
 //   (allele_identity, allele_top_identity), the stride pick by default with gates pe:4,se:4,pb:16,ont:8 and models at other
 //   gates, --flex_indels, --sparse_seeding, zstd read files on several threads, gzip files of many members by members,
 //   each sample's log of how its input was read.
+// In 0.8.5: what a run takes from its database and models (docs/claude/2026-10-15-f1-audit-since-0.6.0a): the run
+//   settings the models were trained with recorded in build_settings.tsv and followed (auto), every SAM's settings line,
+//   feature versions and the features' training ranges in the models (--feature_versions, outside_training_range). The
+//   mates of a pair vote on its taxon (--mate_guidance consensus, recorded with the database; guide for one that records
+//   none). Spike mode: a sample whose coverage shows carried-over PCR products has those genes left out (--spike_genes
+//   auto; docs/claude/2026-10-15-mock-near-misses). ONT reads from SRA/ENA and placeholder qualities read as such. The
+//   unique k-mers counted from the alignment (unique_cores.bin, ZS/ZU/ZT the same on a sparse index) and their rates in
+//   the default features; ancestry sites in ~0.65 of the memory. The key map compact as the index loads and hashed after
+//   (one line a lookup; --compact_keys, --direct_keys). GTDB builds check the finished database, train on wider inputs
+//   (se 75/100 bp, a miscalibrated NovaSeq setup, deeper samples, codon indels), and judge models by the marker truth
+//   with samples and species held out; protal compiles in translation units of its own (src/Run/).
 #include <iostream>
 #include "RunProtal.h"
 
