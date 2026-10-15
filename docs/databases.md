@@ -1754,10 +1754,12 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 | `--seed`, `--threads` | 1, 4 | |
 
 **How a model is judged.** Rows of one sample share its reads, and rows of one species its reference,
-so random rows would score a model on what it was trained on. The trainer scores each row with models
-that saw neither its sample nor its species ("by species", the estimate that matters: most species
-protal meets were never in training), and with `--taxonomy` and `--evaluation full` with its whole genus,
-family, order, class or phylum held out. `--evaluation full` adds studies: the other feature sets, the model's size (a
+so random rows would score a model on what it was trained on. Since 2026-10-15 the trainer scores rows with models
+that saw neither their sample nor their species (`--cv-scheme samples+species`, [below](#the-headline-the-decisions-folds-and-the-features-ranges-since-2026-10-15)): most species protal
+meets were never in training, and its samples never are. Species held out alone ("by species"; until 2026-10-15 the
+estimate the decisions were made on) kept the row's sample in training with its other taxa; it is still reported
+beside it. With `--taxonomy` and `--evaluation full` each row is also scored with its whole genus, family, order, class
+or phylum held out. `--evaluation full` adds studies: the other feature sets, the model's size (a
 forest's leaves and trees, boosting's leaves and rounds), and a learning curve.
 
 **Scenarios.** For a table with scenarios (`meta_scenario`), the section "Scenarios: hold-in and
@@ -1772,8 +1774,8 @@ comparison. The summary has a line per scenario, and warns when a scenario's hol
 0.02 below its hold-in F1 with species held out. The independent test set's section leaves the
 scenarios' rows out.
 
-**`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried`) unless
+**`--features auto`** (the default) scores each candidate set as the decisions are scored (samples and species held
+out, [below](#the-headline-the-decisions-folds-and-the-features-ranges-since-2026-10-15)) and keeps the one of highest F1 at the knob (rows weighted as in the fits), but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried`) unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the
@@ -1818,9 +1820,9 @@ pipeline.
 
 ### The headline, the decisions' folds and the features' ranges (since 2026-10-15)
 
-Three changes from the [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md) (E2-E4, C1, C4). Where the paragraphs
-above say otherwise (the knob, the knob curve, the calibrated calls and `--features auto` chosen with species held out;
-a knob dropped when it lost on the test set), this section holds.
+Three changes from the [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md) (E2-E4, C1, C4). Before them the knob, the knob
+curve, the calibrated calls and `--features auto` were chosen with species held out alone, and a knob was dropped when
+it lost on the test set.
 
 **The headline F1.** The first section of `<prefix>.report.txt` (after the run's description) and the first key of
 `metrics.json` (`headline`) give the F1 over every truth species the marker genes can see, as protal calls by default:
@@ -1913,7 +1915,8 @@ says what the new scan is worth; `--features auto` tries them.
 A deep sample holds many more absent taxa with a few reads (at r226 they grew as depth^0.84), so its
 best threshold is higher. With `--depth-knobs` the trainer fits a knob curve over log10 of the
 sample's fragments: a point per half decade with 6 or more samples, its knob the threshold with the
-highest F1 on species held out within half a decade of it, kept at `--knob` unless it gains 0.002.
+highest F1 held out (samples and species, [above](#the-headline-the-decisions-folds-and-the-features-ranges-since-2026-10-15)) within half a decade of it, kept at `--knob` unless it
+gains 0.002.
 The curve goes into the model (`<Extension name="protal_depth_knob_curve" .../>`), and protal
 interpolates it per sample, keeping the deepest knob for deeper samples; `--knob` overrides it. The log
 lists each sample's knob. At r226 (0.7.0's features) curves raised the test F1 by 0.006-0.033 per read
@@ -1921,11 +1924,11 @@ type ([report](claude/2026-10-02-r226-build-evaluation/README.md)).
 
 With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the model
 already knows the depth, and a curve on top corrects twice (it lost 0.010). Instead the trainer chooses
-one knob for every sample: the median of the best thresholds on species held out (rows weighted as in
-the fits) over 200 bootstrap resamples of the training samples, if it beats `--knob` in 95% of them
-and does not lose F1 on the test set (its rows weighted alike); it goes into the model as a curve of
-one point, which protal reads as that knob at every depth (`--knob` overrides it). The report gives
-the resamples' range of best thresholds and the test set's F1 at both. Until 2026-10-07 it was the
+one knob for every sample: the median of the best thresholds held out (samples and species; rows weighted as in the
+fits) over 200 bootstrap resamples of the training samples, if it beats `--knob` in 95% of them; it goes into the
+model as a curve of one point, which protal reads as that knob at every depth (`--knob` overrides it). The report
+gives the resamples' range of best thresholds, and the test set's F1 at both for information: until 2026-10-15 a knob
+that lost F1 on the test set was dropped, which made the test set part of the choice. Until 2026-10-07 it was the
 best threshold if it gained 0.002: on a flat curve near-equal models chose differently (se 0.73 at
 r226 v14, 0.5 at v15; [report](claude/2026-10-07-r226-v15/README.md)). At r226 v12 the paired-end forest's
 best threshold was 0.70 both with species held out and on the test set (+0.003 of test F1); the other
@@ -1935,7 +1938,7 @@ of 0.7.2 carry knobs per decade instead, which protal still reads.
 
 ### Calls at a target share of false calls
 
-With `--fdr-calls` the trainer calibrates the scores (an isotonic fit on species held out) and picks the
+With `--fdr-calls` the trainer calibrates the scores (an isotonic fit on the rows held out, samples and species) and picks the
 target share of false calls (0.005-0.5) with the highest F1. With `protal --fdr F`, each sample's scores
 become probabilities, adjusted to the sample's own share of present candidates, and protal reports
 the highest-scoring taxa while the mean of their 1 − probability stays at or below F. At r226 these
