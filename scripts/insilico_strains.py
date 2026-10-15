@@ -40,7 +40,19 @@ The mutations:
   congener's base, each in place of another of its substitutions, so that the gene keeps its divergence. auto (the
   default) measures that share on the same sample of real strains as the omega: their marker substitutions at a
   congener site with the congener's base.
-Substitutions only: the strain has the representative's length and its genes' positions.
+- Codon indels (since 2026-10-15). A real strain's marker gene now and then has a codon or a few more or fewer than
+  the representative's; with substitutions only, every in-silico strain's read aligned without a gap, which no real
+  strain's does (docs/claude/2026-10-15-f1-audit-since-0.6.0a, C4). Each marker gene gets --indel-share codon indels
+  per substitution it is given (expected: the gene's rate times its length), in pairs: a deletion of 1-4 whole codons
+  and an insertion of as many (a tandem copy of the codons before it, or sense codons drawn at random), each at a
+  codon boundary of its own inside the gene (not its first or last codon), so that the gene keeps its length and its
+  reading frame and makes no stop codon. A pair keeps the gene's length, so the strain keeps its representative's
+  gene positions, which simulate_metagenomes counts the marker genes' reads on (MarkerPositions.h). The default 0.02
+  (one codon indel per 50 substitutions) is the share scripts/mini_db/simulate_gtdb_release.py gives its codon indels
+  (INDEL_FRACTION): docs/claude has no measurement of real strains' indels, and in-frame indels in conserved
+  single-copy genes are rarer than substitutions by one to two orders of magnitude, so 0.02 is at the low end. 0: none,
+  the strains of before (the same substitutions: the indels are drawn after them).
+Otherwise the strain has the representative's length and its genes' positions.
 
 Writes OUT_DIR/<name>.fna.gz per strain (name: insilico_ and the representative's accession with '_' for '.', so
 that no accession pattern takes it for the representative; its contigs <name>_<the representative's contig>, so
@@ -85,6 +97,12 @@ SPECTRUM_STRAINS = 200  # real strains compared with their representatives for t
 SPECTRUM_KMER = 12  # the copies are compared along their shared 12-mers (no alignment)
 MIN_SPECTRUM_SUBSTITUTIONS = 2000  # fewer, and the measured share is not trusted
 NOT_COMPARED = 255  # aligned_bases: no base compared there
+# Codon indels (codon_indels): per substitution of a marker gene (simulate_gtdb_release.py's INDEL_FRACTION), their
+# length in codons geometric (1: 60%, 2: 24%, 3: 10%, 4: the rest), at most MAX_INDEL_CODONS.
+INDEL_SHARE = 0.02
+INDEL_CODON_P = 0.6
+MAX_INDEL_CODONS = 4
+MIN_INDEL_CODONS = 10  # a gene of fewer codons gets none
 
 CODE = np.full(256, 4, dtype=np.uint8)
 for _i, _b in enumerate(b"ACGT"):
@@ -94,6 +112,7 @@ BASES = np.frombuffer(b"ACGTN", dtype=np.uint8)
 # The standard genetic code, codon index 16 x first + 4 x second + third (A, C, G, T = 0..3); '*' a stop.
 AMINO = np.frombuffer(b"KNKNTTTTRSRSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSS*CWCLFLF", dtype=np.uint8)
 STOP = AMINO == ord("*")
+SENSE = np.flatnonzero(~STOP)  # the 61 sense codons' indices
 
 
 def is_insilico(name):
@@ -661,10 +680,59 @@ def place_at_congener_sites(codes, new, sites, cpos, minus, share, rng):
     return placed
 
 
+def reverse_complement(codes):
+    """Codes (0-3, 4 other) of the other strand, in its reading orientation."""
+    return np.where(codes < 4, 3 - codes.astype(np.int16), 4).astype(np.uint8)[::-1]
+
+
+def codon_indels(new, first, last, strand, expected, rng):
+    """Codon indels in a marker gene of a strain's contig (`new`, its codes, changed in place; the gene [first, last],
+    0-based, inclusive, on `strand`), `expected` of them on average, in pairs (Poisson(expected / 2) pairs): a deletion
+    of k whole codons (1 to MAX_INDEL_CODONS, geometric) and an insertion of k codons, a tandem copy of the k codons
+    before it (half the time, where there are k codons before it but the first) or sense codons drawn at random, each
+    at a codon boundary of its own inside the gene, apart (an insertion right at the deletion would be k substitutions):
+    the gene keeps its length, its frame and its first and last codons, and gains no stop codon. A gene whose length is
+    no multiple of 3, or of fewer than MIN_INDEL_CODONS codons, gets none. -> the indels made (two per pair)."""
+    length = last - first + 1
+    if expected <= 0 or length % 3 or length < 3 * MIN_INDEL_CODONS:
+        return 0
+    pairs = int(rng.poisson(expected / 2))
+    if not pairs:
+        return 0
+    gene = new[first:last + 1].copy()
+    codons = (reverse_complement(gene) if strand == "-" else gene).reshape(-1, 3)
+    n, made = len(codons), 0
+    for _ in range(pairs):
+        k = min(MAX_INDEL_CODONS, int(rng.geometric(INDEL_CODON_P)))
+        if n - 2 < 2 * k + 2:  # the inner codons 1 .. n-2 hold the deletion and a boundary apart from it
+            continue
+        d = int(rng.integers(1, n - k))  # the deleted codons d .. d+k-1, all inner
+        boundaries = np.concatenate([np.arange(1, d), np.arange(d + k + 1, n)])  # before codon b, not at the deletion
+        if not len(boundaries):
+            continue
+        b = int(boundaries[rng.integers(len(boundaries))])
+        if rng.random() < 0.5 and b >= k + 1:
+            inserted = codons[b - k:b].copy()
+        else:
+            picks = SENSE[rng.integers(len(SENSE), size=k)]
+            inserted = np.stack([picks // 16, (picks // 4) % 4, picks % 4], axis=1).astype(np.uint8)
+        if b < d:
+            codons = np.concatenate([codons[:b], inserted, codons[b:d], codons[d + k:]])
+        else:
+            codons = np.concatenate([codons[:d], codons[d + k:b], inserted, codons[b:]])
+        made += 2
+    gene = codons.reshape(-1)
+    new[first:last + 1] = reverse_complement(gene) if strand == "-" else gene
+    return made
+
+
 def make_strain(job):
     """Writes one strain; returns its summary row."""
-    (acc, species, path, out, genes, factors, genome_div, marker_div, seed, kappa, omega, congener, congener_share) = job
+    (acc, species, path, out, genes, factors, genome_div, marker_div, seed, kappa, omega, congener, congener_share,
+     indel_share) = job
     rng = np.random.default_rng(seed)
+    # The codon indels' own stream, so that a strain's substitutions are those of any --indel-share.
+    indel_rng = np.random.default_rng([seed, 1])
     records = read_fasta(path)
     by_contig = {}
     for g in genes:
@@ -694,7 +762,7 @@ def make_strain(job):
     relative = sum(c[4][4].sum() for c in contigs)
     coding_rate = max(0.0, genome_div * total_sites - fixed) / max(relative, 1e-9)
     tmp = out + ".partial"
-    subs = coding = at_congener = 0
+    subs = coding = at_congener = indels = 0
     reached = []
     with gzip.open(tmp, "wb", compresslevel=1) as fh:
         for header, codes, markers, n_frames, (owner, cpos, minus, fixed, relative), sites in contigs:
@@ -702,6 +770,8 @@ def make_strain(job):
                                                               n_frames, rng, kappa, omega)
             if sites:
                 at_congener += place_at_congener_sites(codes, new, sites, cpos, minus, congener_share, rng)
+            for first, last, strand, rate, _ in markers:  # after the substitutions: the same ones at any share
+                indels += codon_indels(new, first, last, strand, indel_share * rate * (last - first + 1), indel_rng)
             subs += n_subs
             coding += n_coding
             for k, m in enumerate(markers):
@@ -714,7 +784,7 @@ def make_strain(job):
     os.replace(tmp, out)
     return [strain_name(acc), acc, species, f"{genome_div:.5f}", f"{marker_div:.5f}", str(subs),
             f"{coding / max(total_sites, 1):.3f}", f"{statistics.median(reached):.5f}" if reached else "",
-            congener[0] if congener_copies else "", str(at_congener), str(total_sites)]
+            congener[0] if congener_copies else "", str(at_congener), str(indels), str(total_sites)]
 
 
 def parse_ani(text):
@@ -764,9 +834,16 @@ def main(argv=None):
                     help="share of a strain's marker gene substitutions placed at its congener sites (where its species' "
                          "nearest congener differs) with the congener's base: a number, or auto (the default), the share "
                          "the real strains have there (0 without --clouds, --positions and --taxonomy)")
+    ap.add_argument("--indel-share", type=float, default=INDEL_SHARE, metavar="SHARE",
+                    help="codon indels in each marker gene per substitution it is given, in pairs that keep the gene's "
+                         f"length (default {INDEL_SHARE:g}, the share of codon indels among the mutations of "
+                         "scripts/mini_db/simulate_gtdb_release.py; 0: none, the substitutions alone as before 2026-10-15). "
+                         "Without them every in-silico strain's read aligned without a gap, which no real strain's does")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("-t", "--threads", type=int, default=4)
     args = ap.parse_args(argv)
+    if not 0 <= args.indel_share <= 1:
+        ap.error("--indel-share is a share from 0 to 1")
 
     rows = read_table(args.genome_table)
     rows = [r for r in rows if not is_insilico(r[0])]
@@ -838,13 +915,13 @@ def main(argv=None):
         other = congener_of.get(acc)
         congener = (other, by_acc[other][2], genes[other]) if other and genes.get(other) and genes.get(acc) else None
         jobs.append((acc, r[1].split(";")[-1], r[2], out, genes.get(acc, []), factors, genome, marker,
-                     seed_of(args.seed, acc), args.kappa, omega, congener, congener_share))
+                     seed_of(args.seed, acc), args.kappa, omega, congener, congener_share, args.indel_share))
     with concurrent.futures.ProcessPoolExecutor(max(1, args.threads)) as pool:
         summary = list(pool.map(make_strain, jobs, chunksize=4))
     by_name = {s[0]: s for s in summary}
     with open(os.path.join(args.out_dir, SUMMARY), "w") as fh:
         fh.write("strain\trepresentative\tspecies\tgenome_divergence\tmarker_divergence\tsubstitutions\tcoding_share\t"
-                 "marker_divergence_reached\tcongener\tcongener_substitutions\tlength\n")
+                 "marker_divergence_reached\tcongener\tcongener_substitutions\tcodon_indels\tlength\n")
         fh.writelines("\t".join(s) + "\n" for s in summary)
     if congener_share > 0:
         with_congener = [s for s in summary if s[8]]
@@ -867,7 +944,10 @@ def main(argv=None):
           + (f"drawn from {len(divergences)} real strains' marker divergence (median {statistics.median(divergences):.4f}), "
              if args.ani is None else f"ANI drawn from {args.ani[0]:.3f}-{args.ani[1]:.3f}, ")
           + f"{len(factors)} gene factors ({min(factors.values(), default=1):.2f}-{max(factors.values(), default=1):.2f}); "
-          f"{omega_note}; {congener_note}: {args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
+          f"{omega_note}; {congener_note}; "
+          + (f"{sum(int(s[10]) for s in summary)} codon indels in the marker genes (--indel-share {args.indel_share:g})"
+             if args.indel_share > 0 else "no codon indels (--indel-share 0)")
+          + f": {args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
 
 
 if __name__ == "__main__":

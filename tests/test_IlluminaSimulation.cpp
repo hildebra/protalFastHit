@@ -214,6 +214,18 @@ TEST(IlluminaSimulation, ProfilesMatchTheirSources) {
         EXPECT_NEAR(mean / 150, 30.0, 1.0) << r;
         EXPECT_GT(q30.substitutions[r], hsxt.substitutions[r]);
     }
+
+    // A miscalibrated run (simulate_metagenomes --calibration, a read setup's CALIBRATION in collect_training_data.py):
+    // the qualities written as at calibration 1 (another draw: an error takes a random number more), about twice the
+    // substitutions at calibration 2 (the Q2 tails' errors stay theirs).
+    auto miscalibrated = MakeSetup("NovaSeq", 150);
+    miscalibrated.profile.calibration = 2.0;
+    auto const twice = ReportProfile(miscalibrated, 4000);
+    for (int r = 0; r < 2; ++r) {
+        EXPECT_NEAR(twice.quality_share[r][37], nova.quality_share[r][37], 0.01) << r;
+        EXPECT_GT(twice.substitutions[r], 1.6 * nova.substitutions[r]) << r;
+        EXPECT_LT(twice.substitutions[r], 2.1 * nova.substitutions[r]) << r;
+    }
 }
 
 TEST(IlluminaSimulation, PairsOfTheirFragments) {

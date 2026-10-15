@@ -260,6 +260,49 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn(f"--features {model_features.DEFAULT_FEATURE_SET} --model gbm",
                       self.text("out", "logs", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")
+        # The final check on the finished database (the f1 audit's E1, since 2026-10-15): the test samples written to
+        # the disk profiled again on protal_db with its models (all of them: nothing streamed), the rows of the species
+        # not held out scored there beside the trainer's calls on the training database; protal's calls equal the model
+        # file's. A section of summary.txt and the console's lines; the tables kept in work/final_check.
+        with open(os.path.join(out, "model_logs", "final_db_check.tsv")) as fh:
+            check = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(sorted((r["read_type"], r["kind"], r["calls"], r["rows_of"]) for r in check),
+                         sorted((t, "gbm", "protal", rows) for t in ("pe", "se")
+                                for rows in ("species not held out", "of them without a held-out congener in the sample")))
+        for r in check:
+            self.assertEqual(r["samples"], "1", r)  # --test-samples 1 at one depth
+            self.assertGreater(int(r["training_db_rows"]), 0, r)
+            self.assertGreater(int(r["finished_db_rows"]), 0, r)
+            if r["rows_of"] == "species not held out":
+                self.assertEqual(r["calls_unlike_the_model_file"], "0", r)
+                self.assertRegex(r["finished_db_F1"], r"^[0-9.]+$")
+        summary_text = self.text("out", "model_logs", "summary.txt")
+        self.assertTrue(summary_text.startswith("Headline F1, over every species present in the samples whose marker genes "
+                                                "got reads"), summary_text[:300])
+        self.assertRegex(summary_text, r"\n  pe: (independent test set )?[0-9.]+")
+        self.assertRegex(summary_text, r"\nIndependent test set: seed \d+ \(drawn for this build from r226, out and "
+                                       r"\d{4}-\d\d-\d\d\)\n")
+        self.assertIn("Final check on the finished database (model_logs/final_db_check.tsv)", summary_text)
+        self.assertRegex(summary_text, r"\n  pe gbm \(default\), species not held out: F1 [0-9.]+ -> [0-9.]+")
+        self.assertRegex(first.stdout, r"\d+/\d+ final check \(final_check\.log, final_db_check\.tsv\)")
+        self.assertRegex(first.stdout, r"    se gbm \(default\), species not held out: F1 ")
+        self.assertTrue(os.path.isfile(os.path.join(out, "work", "final_check", "training_data_se.tsv")))
+        self.assertIn("--leave_out_streamed", self.text("out", "logs", "final_check.log").splitlines()[0])
+        # The test set's seed, drawn for this build and kept (E2); the feature code's versions, which this protal may not
+        # have yet (C1).
+        with open(os.path.join(out, "work", "stages", "test_seed.json")) as fh:
+            seed = json.load(fh)["seed"]
+        self.assertRegex(metadata["test_seed"], rf"^{seed} \(drawn for this build from r226, out and ")
+        test_params = glob.glob(os.path.join(self.tmp.name, "scratch", "test", "points", "*", "sim", "run_params.tsv"))
+        self.assertTrue(test_params)
+        for path in test_params:  # the test set's one design point, simulated at the test seed (+ its index, 0)
+            with open(path) as fh:
+                self.assertIn(f"--seed {seed} ", fh.read())
+        self.assertRegex(first.stdout, r"the feature code's versions of \d+ features|has no --feature_versions")
+        # The in-silico strains have codon indels (--insilico-indels 0.02), counted in their table.
+        self.assertRegex(self.text("out", "logs", "insilico_strains.log"),
+                         r"\d+ codon indels in the marker genes \(--indel-share 0\.02\)")
+        self.assertIn("\tcodon_indels\t", self.text("scratch", "insilico_strains", "insilico_strains.tsv").splitlines()[0])
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         # The gene copies' gaps to their congeners' copies (--build), in the databases the training samples were profiled
         # with. The scan of each database's full reference for the gene copies other species' reads reach (--foreign-rates,
@@ -476,6 +519,10 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertNotRegex(again.stdout, r"built (protal|training)_db")
         self.assertNotRegex(self.text("out", "logs", "training_data_simulation.log"), "simulating")
         self.assertNotRegex(self.text("out", "logs", "training_data.log"), "simulating|profiling")
+        # The same test seed (its stage), and the final check again or kept (the models trained again may differ).
+        self.assertIn(f"the independent test set's seed: {seed} (kept from an earlier run into this OUTDIR", again.stdout)
+        self.assertRegex(again.stdout, r"final check \(final_check\.log, final_db_check\.tsv\)(.|\n)*"
+                                       r"(profiled and scored in|made by an earlier run for the same database)")
 
         # A reduced database: the 3 best genes ranked from a full build of the training database (--n-genes 3 without
         # --gene-ranking; test_b gives one), one of them a gene archaea have. The ranking is --rank-genes's above:
@@ -902,6 +949,25 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("full_reference.fna", console)  # kept for the report, then removed
         self.assertFalse(glob.glob(os.path.join(scratch, "training_db", "full_reference.fna*")))
         self.assertFalse(os.path.exists(os.path.join(scratch, "ancestry_files")))
+        # The allele scores' effect (--share-logs, the f1 audit's B1, since 2026-10-15): the short-read test samples
+        # (the design's and the scenarios' hold-out ones) profiled again on the training database with protal's
+        # --no_allele_scores, every model file's calls on them beside the trainer's, overall and by species with strain
+        # alleles in the database and without; a section of summary.txt. And the final check of the scenarios' samples.
+        with open(os.path.join(self.tmp.name, "scenarios", "model_logs", "no_allele_scores.tsv")) as fh:
+            alleles = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual({(r["read_type"], r["species"]) for r in alleles},
+                         {(t, s) for t in ("pe", "se") for s in ("all", "with strain alleles", "without strain alleles")})
+        for r in alleles:
+            if r["species"] == "all":
+                self.assertGreater(int(r["with_allele_scores_rows"]), 0, r)
+                self.assertGreater(int(r["without_allele_scores_rows"]), 0, r)
+                self.assertRegex(r["allele_scores_F1_gain"], r"^-?[0-9.e-]+$")
+        self.assertIn("--no_allele_scores", self.text("scenarios", "logs", "no_allele_scores.log").splitlines()[0])
+        summary_text = self.text("scenarios", "model_logs", "summary.txt")
+        self.assertIn("The allele scores' effect (model_logs/no_allele_scores.tsv; --share-logs)", summary_text)
+        self.assertIn("Final check on the finished database", summary_text)
+        with open(os.path.join(self.tmp.name, "scenarios", "model_logs", "final_db_check.tsv")) as fh:
+            self.assertEqual({r["read_type"] for r in csv.DictReader(fh, delimiter="\t")}, {"pe", "se"})  # --read-types
         # The archive to share (--share-logs), laid out as OUTDIR: the console's lines and the other logs, model_logs/
         # with the error reads' SAMs but not the models, the build's metadata, the taxonomy, and the tables, their numbers
         # to 9 significant digits (the same rows and values to 1e-8).
@@ -912,7 +978,8 @@ class GtdbBuildTest(unittest.TestCase):
             ancestry_of = [f"model_logs/ancestry_sites/{t}.{kind}" for t in ("pe", "se") if error_records.get(t)
                            for kind in ("summary.txt", "auc.tsv")]
             self.assertTrue(ancestry_of, "the ancestry sites of some read type's error reads")
-            for name in ("console.log", "logs/training_data.log", "model_logs/summary.txt",
+            for name in ("console.log", "logs/training_data.log", "model_logs/summary.txt", "model_logs/no_allele_scores.tsv",
+                         "model_logs/final_db_check.tsv",
                          "model_logs/error_reads/pe/summary.tsv", "model_logs/error_reads/pe/taxa.tsv.gz", *ancestry_of,
                          "protal_db/build_metadata.tsv", "work/internal_taxonomy.dmp", "work/training/training_data.tsv",
                          "work/training/training_data_se.tsv", "work/test/training_data.tsv"):

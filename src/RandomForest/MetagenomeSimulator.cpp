@@ -582,6 +582,7 @@ void MetagenomeSimulator::write_all_reads(
     options.setup.fragment_mean = illumina_.fragment_mean;
     options.setup.fragment_sd = illumina_.fragment_stdev;
     options.setup.mean_quality = illumina_.mean_quality;
+    if (illumina_.calibration) options.setup.profile.calibration = *illumina_.calibration;
     options.host = illumina_.host_folder;
     options.threads = std::max(1, illumina_.threads);
     options.genome_store = illumina_.genome_store;

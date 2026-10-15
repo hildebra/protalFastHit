@@ -256,6 +256,74 @@ class CollectorTest(unittest.TestCase):
         points, _ = collect.units_of(opts)
         self.assertFalse(any(p.get("reads") is False for p in points))
 
+    def test_calibrated_setups_and_a_depth_of_one_setup(self):
+        # A setup's CALIBRATION (since 2026-10-15): simulate_metagenomes --calibration, its points named _cal<X>, those of
+        # the setups without one as before. DEPTH:SAMPLES:LENGTH[:INSTRUMENT] in --read_pairs: a depth of those setups
+        # only (the build's 60000000:1:150:HSXt), its Ultima unit drawn from that point's communities.
+        opts = argparse.Namespace(read_setups="150:HSXt:350:50,150:NovaSeq:350:50:2,250:MSv3:550:50",
+                                  se_read_setups="150:HSXt:350:50,250:MSv3:550:50", read_pairs="1000,60000000:1:150:HSXt",
+                                  read_types=["pe", "se", "ont"], samples=2, se_ultima_setup="ultima:300:50:25:2",
+                                  scenarios="", ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6,2e6:1",
+                                  long_read_samples=1, out="/o", simulator="sim", genome_table="g",
+                                  species_per_sample="5-30", seed=1, abundance="", strains_per_species="", archaea=0,
+                                  novel_clades=0, congeners=collect.congener_spec("0"))
+        points = collect.design_points(opts)
+        self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p60000000", "rl150_NovaSeq_cal2_p1000",
+                                                       "rl250_p1000"])
+        self.assertEqual([p["samples"] for p in points], [2, 1, 2, 2])
+        nova = points[2]
+        self.assertEqual((nova["calibration"], nova["for_pe"], nova["for_se"]), ("2", True, False))
+        for point in points:
+            command, error = collect.simulation_command(point, 0, opts, 1, {})
+            self.assertIsNone(error)
+            self.assertEqual("--calibration" in command, point is nova, point["name"])
+        self.assertEqual(collect.illumina_args("NovaSeq", None, "2"), ["--sequencer", "NovaSeq", "--calibration", "2"])
+        # The same setup with and without a calibration: two points; the setups' text normalised (2.0 is 2).
+        both = argparse.Namespace(read_setups="150:NovaSeq:350:50,150:NovaSeq:350:50:1.50", read_pairs="1000", samples=1)
+        self.assertEqual([p["name"] for p in collect.design_points(both)], ["rl150_NovaSeq_p1000", "rl150_NovaSeq_cal1.5_p1000"])
+        for setups, pairs in (("150:HSXt:350:50:0", "1000"), ("150:HSXt:350:50:x", "1000"), ("150:HSXt:350:50:2:1", "1000"),
+                              ("150:HSXt:350:50:2,150:HSXt:350:50:2.0", "1000"), ("150:HSXt:350:50", "1000:1:300"),
+                              ("150:HSXt:350:50", "1000:1:150:Foo"), ("150:HSXt:350:50", "1000::150"),
+                              ("150:HSXt:350:50", "1000:1:150:HSXt:x")):
+            with self.assertRaises(SystemExit, msg=(setups, pairs)):
+                collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs, samples=1))
+        with self.assertRaises(SystemExit):  # no selector for long reads
+            collect.depths_and_samples("1e6:1:150", "--long_read_bases")
+        _, units = collect.units_of(opts)
+        by_name = {u["name"]: u for u in units}
+        self.assertEqual([u["name"] for u in units if u["type"] == "se"],
+                         ["rl150_HSXt_p1000_se", "rl150_HSXt_p60000000_se", "rl250_p1000_se", "se_ultima_r1000",
+                          "se_ultima_r60000000"])
+        deep = by_name["se_ultima_r60000000"]
+        self.assertEqual((deep["samples"], [p["name"] for p in deep["communities"]]), (1, ["rl150_HSXt_p60000000"]))
+        self.assertEqual([p["name"] for p in by_name["ont_b2e6"]["communities"]], ["rl150_HSXt_p60000000"])
+        # --leave_out_streamed: the units of the simulations --stream_above streams are left out (the 60M point's pe and se
+        # units and its Ultima unit), and the point is simulated without reads for the ont unit that replays it.
+        leave = argparse.Namespace(**{**vars(opts), "stream_above": 2.0, "leave_out_streamed": True})
+        left_points, left = collect.units_of(leave)
+        self.assertEqual(sorted(u["name"] for u in left),
+                         sorted(name for name in by_name if "60000000" not in name))
+        deep_point = next(p for p in left_points if p["name"] == "rl150_HSXt_p60000000")
+        self.assertIs(deep_point["reads"], False)
+        self.assertIn("--test", collect.simulation_command(deep_point, 1, leave, 1, {})[0])
+        self.assertIn("rl150_HSXt_p60000000", collect.needed_points(left))
+        self.assertEqual(collect.streamed_simulations(left, leave), set())
+        self.assertEqual(len(collect.units_of(argparse.Namespace(**{**vars(opts), "stream_above": 2.0}))[1]), len(units))
+        # --no_allele_scores: protal's option in the runs, and in the profiles' keys (another run's are not this one's).
+        db, protal = (os.path.join(self.tmp.name, n) for n in ("db", "protal"))
+        os.makedirs(db)
+        for path in (os.path.join(db, "database.protal"), protal):
+            with open(path, "w") as fh:
+                fh.write("x")
+        keys = {collect.simulation_of(u): {"k": 1} for u in units}
+        plain = argparse.Namespace(**{**vars(opts), "db": db, "protal": protal})
+        without = argparse.Namespace(**{**vars(plain), "no_allele_scores": True})
+        self.assertNotIn("no_allele_scores", collect.profile_keys(units, plain, keys)["rl250_p1000"])
+        self.assertTrue(collect.profile_keys(units, without, keys)["rl250_p1000"]["no_allele_scores"])
+        parsed = collect.parse_args(["--db", db, "--genome_table", "g", "-o", "/o", "--no_allele_scores",
+                                     "--leave_out_streamed"])
+        self.assertTrue(parsed.no_allele_scores and parsed.leave_out_streamed)
+
     def test_long_read_replay(self):
         # pb/ont samples replay a paired-end point's communities: one simulate_metagenomes run per unit draws the
         # reads (a genome by relative abundance times length, a start uniform, either strand) until each sample's bases,

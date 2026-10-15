@@ -119,6 +119,9 @@ struct IlluminaOptions {
     int fragment_stdev{50};
     std::string sequencer{"HS25"};       // an IlluminaProfile: HS20, HS25, HSXt, NovaSeq, MSv3
     std::optional<double> mean_quality;  // each read's mean base quality (Phred), else the profile's
+    // A base's error probability is its hidden quality's times this (IlluminaProfile::calibration), else the profile's
+    // (1, MiSeq 1.5): above 1 the qualities written overstate the reads' accuracy, as on a miscalibrated run.
+    std::optional<double> calibration;
     int threads{1};
     std::filesystem::path host_folder;   // a host genome (scenarios.prepare_host), for host_pairs
     std::vector<std::uint64_t> host_pairs;  // each sample's host read pairs, in turn (after its community's)

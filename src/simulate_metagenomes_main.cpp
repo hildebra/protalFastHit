@@ -300,6 +300,10 @@ static cxxopts::Options build_cxxopts() {
                             cxxopts::value<std::string>()->default_value("HS25"))
         ("mean_quality",    "Shift each read's qualities so that they average this (Phred), e.g. 35; default: the "
                             "instrument's", cxxopts::value<double>())
+        ("calibration",     "A base is miscalled with its hidden quality's error probability times this, the qualities "
+                            "written unchanged: above 1 they overstate the reads' accuracy, as a miscalibrated run's do "
+                            "(2: by 3 Phred). Default: the instrument's (1; MSv3 1.5); more than 0, at most 20",
+                            cxxopts::value<double>())
         ("host_folder",     "A host genome (scenarios.prepare_host's folder) for --host_pairs", cxxopts::value<std::string>())
         ("host_pairs",      "Read pairs of the host per sample, after its community's; several comma-separated values are "
                             "given to the samples in turn", cxxopts::value<std::string>()->default_value(""))
@@ -382,6 +386,14 @@ static cxxopts::Options build_cxxopts() {
     return options;
 }
 
+// --calibration, checked: more than 0 and at most 20 (a factor of 20 already makes a Q37 base a Q24 one).
+static std::optional<double> calibration_of(const cxxopts::ParseResult& result) {
+    if (!result.count("calibration")) return std::nullopt;
+    double const value = result["calibration"].as<double>();
+    if (!(value > 0 && value <= 20)) throw std::runtime_error("--calibration: more than 0 and at most 20");
+    return value;
+}
+
 static CliOptions parse_cli(int argc, char** argv) {
     auto cxx = build_cxxopts();
 
@@ -409,6 +421,7 @@ static CliOptions parse_cli(int argc, char** argv) {
         opts.illumina.fragment_stdev = result["fragment_stdev"].as<int>();
         opts.illumina.sequencer = result["sequencer"].as<std::string>();
         if (result.count("mean_quality")) opts.illumina.mean_quality = result["mean_quality"].as<double>();
+        opts.illumina.calibration = calibration_of(result);
         if (result.count("seed")) opts.seed = result["seed"].as<std::uint64_t>();
         return opts;
     }
@@ -599,6 +612,7 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.illumina.sequencer     = result["sequencer"].as<std::string>();
     protal::sim::IlluminaProfile::Named(opts.illumina.sequencer);  // fails before any genome is read
     if (result.count("mean_quality")) opts.illumina.mean_quality = result["mean_quality"].as<double>();
+    opts.illumina.calibration = calibration_of(result);
     if (result.count("host_folder")) opts.illumina.host_folder = result["host_folder"].as<std::string>();
     {
         const std::string pairs_arg = result["host_pairs"].as<std::string>();
@@ -657,6 +671,7 @@ static void write_run_params(
     out << "fragment_stdev\t" << cli.illumina.fragment_stdev << '\n';
     out << "sequencer\t" << cli.illumina.sequencer << '\n';
     out << "mean_quality\t" << (cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : "") << '\n';
+    out << "calibration\t" << (cli.illumina.calibration ? std::to_string(*cli.illumina.calibration) : "") << '\n';
     out << "host_folder\t" << cli.illumina.host_folder.string() << '\n';
     out << "host_pairs\t" << HostPairsText(cli.illumina.host_pairs) << '\n';
     out << "reads\t" << "simulate_metagenomes IlluminaSimulator (no ART)" << '\n';
@@ -726,6 +741,7 @@ static void check_replay_read_settings(const CliOptions& cli) {
         {"fragment_stdev", std::to_string(cli.illumina.fragment_stdev)},
         {"sequencer", cli.illumina.sequencer},
         {"mean_quality", cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : ""},
+        {"calibration", cli.illumina.calibration ? std::to_string(*cli.illumina.calibration) : ""},
         {"host_folder", cli.illumina.host_folder.string()},
         {"host_pairs", HostPairsText(cli.illumina.host_pairs)},
     };
@@ -822,11 +838,12 @@ static int illumina_report(const CliOptions& cli) {
     setup.fragment_mean = cli.illumina.fragment_mean;
     setup.fragment_sd = cli.illumina.fragment_stdev;
     setup.mean_quality = cli.illumina.mean_quality;
+    if (cli.illumina.calibration) setup.profile.calibration = *cli.illumina.calibration;
     protal::sim::IlluminaModel const model(setup);
     auto const report = protal::sim::ReportProfile(setup, cli.illumina_report, cli.seed.value_or(1));
     std::cout << "# " << setup.profile.name << " (" << setup.profile.description << "), " << setup.read_length
-              << " bp, fragments " << setup.fragment_mean << " (SD " << setup.fragment_sd << "), "
-              << cli.illumina_report << " pairs\n";
+              << " bp, fragments " << setup.fragment_mean << " (SD " << setup.fragment_sd << "), calibration "
+              << setup.profile.calibration << ", " << cli.illumina_report << " pairs\n";
     std::cout << "read\tmean_Q\tQ30\tsubstitutions\tinsertions\tdeletions\tNs\twritten qualities (share)\n";
     for (int r = 0; r < 2; ++r) {
         double mean = 0;

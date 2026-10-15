@@ -50,8 +50,10 @@ can be streamed into protal through named pipes instead of written
 requires, which the run estimates before its builds (the genome store, the
 databases, the samples' SAMs and profiles, the reads) and says, beside the most it
 took, at its end.
-The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
-6 Gb of long reads, a few samples each: DEPTH:SAMPLES), and each model gets a
+The design reaches the depths of real samples (2M to 30M read pairs and one
+sample of 60M, 1.5 and 6 Gb of long reads and one sample of 20 Gb: DEPTH:SAMPLES),
+and its read setups include 75 to 250 bp single-end reads and NovaSeq reads whose
+qualities overstate their accuracy (CALIBRATION), and each model gets a
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
 holds many more absent taxa with a few reads, and needs a higher threshold.
 
@@ -119,6 +121,17 @@ sample (a sample of each taxon's), and the run ends by packing OUT_DIR/<name>_sh
 model_logs/ (without the models), the taxonomy and the training and test tables, and from the samples' disk the design
 points' simulator logs and the in-silico strains' table, to copy off the cluster.
 
+Once the finished database has its models, a final check profiles the test samples written to the disk again on it, with
+its default models at their gates, and scores the rows of the species that were not held out beside the same rows on
+the training database, on which every model was trained and tested (model_logs/final_db_check.tsv, a section of
+summary.txt, a WARNING where an F1 moves by more than 0.002; --no-final-check leaves it out). With --share-logs the same
+short-read samples are also profiled on the training database with protal's --no_allele_scores, which measures what the
+strain alleles' scores do to the calls (model_logs/no_allele_scores.tsv). summary.txt leads with each model's F1 over every
+species present whose marker genes got reads (the marker truth), and names the test set's seed, which each build draws
+for itself (--test-seed). protal's feature code versions (protal --feature_versions) go to
+model_logs/feature_versions.tsv and into every model (machine_learning_cmdline.py --feature-versions), where protal and
+the trainer have them.
+
 A reduced database holds a subset of the marker genes (--n-genes N: the N most
 distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
 from a full build of the training database, or from --gene-ranking; --genes: the
@@ -183,6 +196,9 @@ ERROR_READS = os.path.join(HERE, "error_reads.py")
 ANCESTRY = os.path.join(HERE, "ancestry_sites.py")
 RANKER = os.path.join(HERE, "rank_genes.py")
 INSILICO = os.path.join(HERE, "insilico_strains.py")
+DATABASE_CHECK = os.path.join(HERE, "database_check.py")  # the final check's and the allele scores' scoring
+# The read types whose alignments protal's --no_allele_scores changes (the allele scores are the short reads').
+ALLELE_SCORE_TYPES = ("pe", "se")
 # --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
 INSILICO_FALLBACK_ANI = "97-99.5"
 SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
@@ -205,7 +221,8 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, MODEL_KINDS, gate_model_file, kind_model_file, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, unseen_table, parse_args as collector_args  # noqa: E402
+import database_check  # noqa: E402
 
 
 def congener_text(spec):
@@ -517,6 +534,50 @@ def drop_option(command, option):
         del command[i:i + 2]
 
 
+_TRAINER_HELP = {}
+
+
+def trainer_help(trainer=None):
+    """machine_learning_cmdline.py's --help, once ("" if it cannot run): which options this trainer takes."""
+    trainer = trainer or TRAINER
+    if trainer not in _TRAINER_HELP:
+        try:
+            _TRAINER_HELP[trainer] = subprocess.run([sys.executable, trainer, "--help"], capture_output=True, text=True,
+                                                    timeout=300).stdout
+        except (OSError, subprocess.SubprocessError):
+            _TRAINER_HELP[trainer] = ""
+    return _TRAINER_HELP[trainer]
+
+
+# protal --feature_versions's columns (its header line, since 2026-10-15): each feature, the version of the code that
+# computes it, when that changed, and why.
+FEATURE_VERSION_COLUMNS = ["feature", "version", "changed", "note"]
+
+
+def feature_versions(protal, path, trainer=None):
+    """The feature code's versions of this protal (protal --feature_versions, a TSV of FEATURE_VERSION_COLUMNS) written
+    to `path` (model_logs/feature_versions.tsv), and the trainer's options that pass them on (--feature-versions FILE:
+    the trainer stamps them into the models, so that a run can tell a model from the code that computes its features;
+    the f1 audit's C1). An older protal (no such option, or no such table) or trainer is noted and skipped. -> (the
+    trainer's options, [] if none; what happened, in words)."""
+    try:
+        result = subprocess.run([protal, "--feature_versions"], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as e:
+        return [], f"protal --feature_versions failed ({e}): the models carry no feature versions"
+    lines = result.stdout.splitlines()
+    header = lines[0].lstrip("#").rstrip("\r").split("\t") if lines else []
+    if result.returncode or header[:len(FEATURE_VERSION_COLUMNS)] != FEATURE_VERSION_COLUMNS:
+        return [], (f"{protal} has no --feature_versions (older than these scripts' trainer expects): the models carry "
+                    "no feature versions")
+    with open(path + ".partial", "w") as fh:
+        fh.write("\n".join(line.rstrip("\r") for line in lines) + "\n")
+    os.replace(path + ".partial", path)
+    said = f"the feature code's versions of {len(lines) - 1} features ({os.path.basename(path)}, protal --feature_versions)"
+    if "--feature-versions" not in trainer_help(trainer):
+        return [], said + "; this trainer takes no --feature-versions: the models carry none"
+    return ["--feature-versions", path], said + ", stamped into every model (machine_learning_cmdline.py --feature-versions)"
+
+
 _FULL_HELP = {}
 
 
@@ -616,13 +677,16 @@ class Job:
     scratch = None  # a Scratch with --scratch
     cpu_log = None  # logs/cpu_jobs.tsv: a row per command that ended (cpu_row), not said on the console
 
-    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False, relay=None):
+    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False, append=False, relay=None,
+                 fatal=True):
         """nice: the command's niceness, more than the script's (the simulations, beside the profiling); idle: the idle
         scheduling class instead (lower_priority: the finished database's build, on the cores the others leave); append:
         its output added to the log (a step of several commands, one after the other), not replacing it; relay:
-        (pattern, format) for the lines of its log said on the console as they come (relay_lines)."""
+        (pattern, format) for the lines of its log said on the console as they come (relay_lines); fatal=False: a failure
+        does not stop the script (a check once the database is finished), its exit code is the job's rc."""
         os.makedirs(os.path.dirname(log), exist_ok=True)
         self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
+        self.fatal, self.rc = fatal, None
         self.label = label or os.path.basename(log).removesuffix(".log")
         self.seconds = None  # set when it has ended
         self.peak = None  # the most memory it, or a command it ran, took, in bytes; set when it has ended
@@ -678,8 +742,11 @@ class Job:
         self.relay_lines()
         Job.running.remove(self)
         self.seconds = time.time() - self.started
+        self.rc = rc
         self.cpu_row(rc)
         if rc:
+            if not self.fatal:
+                return
             stop(f"Command failed ({rc}); see {self.log}: {' '.join(self.command)}")
         if self.on_success:
             self.on_success()
@@ -1919,7 +1986,10 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("protal_version", versions["protal_version"]), ("protal_binary", args.protal),
             ("simulator_version", versions["simulator_version"]),
             ("scripts_commit", versions["scripts_commit"]), ("command", " ".join(sys.argv)),
-            ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
+            ("seed", args.seed),
+            ("test_seed", f"{args.test_seed} ({getattr(args, 'test_seed_how', '')})" if getattr(args, "test_seed", None)
+             is not None else "none"),
+            ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("insilico_strains", insilico),
             ("samples_streamed", getattr(args, "streaming", "")),
             ("weighted_site_shift", "on in the training runs: profile with protal --weighted_site_shift"
@@ -2289,6 +2359,66 @@ def scenario_scores(read_types, prefixes, order=()):
             "; ".join(f"{name} {', '.join(found[name])}" for name in names)) if found else "no scenario scores"
 
 
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def marker_headline(metrics):
+    """A model's headline F1 from its .metrics.json: over every species present whose marker genes got reads (a present
+    species without a row counted as missed: the marker truth) on the independent test set and held out in training.
+    The trainer's "headline" (since 2026-10-15: its held_out and test estimates' marker_truth_f1, rows_f1 where its
+    measure is "rows", with its measure and notes), else the marker truth's rows (F1 markers of the test set's design and
+    of species held out), else the F1 over the rows (evaluation.species, test's "this one"). -> (the measure, [(label,
+    F1)], notes), [] without any."""
+    head = metrics.get("headline")
+    if isinstance(head, dict):
+        measure = str(head.get("measure") or "marker truth")
+        found = []
+        for key, label in (("test", "independent test set"), ("held_out", "held out")):
+            estimate = head.get(key) if isinstance(head.get(key), dict) else {}
+            value = estimate.get("rows_f1" if measure == "rows" else "marker_truth_f1")
+            if not is_number(value):
+                value = estimate.get("marker_truth_f1") if is_number(estimate.get("marker_truth_f1")) else \
+                    estimate.get("rows_f1")
+            if is_number(value):
+                found.append((label, float(value)))
+        notes = head.get("notes")
+        notes = "; ".join(str(n) for n in notes) if isinstance(notes, (list, tuple)) else str(notes or "")
+        if found:
+            return measure, found, notes
+    sets = {(r.get("set"), r.get("scenario")): r for r in (metrics.get("marker_truth") or {}).get("rows", [])}
+    found = [(label, float(sets[key]["F1 markers"])) for label, key in
+             (("independent test set", ("independent test set", "(design)")), ("held out", ("species held out", "(all)")))
+             if is_number((sets.get(key) or {}).get("F1 markers"))]
+    if found:
+        return "marker truth", found, ""
+    test = metrics.get("test_depth_knobs") or (metrics.get("test") or {}).get("this one") or {}
+    found = [(label, float(value)) for label, value in
+             (("independent test set", test.get("F1")),
+              ("held out", ((metrics.get("evaluation") or {}).get("species") or {}).get("F1"))) if is_number(value)]
+    return "rows", found, "no marker truth: collected without gene positions?" if found else ""
+
+
+def headline_lines(read_types, prefixes, kind_prefixes=None):
+    """summary.txt's first lines (since 2026-10-15, the f1 audit's E3): each model's headline F1 (marker_headline), the
+    database's default kind first, with its measure; the F1s of the table that follows count only the taxa with a row,
+    so a change that strips a present species of all its records raises them."""
+    lines = []
+    for kind, own in [(None, prefixes)] + [(k, p) for k, (p, _) in (kind_prefixes or {}).items()]:
+        for t in read_types:
+            try:
+                with open(own[t] + ".metrics.json") as fh:
+                    measure, found, notes = marker_headline(json.load(fh))
+            except (OSError, ValueError):
+                measure, found, notes = "", [], ""
+            label = t if kind is None else f"{t} {kind}"
+            lines.append(f"  {label}: " + (", ".join(f"{name} {value:.4f}" for name, value in found) +
+                                           f" ({measure}{'; ' + notes if notes else ''})" if found else "- (no metrics)"))
+    return ["Headline F1, over every species present in the samples whose marker genes got reads (a present species "
+            "without a row counted as missed: the trainer's marker truth), as protal calls by default; the F1s of the "
+            "table below count only the taxa with a row:"] + lines + [""]
+
+
 def summary_lines(read_types, prefixes, db, gate_prefixes=None, kind_prefixes=None):
     """model_logs/summary.txt: for each read type's model, TP, FP, TN, FN and the rates, with species held
     out in training (cross-validation), on the independent test set and, with --scenarios, on each scenario's
@@ -2471,6 +2601,18 @@ DEFAULT_TEST_C_GATES = "pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32"
 # ones are also profiled with protal's --flex_indels (every ONT gate tested, the database's C 1 included; the se gates
 # for Ultima), the same samples without it beside them.
 DEFAULT_TEST_FLEX_INDELS = "ont:0/1/4/8,ultima:0/1/2/4"
+# The design's defaults (--read-pairs, --read-setups, --se-read-setups, --long-read-bases); since 2026-10-15 wider (the f1
+# audit's C4, docs/claude/2026-10-15-f1-audit-since-0.6.0a): a deeper point per read type (60M pairs of the 150 bp setup,
+# 20 Gb of long reads, one sample each), a NovaSeq setup whose qualities overstate its accuracy (CALIBRATION 2), and 75
+# and 100 bp single-end reads.
+DEFAULT_READ_PAIRS = ("1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1,"
+                      "60000000:1:150:HSXt")
+DEFAULT_READ_SETUPS = "75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,150:NovaSeq:350:50:2,250:MSv3:550:50"
+DEFAULT_SE_READ_SETUPS = "75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50"
+DEFAULT_LONG_READ_BASES = "300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2,20000000000:1"
+# --insilico-indels: codon indels per substitution of an in-silico strain's marker gene (insilico_strains.py
+# --indel-share).
+DEFAULT_INSILICO_INDELS = 0.02
 # --test-other-pick (--test-stride before 2026-10-13, when the other pick was stride), by default (auto) with
 # --test-c-gates: the gates at which each read type's test samples are also profiled with the pick its database's gate
 # does not use (hash for a database that picks by stride): auto, its database's own gate if 2 or more (below 2 every core
@@ -2748,6 +2890,49 @@ class Stages:
     def forget(self, name):
         if os.path.exists(os.path.join(self.folder, name + ".json")):
             os.remove(os.path.join(self.folder, name + ".json"))
+
+
+# The test seeds a build draws (derive_test_seed): within these, and at least TEST_SEED_GAP from --seed, whose design
+# points take the seeds --seed + i (and the test set's its seed + i), so that no point of one shares a seed with the
+# other's.
+TEST_SEED_RANGE = (1001, 1_000_000)
+TEST_SEED_GAP = 1000
+
+
+def derive_test_seed(release, outdir, date, seed):
+    """The independent test set's seed of a build: a hash of the release, OUTDIR's name and the date of its first run
+    (YYYY-MM-DD), within TEST_SEED_RANGE and TEST_SEED_GAP or more from the training's --seed. Small enough for every
+    seed the collector derives from it (scenarios.seed_of: seed x 1000003; the long reads': x 101 again) to stay far
+    below 2^63."""
+    low, high = TEST_SEED_RANGE
+    digest = int(hashlib.sha256(f"{release}:{os.path.basename(os.path.normpath(outdir))}:{date}".encode()).hexdigest(), 16)
+    value = low + digest % (high - low)
+    while abs(value - seed) < TEST_SEED_GAP:
+        value = low + (value - low + 2 * TEST_SEED_GAP) % (high - low)
+    return value
+
+
+def test_seed(stages, given, release, outdir, seed):
+    """The independent test set's seed (since 2026-10-15; --seed + 1000 before, the same test communities in every build
+    of a genome table and design): --test-seed if given, else the one kept by this OUTDIR's first run (its stage
+    test_seed), else derive_test_seed's for today; kept in the stage either way, so that a rerun or a resume of the
+    OUTDIR takes the same test samples. -> (seed, how it was chosen, for build_metadata.tsv and summary.txt)."""
+    stored = stages.stored("test_seed")
+    stored = stored if isinstance(stored, dict) and isinstance(stored.get("seed"), int) else None
+    if given is not None:
+        value = given
+        how = "--test-seed" + (f" (this OUTDIR's runs before had {stored['seed']})" if stored and stored["seed"] != given
+                               else "")
+        date = stored.get("date") if stored else time.strftime("%Y-%m-%d")
+    elif stored:
+        value, how, date = stored["seed"], stored.get("how", "kept"), stored.get("date")
+        how = how if how.startswith("kept") else f"kept from an earlier run into this OUTDIR ({how})"
+    else:
+        date = time.strftime("%Y-%m-%d")
+        value = derive_test_seed(release, outdir, date, seed)
+        how = f"drawn for this build from r{release}, {os.path.basename(os.path.normpath(outdir))} and {date}"
+    stages.mark("test_seed", {"seed": value, "how": how, "date": date})
+    return value, how
 
 
 def file_identity(path):
@@ -3130,11 +3315,12 @@ def main():
     p.add_argument("-t", "--threads", type=int, default=8)
     p.add_argument("--samples", type=int, default=9,
                    help="samples per design point (default 9 since 2026-10-14, when the paired-end setups went from three "
-                        "to four: 36 paired-end samples a depth as before; 12 before; on a GTDB-like world the model "
-                        "still improved from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1",
-                   help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples "
-                        "(default 1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1, a "
+                        "to four: 36 paired-end samples a depth as before, 45 with the fifth setup of 2026-10-15; 12 "
+                        "before; on a GTDB-like world the model still improved from 60 to 120 samples)")
+    p.add_argument("--read-pairs", default=DEFAULT_READ_PAIRS,
+                   help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples, "
+                        "DEPTH:SAMPLES:LENGTH[:INSTRUMENT] for a depth of those setups only "
+                        f"(default {DEFAULT_READ_PAIRS}, a "
                         "sample per setup: four paired-end setups since 2026-10-14, 2000000:4,10000000:2 with three before; the "
                         "deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest "
                         "sample it saw, and real metagenomes reach it; without the shallowest, a model "
@@ -3142,16 +3328,33 @@ def main():
                         "sample grew as depth^0.84 to 500,000, and real samples are often 5-50M; 2000, 50000 and "
                         "200000 since r226 v10, whose test set had 42%% of its paired-end false positives at 50,000 "
                         "read pairs and called 15%% of the absent taxa at 2000, depths between the points the model "
-                        "was trained at, docs/claude/2026-10-04-r226-v10-evaluation)")
-    p.add_argument("--read-setups", default="75:HS25:250:40,100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
-                   help="the paired-end reads' setups, LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point "
-                        "each; INSTRUMENT: HS20, HS25, HSXt (HiSeq X Ten), NovaSeq or MSv3 (MiSeq v3), simulate_metagenomes's "
-                        "models of them (docs/databases.md#illumina-reads). Default 75 (HiSeq 2500), 100, 150 and 250 (MiSeq) "
-                        "bp since 2026-10-14 (100, 150, 250 before), so that a model sees the read lengths it is used on "
-                        "with the features of the sample's read length (docs/claude/2026-10-14-sparse-index-calls)")
-    p.add_argument("--se-read-setups", default="150:HSXt:350:50,250:MSv3:550:50",
+                        "was trained at, docs/claude/2026-10-04-r226-v10-evaluation). 60000000:1:150:HSXt since "
+                        "2026-10-15: one sample of 60M pairs of the 150 bp setup (its first reads the se model's, and an "
+                        "Ultima unit of 60M reads), beyond the design's 30M and the scenarios' ~40M, as users' samples "
+                        "of 50M pairs and more are (docs/claude/2026-10-15-f1-audit-since-0.6.0a, C4); streamed, it adds "
+                        "about 9%% to the training collection's paired-end bases and 23%% to its single-end ones (the "
+                        "first reads, 9 Gb, and the depth's Ultima unit, 60M reads of ~300 bp; docs/databases.md)")
+    p.add_argument("--read-setups", default=DEFAULT_READ_SETUPS,
+                   help="the paired-end reads' setups, LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD[:CALIBRATION], one "
+                        "design point each; INSTRUMENT: HS20, HS25, HSXt (HiSeq X Ten), NovaSeq or MSv3 (MiSeq v3), "
+                        "simulate_metagenomes's models of them (docs/databases.md#illumina-reads); CALIBRATION: the reads' "
+                        "errors at their hidden quality's probability times this, the qualities written unchanged "
+                        "(simulate_metagenomes --calibration; without it the instrument's, 1, MiSeq 1.5). Default 75 "
+                        "(HiSeq 2500), 100, 150 and 250 (MiSeq) bp since 2026-10-14 (100, 150, 250 before), so that a model "
+                        "sees the read lengths it is used on with the features of the sample's read length "
+                        "(docs/claude/2026-10-14-sparse-index-calls); and since 2026-10-15 150 bp NovaSeq reads "
+                        "(4-bin qualities) whose qualities overstate their accuracy by 3 Phred (CALIBRATION 2: a written "
+                        "Q37 base is right as often as a Q34 one; substitutions 0.36%%/0.82%% in read 1/2 against "
+                        "0.20%%/0.43%%), as on real runs the qualities are often too high, which shifts the excess_* "
+                        "features (divergence beyond the qualities) of every species (docs/claude/2026-10-15-f1-audit-"
+                        "since-0.6.0a, C4); the fifth setup adds ~8%% to the training collection's paired-end bases")
+    p.add_argument("--se-read-setups", default=DEFAULT_SE_READ_SETUPS,
                    help="the single-end Illumina reads' setups, as --read-setups (their first reads; a setup of both lists "
-                        "is simulated once); default 150 and 250 (MiSeq) bp since 2026-10-14 (before: --read-setups')")
+                        f"is simulated once); default {DEFAULT_SE_READ_SETUPS}: 75 and 100 bp since 2026-10-15, as any "
+                        "single short-read file is profiled as se and a 150 bp model gave 75 bp reads 2-6 times the false "
+                        "positives (docs/claude/2026-10-14-length-free-features; the f1 audit, C4); these points are the "
+                        "paired-end setups', simulated anyway, so they cost the se profiling of their first reads only "
+                        "(~8%% more single-end bases); 150 and 250 (MiSeq) bp from 2026-10-14 (before: --read-setups')")
     p.add_argument("--se-ultima-setup", default="ultima:300:50:25:2",
                    help="single-end Ultima reads of the design beside the Illumina ones, "
                         "ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD[:MAX] (collect_training_data.py --se_ultima_setup: a unit a "
@@ -3181,9 +3384,12 @@ def main():
                         "samples' first reads, pb and ont from long reads of the same communities (made by "
                         "simulate_metagenomes: HiFi reads by hifi_reads.py's model, Nanopore reads by pbsim3's qshmm "
                         "model). The models are trained in parallel; read types left out keep placeholders")
-    p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2",
+    p.add_argument("--long-read-bases", default=DEFAULT_LONG_READ_BASES,
                    help="bases per long-read sample, one design point each, DEPTH:SAMPLES for other samples than "
-                        "--long-read-samples (collect_training_data.py; real HiFi and Nanopore metagenomes are 5-30 Gb)")
+                        "--long-read-samples (collect_training_data.py; real HiFi and Nanopore metagenomes are 5-30 Gb). "
+                        f"Default {DEFAULT_LONG_READ_BASES}: 20000000000:1 since 2026-10-15, one sample of 20 Gb of each "
+                        "long-read type beyond the design's 6 Gb and the scenarios' ~12 Gb (the f1 audit, C4); streamed, "
+                        "it adds ~13%% to the training collection's bases of each long-read type (docs/databases.md)")
     p.add_argument("--long-read-samples", type=int, default=36,
                    help="samples per long-read design point (default 36, at most the communities of the paired-end "
                         "points of its depth, 12 samples of 3 setups by default: at r226 the Nanopore model's learning "
@@ -3225,10 +3431,37 @@ def main():
                         "half of whose relatives are the alleles, the models learn that a strain the alleles explain is "
                         "present and one they do not is not, and call the strains of lineages without an allele genome "
                         "at 0.3-0.6 against 0.98 (docs/claude/2026-10-09-ancestry-true-positive-test)")
+    p.add_argument("--insilico-indels", type=float, default=DEFAULT_INSILICO_INDELS, metavar="SHARE",
+                   help="codon indels in each in-silico strain's marker genes per substitution they are given "
+                        "(insilico_strains.py --indel-share: pairs of an insertion and a deletion of 1-4 codons inside a "
+                        f"gene, which keep its length, frame and positions). Default {DEFAULT_INSILICO_INDELS:g} since "
+                        "2026-10-15 (the share of codon indels of scripts/mini_db/simulate_gtdb_release.py; in-frame "
+                        "indels in conserved single-copy genes are rarer than substitutions by one to two orders of "
+                        "magnitude, and docs/claude has no measurement of real strains'): with substitutions alone every "
+                        "in-silico strain's read aligned without a gap, as no real strain's does (the f1 audit, C4). 0: "
+                        "none, as before; the strains' substitutions are the same either way. No cost to speak of")
     p.add_argument("--test-samples", type=int, default=4,
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "
                         "has another design than the training data (--test-*), so that the report shows what "
                         "cross-validation on the training data cannot")
+    p.add_argument("--test-seed", type=int, metavar="N",
+                   help="the independent test set's seed (its design's and the scenarios' hold-out samples'). Default "
+                        "(since 2026-10-15): one of the build's own, from a hash of the release, OUTDIR's name and the "
+                        "date of its first run, kept in OUTDIR/work/stages/test_seed.json so that a rerun or a resume "
+                        "into the same OUTDIR takes the same samples; build_metadata.tsv and summary.txt name it. "
+                        "Until then always --seed + 1000, so that builds of one genome table and design tested on the "
+                        "same communities, and the choices made on their test sets fitted those (the f1 audit, E2). A "
+                        "value given replaces the kept one")
+    p.add_argument("--no-final-check", action="store_true",
+                   help="leave out the final check (by default since 2026-10-15): once the finished database has its "
+                        "models, the test samples written to the disk are profiled again on it, with its default models "
+                        "at their gates, and the rows of the species not held out scored beside the same rows on the "
+                        "training database (model_logs/final_db_check.tsv, a section of summary.txt; a WARNING when an F1 "
+                        "moves by more than 0.002). Every model is trained and tested on the training database, which "
+                        "lacks the held-out species and has the alleles of half the genomes; users run the finished "
+                        "database (the f1 audit, E1). Costs the test samples' simulation again (minutes) and one protal "
+                        "run over those written to the disk, about the test collection's profiling less its deepest "
+                        "(streamed) samples, which it leaves out")
     p.add_argument("--test-read-pairs", default="500,2000,10000,50000,200000,1000000,5000000:2")
     p.add_argument("--test-species-per-sample", default="10-300")
     p.add_argument("--test-abundance", default="lognormal:2.0", help="(default lognormal:2.0: more uneven than training)")
@@ -3295,7 +3528,12 @@ def main():
                         "name>_share.tar.gz: console.log, logs/, model_logs/ (without the models), the build's metadata, "
                         "the taxonomy and the training and test tables (their numbers to 9 significant digits), and from the "
                         "samples' disk the design points' simulator logs and parameters (logs/simulations_<collection>.log) "
-                        "and the in-silico strains' table, to be copied off the cluster and read elsewhere")
+                        "and the in-silico strains' table, to be copied off the cluster and read elsewhere. Since "
+                        "2026-10-15 also the allele scores' effect: the test samples written to the disk (short reads) "
+                        "profiled again on the training database with protal's --no_allele_scores and scored beside the "
+                        "normal run, overall and by species with strain alleles in the database and without "
+                        "(model_logs/no_allele_scores.tsv, a section of summary.txt; the f1 audit's B1), which costs the "
+                        "short-read test samples' simulation and one protal run more")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -3451,8 +3689,11 @@ def main():
                         "gzip (.fq.gz); protal reads both")
     args = p.parse_args()
     args.no_foreign_rates = args.no_foreign_rates or not args.foreign_rates  # the scan only with --foreign-rates
-    if not 0 < args.min_real_strains <= 1 or not 0 <= args.insilico_multi <= 1:
-        p.error("--min-real-strains is a share above 0 and at most 1, --insilico-multi a share from 0 to 1")
+    if not 0 < args.min_real_strains <= 1 or not 0 <= args.insilico_multi <= 1 or not 0 <= args.insilico_indels <= 1:
+        p.error("--min-real-strains is a share above 0 and at most 1, --insilico-multi and --insilico-indels shares from "
+                "0 to 1")
+    if args.test_seed is not None and args.test_seed < 0:
+        p.error("--test-seed: 0 or more")
     # Whether there will be in-silico strains: auto decides how many once the genome table is made (step 2); those of
     # species with real strains (--insilico-multi) are made whatever --insilico-strains says (since 2026-10-15: an
     # --insilico-strains 0 given left them out, auto resolving to 0 did not).
@@ -3479,6 +3720,12 @@ def main():
             args.sparse_first_pick = {t: "hash" for t in TABLES}
             say(f"WARNING: {args.protal} cannot record a sparse-first gate's pick (its --full_help lists no "
                 f"{STRIDE_HELP[0]}): its gates pick by hash")
+    # The collections' only run option off protal's defaults, the weighted site shift (opt-in), goes to both builds too: a
+    # protal that records the run options in build_settings.tsv (and whose runs follow them) then profiles the databases as
+    # the models were trained; an older one takes it with --build and does nothing with it. Off (the default), the keys
+    # stay as they were. The checks' runs (--no_allele_scores with --share-logs) are diagnostics: never given to a build.
+    if args.weighted_site_shift:
+        TRACEBACK_ARGS[:] += ["--weighted_site_shift"]
     global ALLELE_SHARE
     ALLELE_SHARE = args.allele_genome_share if args.strain_alleles > 0 else 1.0
     Job.progress_every = args.progress_every
@@ -3648,12 +3895,16 @@ def main():
     # unless the hold-out comes out empty: then a foreign-reads scan of each database (since 2026-10-15: one counted).
     separate_training_db = args.holdout > 0 or bool(clades) or bool(args.holdout_species) or \
         (args.strain_alleles > 0 and args.final_allele_genome_share != args.allele_genome_share)
+    # The final check on the finished database (E1 of docs/claude/2026-10-15-f1-audit-since-0.6.0a), where it is another
+    # database than the training database; the allele scores' effect (B1) with --share-logs, of the short reads.
+    final_check_wanted = has_test and not args.no_final_check and separate_training_db
+    allele_check_wanted = args.share_logs and has_test and any(t in ALLELE_SCORE_TYPES for t in read_types)
 
     def step_total():
         """The steps (Steps.start), the foreign-reads scans with them (one per database); corrected once the training
         database is known (scan, below) in the rare case that separate_training_db was wrong."""
         return 8 + has_test + subset + insilico_wanted + (not args.no_foreign_rates) * (1 + separate_training_db) + \
-            make_clouds
+            make_clouds + final_check_wanted + allele_check_wanted
     Steps.total = step_total()
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
@@ -3665,6 +3916,10 @@ def main():
     # a stage of their own (they depend on the genome table, the conversion does not), so that the release can be
     # converted before the genome table is made.
     stages = Stages(os.path.join(work, "stages"))
+    # The independent test set's seed: given, kept from this OUTDIR's first run, or drawn for this build (test_seed).
+    args.test_seed, args.test_seed_how = test_seed(stages, args.test_seed, release, args.outdir, args.seed)
+    if has_test:
+        say(f"    the independent test set's seed: {args.test_seed} ({args.test_seed_how}; --test-seed)")
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
                    "placeholders": not args.no_placeholder_models}
     final_base = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level,
@@ -3988,7 +4243,8 @@ def main():
         insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
                         "convert": convert_key, "gene_neighbours": neighbours_key, "share": args.insilico_strains,
                         "multi": args.insilico_multi, "ani": args.insilico_ani, "seed": args.seed, "strains": strains,
-                        "clouds": content_hash(clouds_file) if make_clouds and os.path.isfile(clouds_file) else None}
+                        "clouds": content_hash(clouds_file) if make_clouds and os.path.isfile(clouds_file) else None,
+                        "indels": args.insilico_indels}
         # A new --scratch (the next job's node) has none of them: made again (the same strains, at the same seed).
         if stages.done("insilico", insilico_key) and os.path.isfile(sim_table) and \
                 os.path.isfile(os.path.join(strains, "insilico_strains.tsv")):
@@ -4013,7 +4269,7 @@ def main():
             positions = positions_file()
             command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
                        strains, "--share", str(args.insilico_strains), "--multi-share", str(args.insilico_multi),
-                       "--seed", str(args.seed), "-t", str(args.threads)]
+                       "--indel-share", f"{args.insilico_indels:g}", "--seed", str(args.seed), "-t", str(args.threads)]
             if positions:
                 command += ["--positions", positions, "--taxonomy", taxonomy]
                 if make_clouds and os.path.isfile(clouds_file):
@@ -4368,7 +4624,7 @@ def main():
         collections_.append(("independent test set" if args.test_samples > 0 else "scenarios' hold-out samples",
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
-                                             args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000,
+                                             args.test_long_read_bases, args.test_long_read_samples, args.test_seed,
                                              hold_out, test_gates, model_levels),
                              step_log("test_data.log")))
         if stride_wanted:
@@ -4491,6 +4747,9 @@ def main():
     scan = not args.no_foreign_rates
     if scan and (training_db != db) != separate_training_db:  # a scan per database: two, or one after all
         Steps.total += 1 if training_db != db else -1
+    if has_test and not args.no_final_check and (training_db != db) != final_check_wanted:  # likewise its final check
+        final_check_wanted = training_db != db
+        Steps.total += 1 if final_check_wanted else -1
 
     def foreign_rates(against):
         table = os.path.join(against if against != db else os.path.join(work, "foreign_rates"), "foreign_rates.tsv")
@@ -4840,6 +5099,10 @@ def main():
                 f"{trainer_threads} thread{'s' if trainer_threads > 1 else ''} each{kinds_note}")
     if paused:
         Steps.done(f"{os.path.basename(db)}'s build in the background paused meanwhile")
+    # The feature code's versions (protal --feature_versions), saved and given to every trainer, which stamps them into
+    # its models (the f1 audit's C1); an older protal or trainer goes without.
+    versions_args, versions_said = feature_versions(args.protal, os.path.join(logs, "feature_versions.tsv"))
+    Steps.done(versions_said)
     for kind in args.model_kinds:
         own, own_gates = (prefixes, gate_prefixes) if kind == args.model else kind_prefixes[kind]
         suffix = "" if kind == args.model else f"_{kind}"
@@ -4854,6 +5117,7 @@ def main():
                        "--scenario-weight", str(args.scenario_weight), "--taxonomy", taxonomy, "--evaluation", args.evaluation]
             if args.rounds:
                 command += ["--rounds", str(args.rounds)]
+            command += versions_args
             if args.previous_procedure:
                 command += ["--previous-procedure"]
             if t in depth_knob_types(args):
@@ -5016,7 +5280,162 @@ def main():
     for name in ("gene_congeners.tsv", "gene_incongruence.tsv"):
         if os.path.isfile(os.path.join(db, name)):
             os.replace(os.path.join(db, name), os.path.join(logs, name))
-    summary = summary_lines(read_types, prefixes, db, gate_prefixes, kind_prefixes) + ["", *composition_text]
+    # Every model is trained and tested on the training database; the checks below profile the test samples written to
+    # the disk again (their simulations made again, the streamed ones left out: the collector's --leave_out_streamed):
+    # on the finished database (the final check, the f1 audit's E1), and with --share-logs on the training database without
+    # the allele scores (B1). Each is a step of its own, kept by a rerun with the same database, models and samples
+    # (their stages), and a failure is reported without stopping the build: the database is ready either way.
+    kinds_of = {(t, kind): ((prefixes if kind == args.model else kind_prefixes[kind][0])[t])
+                for t in read_types for kind in args.model_kinds}
+    trainer_calls = {key: prefix + ".calls.tsv.gz" for key, prefix in kinds_of.items()}
+    model_files = {key: prefix + ".xml" for key, prefix in kinds_of.items()}
+    model_hashes = {f"{t} {k}": content_hash(path) for (t, k), path in model_files.items() if os.path.isfile(path)}
+
+    def again_command(out, against, again_types, *extra):
+        """The test collection's command for its samples written to the disk (--leave_out_streamed, with this run's
+        --stream-above: the deepest, streamed simulations left out) profiled again into `out` against the database
+        `against`, at its gates only and without unmapped records, of the read types again_types."""
+        command = list(collections_[1][1])
+        for option in ("--sparse_first_levels", "--model_levels", "--stride_levels", "--hash_levels", "--grid_levels",
+                       "--flex_indels_levels", "--unmapped_reads"):
+            drop_option(command, option)
+        command[command.index("-o") + 1] = out
+        command[command.index("--db") + 1] = against
+        command[command.index("--read_types") + 1] = ",".join(again_types)
+        return command + ["--leave_out_streamed"] + (["--stream_above", repr(stream_above)] if stream_above > 0 else []) + \
+            list(extra)
+
+    def collect_again(what, command, log):
+        """A collector command of again_command run as the collections were: with --profile-blocks a --simulate_only run
+        and its follower, the reads removed once profiled, else simulated and profiled in one protal run; its tables
+        (and their unseen species) copied to OUTDIR/work/<its folder>. A failure does not stop the build. -> whether it
+        ended well."""
+        opts = collector_args(command[2:])
+        simulation_log = log.removesuffix(".log") + "_simulation.log"
+        for path in (log, simulation_log):  # each log anew, its command on its first line (append: "--- command")
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(path)
+        if args.profile_blocks > 0:
+            options = ["--min_free", f"{args.keep_free:g}"] if args.keep_free > 0 else []
+            simulation = Job(command + ["--simulate_only"] + options, simulation_log, label=f"simulating {what}", nice=10,
+                             append=True, fatal=False)
+            while simulation.seconds is None and not (simulation_state(opts.out) or {}).get("prepared"):
+                check_jobs()
+                time.sleep(0.5)
+            if simulation.rc:
+                return False
+            follower = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--profile_block_max",
+                                     f"{args.profile_block_max:g}"], log, label=f"profiling {what}",
+                           relay=collector_relay(what), append=True, fatal=False).finish()
+            simulation.finish()
+            ok = not follower.rc and not simulation.rc
+        else:
+            ok = not Job(command, log, label=f"collecting {what}", relay=collector_relay(what), append=True,
+                         fatal=False).finish().rc
+        if ok and args.scratch:
+            keep = os.path.join(work, os.path.basename(opts.out))
+            os.makedirs(keep, exist_ok=True)
+            for t in opts.read_types:
+                for name in (TABLES[t], unseen_table(t)):
+                    if os.path.isfile(os.path.join(opts.out, name)):
+                        shutil.copy(os.path.join(opts.out, name), keep)
+        return ok
+
+    def check_lines(path, lines_of, *arguments):
+        """A check's lines from its table kept by an earlier run."""
+        try:
+            return lines_of(database_check.read_rows(path), *arguments)
+        except (OSError, ValueError, KeyError):
+            return [f"{os.path.basename(path)} kept, unreadable"], []
+
+    check_sections = []  # summary.txt's sections of the checks
+    heldout_species = database_check.read_species(heldout) if held_out else set()
+    if final_check_wanted:
+        final_out, final_log = os.path.join(samples_root, "final_check"), step_log("final_check.log")
+        final_table = os.path.join(logs, "final_db_check.tsv")
+        Steps.start(f"final check (final_check.log, final_db_check.tsv): the test samples written to the disk profiled "
+                    f"again on {os.path.basename(db)}, with its {args.model} models at their gates, the rows of the "
+                    "species not held out scored beside the same rows on the training database")
+        command = again_command(final_out, db, read_types)
+        final_check_key = {"database": final_key, "models": model_hashes, "command": command,
+                           "scripts": [content_hash(COLLECTOR), content_hash(DATABASE_CHECK)]}
+        began = time.time()
+        if stages.done("final_check", final_check_key) and os.path.isfile(final_table):
+            lines, warnings = check_lines(final_table, database_check.final_check_lines, [], args.model)
+            Steps.done("made by an earlier run for the same database, models and samples; kept")
+        else:
+            stages.forget("final_check")
+            lines, warnings = [], []
+            if collect_again("final check", command, final_log):
+                try:
+                    rows, missing = database_check.final_check(
+                        read_types, {t: os.path.join(final_out, TABLES[t]) for t in read_types},
+                        {t: (os.path.join(test, unseen_table(t)), os.path.join(final_out, unseen_table(t)))
+                         for t in read_types},
+                        trainer_calls, model_files, args.model, heldout_species, final_table)
+                    lines, warnings = database_check.final_check_lines(rows, missing, args.model)
+                    stages.mark("final_check", final_check_key)
+                    Steps.done(f"profiled and scored in {clock(time.time() - began)}")
+                except Exception as e:  # noqa: BLE001: the database is ready either way
+                    lines = [f"scoring failed ({type(e).__name__}: {e}); the database is ready either way"]
+            else:
+                lines = [f"failed: see {final_log}; the database is ready either way"]
+        for line in lines:
+            Steps.done(line)
+        for warning in warnings:
+            say(f"    WARNING: {warning}")
+        check_sections += ["", "Final check on the finished database (model_logs/final_db_check.tsv): the test samples "
+                           "written to the disk profiled again on it with its default models at their gates (the streamed, "
+                           "deepest ones left out), the rows of the species not held out (neither held-out species nor "
+                           "those of held-out clades) scored on the training database -> on the finished database, as "
+                           "protal calls (its own calls for the default kind; the model file's for the others). Every "
+                           f"model is trained and tested on the training database; an F1 that moves by more than "
+                           f"{database_check.F1_NOISE} (a refit's noise) is a WARNING:"] + \
+            [f"  {line}" for line in lines] + [f"  WARNING: {w}" for w in warnings]
+    elif has_test and not args.no_final_check:
+        check_sections += ["", "Final check on the finished database: none, the models were trained and tested on it (no "
+                           "species held out, the same alleles)"]
+    if allele_check_wanted:
+        allele_out, allele_log = os.path.join(samples_root, "no_allele_scores"), step_log("no_allele_scores.log")
+        allele_table = os.path.join(logs, "no_allele_scores.tsv")
+        short = [t for t in read_types if t in ALLELE_SCORE_TYPES]
+        Steps.start(f"the allele scores' effect (no_allele_scores.log, no_allele_scores.tsv; --share-logs): the "
+                    f"{'/'.join(short)} test samples written to the disk profiled again on "
+                    f"{os.path.basename(training_db)} with protal's --no_allele_scores, scored beside the normal run")
+        command = again_command(allele_out, training_db, short, "--no_allele_scores")
+        allele_key = {"database": training_key if training_db != db else final_key, "models": model_hashes,
+                      "command": command, "scripts": [content_hash(COLLECTOR), content_hash(DATABASE_CHECK)]}
+        began = time.time()
+        if stages.done("allele_check", allele_key) and os.path.isfile(allele_table):
+            lines = check_lines(allele_table, lambda rows, missing: (database_check.allele_check_lines(rows, missing), []),
+                                [])[0]
+            Steps.done("made by an earlier run for the same database, models and samples; kept")
+        else:
+            stages.forget("allele_check")
+            if collect_again("test samples without the allele scores", command, allele_log):
+                try:
+                    rows, missing = database_check.allele_check(
+                        short, {t: os.path.join(allele_out, TABLES[t]) for t in short},
+                        {t: os.path.join(test, TABLES[t]) for t in short}, trainer_calls, model_files, allele_table)
+                    lines = database_check.allele_check_lines(rows, missing)
+                    stages.mark("allele_check", allele_key)
+                    Steps.done(f"profiled and scored in {clock(time.time() - began)}")
+                except Exception as e:  # noqa: BLE001: the database is ready either way
+                    lines = [f"scoring failed ({type(e).__name__}: {e})"]
+            else:
+                lines = [f"failed: see {allele_log}"]
+        for line in lines:
+            Steps.done(line)
+        check_sections += ["", "The allele scores' effect (model_logs/no_allele_scores.tsv; --share-logs): the short-read "
+                           "test samples written to the disk profiled again on the training database with protal's "
+                           "--no_allele_scores (each candidate alignment scored against the reference alone), the model "
+                           "files' calls on them beside the normal run's (the trainer's), over all species and by those "
+                           "with strain alleles in the database (allele_copy_share above 0) and without:"] + \
+            [f"  {line}" for line in lines]
+    summary = headline_lines(read_types, prefixes, kind_prefixes) + \
+        [f"Independent test set: seed {args.test_seed} ({args.test_seed_how})" if has_test else
+         "Independent test set: none", ""] + \
+        summary_lines(read_types, prefixes, db, gate_prefixes, kind_prefixes) + check_sections + ["", *composition_text]
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     with SAYING:  # in one piece, whatever the reports' thread says meanwhile
