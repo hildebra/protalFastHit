@@ -22,7 +22,7 @@ databases are in [development.md](development.md).
 | `index.prx` | the k-mer index of the reference marker genes |
 | `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
-| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash`, `stride` or `grid`; `--build` records `stride` where not given) |
+| `build_settings.tsv` | since 2026-10-11: the settings `--build` used that runs should match: the WFA2 traceback (`--wfa_traceback`, [below](#2-build-the-index); a database without it was built with the classic traceback), how the `fragments` feature counts (`--fragment_count`), and since 2026-10-12 each read type's sparse-first gate (`--sparse_first`, `sparse_first_pe` to `sparse_first_ont`, with `sparse_first_score` and `sparse_first_hits`), since 2026-10-13 with its pick (`--sparse_first_pick`, `sparse_first_pick_pe` to `sparse_first_pick_ont`: `hash`, `stride` or `grid`; `--build` records `stride` where not given), and since 2026-10-15 the run settings the models were trained with ([below](#2-build-the-index)) |
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
@@ -1334,7 +1334,31 @@ trained on runs gated so ([above](#choosing-the-sparse-first-gates)). `--sparse_
 `--build` records each gate's pick likewise (`pe:hash`, or one pick for all; `stride` where it says
 nothing, since 2026-10-13), which runs follow unless their `--sparse_first_pick` says otherwise (a
 database that records its gates but no pick, built on 2026-10-12/13, picks by hash). The build
-itself is the same. `protal --add_model FILE --read_type pe --model_gate 1` stores a model trained
+itself is the same.
+
+Since 2026-10-15 `--build` also records the run settings a model's features depend on, each as `--build` was given
+it, else protal's default, and runs on the database follow them where their own option says `auto` (the default),
+with one warning for every setting a run is told otherwise
+([running.md](running.md#what-a-run-takes-from-its-database-and-models)). A database built earlier records none; its
+runs use protal's defaults, with one note.
+
+| Key | Values | Default | Option |
+|---|---|---|---|
+| `weighted_site_shift` | `on`, `off` | `off` | `--weighted_site_shift` |
+| `allele_scores` | `on`, `off` | `on` | `--no_allele_scores`, `--allele_scores` |
+| `align_top` | number | 3 | `-c, --align_top` |
+| `adaptive_candidates` | number | 7 | `--adaptive_candidates` |
+| `mate_guidance` | `on`, `off` | `on` | `--no_mate_guidance` |
+| `max_score_ani_pe` to `max_score_ani_ont` | decimal | 0.9, ONT 0.85 | `-a, --max_score_ani` |
+| `unique_kmers` | `cores`, `anchors` | `cores` (`anchors` without `unique_cores.bin`) | `--no_unique_cores` |
+| `keep_foreign_genes` | `on`, `off` | `off` | `--keep_foreign_genes` |
+| `keep_suspect_copies` | `on`, `off` | `off` | `--keep_suspect_copies` |
+| `depth_identity_margin` | decimal | 0.08 | `--depth_identity_margin` |
+
+A value that is not one of these stops the run (exit 8), as for the keys above. `build_gtdb_database.py` gives
+`--build` the run options of the runs its models are trained on, so that the two agree. `--spike_genes` is not
+recorded: the simulated samples a model is trained on are never in spike mode, so its features are the same under
+`auto` and `off` ([report](claude/2026-10-15-mock-near-misses/README.md)). `protal --add_model FILE --read_type pe --model_gate 1` stores a model trained
 at another gate than the database's as `model_pe_c1.xml`; a run gated at or nearest that gate is
 profiled with it (`build_gtdb_database.py --model-gates`).
 
