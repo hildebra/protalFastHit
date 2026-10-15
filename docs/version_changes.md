@@ -26,11 +26,11 @@ for this page.
 | 0.8.2 | `53aa78c` | 2026-10-11 | 15 | start-up without the 12-s wait at r226 (the profiling's tables beside the alignment, column weights and strain alleles as binary tables, every table read once and only where used; the same outputs); WFA2 faster with every alignment the same (−26% of its instructions for paired-end, −39 to −48% for long reads); WFA2's Singletrack traceback, the default of `--build`; the weighted site shift on by default |
 | 0.8.3 | `23bacd9` | 2026-10-13 | 31 | sparse-first gates per read type, recorded by the database and followed by runs (at r226 −35% of the paired-end alignment's time at C = 1, −62% of HiFi's at C = 8); GTDB builds gated by default, `--test-c-gates`; gzip input in pieces on several threads (system ISA-L); a sample's lanes as one sample; F1 over the species the marker genes see; the weighted site shift off again |
 | 0.8.4 | `e990c69` | 2026-10-14 | 35 | the stride pick by default with gates pe:4, se:4, pb:16, ont:8 and models at other gates (r226 v27); the identity against each read's best strain allele; features that do not change with the read length or a sparse index (`length_free`, `read_length`, `ZS`; at the knob a sparse index at C 4 calls as ungated, 75 bp reads still call more false positives); GTDB builds on 75-250 bp paired-end, single-end Illumina and Ultima reads, random forests by default, both kinds of models in the database; opt-in a grid sparse index and a compact key map; zstd and many-member gzip input on several threads |
-| 0.8.5 | `dd05e2c` | 2026-10-15 | 32 | what a run takes from its database and models (run settings recorded and followed, a settings line in every SAM, feature versions and training ranges in the models); the mates of a pair voting on its taxon; spike mode for libraries with carried-over PCR products; ONT reads from SRA/ENA; the key map hashed (one line a lookup); GTDB builds that check the finished database and report the marker truth with samples and species held out |
+| 0.8.5 | `7b40a36` | 2026-10-15 | 33 | what a run takes from its database and models (run settings recorded and followed, a settings line in every SAM, feature versions and training ranges in the models); the mates of a pair voting on its taxon; spike mode for libraries with carried-over PCR products; ONT reads from SRA/ENA; the key map hashed (one line a lookup); GTDB builds that check the finished database and report the marker truth with samples and species held out, with gradient-boosted trees as the default models again |
 
 ## What 0.8.5 adds
 
-0.8.5 collects the 31 commits after 0.8.4, most of them the follow-up of the
+0.8.5 collects the 32 commits after 0.8.4, most of them the follow-up of the
 [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md). The changes:
 - **What a run takes from its database and models:** the run settings the models were trained with, recorded in
   `build_settings.tsv` and followed unless given otherwise; a settings line in every SAM; feature versions and the
@@ -42,12 +42,19 @@ for this page.
 - **Read input:** ONT reads from SRA/ENA no longer taken for PacBio; placeholder (`!`) qualities read as missing.
 - **Database builds:** the fixes of the build audit after the r226 v28 crash; a final check on the finished database;
   the marker truth as the trainer's headline, folds by sample and species, no knob veto by the test set; wider training
-  inputs; a test seed per build.
+  inputs; a test seed per build; gradient-boosted trees as the default models again, the forests beside them.
 - **Building from source:** protal compiles in translation units of its own (`src/Run/`).
 
 Measured on reduced r226 databases and the local mock samples only: nothing of 0.8.5 has run at r226 yet. Runs on a
 database built before keep the settings its models were trained with (mate guidance `guide`; the unique k-mers from
 the anchors where it has no `unique_cores.bin`); spike mode and the read-type fixes act on them too.
+
+- **Gradient-boosted trees the databases' default models again** (2026-10-15). `build_gtdb_database.py --model`
+  defaults to `gbm,forest` (and the trainer's `--model` to `gbm`): the boosted trees are `model_pe.xml`,
+  `model_pe_c1.xml`, ..., the forests go beside them as `model_pe_forest.xml`, ... (`protal --model_kind forest`), as
+  from 2026-10-13 to 2026-10-14. protal tells a model's kind from its PMML, so `--model_kind auto` takes whichever the
+  database's default is. Both kinds scored within noise on the reduced r226 database and the mock samples, with
+  errors of their own ([databases.md](databases.md#kinds-of-models)).
 
 - **The key map compact as the index loads, and hashed** (2026-10-14 and 2026-10-15). A run builds the key map of the
   cores with values alone as it loads the index (~0.45 GB at r226 instead of the file's 3.2 GB; the sparse and compact

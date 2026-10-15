@@ -171,7 +171,8 @@
 //   the default features; ancestry sites in ~0.65 of the memory. The key map compact as the index loads and hashed after
 //   (one line a lookup; --compact_keys, --direct_keys). GTDB builds check the finished database, train on wider inputs
 //   (se 75/100 bp, a miscalibrated NovaSeq setup, deeper samples, codon indels), and judge models by the marker truth
-//   with samples and species held out; protal compiles in translation units of its own (src/Run/).
+//   with samples and species held out, gradient-boosted trees their default models again (the forests beside them); protal
+//   compiles in translation units of its own (src/Run/).
 #include <iostream>
 #include "RunProtal.h"
 
