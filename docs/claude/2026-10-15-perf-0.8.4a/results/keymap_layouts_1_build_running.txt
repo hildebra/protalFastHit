@@ -1,0 +1,125 @@
+== synth_pe values 0 GB: synth 0.092 44 8000000 3 27 1 2000
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 2.147 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^25 lines (2.147 GB), 98774362 used cores, load 0.368, 79983 (0.08%) past their home line (1: 79349, 2: 630, 3+: 4), max 4, tag 5 bits, start 42 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+huge pages: AnonHugePages:   7274496 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	24000000	23782908	7.63	1602523885046456379
+Cf_compact_all_starts	24000000	23782908	78.17	1602523885046456379
+H_hashed_lines	24000000	23782908	32.05	1602523885046456379
+H2_hashed_lines_lower_load	24000000	23782908	30.25	1602523885046456379
+B_bucket128	24000000	23782908	19.98	1602523885046456379
+== synth_pe values 8 GB: synth 0.092 44 8000000 3 27 1 2000
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 2.147 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^25 lines (2.147 GB), 98774362 used cores, load 0.368, 79983 (0.08%) past their home line (1: 79349, 2: 630, 3+: 4), max 4, tag 5 bits, start 42 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+values array: 8.00 GB, each found lookup reads up to 12 of its lines, 16 lookups ahead
+huge pages: AnonHugePages:  15089664 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	24000000	23782908	490.69	1602523885151284890
+Cf_compact_all_starts	24000000	23782908	288.23	1602523885151284890
+H_hashed_lines	24000000	23782908	273.90	1602523885151284890
+H2_hashed_lines_lower_load	24000000	23782908	261.72	1602523885151284890
+B_bucket128	24000000	23782908	287.32	1602523885151284890
+== synth_long values 0 GB: synth 0.092 44 8000000 3 3000 0
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 2.147 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^25 lines (2.147 GB), 98774362 used cores, load 0.368, 79983 (0.08%) past their home line (1: 79349, 2: 630, 3+: 4), max 4, tag 5 bits, start 42 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+huge pages: AnonHugePages:   7276544 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	24000000	23782908	25.95	1602523885046456379
+C_compact	24000000	23782908	41.01	1602523885046456379
+H_hashed_lines	24000000	23782908	35.92	1602523885046456379
+H2_hashed_lines_lower_load	24000000	23782908	33.05	1602523885046456379
+B_bucket128	24000000	23782908	20.49	1602523885046456379
+== synth_long values 8 GB: synth 0.092 44 8000000 3 3000 0
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 2.147 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^25 lines (2.147 GB), 98774362 used cores, load 0.368, 79983 (0.08%) past their home line (1: 79349, 2: 630, 3+: 4), max 4, tag 5 bits, start 42 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+values array: 8.00 GB, each found lookup reads up to 12 of its lines, 16 lookups ahead
+huge pages: AnonHugePages:  15089664 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	24000000	23782908	122.17	1602523885151284890
+C_compact	24000000	23782908	127.72	1602523885151284890
+H_hashed_lines	24000000	23782908	119.37	1602523885151284890
+H2_hashed_lines_lower_load	24000000	23782908	109.03	1602523885151284890
+B_bucket128	24000000	23782908	94.00	1602523885151284890
+== r226red_pe values 0 GB: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz 300000 1 3 0 2000
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.268 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^22 lines (0.268 GB), 10253190 used cores, load 0.306, 4607 (0.04%) past their home line (1: 4583, 2: 24, 3+: 0), max 2, tag 8 bits, start 39 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+300000 reads, 6717729 cores (22.4 a read), read ahead, gap 2000 ns
+huge pages: AnonHugePages:   4251648 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	20153187	4711167	10.02	1546186887959259
+Cf_compact_all_starts	20153187	4711167	41.37	1546186887959259
+H_hashed_lines	20153187	4711167	45.34	1546186887959259
+H2_hashed_lines_lower_load	20153187	4711167	36.20	1546186887959259
+B_bucket128	20153187	4711167	34.07	1546186887959259
+== r226red_pe values 8 GB: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz 300000 1 3 0 2000
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.268 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^22 lines (0.268 GB), 10253190 used cores, load 0.306, 4607 (0.04%) past their home line (1: 4583, 2: 24, 3+: 0), max 2, tag 8 bits, start 39 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+300000 reads, 6717729 cores (22.4 a read), read ahead, gap 2000 ns
+values array: 8.00 GB, each found lookup reads up to 12 of its lines, 16 lookups ahead
+huge pages: AnonHugePages:  12064768 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	20153187	4711167	45.68	1546186893014394
+Cf_compact_all_starts	20153187	4711167	55.66	1546186893014394
+H_hashed_lines	20153187	4711167	63.58	1546186893014394
+H2_hashed_lines_lower_load	20153187	4711167	58.27	1546186893014394
+B_bucket128	20153187	4711167	54.63	1546186893014394
+== r226red_hifi values 0 GB: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz 3000 0 3 0
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.268 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^22 lines (0.268 GB), 10253190 used cores, load 0.306, 4607 (0.04%) past their home line (1: 4583, 2: 24, 3+: 0), max 2, tag 8 bits, start 39 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+3000 reads, 4689019 cores (1563.0 a read), streamed, gap 2000 ns
+huge pages: AnonHugePages:   4251648 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	14067057	3184332	19.13	1017851241067707
+C_compact	14067057	3184332	20.04	1017851241067707
+H_hashed_lines	14067057	3184332	32.96	1017851241067707
+H2_hashed_lines_lower_load	14067057	3184332	27.33	1017851241067707
+B_bucket128	14067057	3184332	18.44	1017851241067707
+== r226red_hifi values 8 GB: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz 3000 0 3 0
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.268 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^22 lines (0.268 GB), 10253190 used cores, load 0.306, 4607 (0.04%) past their home line (1: 4583, 2: 24, 3+: 0), max 2, tag 8 bits, start 39 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+3000 reads, 4689019 cores (1563.0 a read), streamed, gap 2000 ns
+values array: 8.00 GB, each found lookup reads up to 12 of its lines, 16 lookups ahead
+huge pages: AnonHugePages:  12064768 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	14067057	3184332	71.50	1017851244481614
+C_compact	14067057	3184332	55.53	1017851244481614
+H_hashed_lines	14067057	3184332	71.70	1017851244481614
+H2_hashed_lines_lower_load	14067057	3184332	61.14	1017851244481614
+B_bucket128	14067057	3184332	52.77	1017851244481614
+ALL_DONE

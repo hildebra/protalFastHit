@@ -103,6 +103,7 @@ namespace protal {
                 ("no_single_seed_anchors", "With --sparse_first_pick grid: a short read's gene with one seed makes no anchor, as in other runs (two seeds of a gene on one diagonal), instead of anchoring on it (since 2026-10-13: a grid seed fixes the read's place on its gene by itself, and a read seeded from its grid cores alone has about 1/C of its seeds). For comparison.")
                 ("direct_keys", "Hold the index's key map as the file has it, 16-bit offsets of all 2^30 cores (3.2 GB whatever the reference), instead of the compact one for the cores with values alone (the default since 2026-10-14): a presence bit per core with ranks (153 MB) and 3 bytes a used core (~0.45 GB at r226, less on a sparse index), built as the index is loaded (with --sparse_seeding, whose statistics read the direct one, converted after them). Every lookup gives the same values either way; a compact lookup reads a second line of the key map, fetched with the read's keys (docs/claude/2026-10-14-sparse-load-key-map).")
                 ("compact_keys", "The compact key map, the default since 2026-10-14 (--direct_keys: the direct one); accepted for the runs that ask for it.")
+                ("hashed_keys", "Hold the index's key map as a hash table of the cores with values (HashedKeys.h): a lookup reads one line of it, as of the direct key map, where the compact one reads two that depend on each other (at r226 ~25 ns a lookup more), in ~1.07 GB at r226 (direct 3.2 GB, compact ~0.45 GB). Made from the compact key map after the load. Every lookup gives the same values (docs/claude/2026-10-15-perf-0.8.4a).")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("sparse_first", "Look a read (pair; a long read over all its chunks) up by a sample of 1/C of its k-mer cores first (C = 1, 2, 4, 8, 16 or 32; those whose hash falls in 1/C of its range, stage1_probe::Level, or every C-th in read order: --sparse_first_pick) and give it up, before the rest of its seeding and any alignment, unless at least --sparse_first_hits of those lookups have a flex cell sharing --sparse_first_score or more of the 16 flank bases with the read. A read kept is seeded and aligned as without it. At GTDB r226 (score 14) C = 2 kept 9.4% of a gut sample's pairs, with 99.6% of those that have records, and C = 8 18% of a HiFi sample's reads, with 99.2% (docs/claude/2026-10-12-stage1-probe-r226.md). One C for every read type (0: off), read types and their C (pe:1,se:1,pb:8,ont:1; a read type not listed as the database has it), or auto (default): the database's gates. --build records its value as the database's gates (build_settings.tsv; auto: none, off), and its models must be trained on runs gated so (build_gtdb_database.py --sparse-first): reads given up count no failed candidates, which the models' failed_candidate_rate uses. A database may also hold models trained at other gates (model_pe_c1.xml, ...: build_gtdb_database.py --model-gates, protal --add_model --model_gate): a sample is profiled with the model trained at the gate nearest its own (on the scale of log2 C, off next to 1; between two, the lower). A run gated otherwise than any model of its database is warned. A map's SPARSE_FIRST column sets it per sample.", cxxopts::value<std::string>()->default_value("auto"))
@@ -1474,7 +1475,12 @@ namespace protal {
                       << "default)" << std::endl;
             exit(2);
         }
+        if (result.count("hashed_keys") && result.count("direct_keys")) {
+            std::cerr << "Error: --hashed_keys and --direct_keys ask for different key maps: give one" << std::endl;
+            exit(2);
+        }
         bool compact_keys = !result.count("direct_keys");
+        bool hashed_keys = result.count("hashed_keys");
         size_t long_read_budget = result["long_read_budget"].as<size_t>();
         bool sequential_load = result.count("sequential_load");
         bool stage1_probe = result.count("stage1_probe");
@@ -1722,6 +1728,7 @@ namespace protal {
         d.no_indel_bound           = no_indel_bound;
         d.no_single_seed_anchors   = no_single_seed_anchors;
         d.compact_keys             = compact_keys;
+        d.hashed_keys              = hashed_keys;
         d.long_read_budget         = long_read_budget;
         d.sequential_load          = sequential_load;
         d.stage1_probe             = stage1_probe;

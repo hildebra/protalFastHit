@@ -543,6 +543,19 @@ namespace protal {
                 log << "Key map not compacted: a group of its starts would span 2^24 slots or more (the direct key map kept)" << std::endl;
             }
         }
+        // --hashed_keys: the compact key map as a hash table of lines (HashedKeys.h), one line a lookup; the same lookups.
+        if (options.HashedKeys() && map->HasCompactKeys()) {
+            auto const begin = std::chrono::steady_clock::now();
+            bool const hashed = map->HashKeymap(load_threads);
+            double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
+            if (hashed) {
+                log << "Index in memory (hashed key map, made in " << std::fixed << std::setprecision(2) << seconds << " s): "
+                    << std::defaultfloat << map->MemoryDescription() << std::endl;
+            } else {
+                log << "Key map not hashed: a core would lie too far past its home line, or its start does not fit an entry (the "
+                    << "compact key map kept)" << std::endl;
+            }
+        }
         auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
         auto const reference = fingerprint ? *fingerprint : ReferenceFingerprint::Of(map_file, fna_file);
         if (map->HasReferenceFingerprint() && !(map->GetReferenceFingerprint() == reference)) {

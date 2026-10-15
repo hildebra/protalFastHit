@@ -38,7 +38,10 @@ for the first time (section 4).
   - Each lookup now misses the cache 1.3 (pe) to 2.0 (long reads) times more often. That is the compact key map's
     second, dependent cache line, now the default (`ab6bf25`).
   - Cost: about 2.1 s per thread of pe seeding (≈ 1.5-2 s of pe wall time, ~5%), ~0.3 s for HiFi, ~1 s for ONT.
-  - To confirm: one A/B run with `--direct_keys` (section 7).
+  - To confirm: one A/B run with `--direct_keys` (section 7). **Confirmed in section 9:** with the direct map, the
+    seeding is back at 0.8.3's cost (pe 11.56 s per thread, 121 ns per gate lookup); gated pe is 19.9 instead of
+    21.2 s, for +2.5 GB of peak memory. Section 10: a hashed key map (`--hashed_keys`, one line a lookup, ~1.07 GB),
+    implemented and tested, to be measured at r226.
 - **The database gates are where 0.8.4 is fast.** A database built since `4dfc549` gates pe at C 4, pb at C 16 and ONT
   at C 8 by default. At those gates, on this database:
   - pe: 21.2 s (−40%), records −0.20%.
@@ -352,6 +355,204 @@ PROTAL_INFLATE_THREADS=16 bash scripts/measure_performance.sh --threads 32 --tes
   inflate threads help.
 - A run on a database built with gates (r226 v27 or later) gives the true default speeds and its own models.
 
+## 8. Follow-up: the second run (Perf0.8.4b), meant as the `--direct_keys` A/B
+
+`local/Perf0.8.4b`: SLURM 24252062, 2026-10-15. It ran on q512n11, the node of the 0.8.3 run, with protal at
+`8d528aa` (the same lookup code as `5369c99`). Everything else (script, samples, database, NFS run folder) was as in
+Perf0.8.4a.
+
+- **`--direct_keys` did not reach protal.** Every log says "key map 0.5 GB (compact: 98629120 cores …)". Peak memory
+  after the index load is 35.05-35.28 GB, the compact run's.
+  - So this is a second compact-map run, and the A/B is still open.
+  - `environment.txt` does not record `PROTAL_ARGS`. The variable has to be exported in the job script (or passed
+    with `sbatch --export=ALL,PROTAL_ARGS=--direct_keys`).
+- **On 0.8.3's node, the lookups are as slow as on q512n20.** That rules out the node as the cause of section 3.
+
+  | per thread, warm mean | 0.8.3 `9c27756` q512n11 | 0.8.4 `5369c99` q512n20 | 0.8.4 `8d528aa` q512n11 |
+  |---|---|---|---|
+  | pe seeding | 11.58 s | 13.72 s | 13.66 s |
+  | pe cache misses | 30.87 G | 33.14 G | 33.06 G |
+  | pb seeding | 2.24 s | 2.54 s | 2.54 s |
+  | ont seeding | 9.90 s | 10.90 s | 10.87 s |
+  | gate at C 1 (2,224 M lookups) | 8.24 s (119 ns) | 10.04 s (144 ns) | 10.01 s (144 ns) |
+
+  - The two 0.8.4 runs agree within 0.5%.
+  - The other stages are unchanged: sorting 1.10, extension 2.11, alignment handler 3.07 s per thread for pe.
+  - Whether the compact map or the other lookup changes (grid-level checks, the larger `LookupPointer`) are the cause
+    still needs the real `--direct_keys` run.
+- **The slow runs lost their time to the NFS run folder, not to protal's compute.**
+  - pe run 3 took 45.6 s against 35.3 s for run 2. Its profiling took 13.7 s against 4.6 s: "the reading thread:
+    10.46 s reading" the SAM back, against 0.62 s in run 2. Writing the SAM took 1.76 s against 0.88 s.
+  - Every gated pe run was 11-14 s slower outside the alignment than in Perf0.8.4a (C 4: 33.3 against 21.2 s wall,
+    11.8 against 10.0 s aligning). The SAM read-back alone took 11.9-13.1 s, and writing the SAM 1.5-4.4 s.
+  - pb2 at C 16 (14.1 s against 9.2 s) lost its time the same way: 2.10 s reading the SAM back, and 2.84 s writing it.
+  - Parsing was unchanged (28.0-28.8 thread-s).
+  - The node started with 412 GB in its page cache and 84 GB free. Most likely the freshly written SAMs were dropped
+    from the cache and read back over NFS.
+- **For users:** a profile of a SAM protal has just written reads that SAM back. With `--no_strains`, `--scratch_dir`
+  on a local disk keeps the SAMs off NFS. Otherwise the output folder should be on a local disk too.
+- **Cohort:** qcMSA, summed over the species, took 59.3 s against 119.6 s in Perf0.8.4a and 64.6 s in 0.8.3. The
+  0.8.4a figure was that node's, as section 4 assumed.
+
+The run that still has to be made, with the run folder on the node's own disk so that NFS cannot blur it:
+
+```bash
+export PROTAL_ARGS=--direct_keys RUN_DIR=/nbi/local/ssd/$SLURM_JOB_ID/perf
+bash scripts/measure_performance.sh --threads 32 ... OUT_direct DB pe:R1:R2 pb:R ont:R
+```
+
+Check its logs say "key map 3.2 GB" before reading the numbers. It answers section 3 by itself:
+- seeding at ~11.6 s per thread (pe) means the compact map is the cause;
+- seeding still at ~13.7 s means the grid-level checks and the larger `LookupPointer` are.
+
+## 9. The A/B: `--direct_keys` (Perf0.8.4c)
+
+`local/Perf0.8.4c` is SLURM 24253098 on q512n23, at `8d528aa`, run with `PROTAL_ARGS=--direct_keys`. Every log says
+"key map 3.2 GB". The comparison profiler took the same time there as on the other nodes (pe 64.9 s, HiFi 12.1 s, ONT
+42.1 s), so the node is comparable. The run folder was on NFS again, but its page cache was empty (494 GB free) and no
+run lost time reading back its SAM.
+
+**The compact key map is the whole regression.** With the direct map, every lookup costs what it did in 0.8.3:
+
+| warm mean | 0.8.3 `9c27756` (direct) | 0.8.4 compact (4a / 4b) | 0.8.4 `--direct_keys` (4c) |
+|---|---|---|---|
+| pe seeding, s per thread | 11.58 | 13.72 / 13.66 | **11.56** |
+| pe cache misses (G) | 30.87 | 33.14 / 33.06 | **29.49** |
+| pe cycles (G) | 3,890 (gzip regression) | 3,742 / 3,728 | **3,452** (−7.8%) |
+| pe user CPU (s) | 1,078 | 1,035 / 1,032 | **957** (−7.5%) |
+| pb seeding, s per thread | 2.24 | 2.54 / 2.54 | **2.29** |
+| ont seeding, s per thread | 9.90 | 10.90 / 10.87 | **10.11** |
+| gate C 1, ns per sampled lookup | 119 | 144 / 144 | **121** |
+| gate C 4, ns per sampled lookup | 124 (hash pick) | 164 / 165 | **117** |
+
+- The direct map now misses the cache less often than 0.8.3's did (29.49 against 30.87 G): it reads one line per
+  lookup (D2, `27f4c74`).
+- The other lookup changes (grid-level checks, the larger `LookupPointer`) cost nothing measurable.
+
+**What it changes in time and memory** (wall for the warm repeats, aligning in brackets):
+
+| | compact (4a) | direct (4c) | change |
+|---|---|---|---|
+| pe ungated | 35.3 / 35.8 s (25.5) | 33.4 / 34.6 s (23.4-23.8) | −1.6 s wall, −8% aligning |
+| pe C 4 (the database gate) | 21.2 s (10.0) | **19.9 s** (9.0) | −6% wall, −10% aligning |
+| pe C 8 | 20.3 s (8.6) | 18.4 s (7.9) | −9% |
+| HiFi ungated | 12.2 s (6.7-6.9) | 12.2-12.3 s (6.47-6.48) | aligning −0.3 s |
+| HiFi C 16 | 9.2 s (3.95) | 8.8 s (4.0) | −4% (input-bound) |
+| ONT ungated | 51.8-54.3 s (45.0-45.4) | 50.5-50.8 s (44.3) | ~−1 s |
+| ONT C 8 | 32.8 s (26.9) | 32.7 s (27.1) | none (input-bound) |
+| peak memory pe / pb / ont | 35.1 / 35.4 / 36.1 GB | 37.6 / 37.8 / 38.5 GB | +2.4-2.5 GB (+7%) |
+
+So the trade is 2.5 GB (7% of the peak) against 6-10% of a gated short-read run and ~1.5 s of an ungated one. Long
+reads gain little, because their gated runs wait on their input (section 6.1).
+
+**Options:**
+1. **The direct map as the default again for whole-index runs** (as before `ab6bf25`). The compact one stays for
+   `--sparse_index` loads (where the key map is a larger share of a smaller index and there are fewer lookups) and as
+   `--compact_keys` for machines short of memory. The outputs are the same either way; the option help says so.
+2. **The choice by available memory:** direct when the machine has the room, compact otherwise. Timings then depend on
+   the machine, but results do not.
+3. **A compact layout with one line per lookup** (section 6.2: hashed buckets, ~1.3-1.5 GB). It is untested; worth it
+   only if the 2.5 GB matter more than the work.
+
+## 10. A hashed key map: one line a lookup in ~1.07 GB (`--hashed_keys`)
+
+Option 3 of section 9, which the user chose. It was written on `dd01eb1` and brought into the checkout on `3305b2c`;
+the target files had not changed in between. It is an opt-in developer option; the default is still the compact map.
+
+**Design** (`src/Hash/HashedKeys.h`, `Seedmap::HashKeymap`, `src/Run/Load.cpp`):
+- **Entries.** Each core with values has a 64-bit entry in a table of 64-byte lines, 8 entries a line. An entry holds:
+  - the mixed core's bits below the line index (its tag: together with the line, the core);
+  - how many lines past its home line it lies (5 bits);
+  - its first slot;
+  - its slot count (12 bits, never 0, so an empty entry is 0).
+- **Home lines.** A core's home line comes from a bijective mix of the core (odd multipliers and xor-shifts). This
+  spreads the cores of related genomes, which cluster in core order and sank the 128-core bucket layout of the
+  2026-10-14 report.
+- **Probing.** A core whose home line is full lies in a following line (linear probing). A lookup reads on only while
+  the line it read is full, because a line with an empty entry holds every core of that home that lies in or past it.
+- **Comparison.** The 8 entries of a line are compared without a branch: the matching entry is or-ed in, and an empty
+  one adds nothing. The core's place in the line then costs no misprediction, and the loop vectorizes where the
+  caller is cloned for x86-64-v3.
+- **Size.** 2^b lines at a load of 0.75 at most. At r226's density (98.8 M cores, synthetic): 2^24 lines, 1.074 GB,
+  load 0.736, 4.9% of the cores past their home line (1 line: 3.6%, 2: 0.8%, 3 or more: 0.5%), at most 28 lines past.
+  The tag takes 6 bits and the start 41.
+  - The first build gave 3 bits to the displacement; at this load some cores would lie more than 7 lines past their
+    home, so it has 5.
+- **Built from the compact map after the load,** on the run's threads:
+  - the used cores are read from the presence words and sorted into 4,096 partitions by home line;
+  - each partition is filled in core order;
+  - the cores that would lie past their partition are placed after all partitions.
+  
+  So the table is the same on any number of threads.
+- **What the run says:** "Index in memory (hashed key map, made in X s): … key map 1.07 GB (hashed: N cores with values
+  in 2^24 lines, load 0.736, M past their home line …)".
+
+**Correctness:**
+- **Unit tests** (`tests/test_HashedKeys.cpp`, 4 tests):
+  - every one of 2^20 cores, ~9% used in clusters with starts from 2^33 on, gets the compact map's slots (none for an
+    unused core);
+  - the same in a crowded table (load 0.9), with cores past their home and lookups of absent cores behind full lines;
+  - one thread and four build a byte-identical table;
+  - the mix is a bijection.
+- **End to end:** `test_compact_keys_give_the_same_records` now also runs `--hashed_keys`. Short reads, short reads
+  gated by the grid, and long reads give the same records as the direct map. Its log line is checked, and
+  `--hashed_keys --direct_keys` stops the run (exit 2).
+- **Full suites:** 591 unit tests passed (3 skipped, as without the change) and all 182 e2e tests passed.
+- **Real reads** ([results/keymap_hashed_real_reads.txt](results/keymap_hashed_real_reads.txt)): the reduced r226
+  database with the D6331 HKU pe mock (1 M pairs) and the D6331 HiFi mock. The SAM records (first 9 columns, sorted)
+  are identical with the compact, hashed and direct maps.
+
+**Speed locally** (`keybench`, [scripts/keybench_hashed.cpp](scripts/keybench_hashed.cpp): the key map step of a lookup,
+one thread, x86-64-v3 build).
+
+In the clean run ([results/keymap_layouts_2_clean.txt](results/keymap_layouts_2_clean.txt)), ns per lookup:
+
+| data | D2 direct | Cf / C compact | H hashed, branches | Hb hashed, branchless | B 128-core buckets |
+|---|---|---|---|---|---|
+| synthetic r226, short reads (keys a read ahead) | 4.5 | 47.3 | 21.6 | **14.3** | 13.9 |
+| synthetic r226, long reads (streamed) | 26.2 | 36.5 | 39.4 | **32.9** | 20.5 |
+| reduced r226, real pe | 7.2 | 28.0 | 32.4 | 23.4 | 25.1 |
+| reduced r226, real HiFi | 23.4 | 26.5 | 39.1 | 34.3 | 22.0 |
+
+- **The branchless compare** takes a third off the hashed lookup (21.6 → 14.3 ns), so protal's version uses it.
+- **On synthetic r226 data,** the hashed map closes 77% of the gap between the compact and the direct map for short
+  reads, and 35% for long reads.
+- **The reduced r226 database cannot stand in for r226:** 77% of its lookups are cores it does not hold (r226: 0.8%).
+  In a hashed table those lookups read on past full lines into lines nobody prefetched, and the compact map's starts
+  fit in the cache there.
+- **Two later runs are not evidence** ([results/keymap_layouts_3_paging.txt](results/keymap_layouts_3_paging.txt), and
+  a recheck):
+  - on the same code, the hashed tables' lookups took 5-10 times as long, while the other layouts moved 2× at most;
+  - Windows was paging the WSL machine's memory: the pagefile peaked at 14.6 GB, the WSL VM held 11.8 GB of private
+    memory with 9.3 GB resident, and the unit suite took 197 s instead of ~5 s (another session's training jobs were
+    running);
+  - a random read into a paged-out part of a table waits on the SSD, and Linux inside the VM does not see it (no swap
+    in use).
+  
+  The variant that also prefetches the next line (Hp) was measured only then, so there is no verdict on it.
+
+**At r226** the compact map costs ~25-31 ns a lookup more than the direct one (sections 3 and 9). The clean synthetic
+run puts the hashed map at roughly a quarter of that for short reads, perhaps +6-10 ns; that is a guess until measured.
+Its expected peak is the compact run's plus ~0.6 GB (1.07 against 0.46 GB), about 35.7 GB for pe. For one moment both
+maps are held, right after the load (+1.07 GB), below the run's later peak.
+
+**The run that decides it:** a binary with `--hashed_keys`, the same samples, the run folder on the node's disk:
+
+```bash
+export PROTAL_ARGS=--hashed_keys RUN_DIR=/nbi/local/ssd/$SLURM_JOB_ID/perf
+bash scripts/measure_performance.sh --threads 32 --test_sparse ... OUT_hashed DB pe:R1:R2 pb:R ont:R
+```
+
+- **Check first:** the logs say "hashed key map, made in X s" (X is what it adds to the start-up) and "key map 1.07 GB
+  (hashed: …)".
+- **Compare** with Perf0.8.4a (compact) and Perf0.8.4c (direct): seeding seconds per thread (pe 13.7 against 11.56),
+  cache misses (33.1 against 29.5 G), the gate's ns per lookup (144 against 121), gated pe wall time (21.2 against
+  19.9 s) and peak memory.
+- **The rule:**
+  - pe seeding within ~4% of the direct map's (≤ ~12 s a thread): the hashed map becomes the default for whole-index
+    runs;
+  - otherwise the direct map does (option 1), with the compact one kept for sparse indexes and `--compact_keys`.
+
 ## Files
 
 - **[scripts/](scripts/):** the WSL scripts of the trials (they read from the session's scratch folder, `SP=`), the
@@ -362,6 +563,9 @@ PROTAL_INFLATE_THREADS=16 bash scripts/measure_performance.sh --threads 32 --tes
   - `nowait_pgz.sh`: the lead's waits.
   - `zstd_pgz.sh`, `pzstd_pgz.sh`: zstd input.
   - `build_protal.sh`, `trial_b.sh`, `cg_parse.sh`: profiling.
+  - `keybench_hashed.cpp`: the 2026-10-14 report's `keybench` with the hashed layout (H, Hb, Hp) and an optional values
+    array (`KEYBENCH_VALUES_GB`); `build_keybench.sh`, `run_keybench*.sh`: its builds and runs (section 10).
+  - `test_hashed.sh`, `validate_real.sh`: the hashed map's tests and the real-read check.
 - **[results/](results/):** their outputs.
 - **Removed after the trials:** the WSL tree `~/perf085` (the build, ~7 GB of test FASTQ and gzip/zstd copies, the
-  callgrind output). The cluster data stays in `local/Perf0.8.4a` (not in git).
+  callgrind output). The cluster data stays in `local/Perf0.8.4a`, `local/Perf0.8.4b` and `local/Perf0.8.4c` (not in git).

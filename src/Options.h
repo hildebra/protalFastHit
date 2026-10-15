@@ -124,6 +124,7 @@ namespace protal {
         bool no_indel_bound = false;
         bool no_single_seed_anchors = false;
         bool compact_keys = true;
+        bool hashed_keys = false;
         size_t long_read_budget = 0;
         bool sequential_load = false;
         SparseFirstGates sparse_first;                // --sparse_first per read type; nothing: auto (the database's)
@@ -284,6 +285,7 @@ namespace protal {
         bool m_no_indel_bound = false;
         bool m_no_single_seed_anchors = false;
         bool m_compact_keys = true;  // the key map of the used cores only (CompactKeys.h); --direct_keys: false
+        bool m_hashed_keys = false;  // --hashed_keys: the compact key map made a hash table after the load (HashedKeys.h)
         size_t m_long_read_budget = 0;
         bool m_sequential_load = false;
         bool m_stage1_probe = false;  // --stage1_probe
@@ -528,6 +530,7 @@ namespace protal {
                 m_no_indel_bound(d.no_indel_bound),
                 m_no_single_seed_anchors(d.no_single_seed_anchors),
                 m_compact_keys(d.compact_keys),
+                m_hashed_keys(d.hashed_keys),
                 m_long_read_budget(d.long_read_budget),
                 m_sequential_load(d.sequential_load),
                 m_stage1_probe(d.stage1_probe),
@@ -1647,6 +1650,11 @@ namespace protal {
         // default since 2026-10-14; --direct_keys keeps the direct one.
         bool CompactKeys() const {
             return m_compact_keys;
+        }
+
+        // --hashed_keys: the compact key map made a hash table of lines once loaded, one line a lookup (Seedmap::HashKeymap).
+        bool HashedKeys() const {
+            return m_hashed_keys;
         }
 
         // --flex_indels: whether sample `index`'s lookups score their flex cells with an indel per flank allowed

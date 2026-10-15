@@ -1,0 +1,20 @@
+5a77e0369eb2bdae85e3d6fa45378d78  pe compact records
+key map 0.2 GB (compact: 10253190 cores with values of 1073741824; --direct_keys: 3.2 GB)
+Aligning reads took 4s 194ms
+5a77e0369eb2bdae85e3d6fa45378d78  pe hashed records
+key map 0.2 GB (compact: 10253190 cores with values of 1073741824; --direct_keys: 3.2 GB)
+key map 0.1 GB (hashed: 10253190 cores with values in 2^21 lines, load 0.611, 236051 past their home line; --direct_keys: 3.2 GB)
+Aligning reads took 3s 978ms
+5a77e0369eb2bdae85e3d6fa45378d78  pe direct records
+key map 3.2 GB
+Aligning reads took 3s 535ms
+600d30f838779e6b9c63a7d8a1aaeb95  hifi compact records
+key map 0.2 GB (compact: 10253190 cores with values of 1073741824; --direct_keys: 3.2 GB)
+Aligning reads took 15s 189ms
+600d30f838779e6b9c63a7d8a1aaeb95  hifi hashed records
+key map 0.2 GB (compact: 10253190 cores with values of 1073741824; --direct_keys: 3.2 GB)
+key map 0.1 GB (hashed: 10253190 cores with values in 2^21 lines, load 0.611, 236051 past their home line; --direct_keys: 3.2 GB)
+Aligning reads took 10s 684ms
+600d30f838779e6b9c63a7d8a1aaeb95  hifi direct records
+key map 3.2 GB
+Aligning reads took 15s 708ms

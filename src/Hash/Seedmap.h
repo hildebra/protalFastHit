@@ -19,6 +19,7 @@
 #include "Zstd.h"
 #include "IndexCodec.h"
 #include "CompactKeys.h"
+#include "HashedKeys.h"
 #include "KmerUtils.h"
 #include "ReferenceFingerprint.h"
 #include "sparse_map.h"
@@ -262,6 +263,9 @@ namespace protal {
         // cores only, which Locate and the prefetches read; the direct key map is then freed or never held.
         std::unique_ptr<CompactKeys> m_compact;
         bool m_compact_load = false;  // SetCompactLoad: the next packed load builds m_compact, not the direct key map
+        // The hashed key map (--hashed_keys, HashKeymap): the used cores in a hash table of lines, one line a lookup, made
+        // from the compact one after the load; Locate and PrefetchKey then read it alone.
+        std::unique_ptr<HashedKeys> m_hashed;
         uint64_t m_keymask = (uint64_t{1} << m_main_bits) - 1;
         size_t keymap_size = 1u << m_main_bits;
         size_t keymap_max = m_keymask;
@@ -509,6 +513,13 @@ namespace protal {
             } else {
                 s = std::to_string(values_size) + " slots of 8 bytes: " + gb(values_size * sizeof(ValueEntry));
             }
+            if (m_hashed) {
+                char load[64];
+                std::snprintf(load, sizeof(load), "%.3f", m_hashed->Load());
+                return s + "; key map " + gb(m_hashed->Bytes()) + " (hashed: " + std::to_string(m_hashed->UsedCores()) + " cores with values in 2^" +
+                       std::to_string(m_hashed->LineBits()) + " lines, load " + load + ", " + std::to_string(m_hashed->PastHome()) +
+                       " past their home line; --direct_keys: " + gb(keymap_size_total * sizeof(KeyMap_t)) + ")";
+            }
             if (m_compact) {
                 return s + "; key map " + gb(m_compact->Bytes()) + " (compact: " + std::to_string(m_compact->UsedCores()) + " cores with values of " +
                        std::to_string(m_compact->Cores()) + "; --direct_keys: " + gb(keymap_size_total * sizeof(KeyMap_t)) + ")";
@@ -518,6 +529,7 @@ namespace protal {
 
         // The key map's bytes: fixed by the core's length, whatever the index holds.
         uint64_t KeymapBytes() const {
+            if (m_hashed) return m_hashed->Bytes();
             if (m_compact) return m_compact->Bytes();
             return keymap_size_total * sizeof(KeyMap_t);
         }
@@ -663,6 +675,7 @@ namespace protal {
         // blocks straddle lines). Inlined always, so that the loops cloned for x86-64-v3 (ChainAnchorFinder::LookupKmers)
         // count a compact key map's ranks with popcnt, not with libgcc's software count (PROTAL_CLONE_V3).
         [[gnu::always_inline]] inline bool Locate(uint64_t main_key, uint64_t& start, uint64_t& slots) const {
+            if (m_hashed) return m_hashed->Locate(main_key, start, slots);
             if (m_compact) return m_compact->Locate(main_key, start, slots);
             uint64_t const block = ControlBlockIndex(main_key);
             uint64_t const j = BlockKey(main_key);
@@ -1214,6 +1227,7 @@ namespace protal {
         void FreeMemory() {
             std::free(m_keymap);
             m_compact.reset();
+            m_hashed.reset();
             std::free(m_map);
             std::free(m_packed);
             m_keymap = nullptr;
@@ -1974,6 +1988,10 @@ namespace protal {
         // memory together, not in turn.
         [[gnu::always_inline]] inline void PrefetchKey(uint64_t key) {
             uint64_t const main_key = MainKey(key);
+            if (m_hashed) {
+                m_hashed->Prefetch(main_key);
+                return;
+            }
             if (m_compact) {
                 m_compact->Prefetch(main_key);
                 return;
@@ -1992,6 +2010,18 @@ namespace protal {
         }
 
         bool HasCompactKeys() const { return m_compact != nullptr; }
+        bool HasHashedKeys() const { return m_hashed != nullptr; }
+
+        // The compact key map as HashedKeys (--hashed_keys): one line a lookup, ~1.07 GB at r226; the compact one freed.
+        // False, and the compact one kept, without one or if a core would lie too far past its home line.
+        bool HashKeymap(int threads) {
+            if (!m_compact) return false;
+            auto hashed = std::make_unique<HashedKeys>();
+            if (!hashed->Build(*m_compact, m_main_bits, threads)) return false;
+            m_hashed = std::move(hashed);
+            m_compact.reset();
+            return true;
+        }
 
         // The next load (packed, whole or sparse) builds a compact key map (CompactKeys) as it decodes, and never the
         // direct one: the decoder names each key with values (ValueSink::key_at), which is marked and its start kept, and

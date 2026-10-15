@@ -1,0 +1,63 @@
+ 12:18:24 up 1 day,  3:27,  1 user,  load average: 8.34, 6.73, 5.60
+== synth_pe: synth 0.092 44 8000000 5 27 1 2000
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 1.074 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+huge pages: AnonHugePages:   6227968 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	40000000	39638180	8.81	2670873141744093965
+Cf_compact_all_starts	40000000	39638180	69.30	2670873141744093965
+Hp_hashed_branchless_next_line	40000000	39638180	150.02	2670873141744093965
+Hb_hashed_lines_branchless	40000000	39638180	149.58	2670873141744093965
+B_bucket128	40000000	39638180	19.76	2670873141744093965
+== synth_long: synth 0.092 44 8000000 5 3000 0
+synthetic: 98774362 used cores (0.0920), 4346350734 slots; key maps: direct 3.221 GB, compact 0.462 GB, hashed 1.074 GB, hashed at a lower load 1.074 GB, buckets 0.542 GB (55509 overflow lines of 8388608)
+hashed lines: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+hashed lines, lower load: 2^24 lines (1.074 GB), 98774362 used cores, load 0.736, 4842529 (4.90%) past their home line (1: 3535115, 2: 820645, 3+: 486769), max 28, tag 6 bits, start 41 bits, ok 1
+bucket lines: 8388568 of 8388608 lines used; by used cores 1-4 57040, 5-10 2978015, 11-20 5298004, 21-32 55507, 33+ 2; 1.227% of used cores in overflow lines
+every 7th core the same slots in every layout: yes
+huge pages: AnonHugePages:   6227968 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	40000000	39638180	34.31	2670873141744093965
+C_compact	40000000	39638180	37.68	2670873141744093965
+Hp_hashed_branchless_next_line	40000000	39638180	112.29	2670873141744093965
+Hb_hashed_lines_branchless	40000000	39638180	114.63	2670873141744093965
+B_bucket128	40000000	39638180	22.26	2670873141744093965
+== r226red_pe: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_pe_labs/d6331_hku_SRR23926922/SRR23926922_1.fq.gz 300000 1 5 0 2000
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.134 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+300000 reads, 6717729 cores (22.4 a read), read ahead, gap 2000 ns
+huge pages: AnonHugePages:   4120576 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	33588645	7851945	8.95	2576978146598765
+Cf_compact_all_starts	33588645	7851945	32.75	2576978146598765
+Hp_hashed_branchless_next_line	33588645	7851945	109.92	2576978146598765
+Hb_hashed_lines_branchless	33588645	7851945	111.58	2576978146598765
+B_bucket128	33588645	7851945	28.18	2576978146598765
+== r226red_hifi: keys /home/falk/Mocks/reduced_db_r226/database.protal /home/falk/Mocks/reads/d6331_hifi/d6331_hifi_SRR13128012/SRR13128012.fq.gz 3000 0 5 0
+direct: 16382993 entries of 33 bits (taxid * 169 + gene 17, position 14, 2 flags) and their 32-bit flex cells, 43.34 bits per slot of the file: 0.1 GB; key map 3.2 GB
+key maps: direct 3.221 GB, compact 0.185 GB (10253190 used cores), hashed 0.134 GB, hashed at a lower load 0.134 GB, buckets 0.545 GB (65141 overflow lines of 8388608)
+hashed lines: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+hashed lines, lower load: 2^21 lines (0.134 GB), 10253190 used cores, load 0.611, 236106 (2.30%) past their home line (1: 201719, 2: 27009, 3+: 7378), max 11, tag 9 bits, start 38 bits, ok 1
+bucket lines: 1570205 of 8388608 lines used; by used cores 1-4 786134, 5-10 492071, 11-20 226859, 21-32 53417, 33+ 11724; 17.497% of used cores in overflow lines
+every core the same slots in every layout: yes
+3000 reads, 4689019 cores (1563.0 a read), streamed, gap 2000 ns
+huge pages: AnonHugePages:   4120576 kB
+exit 0
+layout	lookups	found	ns_per_lookup	checksum
+D2_direct_one_line	23445095	5307220	16.13	1696418735112845
+C_compact	23445095	5307220	16.36	1696418735112845
+Hp_hashed_branchless_next_line	23445095	5307220	75.78	1696418735112845
+Hb_hashed_lines_branchless	23445095	5307220	74.50	1696418735112845
+B_bucket128	23445095	5307220	15.69	1696418735112845
+ 12:31:26 up 1 day,  3:40,  1 user,  load average: 1.59, 5.71, 6.56
+ALL_DONE

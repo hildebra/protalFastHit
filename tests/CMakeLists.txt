@@ -53,6 +53,7 @@ add_executable(protal_tests
         test_GridLevels.cpp
         test_ModelKinds.cpp
         test_CompactKeys.cpp
+        test_HashedKeys.cpp
         test_LengthFreeFeatures.cpp
         test_UniqueCores.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
