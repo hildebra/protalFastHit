@@ -1,0 +1,37 @@
+run	tool	version	set	sample	read_type	truth	kind	group	reads	bases	cut	called	unknown	unknown_expected	tp	fp	fn	precision	recall	f1	recall_0.1pct	recall_1pct	fp_share	l1	bray_curtis	absent_called	present_missed	false_species
+mc_guide	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468399	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.949294	0.474647	-	-	
+mc_guide	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.764365	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.462898	0.231449	-	-	
+mc_guide	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.112132	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_guide	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186484	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_guide	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.133448	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.188796	0.094398	-	-	
+mc_guide	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.197388	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.407368	0.203684	-	-	
+mc_consensus_zero	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468591	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.949328	0.474664	-	-	
+mc_consensus_zero	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.764351	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.462979	0.231489	-	-	
+mc_consensus_zero	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.109014	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_consensus_zero	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186421	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_consensus_zero	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.131658	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.188111	0.0940553	-	-	
+mc_consensus_zero	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.196297	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.405701	0.202851	-	-	
+mc_consensus_floor	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468545	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.94933	0.474665	-	-	
+mc_consensus_floor	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.76437	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.463078	0.231539	-	-	
+mc_consensus_floor	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.110458	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_consensus_floor	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186436	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_consensus_floor	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.134735	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.189843	0.0949215	-	-	
+mc_consensus_floor	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.196904	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.405751	0.202875	-	-	
+mc_consensus_neutral	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468549	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.949328	0.474664	-	-	
+mc_consensus_neutral	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.764364	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.463078	0.231539	-	-	
+mc_consensus_neutral	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.111891	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_consensus_neutral	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186547	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_consensus_neutral	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.135067	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.191057	0.0955287	-	-	
+mc_consensus_neutral	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.198832	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.40721	0.203605	-	-	
+mc_consensus_zero_clip	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468748	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.949376	0.474688	-	-	
+mc_consensus_zero_clip	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.764656	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.462952	0.231476	-	-	
+mc_consensus_zero_clip	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.110002	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_consensus_zero_clip	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186142	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_consensus_zero_clip	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.131542	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.18666	0.0933298	-	-	
+mc_consensus_zero_clip	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.198477	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.408182	0.204091	-	-	
+mc_consensus_floor_clip	-	-	d6331_dna	d6331_dna_SRR38158090	pe	d6331	abundance	d6331_dna	1000000	301295831	1	10	0.468756	0.00629948	10	0	5	1	0.666667	0.8	0.833333	0.818182	0	0.949412	0.474706	-	-	
+mc_consensus_floor_clip	-	-	treichel	treichel_ERR14788576	pe	treichel_even70	abundance	even70_bg	1000000	302000000	1	62	0.764639	0	62	0	1	1	0.984127	0.992	0.984127	1	0	0.46289	0.231445	-	-	
+mc_consensus_floor_clip	-	-	hcom2_invitro	hcom2_SRR21819229	pe	hcom2_closed	closed	ExpV2_AB_P2R2	1000000	292000000	1	53	0.110099	NA	53	0	64	1	0.452991	0.623529	NA	NA	0	NA	NA	-	-	
+mc_consensus_floor_clip	-	-	hcom1a_dropouts	hcom1a_SRR24799833	pe	hcom1a_full	dropout	hcom1a_full_cecum	1000000	302000000	1	54	0.186165	0	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	-	-	-
+mc_consensus_floor_clip	-	-	d6331_pe_labs	d6331_hku_SRR23926922	pe	d6331	abundance	d6331_pe_labs	1000000	300000000	1	12	0.135602	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.189612	0.094806	-	-	
+mc_consensus_floor_clip	-	-	d6331_pe_labs	d6331_auckland_SRR33710519	pe	d6331	abundance	d6331_pe_labs	1000000	269809274	1	12	0.198297	0.00629948	12	0	3	1	0.8	0.888889	1	1	0	0.407935	0.203967	-	-	

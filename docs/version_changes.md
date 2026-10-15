@@ -131,6 +131,22 @@ for this page.
   - **No knob veto by the test set:** its F1 at the knob and at 0.5 is reported only.
   - **The features' ranges in every model** (`protal_feature_ranges`) and, with `--feature-versions`, their code
     versions (`protal_feature_versions`), for protal to check.
+- **The mates of a pair vote on its taxon** (2026-10-15). `--mate_guidance consensus` is the default of new databases;
+  `guide` is the guidance of 0.7.1-0.8.4, and `off` (`--no_mate_guidance`) is neither
+  ([running.md](running.md#alignment-options)).
+  - **The vote:** a pair whose mates did not align together as its best candidate is scored on every taxon either
+    mate aligned to by the sum of both mates' scores. A mate without an alignment there is looked for, and where it
+    is not found it scores as an alignment at the identity floor. The MAPQ comes from the margin over the next taxon.
+  - **Why:** guidance completed the pair on a sure mate's taxon without weighing the other mate's own alignment, and
+    doubled its MAPQ (audit L1).
+  - **Effect, with the models trained on `guide`:** on the reduced r226 database's simulated test sets the calls are
+    the same within 1-2 species (its own test set: F1 0.9597 to 0.9618), and on six paired-end mocks they are
+    identical. Fragments counted for a wrong species fall by 0.3-0.4%, those for the right one by 0.02-0.05%.
+  - **Cost:** +2.65% of the paired-end alignment loop's instructions against `guide` (200,000 pairs of a real sample).
+  - **Databases:** `--build` records the mode (`mate_guidance` in `build_settings.tsv`: the one given, else
+    `consensus`), and runs on the database follow it unless `--mate_guidance` is given. A database built before
+    records none; its models were trained with `guide`, which its runs keep
+    ([report](claude/2026-10-15-mate-consensus/README.md)).
 
 ## What 0.8.4 adds
 

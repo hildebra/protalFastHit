@@ -1,0 +1,21 @@
+guide: rows in both 409, TP 151 FP 52 FN 14
+consensus_floor: rows in both 409, TP 151 FP 52 FN 14
+rows in one run only: 5 (3 guide, 2 consensus_floor); called there: 0
+calls flipped: 0 (present taxa 0, absent 0; present taxa called in consensus_floor only: 0)
+probability change: mean +0.00218, mean |change| 0.01150, rows changed 185 of 409
+features that moved most (mean change in IQR units; share of rows changed):
+  sample_read_length_sd: 0.8496 (1.000)
+  sample_read_length: 0.2576 (1.000)
+  mate_lost_share: 0.1608 (0.303)
+  aligned_length_ratio: 0.1041 (1.000)
+  gene_divergence_dispersion: 0.0989 (0.403)
+  multiallelic_sites_per_kb: 0.0838 (0.083)
+  gap_within_median_share: 0.0658 (0.127)
+  fixed_difference_rate: 0.0409 (0.078)
+  conserved_fast_depth_ratio: 0.0387 (0.086)
+  excess_conserved_fast_ratio: 0.0342 (0.403)
+  breadth_ratio: 0.0262 (0.213)
+  variant_sites_per_kb: 0.0237 (0.169)
+  sample_low_identity: 0.0154 (1.000)
+  low_mapq_share: 0.0152 (0.469)
+  RAF1: 0.0147 (0.139)

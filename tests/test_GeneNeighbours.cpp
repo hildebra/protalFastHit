@@ -315,6 +315,22 @@ TEST(AcrossGenes, MateGuidanceLooksPastTheGenesEnd) {
         EXPECT_EQ(pairs[0].second.GeneId(), 2u);
         EXPECT_EQ(pairs[0].second.GetAlignmentInfo().gene_alignment_start, 30);
     }
+    // The mates' vote (--mate_guidance consensus) looks for it the same way and completes the pair across the genes.
+    {
+        PairedAlignmentResultList pairs{ { Aligned(1, 250, 50, true), AlignmentResult() } };
+        UngappedHandler handler;
+        MateGuidanceCounts counts;
+        PairVote vote;
+        EXPECT_TRUE(VoteMates(pairs, {}, {}, r1, r2, rev1, rev2, handler, *ref.loader, counts, vote));
+        EXPECT_EQ(counts.rescued_on_neighbour, 1u);
+        ASSERT_TRUE(vote.decided);
+        EXPECT_FALSE(vote.split);
+        ASSERT_EQ(pairs.size(), 1u);
+        ASSERT_TRUE(pairs[0].second.IsSet());
+        EXPECT_EQ(pairs[0].second.GeneId(), 2u);
+        EXPECT_EQ(vote.index[0], 0u);
+        EXPECT_EQ(vote.index[1], 0u);
+    }
     // Without gene neighbours it is looked for on gene 1 alone, and not found.
     {
         ThreeGenes plain(false);

@@ -1,0 +1,21 @@
+guide: rows in both 2098, TP 1668 FP 10 FN 31
+consensus: rows in both 2098, TP 1668 FP 10 FN 31
+rows in one run only: 11 (3 guide, 8 consensus); called there: 0
+calls flipped: 4 (present taxa 4, absent 0; present taxa called in consensus only: 2)
+probability change: mean +0.00059, mean |change| 0.00254, rows changed 217 of 2098
+features that moved most (mean change in IQR units; share of rows changed):
+  ancestry_congener_share: 0.5473 (0.103)
+  variant_sites_per_kb: 0.4925 (0.072)
+  aligned_length_ratio: 0.0988 (1.000)
+  excess_scaled_median: 0.0521 (0.222)
+  gene_presence_ratio: 0.0512 (0.072)
+  ancestry_agreement: 0.0472 (0.109)
+  ancestry_agreement_weighted: 0.0422 (0.104)
+  sample_read_length_sd: 0.0387 (1.000)
+  RAF1: 0.0324 (0.064)
+  excess_median: 0.0290 (0.218)
+  congener_fit_share: 0.0257 (0.217)
+  excess_high_share: 0.0211 (0.205)
+  gene_divergence_dispersion: 0.0203 (0.198)
+  unexpected_congener_fit_share: 0.0195 (0.220)
+  low_mapq_share: 0.0184 (0.235)

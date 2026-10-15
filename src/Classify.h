@@ -645,6 +645,8 @@ namespace protal::classify {
 
             PairedAlignmentResultList paired_alignment_results;
             MateGuidanceCounts mate_guidance;
+            MateGuidanceMode const mate_guidance_mode = options.GetMateGuidance();
+            double const vote_identity = options.GetMaxScoreAni(ReadType::Paired);  // the identity floor (-a)
             bool const across = !genome_loader.GetGeneNeighbours().Empty();  // pairs across neighbouring genes
 
             size_t record_id = omp_get_thread_num();
@@ -856,8 +858,13 @@ namespace protal::classify {
                 //                SortAlignmentPairs1(paired_alignment_results);
                 //                SortAlignmentPairs2(paired_alignment_results);
                 SortAlignmentPairs3(paired_alignment_results);
-                // A mate sure of its alignment guides the other one to its taxon and gene (MateGuidance.h).
-                if (options.MateGuidance() &&
+                // Mates that did not align together as the best candidate (MateGuidance.h): both vote (consensus), or a
+                // mate sure of its alignment guides the other one to its taxon and gene (guide).
+                PairVote vote;
+                if (mate_guidance_mode == MateGuidanceMode::Consensus) {
+                    VoteMates(paired_alignment_results, anchors1, anchors2, record1, record2, anchor_finder1.ReverseComplement(),
+                              anchor_finder2.ReverseComplement(), alignment_handler, genome_loader, mate_guidance, vote, vote_identity);
+                } else if (mate_guidance_mode == MateGuidanceMode::Guide &&
                     GuideMate(paired_alignment_results, anchors1, anchors2, record1, record2, anchor_finder1.ReverseComplement(),
                               anchor_finder2.ReverseComplement(), alignment_handler, genome_loader, mate_guidance)) {
                     SortAlignmentPairs3(paired_alignment_results);
@@ -886,7 +893,7 @@ namespace protal::classify {
 
                 // Output alignments
                 bm_output.Start();
-                output_handler(paired_alignment_results, record1, record2, record_id, true, failed, crowding);
+                output_handler(paired_alignment_results, record1, record2, record_id, true, failed, crowding, vote.decided ? &vote : nullptr);
                 bm_output.Stop();
                 if constexpr (requires { output_handler.LastFragment(); }) {
                     if (probe) {
@@ -979,11 +986,19 @@ namespace protal::classify {
             }
         }
         bm_omp_block.Stop();
-        if (options.MateGuidance()) {
+        if (options.GetMateGuidance() == MateGuidanceMode::Guide) {
             std::cout << mate_guidance_global.guided << " fragments had one mate sure of its alignment and the other "
                       << "without a candidate of its taxon: " << mate_guidance_global.from_anchor << " aligned from its own "
                       << "anchor of that taxon, " << mate_guidance_global.rescued << " of " << mate_guidance_global.looked_for
                       << " found on the mate's gene" << std::endl;
+        } else if (options.GetMateGuidance() == MateGuidanceMode::Consensus) {
+            auto const& c = mate_guidance_global;
+            std::cout << "Mate consensus: " << c.voted << " fragments whose best candidate had one mate were voted on ("
+                      << c.vote_disagreed << " with their mates' best alignments on two taxa): " << c.vote_moved
+                      << " went to another taxon than their best candidate's, " << c.vote_uncertain << " got a MAPQ under "
+                      << kVoteLowMapq << "; " << c.vote_found << " of " << c.vote_looked_for << " mates looked for on a "
+                      << "taxon were found (" << c.from_anchor << " from their own anchor, " << c.rescued << " on the other mate's "
+                      << "gene); " << c.vote_kept << " mates kept an alignment of another taxon (MAPQ 0)" << std::endl;
         }
         if (!genome_loader.GetGeneNeighbours().Empty()) {
             std::cout << "Gene neighbours: " << mate_guidance_global.paired_across_genes << " fragments paired across two neighbouring "

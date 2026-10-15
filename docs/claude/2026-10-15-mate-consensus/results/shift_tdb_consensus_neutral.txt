@@ -1,0 +1,21 @@
+guide: rows in both 1901, TP 1087 FP 26 FN 59
+consensus_neutral: rows in both 1901, TP 1089 FP 25 FN 57
+rows in one run only: 15 (14 guide, 1 consensus_neutral); called there: 0
+calls flipped: 3 (present taxa 2, absent 1; present taxa called in consensus_neutral only: 2)
+probability change: mean +0.00090, mean |change| 0.00312, rows changed 251 of 1901
+features that moved most (mean change in IQR units; share of rows changed):
+  variant_sites_per_kb: 0.0993 (0.097)
+  aligned_length_ratio: 0.0551 (0.926)
+  gene_presence_ratio: 0.0401 (0.113)
+  excess_conserved_fast_ratio: 0.0362 (0.125)
+  gap_within_min_share: 0.0314 (0.079)
+  conserved_fast_depth_ratio: 0.0299 (0.068)
+  sample_read_length_sd: 0.0243 (0.926)
+  low_mapq_share: 0.0222 (0.221)
+  mate_lost_share: 0.0219 (0.089)
+  RAF1: 0.0215 (0.094)
+  breadth_ratio: 0.0175 (0.125)
+  congener_fit_share: 0.0171 (0.180)
+  unexpected_congener_fit_share: 0.0152 (0.175)
+  unique_seed_enrichment: 0.0147 (0.100)
+  uniqueness: 0.0146 (0.138)

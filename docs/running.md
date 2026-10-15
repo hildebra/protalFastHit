@@ -356,7 +356,7 @@ at `auto` (or not given) takes the database's:
 | `allele_scores` on/off | `--no_allele_scores`, `--allele_scores` | on |
 | `align_top` N | `-c, --align_top` | 3 |
 | `adaptive_candidates` N | `--adaptive_candidates` | 7 |
-| `mate_guidance` on/off | `--no_mate_guidance` | on |
+| `mate_guidance` consensus/guide/off | `--mate_guidance` (`--no_mate_guidance`: off) | consensus; guide for a database that records none |
 | `max_score_ani_pe`, `_se`, `_pb`, `_ont` | `-a, --max_score_ani` (given: every read type's) | 0.9, ONT 0.85 |
 | `unique_kmers` cores/anchors | `--no_unique_cores` | cores where the database has `unique_cores.bin` |
 | `keep_foreign_genes` on/off | `--keep_foreign_genes`, `--keep_foreign_genes=off` | off |
@@ -371,13 +371,14 @@ at `auto` (or not given) takes the database's:
   cores`, or a database with `unique_cores.bin` that records nothing) gets a warning of its own: the unique k-mer
   features then differ from the models' training.
 - A database built before 2026-10-15 records none of them: one note lists those that matter for the run, which takes
-  protal's defaults (or the options given), as before. A mate guidance mode this protal does not know (a later
-  protal's) is warned about and left at protal's default.
+  protal's defaults (or the options given), as before, except mate guidance: `guide`, the mode its models were trained
+  with. A mate guidance mode this protal does not know (a later protal's) is warned about and left at protal's
+  default.
 - protal before 2026-10-15 reads the new file and skips the settings it does not know.
 
 **The SAM says how it was aligned.** Every SAM's header has one line
 `@CO protal settings: read_type=pe gate=4 pick=stride score=14 hits=1 unique_kmers=cores traceback=singletrack
-allele_scores=on weighted_site_shift=off mate_guidance=on align_top=3 adaptive_candidates=7 max_score_ani=0.9`
+allele_scores=on weighted_site_shift=off mate_guidance=consensus align_top=3 adaptive_candidates=7 max_score_ani=0.9`
 (the values the sample was aligned with; `allele_scores`, `weighted_site_shift` and `adaptive_candidates` for short
 reads only, `mate_guidance` for paired-end reads only). `--profile_only` reads it:
 - the sample is profiled with the database's model trained at the gate nearest the SAM's (as a map's `SPARSE_FIRST`
@@ -459,25 +460,49 @@ calibrated with; change them for experiments, not for production profiles.
 | `-a, --max_score_ani` | `auto` (0.9, ONT 0.85) | give up an alignment once it diverges below about this identity; given, for every read type. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 | `--wfa_traceback` | `auto` | how WFA2 recovers each alignment's operations: `classic` (WFA2's high-memory mode, which keeps every wavefront) or `singletrack` (keeps only the match wavefronts and recomputes a gap's steps while tracing back; López-Villellas et al. 2025). Both give the same alignment scores, but among equally good alignments they may choose differently, so SAM records, and the features a model was trained on, can differ. `auto` aligns as the database was built: `--build` aligns with `singletrack` unless told otherwise (`classic` before protal 0.8.2) and records its traceback in `build_settings.tsv` ([databases.md](databases.md#2-build-the-index)); a database without the file was built with `classic`. A run that aligns otherwise than its database was built gets a warning ([report](claude/2026-10-11-singletrack/README.md)) |
-| `--no_mate_guidance` | off (`auto`) | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below). `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
+| `--mate_guidance MODE` | `auto` | paired-end reads whose mates did not align together as their best candidate (below): `consensus`, both mates vote on the fragment's taxon (since 2026-10-15); `guide`, a mate that is sure of its alignment (MAPQ 20 or more) guides the other to its taxon (protal 0.7.1 to 0.8.4); `off`, neither (`--no_mate_guidance` is `off`). Records, MAPQs and so the models' features depend on it. `auto` (the default) takes the mode the database's `build_settings.tsv` records ([above](#what-a-run-takes-from-its-database-and-models)): a database built since 2026-10-15 records the mode `--build` was given, else `consensus`; one built before records none and its models were trained with `guide`, which its runs then use. Models trained with `guide` called the same species with `consensus` on the reduced r226 database's test sets and mocks ([report](claude/2026-10-15-mate-consensus/README.md)) |
 | `--no_alignment_screen` | off | align every candidate with WFA2. By default a candidate whose read and gene window share too few k-mers for any alignment within the score budget is refused before WFA2 (exact: it changes no alignment; at r226 it took the paired-end alignment from 62 to 39 s); also turns off the indel bound below. For measuring |
 | `--no_indel_bound` | off | ONT reads: screen the candidates by their k-mers, as other reads (and ONT reads before 2026-10-09). By default ONT reads are screened by their indel distance instead: a candidate whose read and gene window are too far apart by it for any alignment within the score budget is refused before WFA2. At ONT's identity floor of 0.85 the k-mer screen refuses next to nothing, while most failing candidates are unrelated sequence; PacBio reads keep the k-mer screen, as the candidates it passes mostly align and the bound cost more than it saved there. Exact: neither changes an alignment. The `P_runtime.tsv` row "Indel bound" times it. For measuring |
 | `--flex_indels TYPES` | `none` | score the flex cells of every seed lookup (the 8 bases either side of the k-mer's 15-base core, against the read's) allowing one insertion or deletion in each flank, for reads of these types (`ont`, `pb,ont`, `all`; a map's optional `FLEX_INDELS` column, `1`, `0` or `-`, sets one sample's). Without it an indel in a flank shifts the bases beyond it, which then match only by chance: one next to the core costs ~6 of the flank's 8 bases, and a relative's cell may take the seed. With it a single indel costs one base, as a mismatch does; only an exact match still scores 16, so the unique seeds are the same. Each flank scores the most of its bases equal in place and, from its first differing base on, the read's bases one place in or out. Meant for ONT reads, whose errors are mostly indels, and for gated runs (`--sparse_first`, `--sparse_seeding`), where each lookup counts more; the gate's `--sparse_first_score` counts the bases so too. The scan takes ~3-4 times the instructions per cell. It changes seeds, records and the models' features, and the database's models are trained without it ([report](claude/2026-10-13-flex-indels/README.md)) |
 | `--long_read_budget E` | 0 | long reads: once a candidate of a gene has aligned, its other candidates get the best's budget plus E edits. Saves 10-25% of PacBio aligning but changes MAPQs and the alternatives of such genes, so the models would need retraining; off until benchmarked |
 | `--no_gene_neighbours` | off | do not use the database's gene neighbours (below): no mates looked for past their gene's end, no pairs over two neighbouring genes, no genes looked for next to a long read's genes, and the profile's `adjacent_*` features 0. A database without `gene_neighbours.tsv` works as with it |
 
-A read is one organism, so its parts are given one taxon. When the mates of a pair aligned to two
-genes, or a long read to several, protal compares the taxa of their candidates on the parts both
+A read is one organism, so its parts are given one taxon. When a long read aligned to several
+genes (and, with `--mate_guidance guide` or `off`, when the mates of a pair aligned to two genes),
+protal compares the taxa of their candidates on the parts both
 have a candidate on, and gives every part its alignment of the winning taxon (a long read's genes
 from at least half of them); a part without an alignment of that taxon (a gene the database lacks
 for that species), and a long read's gene that another taxon's gene fits clearly better (MAPQ 4 or
 more between them: a chimeric read, or a homolog of a gene that lies elsewhere on the read), keeps
 its own best alignment but is written with MAPQ 0, so that it counts for no other taxon (long reads:
-tagged `ZR:i:2`; `ZR:i:1` marks a gene whose alignment or MAPQ the read's taxon changed). When only one mate of a pair aligned, or the other has no candidate of the first one's
-taxon, a mate that is sure of its alignment guides the other: the other mate's own anchor of that
-taxon is aligned (only a read's best anchors are), or the other mate is looked for on the first
-one's gene where the fragment can reach (up to 1,000 bases on its side), placed by its 12-mers,
-and aligned in part if it runs past the gene's end. The log reports how many mates each way found.
+tagged `ZR:i:2`; `ZR:i:1` marks a gene whose alignment or MAPQ the read's taxon changed).
+
+When the mates of a pair did not align together as its best candidate (one mate did not align, the
+mates prefer two taxa, or they lie on two genes that are not neighbours), the two mates vote
+(`--mate_guidance consensus`, the default):
+- every taxon either mate aligned to is scored by the sum of the two mates' best alignment scores on
+  it, as a pair on one gene is;
+- a mate without an alignment of a taxon is looked for there: its own anchor of the taxon is
+  aligned (only a read's best anchors are), or it is looked for on the other mate's gene where the
+  fragment can reach (up to 1,000 bases on its side, and on the gene the clade has past that gene's
+  end), placed by its 12-mers and aligned in part if it runs past the gene's end. Not found, it
+  scores what an alignment of its read at the identity floor (`-a`) would, at most its best score
+  elsewhere: the database may lack that part of the species' genome. A mate aligned nowhere scores 0;
+- the taxon of the highest sum takes the fragment, with the MAPQ of its sum against the next taxon's
+  (over the mates aligned to either), so mates that disagree get a low MAPQ instead of a confident
+  one;
+- each mate is written at its best alignment of that taxon (both as a pair where they are one
+  fragment on one gene or two neighbouring genes, else flagged paired but not properly paired, RNEXT
+  the other gene); a mate without an alignment of it, or whose own alignment of another taxon is
+  clearly better (MAPQ 20 or more between the two: a chimera, or a mate past its gene's end that
+  another taxon's neighbouring gene has), keeps its own best alignment with MAPQ 0, so that it counts
+  for no taxon.
+
+With `--mate_guidance guide` (protal 0.7.1 to 0.8.4), when only one mate of a pair aligned, or the
+other has no candidate of the first one's taxon, a mate that is sure of its alignment (MAPQ 20 or more
+against its own other alignments) guides the other to its taxon, found as above, without weighing the
+other mate's own alignments elsewhere; such a pair's score then doubles against its competitors.
+The log reports how many fragments were voted on (or guided) and how many mates each way found.
 
 Marker genes often lie next to each other (the ribosomal protein operons, rpoB and rpoC, ...), so a
 fragment or a long read can span two of them. A database built with gene neighbours
@@ -491,8 +516,9 @@ more the fewer species the family has
   neighbours), as one
   fragment of at most 1,000 bases would, are paired like mates on one gene: written as a proper
   pair (flag 2) on two references (RNEXT the other gene, TLEN 0);
-- a guiding mate whose fragment reaches past its gene's end also looks for the other mate on the
-  gene the clade has there, over the stretch the fragment reaches after the gap;
+- a mate whose fragment reaches past its gene's end (in the mates' vote, or guiding the other) also
+  looks for the other mate on the gene the clade has there, over the stretch the fragment reaches
+  after the gap;
 - a long read that goes on past the end of a gene of its taxon is searched, where the clade puts
   that gene's neighbour, for the neighbour if no part of the read has it: a candidate of it beyond
   the longest is aligned, and a gene too divergent to be seeded is placed by its 12-mers (one that

@@ -1,0 +1,6 @@
+sample	taxon	taxon_name	truth	in	prediction	probability
+d6331_auckland_SRR33710519	190	s__Limosilactobacillus caccae	0	consensus_floor	0	0.140625
+d6331_auckland_SRR33710519	375	s__Roseburia intestinalis	0	guide	0	0.078125
+d6331_auckland_SRR33710519	487	s__Mitsuokella multacida	0	guide	0	0.09375
+d6331_hku_SRR23926922	487	s__Mitsuokella multacida	0	guide	0	0.015625
+hcom2_SRR21819229	348	s__Lacrimispora sp003833015	0	consensus_floor	0	0.015625

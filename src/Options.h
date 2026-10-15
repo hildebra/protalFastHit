@@ -27,6 +27,7 @@
 #include "GeneIncongruence.h"
 #include "SpikeGenes.h"
 #include "BuildSettings.h"
+#include "MateGuidanceMode.h"
 #include "SpeciesPriors.h"
 #include "NcbiTaxids.h"
 #include "SpeciesNeighbours.h"
@@ -97,7 +98,7 @@ namespace protal {
         bool show_map_help = false;
         bool show_version = false;
         bool no_strains = false;
-        bool no_mate_guidance = false;
+        MateGuidanceMode mate_guidance = kDefaultMateGuidance;
         bool no_gene_neighbours = false;
         bool keep_foreign_genes = false;
         bool keep_suspect_copies = false;
@@ -256,7 +257,7 @@ namespace protal {
         bool m_show_version = false;
 
         bool m_no_strains = false;
-        bool m_no_mate_guidance = false;
+        MateGuidanceMode m_mate_guidance = kDefaultMateGuidance;
         bool m_no_gene_neighbours = false;
         bool m_keep_foreign_genes = false;
         bool m_keep_suspect_copies = false;  // --keep_suspect_copies
@@ -509,7 +510,7 @@ namespace protal {
                 m_no_profile(d.no_profile),
                 m_profile_only(d.profile_only),
                 m_no_strains(d.no_strains),
-                m_no_mate_guidance(d.no_mate_guidance),
+                m_mate_guidance(d.mate_guidance),
                 m_no_gene_neighbours(d.no_gene_neighbours),
                 m_keep_foreign_genes(d.keep_foreign_genes),
                 m_keep_suspect_copies(d.keep_suspect_copies),
@@ -868,9 +869,9 @@ namespace protal {
             return m_no_strains;
         }
 
-        // Paired-end reads: whether a mate sure of its alignment guides the other (MateGuidance.h).
-        bool MateGuidance() const {
-            return !m_no_mate_guidance;
+        // Paired-end reads: how a pair whose mates did not align together is settled (--mate_guidance, MateGuidance.h).
+        MateGuidanceMode GetMateGuidance() const {
+            return m_mate_guidance;
         }
 
         // Whether the database's gene neighbours are used (GeneNeighbours.h), if it has any.

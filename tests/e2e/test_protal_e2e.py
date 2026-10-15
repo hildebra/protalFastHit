@@ -4467,7 +4467,7 @@ class RunSettingsTest(WorkDir):
 
     def test_the_build_records_its_run_settings(self):
         expected = {"weighted_site_shift": "on", "allele_scores": "on", "align_top": "4", "adaptive_candidates": "7",
-                    "mate_guidance": "on", "max_score_ani_pe": "0.92", "max_score_ani_ont": "0.92", "unique_kmers": "cores",
+                    "mate_guidance": "consensus", "max_score_ani_pe": "0.92", "max_score_ani_ont": "0.92", "unique_kmers": "cores",
                     "keep_foreign_genes": "off", "keep_suspect_copies": "on", "depth_identity_margin": "0.08"}
         recorded = dict(line.split("\t") for line in self.settings(self.db, "unpacked").splitlines() if not line.startswith("#"))
         for key, value in expected.items():
@@ -4489,7 +4489,7 @@ class RunSettingsTest(WorkDir):
         self.assertNotIn("is told otherwise than the database's models were trained", log)
         self.assertNotIn("Note: the database records no", log)
         for key, value in (("read_type", "pe"), ("gate", "0"), ("unique_kmers", "cores"), ("traceback", "singletrack"),
-                           ("allele_scores", "on"), ("weighted_site_shift", "on"), ("mate_guidance", "on"),
+                           ("allele_scores", "on"), ("weighted_site_shift", "on"), ("mate_guidance", "consensus"),
                            ("align_top", "4"), ("adaptive_candidates", "7"), ("max_score_ani", "0.92")):
             self.assertEqual(sam.get(key), value, key)
         log, sam = self.align("told", "-c", "3", "--no_weighted_site_shift", "-a", "0.92")
@@ -4519,6 +4519,9 @@ class RunSettingsTest(WorkDir):
                       "mate_guidance, max_score_ani_pe (built before 2026-10-15)", log)
         self.assertNotIn("is told otherwise", log)
         self.assertEqual((sam["align_top"], sam["weighted_site_shift"], sam["max_score_ani"]), ("3", "off", "0.9"))
+        # Mate guidance as its models were trained: guide, every protal's mode before consensus.
+        self.assertIn("; mate guidance: guide, the mode of every protal before (its models were trained with it)", log)
+        self.assertEqual(sam["mate_guidance"], "guide")
         # Its unique cores still tell how its models counted the unique k-mers.
         log, _ = self.align("old_anchors", "--no_unique_cores", db=old)
         self.assertIn("Warning: this run counts each record's ZS, ZU and ZT from its anchor's seeds", log)

@@ -72,12 +72,13 @@ TEST(RunSettings, OlderFilesSayNothingLaterOnesAreTolerated) {
     EXPECT_TRUE(build_settings::RunFields(older.run).empty());
 
     build_settings::Settings later;
-    std::istringstream after("max_score_ani_hifi\t0.95\nmate_guidance\tconsensus\nunique_kmers\tgrid\nnew_setting\t1\n"
+    std::istringstream after("max_score_ani_hifi\t0.95\nmate_guidance\tvote\nunique_kmers\tgrid\nnew_setting\t1\n"
                              "allele_scores\ton\n");
     ASSERT_EQ(build_settings::Read(after, later), "");
-    EXPECT_EQ(later.run.mate_guidance, std::optional<std::string>("consensus"));
+    EXPECT_EQ(later.run.mate_guidance, std::optional<std::string>("vote"));
     EXPECT_FALSE(build_settings::KnownMateGuidance(*later.run.mate_guidance));
-    EXPECT_TRUE(build_settings::KnownMateGuidance("on"));
+    for (auto const* mode : { "consensus", "guide", "off" }) EXPECT_TRUE(build_settings::KnownMateGuidance(mode)) << mode;
+    EXPECT_FALSE(build_settings::KnownMateGuidance("on"));
     EXPECT_EQ(later.run.unique_kmers, std::optional<std::string>("grid"));
     EXPECT_EQ(later.run.allele_scores, std::optional<bool>(true));
     for (auto const& floor : later.run.max_score_ani) EXPECT_FALSE(floor);
@@ -145,7 +146,7 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     EXPECT_TRUE(options.WeightedSiteShift());               // the database's
     EXPECT_TRUE(options.NoAlleleScores());
     EXPECT_EQ(options.GetAdaptiveCandidates(), 0u);
-    EXPECT_FALSE(options.MateGuidance());
+    EXPECT_EQ(options.GetMateGuidance(), MateGuidanceMode::Off);
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::Paired), 0.92);
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::Single), DEFAULT_MAX_SCORE_ANI);  // not recorded: protal's default
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::ONT), 0.8);
@@ -157,9 +158,23 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
 
     // A mode this protal does not know leaves its default.
     Options plain{ OptionsData() };
-    recorded.mate_guidance = "consensus";
+    recorded.mate_guidance = "vote";
     plain.FollowDatabaseRunSettings(recorded);
-    EXPECT_TRUE(plain.MateGuidance());
+    EXPECT_EQ(plain.GetMateGuidance(), kDefaultMateGuidance);
+    // A database that records no mode (built before 2026-10-15) trained its models with guide; a mode given stays.
+    Options older{ OptionsData() };
+    older.FollowDatabaseRunSettings(build_settings::RunSettings());
+    EXPECT_EQ(older.GetMateGuidance(), MateGuidanceMode::Guide);
+    EXPECT_EQ(older.RunSettingsInUse().mate_guidance, std::optional<std::string>("guide"));
+    OptionsData consensus_given;
+    consensus_given.run_settings_given.mate_guidance = "consensus";
+    consensus_given.mate_guidance = MateGuidanceMode::Consensus;
+    Options given{ consensus_given };
+    given.FollowDatabaseRunSettings(build_settings::RunSettings());
+    EXPECT_EQ(given.GetMateGuidance(), MateGuidanceMode::Consensus);
+    recorded.mate_guidance = "guide";
+    given.FollowDatabaseRunSettings(recorded);
+    EXPECT_EQ(given.GetMateGuidance(), MateGuidanceMode::Consensus);
 
     // -a given: every read type's, whatever the database records.
     OptionsData a;

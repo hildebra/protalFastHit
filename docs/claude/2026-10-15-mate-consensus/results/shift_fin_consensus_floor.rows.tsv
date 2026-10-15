@@ -1,0 +1,14 @@
+sample	taxon	taxon_name	truth	in	prediction	probability
+rl150_p10000_s_1	636	s__Geomonas bemidjiensis	0	guide	0	0.078125
+rl150_p100000_s_10	534	s__Bacteroides xylanisolvens	0	consensus_floor	0	0.015625
+rl150_p100000_s_10	727	s__Yersinia frederiksenii	0	consensus_floor	0	0.03125
+rl150_p100000_s_4	459	s__Ruthenibacterium sp036643515	0	guide	0	0
+rl150_p100000_s_8	643	s__Bilophila sp902373525	0	guide	0	0
+rl150_p1000000_s_4	388	s__Ruminococcus_G gauvreauii	0	consensus_floor	0	0.03125
+rl150_p1000000_s_5	83	s__Bifidobacterium pseudocatenulatum	0	guide	0	0.03125
+rl150_p1000000_s_5	449	s__Hominimerdicola alba_D	0	guide	0	0
+rl150_p1000000_s_9	753	s__Thermotoga neapolitana	0	guide	0	0.015625
+rl250_p100000_s_10	384	s__Ruminococcus_B gnavus	0	guide	0	0.125
+rl250_p100000_s_10	415	s__Hominicoprocola sp017458025	0	guide	0	0.140625
+rl250_p100000_s_6	229	s__Clostridium sp024409095	0	guide	0	0.140625
+rl250_p100000_s_8	611	s__Herpetosiphon aurantiacus	0	guide	0	0.109375

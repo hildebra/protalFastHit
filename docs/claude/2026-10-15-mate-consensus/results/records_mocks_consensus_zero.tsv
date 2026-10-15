@@ -1,0 +1,8 @@
+sample	fragments_with_records	differ	taxon_differs	mapq_differs_only	cross_cutoff	split_taxa_guide	split_taxa_consensus_zero
+d6331_auckland_SRR33710519	47778	1002	940	62	536	133	68
+d6331_dna_SRR38158090	64754	1666	1652	14	643	32	10
+d6331_hku_SRR23926922	50589	1052	975	77	652	143	96
+hcom1a_SRR24799833	28801	397	371	26	232	16	14
+hcom2_SRR21819229	40354	629	572	57	453	41	37
+treichel_ERR14788576	15027	112	108	4	49	1	2
+all	247303	4858	4618	240	2565	366	227

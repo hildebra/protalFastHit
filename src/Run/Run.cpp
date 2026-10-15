@@ -272,8 +272,8 @@ namespace protal {
         auto const& recorded = settings.run;
         if (recorded.mate_guidance && !b::KnownMateGuidance(*recorded.mate_guidance)) {
             std::cerr << "Warning: the database records mate_guidance '" << *recorded.mate_guidance << "' (" << b::kFileName
-                      << "), a mode this protal does not know (a later protal's?): paired-end reads are guided as protal's "
-                      << "default (" << b::kMateGuidanceOn << "), which the database's models may not have been trained with. "
+                      << "), a mode this protal does not know (a later protal's?): paired-end reads are settled by protal's "
+                      << "default (" << MateGuidanceName(kDefaultMateGuidance) << "), which the database's models may not have been trained with. "
                       << "Profile them with the protal that built the database." << std::endl;
         }
         if (recorded.unique_kmers && *recorded.unique_kmers != b::kUniqueCores && *recorded.unique_kmers != b::kUniqueAnchors) {
@@ -309,7 +309,10 @@ namespace protal {
             std::string list;
             for (auto const& name : unrecorded) list += (list.empty() ? "" : ", ") + name;
             out << "Note: the database records no " << list << " (built before 2026-10-15): this run uses protal's defaults "
-                << "for them (or the options given), which may not be what its models were trained with" << std::endl;
+                << "for them (or the options given), which may not be what its models were trained with"
+                << (std::find(unrecorded.begin(), unrecorded.end(), std::string(b::kMateGuidance)) != unrecorded.end() &&
+                    !options.RunSettingsGiven().mate_guidance
+                        ? "; mate guidance: guide, the mode of every protal before (its models were trained with it)" : "") << std::endl;
         }
 
         // --no_unique_cores on a database whose models were trained on the unique cores.

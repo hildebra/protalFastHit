@@ -41,7 +41,8 @@ namespace protal {
                 ("no_site_weights", "Leave the database's column weights (column_weights.tsv, --build --column_weights) unread: the 'weights' features are unknown (-1), the ancestry sites of a species with fewer than three congeners are the nearest congener's differences, as before 2026-10-10, and --weighted_site_shift has nothing to weigh by. For measuring what the weights are worth, not for a production run: a database's models are trained with them.")
                 ("no_allele_scores", "Short reads: score each candidate alignment against the reference alone. By default, with a database that has strain alleles (strain_alleles.tsv, --build --strain_alleles), a candidate's score counts the read's differences from the best of its species' known alleles where those explain them (StrainAlleles.h), so a read of a known strain scores on its species as on the strain's own gene (and with --weighted_site_shift discounts its differences at the columns the family's genera change freely); the records keep their alignment to the reference. A database's models are trained with its alleles' scores: use this to measure them, not on a production run. Neither this nor --allele_scores given (auto): as the database's build_settings.tsv records, else on.")
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
-                ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end). Without it (auto): as the database's build_settings.tsv records, else on.")
+                ("mate_guidance", "Paired-end reads whose mates did not align together as their best candidate: consensus (both mates vote: every taxon either mate aligned to is scored by the sum of the two mates' best scores on it, a mate without an alignment there looked for on the other mate's gene or its neighbours, or from its own anchor of the taxon, else scored as an alignment at the identity floor, at most its best elsewhere; the best sum wins, with the MAPQ of its margin over the next taxon's), guide (a mate sure of its alignment, MAPQ 20 or more, makes the other one align to its taxon; protal 0.7.1 to 0.8.4), or off (neither). The database's models are trained with one of them: auto (default) is the mode its build_settings.tsv records, else guide (a database built before 2026-10-15, whose models were trained with guide); --build records the mode given, else consensus.", cxxopts::value<std::string>()->default_value("auto"))
+                ("no_mate_guidance", "The same as --mate_guidance off (kept for older command lines).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
                 ("spike_genes", "Spike mode: whether a sample's spike genes are left out of the evidence of their species, as if their reads had not aligned. A spike gene's reads pile far beyond what the rest of its taxon's genes explain (50 reads or more, 50 times the depth of the taxon's genes outside its 3 deepest, the spikes together half of the taxon's reads or more): a PCR product or a fragment of one gene carried over into the library. auto (default): before a sample is profiled its reads per gene are counted, and the sample is in spike mode if at least 2 of its 10 taxa with the most reads have spike genes and the spikes hold 5% of its reads or more, the pattern of carried-over products (a relative's reads also pile on a few genes of an absent congener, a thin taxon, which this leaves alone); on: every sample (also a relative's piles are taken, which can make such a congener look present); off: none, and no counting. In a real D6331 mock sample every species had such a gene and two were missed without spike mode (docs/claude/2026-10-15-mock-near-misses). The log gives each sample's check; <profile>.spike_genes.tsv lists the genes left out.", cxxopts::value<std::string>()->default_value("auto"))
                 ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy). Without it (auto): as the database's build_settings.tsv records, else left out; --keep_suspect_copies=off leaves them out on any database.", cxxopts::value<std::string>()->default_value("auto")->implicit_value("on"))
@@ -255,6 +256,7 @@ namespace protal {
                                                   m_build ? "mapq (auto)" : "auto (the database's)") << '\n';
         result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
         result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
+        result_str << "mate guidance:       " << MateGuidanceName(m_mate_guidance) << (g.mate_guidance || m_build ? "" : " (auto: the database's, else guide)") << '\n';
         if (long_reads) {
             result_str << "indel bound:         " << (m_no_alignment_screen ? "off (--no_alignment_screen)" :
                                                       m_no_indel_bound ? "off (--no_indel_bound: ONT reads screened by their k-mers)" :
@@ -1273,7 +1275,12 @@ namespace protal {
             else if (result.count("allele_scores")) given.allele_scores = true;
             count("align_top", given.align_top);
             count("adaptive_candidates", given.adaptive_candidates);
-            if (result.count("no_mate_guidance")) given.mate_guidance = std::string(build_settings::kMateGuidanceOff);
+            if (result.count("no_mate_guidance")) {
+                given.mate_guidance = std::string(build_settings::kMateGuidanceOff);
+            } else if (text("mate_guidance") != "auto") {
+                if (!ParseMateGuidance(text("mate_guidance"))) bad("mate_guidance", "consensus, guide or off", text("mate_guidance"));
+                given.mate_guidance = text("mate_guidance");
+            }
             std::optional<double> identity_floor;
             decimal("max_score_ani", identity_floor);
             given.max_score_ani.fill(identity_floor);
@@ -1284,7 +1291,8 @@ namespace protal {
         }
 
         bool no_strains = result.count("no_strains");
-        bool no_mate_guidance = given.mate_guidance == std::string(build_settings::kMateGuidanceOff);
+        // --mate_guidance given (or --no_mate_guidance), else protal's default until the database's is known.
+        MateGuidanceMode const mate_guidance = given.mate_guidance ? *ParseMateGuidance(*given.mate_guidance) : kDefaultMateGuidance;
         bool no_gene_neighbours = result.count("no_gene_neighbours");
         bool keep_foreign_genes = given.keep_foreign_genes.value_or(false);
         bool keep_suspect_copies = given.keep_suspect_copies.value_or(false);
@@ -1767,7 +1775,7 @@ namespace protal {
         d.no_profile               = no_profile;
         d.profile_only             = profile_only;
         d.no_strains               = no_strains;
-        d.no_mate_guidance         = no_mate_guidance;
+        d.mate_guidance            = mate_guidance;
         d.no_gene_neighbours       = no_gene_neighbours;
         d.keep_foreign_genes       = keep_foreign_genes;
         d.no_phasing               = no_phasing;
@@ -1926,9 +1934,11 @@ namespace protal {
         if (!g.allele_scores && recorded.allele_scores) m_no_allele_scores = !*recorded.allele_scores;
         if (!g.align_top && recorded.align_top) m_align_top = *recorded.align_top;
         if (!g.adaptive_candidates && recorded.adaptive_candidates) m_adaptive_candidates = *recorded.adaptive_candidates;
-        // A mode this protal does not know (a later protal's) leaves its default (ApplyRunSettings warns).
-        if (!g.mate_guidance && recorded.mate_guidance && build_settings::KnownMateGuidance(*recorded.mate_guidance)) {
-            m_no_mate_guidance = *recorded.mate_guidance == build_settings::kMateGuidanceOff;
+        // Mate guidance: the database's mode; guide where it records none (built before 2026-10-15, its models trained with
+        // guide); a mode this protal does not know (a later protal's) leaves its default (ApplyRunSettings warns).
+        if (!g.mate_guidance) {
+            if (!recorded.mate_guidance) m_mate_guidance = MateGuidanceMode::Guide;
+            else if (auto const mode = ParseMateGuidance(*recorded.mate_guidance)) m_mate_guidance = *mode;
         }
         m_database_max_score_ani = recorded.max_score_ani;  // GetMaxScoreAni: where -a is not given
         if (!g.keep_foreign_genes && recorded.keep_foreign_genes) m_keep_foreign_genes = *recorded.keep_foreign_genes;
@@ -1943,7 +1953,7 @@ namespace protal {
         s.allele_scores = !m_no_allele_scores;
         s.align_top = m_align_top;
         s.adaptive_candidates = m_adaptive_candidates;
-        s.mate_guidance = std::string(m_no_mate_guidance ? build_settings::kMateGuidanceOff : build_settings::kMateGuidanceOn);
+        s.mate_guidance = std::string(MateGuidanceName(m_mate_guidance));
         for (auto const& info : kReadTypes) s.max_score_ani[static_cast<size_t>(info.type)] = GetMaxScoreAni(info.type);
         s.unique_kmers = std::string(m_no_unique_cores ? build_settings::kUniqueAnchors : build_settings::kUniqueCores);
         s.keep_foreign_genes = m_keep_foreign_genes;

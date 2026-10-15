@@ -1348,7 +1348,7 @@ runs use protal's defaults, with one note.
 | `allele_scores` | `on`, `off` | `on` | `--no_allele_scores`, `--allele_scores` |
 | `align_top` | number | 3 | `-c, --align_top` |
 | `adaptive_candidates` | number | 7 | `--adaptive_candidates` |
-| `mate_guidance` | `on`, `off` | `on` | `--no_mate_guidance` |
+| `mate_guidance` | `consensus`, `guide`, `off` | `consensus` (runs on a database that records none: `guide`) | `--mate_guidance`, `--no_mate_guidance` |
 | `max_score_ani_pe` to `max_score_ani_ont` | decimal | 0.9, ONT 0.85 | `-a, --max_score_ani` |
 | `unique_kmers` | `cores`, `anchors` | `cores` (`anchors` without `unique_cores.bin`) | `--no_unique_cores` |
 | `keep_foreign_genes` | `on`, `off` | `off` | `--keep_foreign_genes` |

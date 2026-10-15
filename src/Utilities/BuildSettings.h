@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "MateGuidanceMode.h"
 #include "ReadType.h"
 #include "WfaTraceback.h"
 
@@ -173,7 +174,7 @@ namespace protal::build_settings {
     inline constexpr std::string_view kAlleleScores = "allele_scores";                 // on, off
     inline constexpr std::string_view kAlignTop = "align_top";                         // N
     inline constexpr std::string_view kAdaptiveCandidates = "adaptive_candidates";     // N
-    inline constexpr std::string_view kMateGuidance = "mate_guidance";                 // on, off (a later protal's modes too)
+    inline constexpr std::string_view kMateGuidance = "mate_guidance";                 // consensus, guide, off (a later protal's modes too)
     inline constexpr std::string_view kMaxScoreAni = "max_score_ani_";                 // + pe, se, pb, ont: the identity floor
     inline constexpr std::string_view kUniqueKmers = "unique_kmers";                   // cores, anchors
     inline constexpr std::string_view kKeepForeignGenes = "keep_foreign_genes";        // on, off
@@ -182,8 +183,7 @@ namespace protal::build_settings {
     // unique_kmers: ZS, ZU and ZT from the gene's cores an alignment covers (unique_cores.bin), or from its anchor's seeds.
     inline constexpr std::string_view kUniqueCores = "cores";
     inline constexpr std::string_view kUniqueAnchors = "anchors";
-    // The mate guidance modes this protal knows; a mode of a later protal is kept as text (KnownMateGuidance).
-    inline constexpr std::string_view kMateGuidanceOn = "on";
+    // mate_guidance: the modes of MateGuidanceMode.h by name; a mode of a later protal is kept as text (KnownMateGuidance).
     inline constexpr std::string_view kMateGuidanceOff = "off";
 
     // The settings of a run that change its alignments or the features its models read: those --build ran with
@@ -238,9 +238,9 @@ namespace protal::build_settings {
         return on ? "on" : "off";
     }
 
-    // Whether this protal knows mate guidance mode `mode` (on, off).
+    // Whether this protal knows mate guidance mode `mode` (consensus, guide, off).
     inline bool KnownMateGuidance(std::string_view mode) {
-        return mode == kMateGuidanceOn || mode == kMateGuidanceOff;
+        return ParseMateGuidance(mode).has_value();
     }
 
     // The run settings that are said, as build_settings.tsv names them and their values as text, in the file's order:
