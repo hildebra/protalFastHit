@@ -268,6 +268,17 @@ namespace protal {
             bm_score.Start();
             if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
             bm_score.Stop();
+            // The profile's folder, before anything next to the profile is written (the spike genes, the truth
+            // annotation; a map may name a folder that is not there yet).
+            {
+                bool made;
+#pragma omp critical(create_dir)
+                made = MakeFolder(std::filesystem::path(options.ProfileFile(i)).parent_path());
+                if (!made) {
+                    std::cerr << "Cannot create directories for path " << options.ProfileFile(i) << std::endl;
+                    exit(2);
+                }
+            }
             // The taxa near or above the knob whose features lie outside the model's training range (FeatureRanges.h; a
             // model with the trainer's protal_feature_ranges): a line for the sample, and each taxon's in its .profile.log.
             if (auto const& ranges = filter.FeatureRanges()) {
@@ -389,15 +400,6 @@ namespace protal {
             }
             if (options.Verbose()) {
                 std::cout << "Write profile to: \n" << options.ProfileFile(i) << std::endl;
-            }
-            {
-                bool made;
-#pragma omp critical(create_dir)
-                made = MakeFolder(std::filesystem::path(options.ProfileFile(i)).parent_path());
-                if (!made) {
-                    std::cerr << "Cannot create directories for path " << options.ProfileFile(i) << std::endl;
-                    exit(2);
-                }
             }
 
             bm_write.Start();
