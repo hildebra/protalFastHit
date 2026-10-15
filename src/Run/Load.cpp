@@ -543,7 +543,8 @@ namespace protal {
                 log << "Key map not compacted: a group of its starts would span 2^24 slots or more (the direct key map kept)" << std::endl;
             }
         }
-        // --hashed_keys: the compact key map as a hash table of lines (HashedKeys.h), one line a lookup; the same lookups.
+        // The compact key map as a hash table of lines (HashedKeys.h), one line a lookup; the same lookups. The default since
+        // 2026-10-15 (--compact_keys: not).
         if (options.HashedKeys() && map->HasCompactKeys()) {
             auto const begin = std::chrono::steady_clock::now();
             bool const hashed = map->HashKeymap(load_threads);

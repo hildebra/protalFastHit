@@ -4743,14 +4743,14 @@ class SparseFirstGatesTest(WorkDir):
         """The compact key map (2026-10-14; a run's default since then, CompactKeys.h) keeps the key map of the cores with
         values alone, built as the index is loaded: the same records as the direct key map (--direct_keys), whole and on
         the grid's sparse index, and for long reads, gated (their lookups streamed, SparseHits and LookupKmers, not fetched
-        a read ahead), a smaller key map on the index line. --compact_keys is still taken; given with --direct_keys, the
-        run stops. The hashed key map (--hashed_keys, HashedKeys.h, 2026-10-15) gives the same records too, and says so on
-        its own index line; given with --direct_keys, the run stops."""
+        a read ahead), a smaller key map on the index line (--compact_keys since 2026-10-15). The hashed key map (HashedKeys.h,
+        a run's default since 2026-10-15; --hashed_keys still taken) gives the same records too, and says so on its own index
+        line. Any two of --direct_keys, --compact_keys and --hashed_keys stop the run."""
         records, logs = {}, {}
-        for name, extra in (("keys_direct", ("--direct_keys",)), ("keys_compact", ()), ("keys_hashed", ("--hashed_keys",)),
+        for name, extra in (("keys_direct", ("--direct_keys",)), ("keys_compact", ("--compact_keys",)), ("keys_hashed", ()),
                             ("keys_grid", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--direct_keys")),
                             ("keys_grid_compact", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--compact_keys")),
-                            ("keys_grid_hashed", ("--sparse_first", "4", "--sparse_first_pick", "grid", "--hashed_keys"))):
+                            ("keys_grid_hashed", ("--sparse_first", "4", "--sparse_first_pick", "grid"))):
             logs[name] = self.align(name, *extra, db=self.plain_db)
             records[name] = sorted(sam_records(self.path(name, f"{name}.sam")))
         self.assertTrue(records["keys_direct"])
@@ -4778,7 +4778,7 @@ class SparseFirstGatesTest(WorkDir):
                     pieces += ["".join(rng.choice("ACGT") for _ in range(rng.randint(500, 1500))), g]
                 read = "".join(pieces)
                 out.write(f"@m64001_000000/{r}/ccs\n{read}\n+\n{'I' * len(read)}\n")
-        for name, extra in (("keys_long", ("--direct_keys",)), ("keys_long_compact", ()), ("keys_long_hashed", ("--hashed_keys",))):
+        for name, extra in (("keys_long", ("--direct_keys",)), ("keys_long_compact", ("--compact_keys",)), ("keys_long_hashed", ()), ("keys_long_hashed_given", ("--hashed_keys",))):
             rc, log = run(self.work, "--db", self.plain_db, "-1", long_reads, "--read_type", "pb", "--sparse_first", "8",
                           "--prefix", name, "-o", name, "-t", "2", "--no_strains", "--no_profile", *extra)
             self.assertEqual(rc, 0, log[-3000:])
@@ -4786,11 +4786,13 @@ class SparseFirstGatesTest(WorkDir):
         self.assertTrue(records["keys_long"])
         self.assertEqual(records["keys_long"], records["keys_long_compact"])
         self.assertEqual(records["keys_long"], records["keys_long_hashed"])
+        self.assertEqual(records["keys_long"], records["keys_long_hashed_given"])
         for name in ("keys_compact", "keys_grid_compact"):
             self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 0\.\d GB \(compact: \d+ cores with values of 1073741824")
         for name in ("keys_direct", "keys_grid"):
             self.assertRegex(logs[name], r"Index in memory: [^\n]*key map 3\.2 GB\n")
-        # --hashed_keys (2026-10-15, HashedKeys.h): the compact key map made a hash table of lines after the load.
+        # The hashed key map (HashedKeys.h, the default since 2026-10-15): the compact key map made a hash table of lines
+        # after the load.
         for name in ("keys_hashed", "keys_grid_hashed"):
             self.assertRegex(logs[name], r"Index in memory \(hashed key map, made in [0-9.]+ s\): [^\n]*key map [0-9.]+ GB \(hashed: \d+ "
                                          r"cores with values in 2\^\d+ lines, load 0\.\d+, \d+ past their home line")
@@ -4798,6 +4800,8 @@ class SparseFirstGatesTest(WorkDir):
         self.assertIn("--compact_keys and --direct_keys ask for different key maps", log)
         log = self.align("keys_hashed_direct", "--hashed_keys", "--direct_keys", db=self.plain_db, rc_expected=2)
         self.assertIn("--hashed_keys and --direct_keys ask for different key maps", log)
+        log = self.align("keys_hashed_compact", "--hashed_keys", "--compact_keys", db=self.plain_db, rc_expected=2)
+        self.assertIn("--hashed_keys and --compact_keys ask for different key maps", log)
 
     def test_seed_tags_and_the_seed_expectation(self):
         """Since 2026-10-14 a record says how many k-mers its ZU and ZT were counted over (ZS). With the database's

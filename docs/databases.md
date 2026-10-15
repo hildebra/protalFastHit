@@ -186,8 +186,9 @@ both in place. `--unpack_db` writes them back.
   The file's key map gives each of the 2^30 cores an offset (3.2 GB whatever the reference; r226 uses 9.2% of its
   slots, [report](claude/2026-10-13-compact-key-map.md)). A run keeps it for the cores with values alone (the compact
   key map, the default since 2026-10-14; presence bits with ranks, 153 MB, and 3 bytes a used core: ~0.45 GB at
-  r226, less on a sparse index), built as the index loads; the same lookups, a second cache line each
-  (`--direct_keys`: the direct one, [running.md](running.md#developer-options)). A sparse or compact load decodes no
+  r226, less on a sparse index), built as the index loads; the same lookups, a second cache line each. Since 2026-10-15
+  a run makes it a hash table of lines once loaded (the hashed key map, ~1.07 GB at r226, one line a lookup;
+  `--compact_keys`: the compact one, `--direct_keys`: the direct one, [running.md](running.md#developer-options)). A sparse or compact load decodes no
   key map of the file's: the decoder names each core with values (since 2026-10-14; a grid's sparse index loads
   2.5-3x faster than before, [report](claude/2026-10-14-sparse-load-key-map/README.md)).
 - A full r226 run peaked at 36.5 GB, about 31 GB expected now ([running.md](running.md#memory)).

@@ -2012,7 +2012,8 @@ namespace protal {
         bool HasCompactKeys() const { return m_compact != nullptr; }
         bool HasHashedKeys() const { return m_hashed != nullptr; }
 
-        // The compact key map as HashedKeys (--hashed_keys): one line a lookup, ~1.07 GB at r226; the compact one freed.
+        // The compact key map as HashedKeys (a run's default since 2026-10-15; --compact_keys: not): one line a lookup, ~1.07 GB
+        // at r226; the compact one freed.
         // False, and the compact one kept, without one or if a core would lie too far past its home line.
         bool HashKeymap(int threads) {
             if (!m_compact) return false;

@@ -758,8 +758,8 @@ grid levels stops a grid-picked run (exit 2). The models must be trained on runs
 the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
 pick; [report](claude/2026-10-13-gene-grid-index.md)).
 
-The index's key map is compact (since 2026-10-14; opt-in as `--compact_keys` that day before it became
-the default): it holds the cores with values alone, a presence bit for each of the 2^30 cores with ranks
+The load builds a compact key map (since 2026-10-14; opt-in as `--compact_keys` that day before it became
+the default), which a run then makes the hashed key map (below): it holds the cores with values alone, a presence bit for each of the 2^30 cores with ranks
 (153 MB) and 3 bytes a used core, instead of 16-bit offsets for all of them (3.2 GB, of which r226 uses
 9.2%). The load builds it as it decodes, so the direct key map is never held: on the reduced r226
 database a run peaks at 0.8 GB instead of 3.4 GB, and at r226 the key map takes ~0.45 GB (less on a
@@ -769,20 +769,21 @@ with the CPU's popcount: on the reduced r226 database, one thread, its seeding t
 paired-end reads and 38 for HiFi, against 55 and 47 with the direct key map, and a grid's sparse index
 loads faster with it (0.65 against 0.96 s for the strain world's at C 4;
 [report](claude/2026-10-14-sparse-load-key-map/README.md),
-[first report](claude/2026-10-13-compact-key-map.md)). `--direct_keys` holds the direct key map instead;
-`--compact_keys` is still taken, and both together stop the run. At r226 the compact map costs ~25 ns a
+[first report](claude/2026-10-13-compact-key-map.md)). `--direct_keys` holds the direct key map instead, and
+`--compact_keys` keeps the compact one; two of `--direct_keys`, `--compact_keys` and `--hashed_keys` together stop
+the run. At r226 the compact map costs ~25 ns a
 lookup more than the direct one (its two lines depend on each other, and its starts no longer fit the
 caches): the seeding of a paired-end sample takes 13.7 instead of 11.6 s a thread on 32 threads, a run
 gated at C 4 21.2 instead of 19.9 s, for 2.5 GB less memory
 ([report](claude/2026-10-15-perf-0.8.4a/README.md), sections 3 and 9).
 
-`--hashed_keys` (2026-10-15, for measurements) makes the compact key map a hash table once the index is
-loaded: each core with values has a 64-bit entry (its tag, its place past its home line, its first slot
+Since 2026-10-15 a run makes the compact key map a hash table once the index is loaded (the hashed key
+map; `--hashed_keys` is still taken, `--compact_keys` keeps the compact one): each core with values has a 64-bit entry (its tag, its place past its home line, its first slot
 and slot count) in lines of eight, its home line chosen by a mix of the core, so that a lookup reads one
 line, as of the direct map, in ~1.07 GB at r226 (load 0.74; ~5% of the cores lie a line or more past
-their home line). The records are the same; given with `--direct_keys`, the run stops. Whether it is as
-fast as the direct map at r226 is to be measured
-([report](claude/2026-10-15-perf-0.8.4a/README.md), section 10).
+their home line), 0.6 GB more than the compact one. The records are the same. On synthetic short reads against a
+key map of r226's size a lookup took 14.3 ns, against 47.3 with the compact map and 4.5 with the direct one; at r226
+itself its speed is still to be measured ([report](claude/2026-10-15-perf-0.8.4a/README.md), section 10).
 
 `--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
 while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
@@ -804,7 +805,8 @@ protal keeps the index and the reference genes in memory: 36.5 GB peak for a run
 database, measured on real paired-end and HiFi samples (2026-10-05, `2d809cf`, 32 threads), about
 34 GB expected since the index load frees its threads' buffers as it ends and the index's values take
 41 bits (26.6 GB), and about 31 GB since its key map is compact by default (2026-10-14: ~0.45 GB instead of
-3.2 GB; `--direct_keys` holds the direct one, above; the genes at two bits per base, the tables and the run's
+3.2 GB), ~31.6 GB since a run holds it hashed (2026-10-15: ~1.07 GB; `--compact_keys` keeps the compact one,
+`--direct_keys` the direct one, above; the genes at two bits per base, the tables and the run's
 buffers, the rest;
 [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
