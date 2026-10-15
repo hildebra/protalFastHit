@@ -323,3 +323,18 @@ between repeats.
 **Data.** WSL `~/mc/runs/{fin,tdb,mocks}/{guide,consensus_floor}` keep the SAMs, profiles and truth tables of the
 two modes compared (`consensus_floor` is the final default's run), and `~/mc/results2` all the tables, the variants'
 included. Removed: the other variants' runs, the rl150 reads (resim.sh remakes them) and the build trees.
+
+## 6. After the review of the merged branch (2026-10-15)
+
+The integration branch's code review found that the vote's MAPQ compared the winning taxon with the next taxon only:
+a mate that fits two places of the winner equally well (a paralog, another gene) got a high MAPQ where `MAPQv1` had
+given it 0. Since `126f800` on `f1-integration` each mate's MAPQ is also at most its margin within the winner (its best
+alignment there against its next one at another place; `MateGuidance.h`, unit test in `test_SamRoundTrip.cpp`).
+On the six paired-end mocks (`run_mocks.sh` with `consensus`, the binaries of `848c6d1` and `126f800`;
+`compare_records.py`, then the calls) 13 of 247,303 fragments changed, their MAPQ only; none crossed the profiler's
+cutoff of 4, and no taxon's probability moved. The numbers of section 4 stand.
+
+The mode is also recorded with the database since the merge with the train/run guards: `--build` writes
+`mate_guidance` (the mode given, else `consensus`) into `build_settings.tsv`, and runs follow it unless
+`--mate_guidance` is given; a database that records none (built before 2026-10-15) keeps `guide`, which its models were
+trained with ([running.md](../../running.md#what-a-run-takes-from-its-database-and-models)).
