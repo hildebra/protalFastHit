@@ -1537,7 +1537,7 @@ namespace protal {
             m_sam_list[index] = UncompressedSamName(m_sam_list[index]);
         }
 
-        std::vector<std::string> SamFiles() {
+        std::vector<std::string> SamFiles() const {
             return m_sam_list;
         }
 
