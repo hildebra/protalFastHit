@@ -29,6 +29,27 @@ for this page.
 
 ## Since 0.8.4
 
+- **Spike genes left out of the evidence** (2026-10-15). In a real D6331 mock sample (SRR38158090) every species of the
+  standard had one to three marker genes with 48-97% of its reads (*Akkermansia muciniphila*: 2,108 of 2,177 on one
+  stretch of *secA*), a PCR product or fragment carried over into the library. The coverage features read every species
+  as a relative whose reads gather on a few genes; the probabilities fell to 0.38-0.80 and *A. muciniphila* and *E. coli*
+  were missed. Before a sample is profiled, protal now counts each gene's records, finds every taxon's spike genes (at
+  least 50 records, 50 times the depth of the taxon's genes outside its 3 deepest, together half of the taxon's records
+  or more, 6 other genes hit) and checks whether the sample shows the pattern of carried-over products: at least 2 of its
+  10 taxa with the most records with spike genes, the spikes 5% of its records or more. Only such a sample is in spike
+  mode, and its spike genes are left out of the evidence as suspect gene copies are (`--spike_genes auto`, the default;
+  `on`: every sample; `off`: none; [running.md](running.md), [report](claude/2026-10-15-mock-near-misses/README.md)).
+  - **Why a sample check:** a relative's reads also pile on the few genes of an absent congener. Taken as spikes in every
+    sample, two such congeners were called in a HiFi mock. Those piles are thin taxa and a small share of the reads.
+  - **The check on the data at hand:** the D6331 sample has spike genes in 8 of its top 10 taxa, with 79% of its
+    records; five other real paired-end mock samples, four long-read ones and 62 simulated test samples of a reduced
+    r226 database have at most one in their top 10 and at most 2% of their records on spikes. In that D6331 sample
+    *A. muciniphila* (P 0.48 → 0.80) and *E. coli* (0.38 → 0.55) are called; in the other samples not one probability
+    moves. With `on`, three absent congeners were called in two long-read samples.
+  - **Records:** only those the profile counts (on genes with unique k-mers) enter the rule and the check.
+  - **Cost:** one more pass over the SAM's lines before profiling, on the sample's threads, about a fifth of the
+    profiling step here (`--spike_genes off` skips it).
+
 - **Unique k-mers counted from the alignment** (2026-10-14). `--build` stores which of every gene copy's index cores
   are unique (`unique_cores.bin`, two bits a core, ~0.7 GB at r226; `--no_unique_cores`: none), and a run counts a
   record's `ZS`, `ZU` and `ZT` from the gene's cores its alignment covers with exact k-mers instead of from its

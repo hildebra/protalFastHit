@@ -185,6 +185,7 @@ namespace protal {
             profile.SetSingletonCongener(options.GetSingletonCongener());
             profile.SetSoftFragments(options.GetFragmentCount() == FragmentCount::Soft);
             profile.SetDropForeignGenes(options.DropForeignGenes());
+            profile.SetSpikeMode(options.SpikeMode());
             // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
             profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{rejected_records},
@@ -278,6 +279,43 @@ namespace protal {
                 #pragma omp critical(print)
                 std::cout << "Sample " << sample_name << ": " << suspect << " records on suspect gene copies left out of the "
                           << "evidence (suspect_copies.tsv; --keep_suspect_copies counts them)" << std::endl;
+            }
+            // The sample's spike check and spike genes (SpikeGenes.h): a line, and in spike mode <profile>.spike_genes.tsv
+            // with each gene left out (an earlier run's file is removed otherwise).
+            {
+                auto const& spikes = profile.SpikeGenes();
+                auto const spike_file = options.ProfileFile(i) + ".spike_genes.tsv";
+                std::error_code ec;
+                if (auto const& check = profile.SpikeCheck(); check && (check->spiked_taxa > 0 || !spikes.empty())) {
+                    std::ostringstream line;
+                    line << std::fixed << std::setprecision(1) << "Sample " << sample_name << ": "
+                         << (spikes.empty() ? "no spike mode" : "spike mode") << " (" << check->top_spiked << " of its "
+                         << check->top_taxa << " taxa with the most reads and " << check->spiked_taxa << " in all have a gene whose "
+                         << "reads pile far beyond their other genes, " << check->Share() * 100 << "% of its reads; spike mode from "
+                         << spike_genes::kSampleMinTopSpiked << " and " << spike_genes::kSampleMinShare * 100 << "%";
+                    if (profile.SpikeMode() == spike_genes::Mode::kOn) line << ", or always with --spike_genes on";
+                    line << ")";
+                    if (!spikes.empty()) {
+                        line << ": " << spikes.size() << " spike genes, " << profile.SpikeRecords() << " records left out of the "
+                             << "evidence (PCR products or fragments carried over into the library; --spike_genes off counts "
+                             << "them); in " << spike_file;
+                    }
+                    #pragma omp critical(print)
+                    std::cout << line.str() << std::endl;
+                }
+                if (spikes.empty()) {
+                    std::filesystem::remove(spike_file, ec);
+                } else {
+                    std::ofstream os(spike_file, std::ios::out | std::ios::trunc);
+                    os << "taxid\tlineage\tgeneid\trecords\texpected\tfold\n";
+                    for (auto const& spike : spikes) {
+                        os << spike.taxid << '\t' << taxonomy.LineageStr(static_cast<int>(spike.taxid)) << '\t' << spike.geneid
+                           << '\t' << spike.records << '\t' << profiler::FeatureString(spike.expected) << '\t'
+                           << profiler::FeatureString(spike.Fold()) << '\n';
+                    }
+                    os.close();
+                    if (os.fail()) RunStatus::Get().Fail("Writing the spike genes of sample " + sample_name + " failed: " + spike_file);
+                }
             }
             if (auto const [foreign, foreign_taxa] = profile.ForeignGenes(); foreign > 0) {
                 #pragma omp critical(print)
@@ -379,7 +417,7 @@ namespace protal {
                             << std::chrono::duration<double>(now - part_start).count() << " s";
                 part_start = now;
             };
-            WriteProfilingTimes(options, i, bm_sample, { &profiler.ReadTimer(), &profiler.EvidenceTimer(), &profile.m_bm_em,
+            WriteProfilingTimes(options, i, bm_sample, { &profiler.SpikeTimer(), &profiler.ReadTimer(), &profiler.EvidenceTimer(), &profile.m_bm_em,
                                                          &profile.m_bm_distances, &profiler.SnpTimer(), &bm_score, &bm_write });
             if (!profiler.ReadDetail().empty()) {
                 #pragma omp critical(print)

@@ -28,6 +28,7 @@
 #include "RunStatus.h"
 #include "ReadType.h"
 #include "SamChunks.h"
+#include "SpikeGenes.h"
 #include "SampleContext.h"
 #include "Composition.h"
 #include "ExactSum.h"
@@ -3580,6 +3581,16 @@ namespace protal {
                 return m_suspect_records;
             }
 
+            // A record on one of the sample's spike genes (SpikeGenes.h), left out of the evidence
+            // (MicrobialProfile::PrepareMAPQ).
+            void NoteSpikeRecord() {
+                m_spike_records++;
+            }
+
+            size_t SpikeRecords() const {
+                return m_spike_records;
+            }
+
             // A record's ZF tag (SamEntry::m_failed, on a read's first record): the taxa the read seeded on but did not
             // align to, each counted once for the read (MicrobialProfile::PrepareMAPQ).
             // Counted apart from the taxa's records (m_failed) and folded into them once all records are in
@@ -3764,6 +3775,7 @@ namespace protal {
                 for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
                 m_spans.insert(m_spans.end(), other.m_spans.begin(), other.m_spans.end());
                 m_suspect_records += other.m_suspect_records;
+                m_spike_records += other.m_spike_records;
             }
 
             // The counts of taxon taxid, or nullptr if it has none.
@@ -3829,6 +3841,7 @@ namespace protal {
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
             std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
             size_t m_suspect_records = 0;  // records on suspect gene copies, left out (NoteSuspectRecord)
+            size_t m_spike_records = 0;  // records on the sample's spike genes, left out (NoteSpikeRecord)
             // The ancestry sites of the (taxon, gene) pairs this collector's records touched (NoteRecord), from the
             // run's cache (GenomeLoader::AncestrySitesOf) once each.
             std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
@@ -4380,6 +4393,94 @@ namespace protal {
                 return m_evidence.SuspectRecords();
             }
 
+            // Whether ProfileSam looks for the sample's spike genes (SpikeGenes.h) before it profiles it, and when it leaves
+            // their records out of the evidence (--spike_genes): auto, if the sample check says so (spike mode); on,
+            // always; off: it does not look.
+            void SetSpikeMode(spike_genes::Mode mode) {
+                m_spike_mode = mode;
+            }
+
+            spike_genes::Mode SpikeMode() const {
+                return m_spike_mode;
+            }
+
+            // What the sample's records per gene said (ProfileSam: spike_genes::Judge), and whether its spike genes are
+            // left out (SetSpikeGenes).
+            void SetSpikeCheck(spike_genes::SampleCheck const& check) {
+                m_spike_check = check;
+            }
+
+            std::optional<spike_genes::SampleCheck> const& SpikeCheck() const {
+                return m_spike_check;
+            }
+
+            // No sample check and no spike genes (before a sample is profiled).
+            void ClearSpikes() {
+                m_spike_check.reset();
+                SetSpikeGenes({});
+            }
+
+            // The spike genes the sample's evidence leaves out (in spike mode), whose records PrepareMAPQ leaves out.
+            void SetSpikeGenes(std::vector<spike_genes::Spike> spikes) {
+                m_spikes = std::move(spikes);
+                m_spike_keys.clear();
+                for (auto const& spike : m_spikes) m_spike_keys.insert(spike_genes::Key(spike.taxid, spike.geneid));
+            }
+
+            std::vector<spike_genes::Spike> const& SpikeGenes() const {
+                return m_spikes;
+            }
+
+            // Whether a record lies on one of the sample's spike genes: no evidence of its taxon's genome, left out of the
+            // profile as if the read had not aligned (PrepareMAPQ).
+            bool SpikeGene(SamEntry& sam) const {
+                if (m_spike_keys.empty()) return false;
+                auto const [taxid, geneid] = ExtractTaxidGeneid(sam.m_rname);
+                return m_spike_keys.contains(spike_genes::Key(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid)));
+            }
+
+            // The records on spike genes left out of the sample (PrepareMAPQ).
+            size_t SpikeRecords() const {
+                return m_evidence.SpikeRecords();
+            }
+
+            // The records of `counts` (Profiler::CountGeneRecords) that the profile can count (CheckSam): those on a gene of
+            // the database with unique k-mers. Records on a gene without them are skipped as no evidence of the taxon (in
+            // a real D6331 sample 12,683 of an absent congener's, on one gene), and on a gene the database lacks rejected,
+            // so neither the spike rule nor the sample check sees them.
+            spike_genes::Counts CountedRecords(spike_genes::Counts counts) const {
+                std::erase_if(counts, [&](auto const& entry) {
+                    auto const taxid = static_cast<int>(entry.first >> 32);
+                    auto const geneid = static_cast<int>(static_cast<uint32_t>(entry.first));
+                    return !m_genome_loader.HasGene(taxid, geneid) || !m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid);
+                });
+                return counts;
+            }
+
+            // The spike genes of a sample whose records per gene are `counts` (Profiler::CountGeneRecords): each taxon's
+            // (spike_genes::SpikesOf) by the lengths of its hittable genes in the database; taxa and genes the database
+            // lacks are left alone (their records are rejected). By taxid, then gene.
+            std::vector<spike_genes::Spike> FindSpikeGenes(spike_genes::Counts const& counts) const {
+                std::map<uint32_t, std::vector<std::pair<uint32_t, uint64_t>>> by_taxon;
+                for (auto const& [key, n] : counts) by_taxon[static_cast<uint32_t>(key >> 32)].emplace_back(static_cast<uint32_t>(key), n);
+                std::vector<spike_genes::Spike> spikes;
+                auto const& genomes = m_genome_loader.GetGenomeMap();
+                for (auto& [taxid, records] : by_taxon) {
+                    if (records.size() <= spike_genes::kMinRestGenes + 1) continue;
+                    auto const it = genomes.find(taxid);
+                    if (it == genomes.end()) continue;
+                    auto& genome = m_genome_loader.GetGenome(taxid);
+                    std::vector<std::pair<uint32_t, uint64_t>> lengths;
+                    for (auto const gene : genome.GetHittableGenes()) {
+                        if (!genome.HasGene(gene)) continue;
+                        lengths.emplace_back(gene, genome.GetGene(gene).GetLength());
+                    }
+                    auto found = spike_genes::SpikesOf(taxid, std::move(records), lengths);
+                    spikes.insert(spikes.end(), found.begin(), found.end());
+                }
+                return spikes;
+            }
+
             // The length of gene geneid of taxon taxid in the database, 0 if it has none (CheckSam rejects such records).
             size_t GeneLengthOf(int taxid, int geneid) const {
                 return m_genome_loader.HasGene(taxid, geneid) ? m_genome_loader.GeneLength(taxid, geneid) : 0;
@@ -4870,6 +4971,10 @@ namespace protal {
             std::shared_ptr<context::CongenerDistances> m_distances;  // see SetCongenerDistances
             size_t m_singleton_congener = context::kSingletonCongener;  // see SetSingletonCongener
             bool m_soft_fragments = false;  // see SetSoftFragments
+            spike_genes::Mode m_spike_mode = spike_genes::Mode::kOff;  // see SetSpikeMode
+            std::optional<spike_genes::SampleCheck> m_spike_check;  // see SetSpikeCheck
+            std::vector<spike_genes::Spike> m_spikes;  // see SetSpikeGenes
+            std::unordered_set<uint64_t> m_spike_keys;  // their spike_genes::Key
             SeedExpectation m_seed_expectation;  // see SetSeedExpectation
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
@@ -4955,7 +5060,9 @@ namespace protal {
             Benchmark m_bm_read{"Profiling: reading the SAM"};
             Benchmark m_bm_evidence{"Profiling: record evidence and sample context"};
             Benchmark m_post_process_bm{"Profiling: SNP post-processing"};
+            Benchmark m_bm_spikes{"Profiling: spike genes"};  // counting the records per gene (CountGeneRecords)
             Benchmark const& ReadTimer() const { return m_bm_read; }
+            Benchmark const& SpikeTimer() const { return m_bm_spikes; }
             Benchmark const& EvidenceTimer() const { return m_bm_evidence; }
             Benchmark const& SnpTimer() const { return m_post_process_bm; }
 
@@ -5529,6 +5636,16 @@ namespace protal {
                     evidence.NoteSuspectRecord();
                     ap.second.reset();
                 }
+                // So are records on the sample's spike genes (SpikeGenes.h: a gene whose reads pile far beyond its taxon's
+                // other genes, a PCR product or fragment carried over into the library; in spike mode, --spike_genes).
+                if (ap.HasFirst() && profile.SpikeGene(ap.First())) {
+                    evidence.NoteSpikeRecord();
+                    ap.first.reset();
+                }
+                if (ap.HasSecond() && profile.SpikeGene(ap.Second())) {
+                    evidence.NoteSpikeRecord();
+                    ap.second.reset();
+                }
                 if (!ap.HasFirst() && !ap.HasSecond()) return true;
 
                 bool take_first = false;
@@ -5813,6 +5930,45 @@ namespace protal {
                 return threads < 8 ? 0 : std::clamp<size_t>(threads / 6, 2, 8);
             }
 
+            // The records per gene of the SAM at file_path (spike_genes::CountRecords), read once before a sample is
+            // profiled (ProfileSam) to find its spike genes: chunks of whole reads counted on `threads` threads. A file
+            // that cannot be read gives what was read; the profiling's own read of it reports the problem.
+            spike_genes::Counts CountGeneRecords(std::string const& file_path, size_t threads) const {
+                spike_genes::Counts counts;
+                std::error_code ec;
+                if (!std::filesystem::exists(file_path, ec) || std::filesystem::file_size(file_path, ec) == 0) return counts;
+                SamInput input(file_path, DecompressThreads(threads));
+                if (!input.IsOpen() || !input.Problem().empty()) return counts;
+                threads = std::max<size_t>(threads, 1);
+                size_t const per_wave = std::max(threads, std::min<size_t>(4 * threads, 64));
+                try {
+                    sam_chunks::ChunkReader reader(input.Stream(), size_t{1} << 22, 2 * per_wave);
+                    std::vector<sam_chunks::Chunk> wave;
+                    std::vector<spike_genes::Counts> parts;
+                    bool more = true;
+                    while (more) {
+                        wave.clear();
+                        sam_chunks::Chunk chunk;
+                        while (wave.size() < per_wave && (more = reader.Next(chunk))) {
+                            bool const last = chunk.last;
+                            wave.push_back(std::move(chunk));
+                            if (last) {
+                                more = false;
+                                break;
+                            }
+                        }
+                        if (wave.empty()) break;
+                        parts.assign(wave.size(), spike_genes::Counts{});
+                        sam_chunks::ParallelFor(wave.size(), threads, [&](size_t i) { spike_genes::CountRecords(wave[i].text, parts[i]); });
+                        for (auto const& part : parts) spike_genes::Add(counts, part);
+                    }
+                    reader.Stop();
+                } catch (std::exception const&) {
+                    // What was counted stands; ProfileSam's read reports the failure.
+                }
+                return counts;
+            }
+
             // ProfileSam on `threads` threads. The SAM is read in a thread of its own and cut into chunks of whole
             // reads (SamChunks.h), which are parsed and prepared (ParseChunk) in waves. Of a wave's records, what
             // depends on their order is done in file order (PlanChunks), and then the taxa add their records on all
@@ -6034,6 +6190,17 @@ namespace protal {
                 m_scanned.reset();
                 m_seed_expectation.reset();
                 m_read_detail.clear();
+                // The sample's spike genes, and whether it is in spike mode (SpikeGenes.h): before any record counts.
+                profile.ClearSpikes();
+                if (profile.SpikeMode() != spike_genes::Mode::kOff) {
+                    m_bm_spikes.Start();
+                    auto const counts = profile.CountedRecords(CountGeneRecords(file_path, threads));
+                    auto spikes = profile.FindSpikeGenes(counts);
+                    auto const check = spike_genes::Judge(counts, spikes);
+                    profile.SetSpikeCheck(check);
+                    if (profile.SpikeMode() == spike_genes::Mode::kOn || check.spiky) profile.SetSpikeGenes(std::move(spikes));
+                    m_bm_spikes.Stop();
+                }
                 if (threads > 1) {
                     std::string rejected;
                     bool serial = false;

@@ -25,6 +25,7 @@
 #include "Database.h"
 #include "SamHandler.h"
 #include "GeneIncongruence.h"
+#include "SpikeGenes.h"
 #include "BuildSettings.h"
 #include "SpeciesPriors.h"
 #include "NcbiTaxids.h"
@@ -100,6 +101,7 @@ namespace protal {
         bool no_gene_neighbours = false;
         bool keep_foreign_genes = false;
         bool keep_suspect_copies = false;
+        spike_genes::Mode spike_mode = spike_genes::Mode::kAuto;
         double suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;
         size_t strain_alleles = 16;
         double allele_genome_share = 1.0;
@@ -257,6 +259,7 @@ namespace protal {
         bool m_no_gene_neighbours = false;
         bool m_keep_foreign_genes = false;
         bool m_keep_suspect_copies = false;  // --keep_suspect_copies
+        spike_genes::Mode m_spike_mode = spike_genes::Mode::kAuto;  // --spike_genes
         double m_suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;  // --suspect_copy_distance (--build)
         size_t m_strain_alleles = 16;  // --strain_alleles (--build)
         double m_allele_genome_share = 1.0;  // --allele_genome_share (--build)
@@ -505,6 +508,7 @@ namespace protal {
                 m_no_gene_neighbours(d.no_gene_neighbours),
                 m_keep_foreign_genes(d.keep_foreign_genes),
                 m_keep_suspect_copies(d.keep_suspect_copies),
+                m_spike_mode(d.spike_mode),
                 m_suspect_copy_distance(d.suspect_copy_distance),
                 m_strain_alleles(d.strain_alleles),
                 m_allele_genome_share(d.allele_genome_share),
@@ -876,6 +880,11 @@ namespace protal {
         // Whether records on the database's suspect gene copies (GeneIncongruence.h) are left out of the evidence.
         bool DropSuspectCopies() const {
             return !m_keep_suspect_copies;
+        }
+
+        // When a sample's spike genes (Profiling/SpikeGenes.h) are left out of the evidence (--spike_genes).
+        spike_genes::Mode SpikeMode() const {
+            return m_spike_mode;
         }
 
         // --build: the k-mer distance within which another genus's copy makes a gene copy suspect; 0: no scan.
