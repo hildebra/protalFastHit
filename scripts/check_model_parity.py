@@ -92,6 +92,18 @@ def samples_of(point, read_type="pe"):
             yield sample, sam, row["PROFILE_TRUTH"], dumps[0]
 
 
+def points_with_samples(training, read_type="pe"):
+    """[(design point, its samples_of)] of the collection's design points that have samples of the read type, by name.
+    A point need not have them: with single-end setups of their own (collect_training_data.py --se_read_setups, since
+    2026-10-14) a point holds paired-end samples only, single-end ones only, or both. The scenarios' points (sc_*,
+    collect_training_data.SCENARIO_PREFIX) hold deep samples, and the design's give the same check."""
+    marker = "samples.tsv" if read_type in ("pb", "ont") else "protal.meta"
+    points = sorted(p for p in glob.glob(os.path.join(training, "points", "*"))
+                    if os.path.isfile(os.path.join(p, "sim", marker)) and not os.path.basename(p).startswith("sc_")
+                    and (read_type not in ("pb", "ont") or os.path.basename(p).startswith(read_type + "_")))
+    return [(p, samples) for p, samples in ((p, list(samples_of(p, read_type))) for p in points) if samples]
+
+
 def read_dump(path):
     return pd.read_csv(path, sep="\t", float_precision="round_trip")
 
@@ -135,19 +147,14 @@ def split_rounding(differences):
 
 def main(argv=None):
     opts = parse_args(argv)
-    marker = "samples.tsv" if opts.read_type in ("pb", "ont") else "protal.meta"
-    # The design's points; the scenarios' (sc_*, collect_training_data.SCENARIO_PREFIX) hold deep samples, and the
-    # design's give the same check.
-    points = sorted(p for p in glob.glob(os.path.join(opts.training, "points", "*"))
-                    if os.path.isfile(os.path.join(p, "sim", marker)) and not os.path.basename(p).startswith("sc_")
-                    and (opts.read_type not in ("pb", "ont") or os.path.basename(p).startswith(opts.read_type + "_")))
+    points = points_with_samples(opts.training, opts.read_type)
     if not points:
-        sys.exit(f"no design points of {opts.read_type} reads in {opts.training}/points")
+        sys.exit(f"no design point in {opts.training}/points with {opts.read_type} samples that have a SAM and a "
+                 "training dump")
     chosen = points if len(points) <= opts.points else \
         [points[round(i * (len(points) - 1) / max(1, opts.points - 1))] for i in range(opts.points)]
-    samples = [s for point in chosen for s in samples_of(point, opts.read_type)]
-    if not samples:
-        sys.exit("no samples with a SAM and a training dump in " + ", ".join(chosen))
+    samples = [s for _, of_point in chosen for s in of_point]
+    chosen = [p for p, _ in chosen]
     out = opts.out or os.path.join(opts.training, "parity" if opts.read_type == "pe" else "parity_" + opts.read_type)
     os.makedirs(out, exist_ok=True)
     # --force: a rerun (of the build, say) profiles into the folder its last run filled, which --profile_only

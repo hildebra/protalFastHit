@@ -1648,7 +1648,9 @@ full`, the "Feature sets" study reuse the candidates' scores with species held o
 
 `scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
 saved training samples and checks that protal's probabilities are the model file's and its features
-those of the training data (`--read_type se`, `pb`, `ont` for other models). It profiles into
+those of the training data (`--read_type se`, `pb`, `ont` for other models). It takes the first and
+last (`--points`) of the design points that have samples of that read type: with `--se_read_setups` a
+point may hold paired-end or single-end samples only. It profiles into
 `training/parity` (`parity_<read type>`, or `-o`), which every run rewrites. Differences in the last
 digits (1e-12) are noted, not failed. A sample without taxa (a shallow one of a database of few genes)
 passes if it had none during collection either; the check fails only if no sample has a taxon to

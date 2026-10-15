@@ -550,6 +550,34 @@ class ParityFeaturesTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("differs from the model file's by up to 0.25", problems[0])
 
+    def test_points_of_the_read_type(self):
+        """With single-end setups of their own (--se_read_setups) a design point holds paired-end samples only,
+        single-end ones only, or both: the check takes its points among those with samples of its reads (r226 v28
+        took rl100 and rl75 for se, which had none)."""
+        import check_model_parity as cmp
+        with tempfile.TemporaryDirectory() as training:
+            def point(name, pe, se):
+                base = os.path.join(training, "points", name)
+                os.makedirs(os.path.join(base, "sim"))
+                sample = name + "_s_1"
+                with open(os.path.join(base, "sim", "protal.meta"), "w") as fh:
+                    fh.write(f"#OUTPUT_DIR\t{os.path.join(base, 'protal')}\n#SAMPLEID\tSAM\tPROFILE_TRUTH\n"
+                             f"{sample}\t{sample}.sam.gz\t/truth\n")
+                for wanted, folder, name_of in ((pe, "protal", sample), (se, "protal_se", sample + "_se")):
+                    if wanted:
+                        for sub, ending in (("alignments", ".sam.gz"), ("profiles", ".profile.truth_annotated")):
+                            os.makedirs(os.path.join(base, folder, sub), exist_ok=True)
+                            open(os.path.join(base, folder, sub, name_of + ending), "w").close()
+            point("rl100_p10", pe=True, se=False)
+            point("rl150_p10", pe=True, se=True)
+            point("rl250_p10", pe=False, se=True)
+            point("sc_gut_community", pe=True, se=True)
+            names = {t: [(os.path.basename(p), [s[0] for s in samples]) for p, samples in cmp.points_with_samples(training, t)]
+                     for t in ("pe", "se")}
+            self.assertEqual(names["pe"], [("rl100_p10", ["rl100_p10_s_1"]), ("rl150_p10", ["rl150_p10_s_1"])])
+            self.assertEqual(names["se"], [("rl150_p10", ["rl150_p10_s_1_se"]), ("rl250_p10", ["rl250_p10_s_1_se"])])
+            self.assertEqual(cmp.points_with_samples(training, "pb"), [])
+
 
 @prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class FoldJobsTest(unittest.TestCase):
