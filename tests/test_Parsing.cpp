@@ -267,7 +267,7 @@ TEST(Options, EachReadTypeHasItsModel) {
 TEST(Options, OntReadsHaveTheirOwnDefaults) {
     OptionsData d;
     Options defaults(d);
-    EXPECT_DOUBLE_EQ(defaults.GetMaxScoreAni(ReadType::ONT), 0.85);
+    EXPECT_DOUBLE_EQ(defaults.GetMaxScoreAni(ReadType::ONT), 0.8);
     EXPECT_DOUBLE_EQ(defaults.GetSNPMinAF(ReadType::ONT), 0.2);
     EXPECT_DOUBLE_EQ(defaults.GetMaxScoreAni(ReadType::PacBio), DEFAULT_MAX_SCORE_ANI);
     EXPECT_DOUBLE_EQ(defaults.GetSNPMinAF(ReadType::Paired), DEFAULT_MIN_SNP_AF);

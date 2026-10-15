@@ -386,7 +386,7 @@ at `auto` (or not given) takes the database's:
 | `align_top` N | `-c, --align_top` | 3 |
 | `adaptive_candidates` N | `--adaptive_candidates` | 7 |
 | `mate_guidance` consensus/guide/off | `--mate_guidance` (`--no_mate_guidance`: off) | consensus; guide for a database that records none |
-| `max_score_ani_pe`, `_se`, `_pb`, `_ont` | `-a, --max_score_ani` (given: every read type's) | 0.9, ONT 0.85 |
+| `max_score_ani_pe`, `_se`, `_pb`, `_ont` | `-a, --max_score_ani` (given: every read type's) | 0.9, ONT 0.8 (0.85 up to 0.8.5); 0.9, ONT 0.85 for a database that records none |
 | `unique_kmers` cores/anchors | `--no_unique_cores` | cores where the database has `unique_cores.bin` |
 | `keep_foreign_genes` on/off | `--keep_foreign_genes`, `--keep_foreign_genes=off` | off |
 | `keep_suspect_copies` on/off | `--keep_suspect_copies`, `--keep_suspect_copies=off` | off |
@@ -401,12 +401,15 @@ at `auto` (or not given) takes the database's:
 - A database that records no `gene_end_clips` (every one built before the setting) was trained with `off`: the block
   shows `off` as the database's, there is no note for it, and a run given `--gene_end_clips credit` is warned. A value
   this protal does not know (a later protal's) is warned about and left at `off`.
+- A database that records no identity floors (built before 2026-10-15) was trained at 0.9, and 0.85 for ONT reads: the
+  block shows those as the database's, its ONT reads are aligned at 0.85 (not 0.8, ONT's floor since), there is no
+  note for them, and a run given another `-a` is warned.
 - `--no_unique_cores` on a database whose models counted `ZS`, `ZU` and `ZT` from its unique cores (`unique_kmers
   cores`, or a database with `unique_cores.bin` that records nothing) gets a warning of its own: the unique k-mer
   features then differ from the models' training.
 - A database built before 2026-10-15 records none of them: one note lists those that matter for the run, which takes
-  protal's defaults (or the options given), as before, except mate guidance: `guide`, the mode its models were trained
-  with. A mate guidance mode this protal does not know (a later protal's) is warned about and left at protal's
+  protal's defaults (or the options given), as before, except mate guidance (`guide`) and the identity floors (0.9,
+  ONT 0.85), which its models were trained with. A mate guidance mode this protal does not know (a later protal's) is warned about and left at protal's
   default.
 - protal before 2026-10-15 reads the new file and skips the settings it does not know.
 
@@ -495,7 +498,7 @@ calibrated with; change them for experiments, not for production profiles.
 | `-u, --max_key_ubiquity` | 256 | skip seeds whose best-matching flex-key occurs more often than this |
 | `-s, --max_seed_size` | 128 | seeding stops at this many seeds, if `-w` lookups have succeeded |
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
-| `-a, --max_score_ani` | `auto` (0.9, ONT 0.85) | give up an alignment once it diverges below about this identity; given, for every read type. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). |
+| `-a, --max_score_ani` | `auto` (0.9, ONT 0.8) | give up an alignment once it diverges below about this identity; given, for every read type. `auto` (the default) takes the database's `build_settings.tsv` ([above](#what-a-run-takes-from-its-database-and-models)). The identity counts a one-base indel as two differences, so ONT's floor is lower: 0.8 after 0.8.5 (0.85 dropped most ONT reads below ~0.88 accuracy, and with them species of one or two marker reads; [report](claude/2026-10-15-ont-rowless-species/README.md)); a database that records no floors runs its ONT reads at 0.85, as its models were trained. |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 | `--wfa_traceback` | `auto` | how WFA2 recovers each alignment's operations: `classic` (WFA2's high-memory mode, which keeps every wavefront) or `singletrack` (keeps only the match wavefronts and recomputes a gap's steps while tracing back; López-Villellas et al. 2025). Both give the same alignment scores, but among equally good alignments they may choose differently, so SAM records, and the features a model was trained on, can differ. `auto` aligns as the database was built: `--build` aligns with `singletrack` unless told otherwise (`classic` before protal 0.8.2) and records its traceback in `build_settings.tsv` ([databases.md](databases.md#2-build-the-index)); a database without the file was built with `classic`. A run that aligns otherwise than its database was built gets a warning ([report](claude/2026-10-11-singletrack/README.md)) |
 | `--mate_guidance MODE` | `auto` | paired-end reads whose mates did not align together as their best candidate (below): `consensus`, both mates vote on the fragment's taxon (since 2026-10-15); `guide`, a mate that is sure of its alignment (MAPQ 20 or more) guides the other to its taxon (protal 0.7.1 to 0.8.4); `off`, neither (`--no_mate_guidance` is `off`). Records, MAPQs and so the models' features depend on it. `auto` (the default) takes the mode the database's `build_settings.tsv` records ([above](#what-a-run-takes-from-its-database-and-models)): a database built since 2026-10-15 records the mode `--build` was given, else `consensus`; one built before records none and its models were trained with `guide`, which its runs then use. Models trained with `guide` called the same species with `consensus` on the reduced r226 database's test sets and mocks ([report](claude/2026-10-15-mate-consensus/README.md)) |

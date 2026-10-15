@@ -88,6 +88,14 @@ TEST(RunSettings, OlderFilesSayNothingLaterOnesAreTolerated) {
     EXPECT_FALSE(build_settings::ParseGeneEndClips("on"));
     EXPECT_EQ(build_settings::DatabaseGeneEndClips(older.run), "off");
     EXPECT_EQ(build_settings::DatabaseGeneEndClips(later.run), "partial");
+    // No identity floors recorded: those every protal before aligned at (ONT 0.85, not today's 0.8).
+    EXPECT_EQ(build_settings::DatabaseMaxScoreAni(older.run, ReadType::ONT), 0.85);
+    EXPECT_EQ(build_settings::DatabaseMaxScoreAni(older.run, ReadType::Paired), 0.9);
+    EXPECT_EQ(build_settings::DatabaseMaxScoreAni(EveryRunSetting(), ReadType::ONT), 0.85);
+    build_settings::RunSettings at_08;
+    at_08.max_score_ani[index(ReadType::ONT)] = 0.8;
+    EXPECT_EQ(build_settings::DatabaseMaxScoreAni(at_08, ReadType::ONT), 0.8);
+    EXPECT_EQ(build_settings::DatabaseMaxScoreAni(at_08, ReadType::PacBio), 0.9);
     EXPECT_EQ(later.run.unique_kmers, std::optional<std::string>("grid"));
     EXPECT_EQ(later.run.allele_scores, std::optional<bool>(true));
     for (auto const& floor : later.run.max_score_ani) EXPECT_FALSE(floor);
@@ -138,14 +146,17 @@ TEST(RunSettings, DifferencesOfTheRecordedSettingsOnly) {
 }
 
 // A run's options left at auto take the database's settings; those given stay; -a given applies to every read type, and
-// without it each read type takes the database's floor, else its own default (ONT 0.85).
+// without it each read type takes the database's floor (one that records none: the floor its models were trained at,
+// ONT 0.85), else (--build) its own default (ONT 0.8).
 TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     OptionsData d;
     d.run_settings_given.align_top = 7;
     d.align_top = 7;
     d.run_settings_given.keep_foreign_genes = false;
     Options options(d);
-    EXPECT_EQ(options.GetMaxScoreAni(ReadType::ONT), 0.85);
+    EXPECT_EQ(options.GetMaxScoreAni(ReadType::ONT), 0.8);
+    // --build records it
+    EXPECT_EQ(options.RunSettingsInUse().max_score_ani[index(ReadType::ONT)], std::optional<double>(0.8));
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::Paired), DEFAULT_MAX_SCORE_ANI);
     auto recorded = EveryRunSetting();
     recorded.max_score_ani = { 0.92, std::nullopt, 0.88, 0.8 };
@@ -157,7 +168,7 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     EXPECT_EQ(options.GetAdaptiveCandidates(), 0u);
     EXPECT_EQ(options.GetMateGuidance(), MateGuidanceMode::Off);
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::Paired), 0.92);
-    EXPECT_EQ(options.GetMaxScoreAni(ReadType::Single), DEFAULT_MAX_SCORE_ANI);  // not recorded: protal's default
+    EXPECT_EQ(options.GetMaxScoreAni(ReadType::Single), DEFAULT_MAX_SCORE_ANI);  // not recorded: the floor before, 0.9
     EXPECT_EQ(options.GetMaxScoreAni(ReadType::ONT), 0.8);
     auto const used = options.RunSettingsInUse();
     EXPECT_EQ(used.align_top, std::optional<size_t>(7));
@@ -183,6 +194,12 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     EXPECT_EQ(older.GetMateGuidance(), MateGuidanceMode::Guide);
     EXPECT_EQ(older.RunSettingsInUse().mate_guidance, std::optional<std::string>("guide"));
     EXPECT_FALSE(older.GeneEndClips());
+    // Its ONT reads at 0.85, the floor its models were trained at, not today's 0.8; the others at 0.9.
+    EXPECT_EQ(older.GetMaxScoreAni(ReadType::ONT), 0.85);
+    EXPECT_EQ(older.RunSettingsInUse().max_score_ani[index(ReadType::ONT)], std::optional<double>(0.85));
+    for (auto type : { ReadType::Paired, ReadType::Single, ReadType::PacBio }) {
+        EXPECT_EQ(older.GetMaxScoreAni(type), DEFAULT_MAX_SCORE_ANI);
+    }
     OptionsData off_given;
     off_given.run_settings_given.gene_end_clips = "off";
     Options told_off{ off_given };
@@ -214,6 +231,9 @@ TEST(RunSettings, AutoTakesTheDatabasesGivenStays) {
     Options floors(a);
     floors.FollowDatabaseRunSettings(recorded);
     for (auto const& info : kReadTypes) EXPECT_EQ(floors.GetMaxScoreAni(info.type), 0.95);
+    Options floors_older(a);
+    floors_older.FollowDatabaseRunSettings(build_settings::RunSettings());
+    for (auto const& info : kReadTypes) EXPECT_EQ(floors_older.GetMaxScoreAni(info.type), 0.95);
 }
 
 // --profile_only: a SAM's gate becomes its sample's, unless --sparse_first of its read type gives one.

@@ -1464,7 +1464,8 @@ Since 2026-10-15 `--build` also records the run settings a model's features depe
 it, else protal's default, and runs on the database follow them where their own option says `auto` (the default),
 with one warning for every setting a run is told otherwise
 ([running.md](running.md#what-a-run-takes-from-its-database-and-models)). A database built earlier records none; its
-runs use protal's defaults, with one note.
+runs use protal's defaults, with one note, except where a default changed since (mate guidance, the gene end clips,
+ONT's identity floor): there they take what its models were trained with.
 
 | Key | Values | Default | Option |
 |---|---|---|---|
@@ -1473,7 +1474,7 @@ runs use protal's defaults, with one note.
 | `align_top` | number | 3 | `-c, --align_top` |
 | `adaptive_candidates` | number | 7 | `--adaptive_candidates` |
 | `mate_guidance` | `consensus`, `guide`, `off` | `consensus` (runs on a database that records none: `guide`) | `--mate_guidance`, `--no_mate_guidance` |
-| `max_score_ani_pe` to `max_score_ani_ont` | decimal | 0.9, ONT 0.85 | `-a, --max_score_ani` |
+| `max_score_ani_pe` to `max_score_ani_ont` | decimal | 0.9, ONT 0.8 (0.85 up to 0.8.5; runs on a database that records none: 0.9, ONT 0.85) | `-a, --max_score_ani` |
 | `unique_kmers` | `cores`, `anchors` | `cores` (`anchors` without `unique_cores.bin`) | `--no_unique_cores` |
 | `keep_foreign_genes` | `on`, `off` | `off` | `--keep_foreign_genes` |
 | `keep_suspect_copies` | `on`, `off` | `off` | `--keep_suspect_copies` |

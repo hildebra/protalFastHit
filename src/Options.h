@@ -2022,7 +2022,8 @@ namespace protal {
         }
 
         // -a for reads of `type`: given, else (auto) the database's floor of the type (build_settings.tsv, since
-        // 2026-10-15), else the read type's default (ReadTypeInfo).
+        // 2026-10-15; a database that records none: the floor its models were trained at, FollowDatabaseRunSettings), else
+        // (--build, no database read) the read type's default (ReadTypeInfo).
         double GetMaxScoreAni(ReadType type) const {
             if (!m_max_score_ani_given && m_database_max_score_ani[static_cast<size_t>(type)]) {
                 return *m_database_max_score_ani[static_cast<size_t>(type)];

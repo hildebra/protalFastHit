@@ -275,6 +275,13 @@ namespace protal::build_settings {
         return recorded.gene_end_clips.value_or(std::string(kGeneEndClipsOff));
     }
 
+    // The identity floor a database's models were trained at for reads of `type`: as its build_settings.tsv records it,
+    // else the floor of every protal before the record (ReadTypeInfo::unrecorded_max_score_ani: 0.9, ONT 0.85), not this
+    // protal's default (ONT 0.8).
+    inline double DatabaseMaxScoreAni(RunSettings const& recorded, ReadType type) {
+        return recorded.max_score_ani[static_cast<size_t>(type)].value_or(Info(type).unrecorded_max_score_ani);
+    }
+
     // The run settings that are said, as build_settings.tsv names them and their values as text, in the file's order:
     // what Write writes, and what runs and databases are compared by (Differences).
     using Fields = std::vector<std::pair<std::string, std::string>>;
