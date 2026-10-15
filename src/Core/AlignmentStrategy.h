@@ -358,15 +358,29 @@ namespace protal {
             return static_cast<int>(std::lround(rate * static_cast<double>(std::max(0, clips - common))));
         }
 
-        // Each candidate's clip credit against the least boundary clips among `results`, a read's (or mate's) candidates;
-        // nothing with the option off.
+        // Each candidate's clip credit against the least boundary clips among `results`, a read's (or mate's) candidates,
+        // every candidate of a taxon credited as that taxon's least clipped one: two of the read's own genome, as at a
+        // junction of neighbouring genes, are credited alike, so that the credit does not split them (credited each by its
+        // own clips, the read's own taxon lost 2,645 fragments under MAPQ 4 on the reduced r226 database, against 210
+        // gained this way; docs/claude/2026-10-15-f1-audit-lower-findings/L2-gene-end-clips.md). Nothing with the option off.
         void CreditGeneEndClips(AlignmentResultList& results) const {
             if (!m_gene_end_clips || results.empty()) return;
             int common = INT_MAX;
             for (auto const& r : results) common = std::min<int>(common, r.GetAlignmentInfo().boundary_clips);
+            static thread_local std::vector<std::pair<uint32_t, int>> taxon_least;  // each taxon's least clips
+            taxon_least.clear();
+            for (auto const& r : results) {
+                auto const taxid = static_cast<uint32_t>(r.Taxid());
+                int const clips = r.GetAlignmentInfo().boundary_clips;
+                auto it = std::find_if(taxon_least.begin(), taxon_least.end(), [taxid](auto const& t) { return t.first == taxid; });
+                if (it == taxon_least.end()) taxon_least.emplace_back(taxid, clips);
+                else it->second = std::min(it->second, clips);
+            }
             for (auto& r : results) {
+                auto const taxid = static_cast<uint32_t>(r.Taxid());
                 auto& info = r.GetAlignmentInfo();
-                info.clip_credit = ClipCredit(info.boundary_clips, common);
+                int const least = std::find_if(taxon_least.begin(), taxon_least.end(), [taxid](auto const& t) { return t.first == taxid; })->second;
+                info.clip_credit = ClipCredit(least, common);
                 info.end_clips_credited = true;
             }
         }

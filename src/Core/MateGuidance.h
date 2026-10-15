@@ -243,11 +243,14 @@ namespace protal {
             if (!handler.GeneEndClips()) return;
             auto& info = found.GetAlignmentInfo();
             int common = info.boundary_clips;
+            int own = info.boundary_clips;  // its taxon's least clips among the mate's candidates (CreditGeneEndClips)
             for (auto const& [a1, a2] : pairs) {
                 auto const& ar = mate1 ? a1 : a2;
-                if (ar.IsSet()) common = std::min<int>(common, ar.GetAlignmentInfo().boundary_clips);
+                if (!ar.IsSet()) continue;
+                common = std::min<int>(common, ar.GetAlignmentInfo().boundary_clips);
+                if (ar.Taxid() == found.Taxid()) own = std::min<int>(own, ar.GetAlignmentInfo().boundary_clips);
             }
-            info.clip_credit = handler.ClipCredit(info.boundary_clips, common);
+            info.clip_credit = handler.ClipCredit(own, common);
             info.end_clips_credited = true;
         }
     }

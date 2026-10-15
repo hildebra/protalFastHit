@@ -26,15 +26,16 @@ read therefore outranks the read's own taxon whenever its extra mismatches are f
   of one species, e.g. a read across two neighbouring genes of its own genome: its two partial alignments are both
   clipped at a gene end, and the more clipped one's excess credit brings it within a few points of the other
   (section 4.3; without that credit the loss is gone).
-- **A per-taxon common** (every candidate of a taxon credited as that taxon's least clipped one; a small patch,
-  [l2_taxon_common.patch](l2_taxon_common.patch), not committed) keeps the gain and removes the loss: 340 fewer wrong
+- **A per-taxon common** (every candidate of a taxon credited as that taxon's least clipped one; first a patch,
+  [l2_taxon_common.patch](l2_taxon_common.patch), **since the integration the committed rule**, with its own test)
+  keeps the gain and removes the loss: 340 fewer wrong
   fragments and **210 more right** ones on the finished database (39 right lost, 249 gained), 217 fewer wrong and 85
   more right on the training database; on the finished database the MAPQ of 2,843 mates falls instead of 18,179.
 - **Calls** (models trained with `off`, not retrained): the same species in all six mocks; on the simulated sets the
   same 4 calls change under both rules, all at the knob (P 0.45-0.52): rows F1 0.9879 → 0.9888 (0.9885 per taxon) on
   the finished database, 0.9633 → 0.9633 (0.9629) on the training database. Within noise.
-- **Recommendation:** keep `off` as the default; if credit is wanted, take the per-taxon common first, and retrain
-  the models on it (the records, MAPQs and so `congener_fit_share` and the MAPQ-based features change).
+- **Recommendation:** keep `off` as the default; a database built with `credit` (the per-taxon rule) needs its models
+  trained on it (the records, MAPQs and so `congener_fit_share` and the MAPQ-based features change).
 
 ## 1. The change
 
@@ -206,9 +207,9 @@ records change for 0.47% of the fragments instead of 1.54%.
 
 ## 5. Open
 
-- **Which rule.** The committed rule is the reviewer's design; the measurements favour the per-taxon common. Its patch
-  applies to this commit and passes the unit tests unchanged (their cases have one candidate per taxon); it needs a
-  test of its own (two candidates of one taxon at a gene junction) before it replaces the rule.
+- **Which rule** (settled): the per-taxon common replaced the reviewer's design on the branch, with a test of its own
+  (`GeneEndClips.ATaxonsCandidatesAreCreditedAsItsLeastClipped`: two candidates of one taxon at a gene junction, and a
+  found mate). Its numbers are those of the `PROTAL_L2_TAXON_COMMON` runs above, the same code without the switch.
 - **Models.** Every model here was trained with `off`; credit changes records, MAPQs, `ZA` and so features such as
   `congener_fit_share` and the MAPQ-based shares. A database built with `--gene_end_clips credit` trains its models on
   credited alignments, but `build_gtdb_database.py` and `collect_training_data.py` do not pass the option yet (their

@@ -700,3 +700,36 @@ TEST(GeneEndClips, AFoundMateIsCreditedAgainstItsMatesCandidates) {
     EXPECT_EQ(less.GetAlignmentInfo().clip_credit, 0);
     EXPECT_EQ(handler.ClipCredit(7, 0), 11);  // 10.5, rounded away from 0
 }
+
+// Every candidate of a taxon is credited as that taxon's least clipped one (CreditGeneEndClips): a read over the
+// junction of two neighbouring genes of its own genome, clipped 20 past the end of one and 110 before the other, against
+// a congener whose gene covers it, gets the credit of 20 clipped bases on both, so that the credit does not split its own
+// two candidates (credited each by its own clips, the second's 165 put it 135 ahead of the first and its MAPQ fell). A
+// found mate likewise takes its taxon's least clips among the mate's candidates (CreditFoundMate).
+TEST(GeneEndClips, ATaxonsCandidatesAreCreditedAsItsLeastClipped) {
+    test::TinyReference ref;
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    SimpleAlignmentHandler handler(*ref.loader, aligner, 31, 3, 0.9, false);
+    handler.SetGeneEndClips(true);
+    auto result = [](uint32_t taxid, uint32_t gene, uint16_t clips) {
+        AlignmentResult r(0, taxid, gene, 0, true);
+        r.GetAlignmentInfo().boundary_clips = clips;
+        return r;
+    };
+    AlignmentResultList results;
+    results.push_back(result(1, 1, 20));
+    results.push_back(result(1, 2, 110));
+    results.push_back(result(2, 1, 0));
+    handler.CreditGeneEndClips(results);
+    EXPECT_EQ(results[0].GetAlignmentInfo().clip_credit, 30);
+    EXPECT_EQ(results[1].GetAlignmentInfo().clip_credit, 30);
+    EXPECT_EQ(results[2].GetAlignmentInfo().clip_credit, 0);
+    for (auto const& r : results) EXPECT_TRUE(r.GetAlignmentInfo().end_clips_credited);
+
+    PairedAlignmentResultList pairs;
+    pairs.emplace_back(result(1, 1, 20), AlignmentResult());
+    pairs.emplace_back(result(2, 1, 0), AlignmentResult());
+    auto found = result(1, 2, 110);
+    CreditFoundMate(found, pairs, true, handler);  // its taxon's least, 20, against the mate's least, 0
+    EXPECT_EQ(found.GetAlignmentInfo().clip_credit, 30);
+}
