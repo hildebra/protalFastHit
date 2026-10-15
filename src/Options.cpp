@@ -41,6 +41,7 @@ namespace protal {
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
+                ("spike_genes", "Spike mode: whether a sample's spike genes are left out of the evidence of their species, as if their reads had not aligned. A spike gene's reads pile far beyond what the rest of its taxon's genes explain (50 reads or more, 50 times the depth of the taxon's genes outside its 3 deepest, the spikes together half of the taxon's reads or more): a PCR product or a fragment of one gene carried over into the library. auto (default): before a sample is profiled its reads per gene are counted, and the sample is in spike mode if at least 2 of its 10 taxa with the most reads have spike genes and the spikes hold 5% of its reads or more, the pattern of carried-over products (a relative's reads also pile on a few genes of an absent congener, a thin taxon, which this leaves alone); on: every sample (also a relative's piles are taken, which can make such a congener look present); off: none, and no counting. In a real D6331 mock sample every species had such a gene and two were missed without spike mode (docs/claude/2026-10-15-mock-near-misses). The log gives each sample's check; <profile>.spike_genes.tsv lists the genes left out.", cxxopts::value<std::string>()->default_value("auto"))
                 ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy).")
                 ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default foreign genes are left out of both; .profile.genes.log lists them either way.")
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
@@ -279,6 +280,8 @@ namespace protal {
         result_str << "phasing:             " << (m_no_phasing ? "no" : "long-read samples") << '\n';
         result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << '\n';
         result_str << "suspect gene copies: " << (m_keep_suspect_copies ? "kept" : "left out of the evidence") << '\n';
+        result_str << "spike genes:         " << (m_spike_mode == spike_genes::Mode::kAuto ? "left out in spike mode (auto: samples whose coverage shows carried-over products)"
+                                                  : m_spike_mode == spike_genes::Mode::kOn ? "left out of every sample's evidence (on)" : "kept (off)") << '\n';
         if (m_add_model.empty()) {
             result_str << "model kind:          " << (m_model_kind == "auto" ? "auto (the database's default models)" : m_model_kind) << '\n';
         }
@@ -1232,6 +1235,11 @@ namespace protal {
         bool no_gene_neighbours = result.count("no_gene_neighbours");
         bool keep_foreign_genes = result.count("keep_foreign_genes");
         bool keep_suspect_copies = result.count("keep_suspect_copies");
+        auto const spike_mode = spike_genes::ParseMode(result["spike_genes"].as<std::string>());
+        if (!spike_mode) {
+            std::cerr << "Error: --spike_genes must be auto, on or off, not '" << result["spike_genes"].as<std::string>() << "'" << std::endl;
+            exit(2);
+        }
         bool no_phasing = result.count("no_phasing");
         bool build = result.count("build");
         bool preload_genomes_off = result.count("preload_genomes_off");
@@ -1810,6 +1818,7 @@ namespace protal {
         if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
         d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
         d.keep_suspect_copies      = keep_suspect_copies;
+        d.spike_mode               = *spike_mode;
         d.suspect_copy_distance    = result["suspect_copy_distance"].as<double>();
         d.strain_alleles           = result["strain_alleles"].as<size_t>();
         d.allele_genome_share      = result["allele_genome_share"].as<double>();
