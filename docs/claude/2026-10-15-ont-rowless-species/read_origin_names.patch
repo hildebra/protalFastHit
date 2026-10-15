@@ -1,0 +1,51 @@
+--- a/src/RandomForest/LongReadSimulator.cpp
++++ b/src/RandomForest/LongReadSimulator.cpp
+@@ -8,6 +8,7 @@
+ #include <cmath>
+ #include <condition_variable>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <exception>
+ #include <fstream>
+@@ -580,8 +581,10 @@
+         MadeRead read;
+         std::string const prefix = "@g" + std::to_string(item.genome) + "x_";
+         bool const counted = !host && m_options.markers && m_options.markers->Has(genome.name);
++        static bool const origins = std::getenv("PROTAL_SIM_READ_ORIGIN") != nullptr;  // local study patch
+         for (std::size_t i = 0; i < item.lengths.size(); ++i) {
+             std::uint32_t const length = item.lengths[i];
++            std::string origin;
+             if (host) {
+                 templ = host->Draw(rng, length);
+             } else {
+@@ -602,18 +605,28 @@
+                     for (int attempt = 1; attempt < kPlacements && start + length > contigs->lengths[k]; ++attempt) place();
+                 }
+                 contigs->Extract(k, start, length, templ);
++                if (origins) {
++                    origin = "|" + contigs->names[k] + "|" + std::to_string(start) + "|" + std::to_string(start + templ.size());
++                }
+                 if (counted && m_options.markers->Overlaps(genome.name, contigs->names[k], start, start + templ.size())) {
+                     ++piece.marker_reads;
+                     ++piece.marker_first_reads;
+                 }
+             }
+-            if (rng.Uniform() < 0.5) ReverseComplement(templ);
++            bool const reverse = rng.Uniform() < 0.5;
++            if (reverse) ReverseComplement(templ);
++            std::uint64_t const errors_before = piece.errors;
+             if (m_qshmm) m_qshmm->Mutate(templ, rng, read, &piece.errors);
+             else hifi::Mutate(templ, rng, m_options.setup, read, &piece.errors);
++            if (!origin.empty()) origin += "|" + std::to_string(piece.errors - errors_before);
+             piece.template_bases += templ.size();
+             piece.read_bases += read.seq.size();
+             fastq += prefix;
+             fastq += std::to_string(item.first_read + i + 1);
++            if (!origin.empty()) {
++                fastq += origin;
++                fastq += reverse ? "|-" : "|+";
++            }
+             fastq += '\n';
+             fastq += read.seq;
+             fastq += "\n+\n";

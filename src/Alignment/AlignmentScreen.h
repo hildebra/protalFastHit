@@ -370,11 +370,12 @@ namespace protal {
     };
 
     // An exact bound before WFA2 for ONT reads, in place of the k-mer screen: the indel distance
-    // (docs/claude/2026-10-09-ont-wfa2-skipping.md). At ONT's identity floor of 0.85 an alignment within the budget may
-    // touch every k-mer of its window, so the k-mer screen refuses next to nothing (none of 145,184 candidates on the
-    // bench sample, 1,191 of 17.9M on r226's host sample), while a failing candidate (a gene window against unrelated read
-    // sequence: 99.8% of them on host reads at r226) is still far from aligning. PacBio reads keep the k-mer screen: the
-    // candidates it passes mostly align, and the bound on them cost 20% more instructions than it saved.
+    // (docs/claude/2026-10-09-ont-wfa2-skipping.md). At ONT's identity floor (0.85 then, 0.8 now) an alignment within
+    // the budget may touch every k-mer of its window, so the k-mer screen refuses next to nothing (none of 145,184
+    // candidates on the bench sample, 1,191 of 17.9M on r226's host sample), while a failing candidate (a gene window
+    // against unrelated read sequence: 99.8% of them on host reads at r226) is still far from aligning. PacBio reads keep
+    // the k-mer screen: the candidates it passes mostly align, and the bound on them cost 20% more instructions than it
+    // saved.
     //
     // The bound: a mismatch is a deletion and an insertion, and a gap of g bases costs gap_opening + g gap_extension, so
     // an alignment's score is at least q / 2 per base of the indel distance of what it aligns (the fewest insertions and

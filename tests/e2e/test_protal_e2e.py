@@ -3917,14 +3917,36 @@ class OntTest(ReadTypeTest):
 
     def test_exit_code_and_model(self):
         log = self.runs.log
-        self.assertIn("Align the ONT reads of sample oa (-a 0.85)", log)
+        self.assertIn("Align the ONT reads of sample oa (-a 0.8)", log)
         self.assertIn("Model of ONT reads: " + os.path.join(self.runs.db, "model_ONT.xml"), log)
         self.assertIn("@CO\tprotal read type: ont\n", sam_text(self.runs.sam("oa")))
         # The options summary shows the values the ONT reads get.
-        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000) (auto: the database's, else this)\n", log)
-        self.assertRegex(log, r"max_score_ani_ont\s+0\.85 \(auto\)\s+0\.85\n")  # the database's floor (build_settings.tsv)
+        self.assertIn("max score ani:       0.900000 (ONT reads: 0.800000) (auto: the database's, else this)\n", log)
+        self.assertRegex(log, r"max_score_ani_ont\s+0\.8 \(auto\)\s+0\.8\n")  # the database's floor (build_settings.tsv)
         self.assertIn("snp min af:          0.150000 (ONT reads: 0.200000)\n", log)
         self.assertIn("x-drop:              1000 (short reads; long reads: none)\n", log)
+
+    def test_a_database_that_records_no_floors_aligns_ont_at_085(self):
+        # A database built before 2026-10-15 records no identity floors: its ONT models were trained at 0.85, so its ONT
+        # reads are aligned at 0.85, not at today's 0.8, with no note; told 0.8, the run is warned.
+        old = self.path("old_floors")
+        shutil.copytree(self.runs.db, old)  # separate files (--no_bundle)
+        path = os.path.join(old, "build_settings.tsv")
+        self.assertIn("max_score_ani_ont\t0.8\n", read_text(path))
+        kept = [line for line in read_text(path).splitlines(True) if not line.startswith("max_score_ani_")]
+        with open(path, "w") as fh:
+            fh.writelines(kept)
+        rc, log = run(self.work, "--db", old, "-1", self.runs.long["oa"], "--prefix", "oa", "--read_type", "ont",
+                      "-o", "out_old_floors", "-t", "4", "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Align the ONT reads of sample oa (-a 0.85)", log)
+        self.assertRegex(log, r"max_score_ani_ont\s+0\.85 \(auto\)\s+0\.85\n")
+        self.assertNotIn("is told otherwise", log)
+        rc, log = run(self.work, "--db", old, "-1", self.runs.long["oa"], "--prefix", "oa", "--read_type", "ont",
+                      "-o", "out_old_floors_told", "-t", "4", "--no_qcmsa", "--no_profile", "-a", "0.8")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Align the ONT reads of sample oa (-a 0.8)", log)
+        self.assertIn("max_score_ani_ont 0.8 (the database's: 0.85)", log)
 
     def test_long_reads_are_aligned_without_x_drop(self):
         # --x_drop is for short reads: over the gene-long windows of long reads it lost alignments.
@@ -4031,7 +4053,7 @@ class ReadTypesTest(ReadTypeTest):
         self.assertIn("1 paired-end, 2 single-end, 2 PacBio, 2 ONT sample(s)", log)
         self.assertIn("Model of paired-end reads: ", log)
         self.assertIn("Align the paired-end reads of sample pe (-a 0.9)", log)
-        self.assertIn("Align the ONT reads of sample ob (-a 0.85)", log)
+        self.assertIn("Align the ONT reads of sample ob (-a 0.8)", log)
         self.assertNotIn("minimum allele frequencies for", log)
         paired = sam_records(self.runs.sam("pe"))
         self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
@@ -4501,11 +4523,11 @@ class RunSettingsTest(WorkDir):
             self.assertEqual(recorded.get(key), value, key)
         self.assertIn("Run settings recorded for the database's runs: weighted_site_shift on, allele_scores on, align_top 4",
                       self.build_log)
-        # The defaults: ONT's own floor, the site shift off, the gene end clips off.
+        # The defaults: ONT's own floor (0.8 since 2026-10-15), the site shift off, the gene end clips off.
         recorded = dict(line.split("\t") for line in self.settings(self.plain_db, "unpacked_plain").splitlines()
                         if not line.startswith("#"))
         for key, value in (("weighted_site_shift", "off"), ("align_top", "3"), ("max_score_ani_pe", "0.9"),
-                           ("max_score_ani_ont", "0.85"), ("keep_suspect_copies", "off"), ("gene_end_clips", "off")):
+                           ("max_score_ani_ont", "0.8"), ("keep_suspect_copies", "off"), ("gene_end_clips", "off")):
             self.assertEqual(recorded.get(key), value, key)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
@@ -4561,9 +4583,11 @@ class RunSettingsTest(WorkDir):
         log, sam = self.align("old", db=old)
         # (the unique k-mers' scheme it has: its unique_cores.bin)
         self.assertIn("Note: the database records no weighted_site_shift, allele_scores, align_top, adaptive_candidates, "
-                      "mate_guidance, max_score_ani_pe (built before 2026-10-15)", log)
+                      "mate_guidance (built before 2026-10-15)", log)
         self.assertNotIn("is told otherwise", log)
         self.assertEqual((sam["align_top"], sam["weighted_site_shift"], sam["max_score_ani"]), ("3", "off", "0.9"))
+        # No identity floors: those every protal before aligned at (0.9; ONT 0.85), as its models were trained (no note).
+        self.assertRegex(log, r"max_score_ani_pe\s+0\.9 \(auto\)\s+0\.9\n")
         # No gene_end_clips: off, as every database before the setting was trained (no note, the table says off).
         self.assertEqual(sam["gene_end_clips"], "off")
         self.assertRegex(log, r"gene_end_clips\s+off \(auto\)\s+off\n")

@@ -32,6 +32,15 @@ for this page.
 
 Not in a release yet.
 
+- **ONT's identity floor 0.8 (`-a`; was 0.85)** (2026-10-15). The identity counts a one-base indel as two
+  differences, so 0.85 dropped most ONT reads below ~0.88 accuracy: in simulated ONT samples 7.4% of the reads on
+  marker genes seeded but aligned nowhere, and a species with one or two such reads got no row at all (r226 v29: 3.7%
+  of the present ONT species, against 1.4-1.6% for the other read types). In three small builds that differ only in
+  the floor, 0.8 halves those species and gains 0.004-0.008 of marker-truth F1; nearly all of its new false positives
+  are in samples with a congener left out of the database, and ONT profiling takes 17% longer. `--build` records 0.8;
+  a database that records no floors (built before 0.8.5) runs its ONT reads at 0.85, as its models were trained, and
+  one built by 0.8.5 records 0.85 and keeps it ([report](claude/2026-10-15-ont-rowless-species/README.md)).
+
 - **Credit for the bases clipped past a gene's end (`--gene_end_clips credit`, off by default)** (F1 audit L2,
   2026-10-15). A short read that runs past its gene's start or end is aligned with the overhang soft-clipped, and the
   bitscore that ranks the candidates and gives the MAPQ (2 a match, -3 a mismatch) gave those bases 0: a congener whose

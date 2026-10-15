@@ -23,16 +23,21 @@ namespace protal {
         // Defaults of these reads unless -a / --snp_min_af are given (none: the options' defaults).
         // ONT errors are mostly indels, which the alignment identity counts twice (see
         // AlignmentInfo::GetProxyANI), and they put a low-frequency second allele at many positions.
+        // ONT's floor is 0.8 since 2026-10-15: 0.85 dropped most reads below ~0.88 accuracy, and with them
+        // the species of one or two marker reads (docs/claude/2026-10-15-ont-rowless-species).
         std::optional<double> max_score_ani;
         std::optional<double> snp_min_af;
+        // The floor of a database that records none (built before 2026-10-15): every protal before aligned
+        // these reads at it, and the database's models were trained so (build_settings::DatabaseMaxScoreAni).
+        double unrecorded_max_score_ani;
     };
 
     inline constexpr size_t kReadTypeCount = 4;
     inline const std::array<ReadTypeInfo, kReadTypeCount> kReadTypes = {{
-            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model", 30, std::nullopt, std::nullopt },
-            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se", 30, std::nullopt, std::nullopt },
-            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb", 30, std::nullopt, std::nullopt },
-            { ReadType::ONT, "ont", "ONT", "model_ONT.xml", "--model_ont", 18, 0.85, 0.2 } }};
+            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model", 30, std::nullopt, std::nullopt, 0.9 },
+            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se", 30, std::nullopt, std::nullopt, 0.9 },
+            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb", 30, std::nullopt, std::nullopt, 0.9 },
+            { ReadType::ONT, "ont", "ONT", "model_ONT.xml", "--model_ont", 18, 0.8, 0.2, 0.85 } }};
 
     // Long reads, aligned per gene (LongReads.h).
     inline bool IsLongReadType(ReadType type) {

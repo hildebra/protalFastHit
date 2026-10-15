@@ -274,7 +274,8 @@ namespace protal {
     // for those this run is told otherwise than the database's models were trained with (SettingApplies), and apart for a
     // run with --no_unique_cores on a database whose models counted the unique k-mers from its unique cores. A mode the
     // database records that this protal does not know (a later protal's mate guidance) is warned and left at protal's
-    // default. A database built before records none: one note, and protal's defaults.
+    // default. A database built before records none: one note, and protal's defaults, but for the settings whose defaults
+    // changed since (mate guidance, the gene end clips, the ONT identity floor), which take what its models were trained with.
     static void ApplyRunSettings(Options& options, build_settings::Settings const& settings, std::ostream& out) {
         namespace b = build_settings;
         bool const sams_given = ProfilesExistingSams(options);
@@ -304,8 +305,11 @@ namespace protal {
         auto database = recorded;
         database.unique_kmers = DatabaseUniqueKmers(options, settings);
         // A database that records no gene_end_clips was trained with off (every protal before ranked so): no note, and a
-        // run given credit is warned.
+        // run given credit is warned. One that records no identity floors was trained at 0.9, ONT 0.85: the same.
         database.gene_end_clips = b::DatabaseGeneEndClips(recorded);
+        for (auto const& info : kReadTypes) {
+            database.max_score_ani[static_cast<size_t>(info.type)] = b::DatabaseMaxScoreAni(recorded, info.type);
+        }
         auto const used_fields = b::RunFields(used);
         auto const database_fields = b::RunFields(database);
         auto const given = b::RunFields(options.RunSettingsGiven());
@@ -385,7 +389,8 @@ namespace protal {
             copy(s::kAdaptiveCandidates, std::string(b::kAdaptiveCandidates));
             // (only short reads' SAMs say it; a database that records none was trained with off)
             fields.emplace_back(s::kGeneEndClips, b::DatabaseGeneEndClips(settings.run));
-            copy(s::kMaxScoreAni, std::string(b::kMaxScoreAni) + Info(type).token);
+            // (a database that records no floors was trained at 0.9, ONT 0.85)
+            fields.emplace_back(s::kMaxScoreAni, b::Decimal(b::DatabaseMaxScoreAni(settings.run, type)));
             return fields;
         };
         size_t lines = 0, otherwise = 0;

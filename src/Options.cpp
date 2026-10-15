@@ -51,7 +51,7 @@ namespace protal {
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
-                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; auto (default): each read type's floor the database records (build_settings.tsv), else 0.9 and for ONT reads 0.85 (their indels count twice).", cxxopts::value<std::string>()->default_value("auto"))
+                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; auto (default): each read type's floor the database records (build_settings.tsv), else (a database built before 2026-10-15) the floors its models were trained at, 0.9 and for ONT reads 0.85. --build records 0.9 and for ONT reads 0.8 (their indels count twice).", cxxopts::value<std::string>()->default_value("auto"))
                 ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)))
                 ("wfa_traceback", "How WFA2 recovers each alignment's operations: classic (WFA2's high-memory mode, which keeps every wavefront), singletrack (keeps only the match wavefronts and recomputes a gap's steps while tracing back: less memory to touch, and faster), or auto (default): the database's. Both give the same scores, but among equally good alignments they may choose differently, so SAM records and the model's features can differ. --build records its choice (auto: singletrack; classic before protal 0.8.2) in the database's build_settings.tsv and aligns its strain alleles, congener gaps and column weights with it; a run that aligns otherwise than its database was built is warned. A database built before 2026-10-11 was built with classic.", cxxopts::value<std::string>()->default_value("auto"));
 
@@ -1963,7 +1963,11 @@ namespace protal {
             if (!recorded.mate_guidance) m_mate_guidance = MateGuidanceMode::Guide;
             else if (auto const mode = ParseMateGuidance(*recorded.mate_guidance)) m_mate_guidance = *mode;
         }
-        m_database_max_score_ani = recorded.max_score_ani;  // GetMaxScoreAni: where -a is not given
+        // The identity floors (GetMaxScoreAni, where -a is not given): the database's; where it records none (built before
+        // 2026-10-15), those its models were trained at (0.9, ONT 0.85), not this protal's defaults (ONT 0.8).
+        for (auto const& info : kReadTypes) {
+            m_database_max_score_ani[static_cast<size_t>(info.type)] = build_settings::DatabaseMaxScoreAni(recorded, info.type);
+        }
         if (!g.keep_foreign_genes && recorded.keep_foreign_genes) m_keep_foreign_genes = *recorded.keep_foreign_genes;
         if (!g.keep_suspect_copies && recorded.keep_suspect_copies) m_keep_suspect_copies = *recorded.keep_suspect_copies;
         if (!g.depth_identity_margin && recorded.depth_identity_margin) m_depth_identity_margin = *recorded.depth_identity_margin;
