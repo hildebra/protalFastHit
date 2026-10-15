@@ -412,6 +412,7 @@ namespace protal {
                 std::string read_problem;   // why reading failed, if it says
                 size_t reads_read = 0;
                 size_t bases_read = 0;  // for the header's ScannedReadsLine
+                size_t placeholder_qualities = 0;  // reads (mates) with Q0 at every base, given the read type's quality
                 std::vector<ThreadedGzStreambuf::FileRead> files_read;  // how each file was read, for the input line
                 double reader_seconds = 0;                              // the alignment threads' time getting reads
                 size_t reading_threads = 0;                             // the threads reading them beside the alignment's
@@ -479,6 +480,7 @@ namespace protal {
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
                     read_success = reader.Success();
+                    placeholder_qualities = reader.PlaceholderQualities();
                     is.close();
                     files_read = is.rdbuf()->files_read();
                     reading_threads = stream_threads(is);
@@ -512,6 +514,7 @@ namespace protal {
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
                     read_success = reader.Success();
+                    placeholder_qualities = reader.PlaceholderQualities();
                     if (reader.TooLong() > 0) {
                         read_problem = ": read " + reader.TooLongId() + " has " + std::to_string(reader.TooLong()) +
                                        " bp, too long for short reads; give --read_type pb or ont (or in the map's READ_TYPE "
@@ -566,6 +569,7 @@ namespace protal {
                     read_problem = read_error(is1);
                     if (read_problem.empty()) read_problem = read_error(is2);
                     read_success = reader.Success();
+                    placeholder_qualities = reader.PlaceholderQualities();
                     if (!read_success && read_problem.empty() && reader.MatesOutOfStep()) {
                         read_problem = first_files.size() > 1 ? ": the two files of one of its lanes hold different numbers of reads"
                                                               : ": the two files hold different numbers of reads";
@@ -619,6 +623,15 @@ namespace protal {
                 }
                 if (reads_read == 0) {
                     std::cerr << "Warning: sample " << options.GetSampleId(index) << " has no reads (" << read_files << ")" << std::endl;
+                }
+                // Q0 at every base means unknown qualities (IsPlaceholderQuality): taken as qualities, every base would count
+                // as an error, and the reads' divergence beyond their errors (ReadExcess) would be far from the models'.
+                if (placeholder_qualities > 0) {
+                    std::cerr << "Note: sample " << options.GetSampleId(index) << ": " << placeholder_qualities << " of "
+                              << (single_file ? reads_read : 2 * reads_read) << (single_file ? " reads" : " mates")
+                              << " have Q0 at every base, which means unknown qualities (pbsim3, some BAM-to-FASTQ exports), so "
+                              << "their bases were given Q" << Info(read_type).fasta_quality << ", as " << ReadTypeName(read_type)
+                              << " reads without qualities (FASTA) are" << std::endl;
                 }
                 Benchmark bm_finish_sam("Writing the SAM header and file");
                 bm_finish_sam.Start();

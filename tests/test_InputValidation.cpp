@@ -486,6 +486,146 @@ TEST(ReadTypeDetection, NamesBeforeQualities) {
     auto const other = Guess(dir.Write("other.fq", Reads(40, 3000, '0', [](size_t i) { return "m_" + std::to_string(i); })));
     ASSERT_TRUE(other);
     EXPECT_EQ(other->type, protal::ReadType::ONT);
+    EXPECT_EQ(other->basis, protal::ReadTypeBasis::Quality);
+    EXPECT_EQ(ont->basis, protal::ReadTypeBasis::Names);
+    EXPECT_EQ(ccs->basis, protal::ReadTypeBasis::Names);
+}
+
+// A UUID anywhere in the header, between characters that are no letters or digits: after an archive's own id (SRA,
+// ENA), in a dorado duplex read's "uuid;uuid", before a suffix; not inside a longer word or run of hex digits.
+TEST(ReadTypeDetection, AUuidAnywhereInTheHeader) {
+    using protal::read_type_detection::HoldsUuid;
+    std::string const uuid = "1b2c3d4e-1c2d-4e5f-8a9b-0123456789ab", other = "0f9e8d7c-6b5a-4f3e-9d2c-1b0a98765432";
+    EXPECT_TRUE(HoldsUuid(uuid));
+    EXPECT_TRUE(HoldsUuid("SRR12345678.1 " + uuid + " length=5000"));
+    EXPECT_TRUE(HoldsUuid("ERR12345.7\t" + uuid));
+    EXPECT_TRUE(HoldsUuid(uuid + ";" + other));
+    EXPECT_TRUE(HoldsUuid(uuid + "_Basecall_1D_template"));
+    EXPECT_TRUE(HoldsUuid("read=" + uuid + ","));
+    EXPECT_FALSE(HoldsUuid("x" + uuid));
+    EXPECT_FALSE(HoldsUuid(uuid + "0"));
+    EXPECT_FALSE(HoldsUuid("SRR12345678.1 1 length=5000"));
+    EXPECT_FALSE(HoldsUuid(uuid.substr(0, 35)));
+    EXPECT_FALSE(HoldsUuid("1b2c3d4e01c2d-4e5f-8a9b-0123456789ab"));
+}
+
+// ONT reads from SRA or ENA keep their name, if at all, after the archive's id; dorado names a duplex read uuid;uuid.
+// Their names make them ONT reads whatever their quality ('D' is Q35); a PacBio name after an archive's id makes PacBio
+// reads.
+TEST(ReadTypeDetection, ArchivedReadsByTheNamesTheyKeep) {
+    ScratchDir dir;
+    auto uuid = [](size_t i) {
+        char id[40];
+        std::snprintf(id, sizeof id, "%08zx-1c2d-4e5f-8a9b-0123456789ab", i);
+        return std::string(id);
+    };
+    std::vector<std::pair<std::string, std::function<std::string(size_t)>>> const ont_names = {
+            { "sra", [&](size_t i) { return "SRR12345678." + std::to_string(i + 1) + " " + uuid(i) + " length=3000"; } },
+            { "ena_runid", [&](size_t i) { return "ERR1234567." + std::to_string(i + 1) + " " + uuid(i) + " runid=6f3a ch=12"; } },
+            { "runid_only", [](size_t i) { return "SRR1." + std::to_string(i + 1) + " sampleid=x,runid=6f3a"; } },
+            { "duplex", [&](size_t i) { return uuid(i) + ";" + uuid(i + 1000); } },
+            { "albacore", [&](size_t i) { return uuid(i) + "_Basecall_1D_template"; } },
+    };
+    for (auto const& [name, read_name] : ont_names) {
+        auto const guess = Guess(dir.Write(name + ".fq", Reads(40, 3000, 'D', read_name)));
+        ASSERT_TRUE(guess) << name;
+        EXPECT_EQ(guess->type, protal::ReadType::ONT) << name;
+        EXPECT_EQ(guess->basis, protal::ReadTypeBasis::Names) << name;
+    }
+    // Lost names: by quality (Q35, PacBio's), which DescribeReadType makes a warning.
+    auto const lost = Guess(dir.Write("lost.fq", Reads(40, 3000, 'D', [](size_t i) { return "SRR1." + std::to_string(i + 1) + " length=3000"; })));
+    ASSERT_TRUE(lost);
+    EXPECT_EQ(lost->type, protal::ReadType::PacBio);
+    EXPECT_EQ(lost->basis, protal::ReadTypeBasis::Quality);
+    // A PacBio name after an archive's id, Q15 reads ('0'): PacBio reads by the name.
+    auto const ccs = Guess(dir.Write("sra_ccs.fq", Reads(40, 3000, '0', [](size_t i) {
+        return "SRR9087597." + std::to_string(i + 1) + " m64011_190830_220126/" + std::to_string(i) + "/ccs length=3000";
+    })));
+    ASSERT_TRUE(ccs);
+    EXPECT_EQ(ccs->type, protal::ReadType::PacBio);
+    EXPECT_EQ(ccs->basis, protal::ReadTypeBasis::Names);
+}
+
+// Read by read, Q0 at every base is no quality, as the alignment's reader takes it: of 26 reads at Q0 and 24 at Q35,
+// most have no qualities, so the reads are taken for PacBio's for want of them (the median of all 50 was Q0, ONT).
+TEST(ReadTypeDetection, ReadsAtQ0AreReadsWithoutQualities) {
+    ScratchDir dir;
+    auto const guess = Guess(dir.Write("mixed_q0.fq", Reads(26, 4000, '!', Plain) + Reads(24, 4000, 'D', Plain)));
+    ASSERT_TRUE(guess);
+    EXPECT_EQ(guess->type, protal::ReadType::PacBio);
+    EXPECT_EQ(guess->basis, protal::ReadTypeBasis::NoQualities);
+    // With most reads at Q35, their median decides.
+    auto const most = Guess(dir.Write("few_q0.fq", Reads(20, 4000, '!', Plain) + Reads(30, 4000, '3', Plain)));
+    ASSERT_TRUE(most);
+    EXPECT_EQ(most->type, protal::ReadType::ONT);
+    EXPECT_NE(most->evidence.find("median read quality Q18.0"), std::string::npos) << most->evidence;
+}
+
+// What protal says of each guess (DescribeReadType): a note where names decided, a warning that names the kind, why and
+// --read_type where the base quality, or the lack of it, did; for single-end reads nothing, unless they look like long
+// reads (a median length beyond Illumina's and a quality below PacBio's), which a note says.
+TEST(ReadTypeDetection, AWarningWhereQualitiesAloneDecide) {
+    auto describe = [](protal::ReadSample sample) {
+        auto const guess = protal::GuessReadType(sample, protal::MAX_SHORT_READ_LENGTH);
+        return protal::DescribeReadType(*guess, "s", "s.fq");
+    };
+    auto sample = [](std::vector<size_t> const& lengths, std::optional<double> quality, size_t ont_names = 0) {
+        protal::ReadSample s;
+        s.reads = lengths.size();
+        s.lengths = lengths;
+        s.longest = *std::max_element(lengths.begin(), lengths.end());
+        s.median_length = protal::read_type_detection::Median(lengths);
+        s.median_quality = quality;
+        s.ont_names = ont_names;
+        return s;
+    };
+    std::string const set_type = "--read_type ont or pb (or a map's READ_TYPE) sets the kind of reads";
+
+    auto const named = describe(sample({ 4000, 4000 }, 35.0, 2));
+    ASSERT_TRUE(named);
+    EXPECT_FALSE(named->warning);
+    EXPECT_NE(named->text.find("Sample s: ONT reads (the first 2 reads up to 4.0 kb long, median 4.0 kb, named as MinKNOW and "
+                               "dorado name reads in s.fq), aligned and profiled as such; --read_type (or a map's READ_TYPE) "
+                               "sets the kind of reads"), std::string::npos) << named->text;
+
+    auto const pacbio = describe(sample({ 4000, 4000 }, 35.0));
+    ASSERT_TRUE(pacbio);
+    EXPECT_TRUE(pacbio->warning);
+    EXPECT_NE(pacbio->text.find("Sample s: PacBio reads (the first 2 reads up to 4.0 kb long, median 4.0 kb, median read quality "
+                                "Q35.0 (PacBio from Q25, ONT below) in s.fq), aligned and profiled as such by their base quality "
+                                "alone"), std::string::npos) << pacbio->text;
+    EXPECT_NE(pacbio->text.find("as after a download from SRA or ENA"), std::string::npos) << pacbio->text;
+    EXPECT_NE(pacbio->text.find("ONT reads reach PacBio's Q25"), std::string::npos) << pacbio->text;
+    EXPECT_NE(pacbio->text.find(set_type), std::string::npos) << pacbio->text;
+
+    auto const ont = describe(sample({ 4000, 4000 }, 18.0));
+    ASSERT_TRUE(ont);
+    EXPECT_TRUE(ont->warning);
+    EXPECT_NE(ont->text.find("Sample s: ONT reads ("), std::string::npos) << ont->text;
+    EXPECT_NE(ont->text.find("by their base quality alone"), std::string::npos) << ont->text;
+    EXPECT_EQ(ont->text.find("reach PacBio's Q25"), std::string::npos) << ont->text;
+    EXPECT_NE(ont->text.find(set_type), std::string::npos) << ont->text;
+
+    auto const fasta = describe(sample({ 4000, 4000 }, std::nullopt));
+    ASSERT_TRUE(fasta);
+    EXPECT_TRUE(fasta->warning);
+    EXPECT_NE(fasta->text.find("Sample s: PacBio reads ("), std::string::npos) << fasta->text;
+    EXPECT_NE(fasta->text.find("aligned and profiled as such for want of base qualities"), std::string::npos) << fasta->text;
+    EXPECT_NE(fasta->text.find(set_type), std::string::npos) << fasta->text;
+
+    // Single-end reads: nothing to say of Illumina's; long-read-like ones (median 600 bp, Q14) get a note.
+    EXPECT_FALSE(describe(sample({ 150, 150, 150 }, 35.0)));
+    EXPECT_FALSE(describe(sample({ 600, 600, 600 }, 35.0)));          // merged Illumina pairs
+    EXPECT_FALSE(describe(sample({ 300, 300, 300 }, 14.0)));          // Illumina's length
+    EXPECT_FALSE(describe(sample({ 600, 600, 600 }, std::nullopt)));  // no qualities to tell
+    auto const long_like = describe(sample({ 600, 600, 600, 2000 }, 14.0));
+    ASSERT_TRUE(long_like);
+    EXPECT_FALSE(long_like->warning);
+    EXPECT_NE(long_like->text.find("Sample s: single-end reads (the first 4 reads up to 2.0 kb long, median 0.6 kb, at most a "
+                                   "quarter over 1.0 kb, median read quality Q14.0 in s.fq), aligned and profiled as such, "
+                                   "though their lengths and qualities are those of long reads"), std::string::npos)
+            << long_like->text;
+    EXPECT_NE(long_like->text.find("--read_type ont or pb (or a map's READ_TYPE) for ONT or PacBio reads"), std::string::npos);
 }
 
 // At the boundaries: a median read quality of Q25 (kPacBioMinQuality) is PacBio's, a read of MAX_SHORT_READ_LENGTH bases

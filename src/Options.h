@@ -2123,7 +2123,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
         // The kind of reads of each sample: the one its READ_TYPE (or --read_type) names, else
         // paired-end with a second read file, and without one what the first reads of the file show
         // (ReadTypeDetection.h: single-end for short reads, PacBio or ONT for long ones, by their names
-        // or qualities), noted in note_log for samples of this run. With --profile_only, from
+        // or qualities), noted in note_log for samples of this run, or warned of in warning_log where
+        // the reads' qualities alone, or their lack, decided (DescribeReadType). With --profile_only, from
         // the SAM: the kind its header names (protal writes it), else single-end if its alignments
         // are unpaired (no 0x1); a SAM without usable alignments, or that cannot be read (reported
         // when it is profiled), counts as paired-end. A kind given for a SAM wins over its own, e.g. to
@@ -2141,13 +2142,12 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     if (!given && single && in_run && i < m_first_list.size() && !m_first_list[i].empty()) {
                         auto const first_file = SplitReadFiles(m_first_list[i]).front();  // of several (lanes), the first
                         auto const guess = GuessReadType(SampleReads(first_file), MAX_SHORT_READ_LENGTH);
-                        if (guess && guess->type != ReadType::Single) {
+                        if (guess) {
                             m_read_types[i] = guess->type;
-                            if (note_log) {
-                                note_log->emplace_back("Sample " + (i < m_sampleid_list.size() ? m_sampleid_list[i] : m_prefix_list[i]) + ": " + ReadTypeName(guess->type) +
-                                                       " reads (" + guess->evidence + " in " + first_file + "), aligned and profiled as such; "
-                                                       "--read_type (or a map's READ_TYPE) sets the kind of reads");
-                            }
+                            auto const message = DescribeReadType(*guess, i < m_sampleid_list.size() ? m_sampleid_list[i] : m_prefix_list[i],
+                                                                  first_file);
+                            if (message && message->warning) warning_log.push_back(message->text);
+                            else if (message && note_log) note_log->push_back(message->text);
                         }
                     }
                     if (m_force || i >= m_sam_list.size()) continue;

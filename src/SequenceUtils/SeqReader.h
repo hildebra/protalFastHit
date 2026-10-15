@@ -87,13 +87,30 @@ namespace protal {
         }
     };
 
-    // A read without qualities (FASTA) gets `quality` (Phred+33) for each base; 0 leaves it without.
-    inline void FillMissingQuality(FastxRecord& record, char quality) {
-        if (quality != 0 && record.quality.empty()) record.quality.assign(record.sequence.size(), quality);
+    // Whether a read's qualities are Q0 ('!') at every base, which means unknown: pbsim3 and some BAM-to-FASTQ exports
+    // write it for reads without qualities. Taken as qualities, every base would be an error (probability 1), and every
+    // read's divergence beyond its errors (ReadExcess) about -1, far from what the models were trained on.
+    inline bool IsPlaceholderQuality(std::string const& quality) {
+        return !quality.empty() && quality.front() == '!' &&
+               quality.find_first_not_of('!') == std::string::npos;
+    }
+
+    // A read without qualities (FASTA), or with Q0 at every base (IsPlaceholderQuality), gets `quality` (Phred+33) for
+    // each base; 0 leaves it as it is. Returns whether it replaced Q0 qualities.
+    inline bool FillMissingQuality(FastxRecord& record, char quality) {
+        if (quality == 0) return false;
+        if (record.quality.empty()) {
+            record.quality.assign(record.sequence.size(), quality);
+            return false;
+        }
+        if (!IsPlaceholderQuality(record.quality)) return false;
+        record.quality.assign(record.sequence.size(), quality);
+        return true;
     }
 
     // Single-end reads, shared by threads as SeqReaderPE: each copy takes batches of records from
-    // the stream. Reads without qualities get fasta_quality for each base (FillMissingQuality).
+    // the stream. Reads without qualities, or with Q0 at every base, get fasta_quality for each
+    // base (FillMissingQuality; PlaceholderQualities counts the latter).
     // With a maximum length, the first read longer than it ends reading and fails it (TooLong).
     class SeqReaderSE {
     private:
@@ -106,6 +123,7 @@ namespace protal {
         size_t m_max_length = SIZE_MAX;  // SIZE_MAX: none
         size_t m_too_long = 0;          // length of a read over m_max_length, 0 if none
         std::string m_too_long_id;
+        size_t m_placeholder_qualities = 0;  // reads whose Q0 qualities got m_fasta_quality
 
         bool Next(FastxRecord& record) {
             if (!m_reader.NextSequence(record)) return false;
@@ -115,7 +133,7 @@ namespace protal {
                 m_success = false;
                 return false;
             }
-            FillMissingQuality(record, m_fasta_quality);
+            m_placeholder_qualities += FillMissingQuality(record, m_fasta_quality);
             return true;
         }
 
@@ -134,8 +152,13 @@ namespace protal {
         size_t TooLong() const { return m_too_long; }
         std::string const& TooLongId() const { return m_too_long_id; }
 
+        // The reads read so far with Q0 at every base, which got fasta_quality instead (after UpdateSuccess, of every copy
+        // joined).
+        size_t PlaceholderQualities() const { return m_placeholder_qualities; }
+
         void UpdateSuccess(SeqReaderSE const& other) {
             m_success &= other.m_success;
+            m_placeholder_qualities += other.m_placeholder_qualities;
             if (other.m_too_long > m_too_long) {
                 m_too_long = other.m_too_long;
                 m_too_long_id = other.m_too_long_id;
@@ -183,6 +206,7 @@ namespace protal {
         char m_fasta_quality = 0;  // for reads without qualities, see FillMissingQuality
         size_t m_name_mismatches = 0;  // pairs whose mates' names differ (MatesNamedAlike)
         std::string m_first_mismatch;  // the first such pair's names
+        size_t m_placeholder_qualities = 0;  // mates whose Q0 qualities got m_fasta_quality
 
     public:
         // Whether two mates' read names agree: the same, or the same but for a last character 1 in
@@ -197,6 +221,11 @@ namespace protal {
         // UpdateSuccess, that of the copy joined first, which need not be the first in the files.
         size_t NameMismatches() const { return m_name_mismatches; }
         std::string const& FirstNameMismatch() const { return m_first_mismatch; }
+
+        // The mates read so far with Q0 at every base, which got fasta_quality instead (each mate counts; after
+        // UpdateSuccess, of every copy joined).
+        size_t PlaceholderQualities() const { return m_placeholder_qualities; }
+
         SeqReaderPE(std::istream& is1, std::istream& is2, char fasta_quality = 0) :
                 m_is1(is1),
                 m_is2(is2),
@@ -240,6 +269,7 @@ namespace protal {
             if (other.m_error_code != NO_ERROR) m_error_code = other.m_error_code;
             if (m_first_mismatch.empty()) m_first_mismatch = other.m_first_mismatch;
             m_name_mismatches += other.m_name_mismatches;
+            m_placeholder_qualities += other.m_placeholder_qualities;
         }
 
         bool operator() (FastxRecord &record1, FastxRecord &record2) {
@@ -247,8 +277,8 @@ namespace protal {
             if (!MatesNamedAlike(record1.id, record2.id)) {
                 if (m_name_mismatches++ == 0) m_first_mismatch = record1.id + ", " + record2.id;
             }
-            FillMissingQuality(record1, m_fasta_quality);
-            FillMissingQuality(record2, m_fasta_quality);
+            m_placeholder_qualities += FillMissingQuality(record1, m_fasta_quality);
+            m_placeholder_qualities += FillMissingQuality(record2, m_fasta_quality);
             return true;
         }
 

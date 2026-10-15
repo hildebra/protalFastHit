@@ -283,16 +283,43 @@ file protal looks at its first 200 reads (at most 5 Mb):
 - At most a quarter of them longer than 1,000 bp: single-end reads. A longer read later in the
   file stops the sample (exit 1), as any long read does in a sample given as `se`, whose first
   100 reads protal checks before aligning.
-- Else long reads: ONT reads if most of them are named as MinKNOW and dorado name reads (a UUID;
-  MinKNOW adds `runid=`), PacBio reads if named by movie and ZMW (`m64011_190830_220126/123/ccs`).
-  Else their median read quality decides, each read's quality being that of its bases' mean error
-  probability: PacBio from Q25 on (HiFi reads are Q30 and better), ONT below (about Q12-25). Long
-  reads without qualities named neither way are taken for PacBio reads: FASTA, or Q0 at every
-  base, which means unknown (pbsim3 writes it for its PacBio reads).
+- Else long reads: ONT reads if most of them are named as MinKNOW and dorado name reads (a UUID
+  anywhere in the header, also a dorado duplex read's `uuid;uuid`; or MinKNOW's `runid=`), PacBio
+  reads if named by movie and ZMW (`m64011_190830_220126/123/ccs`, also after an archive's id:
+  `SRR9087597.1 m64011_190830_220126/123/ccs`). Else their median read quality decides, each
+  read's quality being that of its bases' mean error probability: PacBio from Q25 on (HiFi reads
+  are Q30 and better), ONT below (about Q12-25). Long reads without qualities named neither way
+  are taken for PacBio reads: FASTA, or Q0 at every base, which means unknown (below).
 
 protal says what it found, e.g. `Note: Sample s: ONT reads (the first 200 reads up to 48.1 kb
-long, median 6.3 kb, median read quality Q18.4 (PacBio from Q25, ONT below) in s.fq.gz), aligned
-and profiled as such`, and the sample is aligned and profiled with that kind's settings and model.
+long, median 6.3 kb, named as MinKNOW and dorado name reads in s.fq.gz), aligned and profiled as
+such`, and the sample is aligned and profiled with that kind's settings and model. Where the
+quality alone, or its lack, decided, it warns instead, as that can be wrong: `Warning: Sample s:
+PacBio reads (... median read quality Q27.3 (PacBio from Q25, ONT below) in s.fq.gz), aligned and
+profiled as such by their base quality alone: ...; --read_type ont or pb (or a map's READ_TYPE)
+sets the kind of reads`. A wrong kind changes the alignment's identity floor, the sparse-first
+gate and the model: ONT reads aligned as PacBio's are expected to fail the floor or look like
+relatives' reads, and species to be missed.
+
+**Give `--read_type ont` for ONT reads downloaded from SRA or ENA.** The archives rename reads
+(`SRR12345678.1`) and keep the original name after their own only in some downloads, so the
+names often say nothing; ONT reads of R10.4.1 sup or duplex basecalling reach Q25, and SRA Lite
+gives every base Q30, so by their quality such reads pass for PacBio's. ONT reads as FASTA whose
+names have lost their UUID are taken for PacBio's. A file of single-end reads (at most a quarter
+over 1 kb) whose median length (over 400 bp) and quality (below Q25) are those of long reads
+rather than Illumina's gets a note that `--read_type ont` or `pb` aligns them as long reads; ONT
+reads as short as Illumina's (cell-free or ancient DNA) are taken for single-end reads without a
+word and need `--read_type ont`.
+
+Reads with Q0 at every base (`!`, as pbsim3 and some BAM-to-FASTQ exports write for unknown
+qualities) are read as reads without qualities: their bases get the quality FASTA reads of that
+kind get (Q30 for short and PacBio reads, Q18 for ONT reads), and the log says how many, once per
+sample (`Note: sample s: 5000 of 5000 reads have Q0 at every base, which means unknown
+qualities ...`). Taken as Q0, every base would count as an error, and the reads' divergence beyond
+their errors, the long-read models' main feature, would lie far outside what they were trained on.
+SAM files aligned by earlier versions keep the Q0 they were written with (`--force` aligns them
+again).
+
 Reads in a pipe are not looked at (they would be lost to the alignment): give `--read_type` for
 long reads read through a pipe.
 
