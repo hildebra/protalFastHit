@@ -522,5 +522,7 @@ the build-side changes do to F1.
 - Trainer, c4test pe: knob and F1 within ±0.002. The GBM loses 0.003 of held-out F1 when the sample is held out
   too, the forest 0.0003, as E4 expected ([report](2026-10-15-trainer-honest-f1.md)).
 
-**Still open:** B2 (the gates' loss of short, divergent reads); L2-L13; the mock benchmark as a regression gate
-(check 8's first half); every r226-scale number above.
+**Still open:** the mock benchmark as a regression gate (check 8's first half); every r226-scale number above. B2 and
+L2-L13 were taken up afterwards ([report](2026-10-15-f1-audit-lower-findings/README.md)): B2 measured and fixed
+(`--sparse_first_min_picks`), L2 an option (`--gene_end_clips`), L6, L7, L10-L13 fixed, L3 counted, L4, L5, L8, L9
+documented.

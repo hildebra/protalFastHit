@@ -707,7 +707,10 @@ denser stride, C halved until the read has `--sparse_first_min_picks` picks (dow
 has about 3 picks against 7 of a 150 bp one, and the gate dropped 9-12% of 75-100 bp single-end reads 5% from their
 reference against 3% of 150 bp ones ([report](claude/2026-10-15-f1-audit-lower-findings/README.md), B2). `--build`
 records it with the gates (6 unless given), and runs take the database's (`auto`; a database built before
-2026-10-15: 0, every read at the gate's stride). Reads of 120 bp and more, and long reads, are sampled as before. The run says the gates it uses beside the database's, and warns when a sample is
+2026-10-15: 0, every read at the gate's stride). With 6 at C 4 the gate kept all but 1.4% of 75 bp reads 5% from
+their reference (12.1% without), for about three times its lookups of a 75 bp read (7.6 against 2.5) and a fifth more
+of a 150 bp one (7.2 against 5.9: a 150 bp read with fewer than 21 cores gets a denser stride too); reads given up,
+such as host reads, then cost the gate that much more. Long reads' chunks keep their stride. The run says the gates it uses beside the database's, and warns when a sample is
 gated otherwise. `--stage1_probe` and an explicit gate exclude each other; with `--stage1_probe` the
 database's gates are not followed.
 

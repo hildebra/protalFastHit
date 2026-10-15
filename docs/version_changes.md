@@ -43,9 +43,34 @@ Not in a release yet.
   `build_settings.tsv`: the one given, else `off`), runs follow it, and a database that records none was trained with
   `off`; off, the outputs are 0.8.5's. On the reduced r226 database's simulated test set it removes 6% of the
   fragments counted for a wrong species, but costs 0.46% of the right ones, mostly reads across two neighbouring genes
-  of their own genome whose MAPQ falls under 4; crediting every candidate of a taxon as its least clipped one keeps the
-  gain and turns that loss into a small gain (not committed). Calls change at the knob only, the mocks' not at all
+  of their own genome whose MAPQ falls under 4, when each candidate is credited by its own clips; the rule committed
+  credits every candidate of a taxon as that taxon's least clipped one, which keeps the gain (340 fewer wrong) and
+  turns that loss into a small gain (210 more right). Calls change at the knob only, the mocks' not at all
   ([report](claude/2026-10-15-f1-audit-lower-findings/L2-gene-end-clips.md)).
+
+- **Short reads keep their chances at the sparse-first gate (`--sparse_first_min_picks`)** (F1 audit B2, 2026-10-15).
+  The stride pick looks a read up by every C-th of its cores, so at C 4 a 75 bp read has about 3 picks and a 150 bp one
+  7; measured on reads of a reduced r226 database's own genes, C 4 dropped 9-12% of 75-100 bp single-end reads 5% from
+  their reference against 3% of 150 bp and 0.1% of 2x150 bp pairs. Now a read (each mate, a long read's chunk) with
+  fewer than N picks at C is sampled at C halved until it has them: with 6, 1.4% of those 75 bp reads are dropped and
+  2.0% of the 100 bp ones, for three times the gate's lookups of a 75 bp read and a fifth more of a 150 bp one. `--build` records it with the gates (6 unless
+  given, `sparse_first_min_picks` in `build_settings.tsv`), runs follow the database's, and a database built before
+  records none: its runs sample every read at its stride, as its models were trained
+  ([report](claude/2026-10-15-f1-audit-lower-findings/README.md)).
+- **The F1 audit's lower findings** (2026-10-15; [report](claude/2026-10-15-f1-audit-lower-findings/README.md)):
+  - a `unique_cores.bin` that is not the database's (its rows not the database's genes) is not used, the whole run
+    counting ZS, ZU and ZT from the anchors with a warning, instead of a mix by gene; the genes whose cores do not fit
+    their row are warned about per sample (L6);
+  - on an index built before 2026-09-26 (78f7a92), which never checked its cores of one value, those count as not
+    unique, as its models saw them, and the load warns (L7);
+  - a read's k-mers over an ambiguous base (N) are not looked up; they were looked up as if it were A or T (L10);
+  - a paired sample whose mates are mostly named apart fails, its files not being in the same order; a mate named
+    without its number (`r` and `r/2`) matches (L11);
+  - WFA2 is compiled at the baseline ISA after any `-march` in the build's flags: its AVX2 kernels choose otherwise
+    among equally good ends-free alignments (L12);
+  - the log counts the reads with more eligible congeners than `--adaptive_candidates` tried (L3); the docs say how a
+    long read counts in `fragments` (L5), what a reduced database's uniqueness pass leaves out (L8), that the AVX-512
+    `--flex_indels` kernel is unverified (L9), and what `--depth_identity_margin` changes (L13).
 
 ## What 0.8.5 adds
 
