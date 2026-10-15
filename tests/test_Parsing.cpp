@@ -602,30 +602,41 @@ TEST(Options, ReadTypesOfSamples) {
     EXPECT_NE(warnings[0].find("pe.sam holds paired-end reads; profiled as single-end reads"), std::string::npos) << warnings[0];
 }
 
-// Without a read type, a single read file's first reads decide (ReadTypeDetection.h) for the samples of the run, with
-// a note; a read type given wins, and the reads of samples outside the run are not looked at.
+// Without a read type, a single read file's first reads decide (ReadTypeDetection.h) for the samples of the run: with a
+// note where the reads' names decide, a warning where their base quality alone does; a read type given wins, and the
+// reads of samples outside the run are not looked at.
 TEST(Options, TheReadTypeOfASingleReadFileFromItsReads) {
     ScratchDir dir;
-    std::string reads;
-    for (int i = 0; i < 50; i++) reads += "@r" + std::to_string(i) + "\n" + std::string(4000, 'A') + "\n+\n" + std::string(4000, '3') + "\n";
+    std::string reads, named;
+    for (int i = 0; i < 50; i++) {
+        std::string const record = std::string(4000, 'A') + "\n+\n" + std::string(4000, '3') + "\n";
+        reads += "@r" + std::to_string(i) + "\n" + record;
+        named += "@SRR1." + std::to_string(i + 1) + " 1b2c3d4e-1c2d-4e5f-8a9b-" + std::to_string(100000000000 + i) + "\n" + record;
+    }
     std::string const ont = dir.Write("ont.fq", reads);
+    std::string const sra = dir.Write("sra.fq", named);
     OptionsData data;
-    data.first_list = { ont, ont, ont };
-    data.second_list = { "", "", "" };
-    data.prefix_list = { "a", "b", "c" };
-    data.read_type_list = { "", "se", "" };
-    data.range = { 0, 1 };
+    data.first_list = { ont, ont, ont, sra };
+    data.second_list = { "", "", "", "" };
+    data.prefix_list = { "a", "b", "c", "d" };
+    data.read_type_list = { "", "se", "", "" };
+    data.range = { 0, 1, 3 };
     Options options(data);
     std::vector<std::string> warnings, notes;
     options.ResolveReadTypes(warnings, &notes);
     EXPECT_EQ(options.GetReadType(0), ReadType::ONT);
     EXPECT_EQ(options.GetReadType(1), ReadType::Single);  // given
     EXPECT_EQ(options.GetReadType(2), ReadType::Single);  // not in the run
+    EXPECT_EQ(options.GetReadType(3), ReadType::ONT);
+    ASSERT_EQ(warnings.size(), 1u);
+    EXPECT_NE(warnings[0].find("Sample a: ONT reads (the first 50 reads up to 4.0 kb long, median 4.0 kb, median read quality Q18.0"),
+              std::string::npos) << warnings[0];
+    EXPECT_NE(warnings[0].find("aligned and profiled as such by their base quality alone"), std::string::npos) << warnings[0];
+    EXPECT_NE(warnings[0].find("--read_type ont or pb (or a map's READ_TYPE) sets the kind of reads"), std::string::npos);
     ASSERT_EQ(notes.size(), 1u);
-    EXPECT_NE(notes[0].find("Sample a: ONT reads (the first 50 reads up to 4.0 kb long, median 4.0 kb, median read quality Q18.0"),
-              std::string::npos) << notes[0];
-    EXPECT_NE(notes[0].find("aligned and profiled as such; --read_type (or a map's READ_TYPE) sets the kind of reads"), std::string::npos);
-    EXPECT_TRUE(warnings.empty());
+    EXPECT_NE(notes[0].find("Sample d: ONT reads (the first 50 reads up to 4.0 kb long, median 4.0 kb, named as MinKNOW and dorado "
+                            "name reads in " + sra + "), aligned and profiled as such; --read_type (or a map's READ_TYPE) sets "
+                            "the kind of reads"), std::string::npos) << notes[0];
 }
 
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {

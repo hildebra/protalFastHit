@@ -165,6 +165,19 @@ for this page.
     `consensus`), and runs on the database follow it unless `--mate_guidance` is given. A database built before
     records none; its models were trained with `guide`, which its runs keep
     ([report](claude/2026-10-15-mate-consensus/README.md)).
+- **Two input traps for long reads closed** (2026-10-15; findings C2 and C3 of the
+  [F1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md); [running.md](running.md#the-kind-of-reads)).
+  - **Read type:** a single read file's reads are ONT reads by a UUID anywhere in the header (after an archive's id as
+    in `SRR123.1 <uuid>`, a dorado duplex read's `uuid;uuid`) or `runid=` anywhere, and PacBio reads by a movie and
+    ZMW in any word of it. Where the base quality alone, or its lack, decides a long-read type, protal warns instead of
+    noting it, and says that `--read_type` (or `READ_TYPE`) sets the kind: ONT reads from SRA or ENA have often lost
+    their names, and recent ONT reads reach PacBio's Q25. Single-end files whose reads look like long ones (median over
+    400 bp, below Q25) get a note.
+  - **Q0 qualities:** reads with `!` at every base (pbsim3, some BAM-to-FASTQ exports) get the read type's FASTA quality,
+    as reads without qualities do, with a note per sample. As Q0 every base was an error, and the reads' excess over
+    their errors (`excess_scaled_median`, 71% of the r226 v23 PacBio model's split gain) about −0.99, far outside
+    training.
+  - Untouched: inputs with real qualities and a read type given, which is how every model was trained and evaluated.
 
 ## What 0.8.4 adds
 

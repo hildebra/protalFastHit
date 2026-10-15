@@ -4078,9 +4078,26 @@ class ReadTypesTest(ReadTypeTest):
                 _, rows = read_table(find_one(self.path("out_fasta"), f"{sample}.profile.log"))
                 self.assertTrue(rows, "the profiler takes the records")
 
+    def test_q0_reads_get_the_read_types_quality(self):
+        # Q0 at every base means unknown qualities (pbsim3, some BAM-to-FASTQ exports): the reads get the read type's
+        # quality as FASTA reads do, Q30 (?) for PacBio reads, and the log says so once.
+        q0 = self.path("lbq0.fq")
+        with open(q0, "w") as fh:
+            fh.writelines(f"@{name}\n{seq}\n+\n{'!' * len(seq)}\n" for name, seq in fastq_records(self.runs.long["lb"]))
+        rc, log = run(self.work, "--db", self.runs.db, "-1", q0, "--read_type", "pb", "-o", "out_q0", "-t", "2", "--no_qcmsa",
+                      "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        reads = len(fastq_records(q0))
+        self.assertEqual(log.count(" have Q0 at every base"), 1, log[-3000:])
+        self.assertIn(f"Note: sample lbq0: {reads} of {reads} reads have Q0 at every base, which means unknown qualities", log)
+        self.assertIn("their bases were given Q30, as PacBio reads without qualities (FASTA) are", log)
+        records = sam_records(self.path("out_q0", "lbq0.sam"))
+        self.assertTrue(records)
+        self.assertEqual({q for r in records for q in r[10]}, {"?"})
+
     def test_read_types_by_the_reads_and_prefixes_by_the_files(self):
-        # Without --read_type: PacBio names (movie/ZMW) make PacBio reads; other names by their quality, Q17 here (ONT
-        # reads); short ones single-end reads. Without --prefix the read files name the samples.
+        # Without --read_type: PacBio names (movie/ZMW) make PacBio reads, with a note; other names by their quality, Q17
+        # here (ONT reads), with a warning; short ones single-end reads. Without --prefix the read files name the samples.
         ont = self.path("ont_like.fq")
         simulate_long_reads(ont, 10, seed=31, error=0.02, indels=0.7, read_name="read_{}", quality="2")
         short = head_reads(os.path.join(READS, "sa_R1.fq"), self.path("sa_R1.fq"), 200)
@@ -4090,8 +4107,10 @@ class ReadTypesTest(ReadTypeTest):
         self.assertIn("Note: Sample lb: PacBio reads (the first ", log)
         self.assertIn("named as PacBio names reads", log)
         self.assertIn("@CO\tprotal read type: pb\n", sam_text(self.path("out_auto", "lb.sam")))
-        self.assertIn("Note: Sample ont_like: ONT reads (the first 10 reads", log)
+        self.assertIn("Warning: Sample ont_like: ONT reads (the first 10 reads", log)
         self.assertIn("median read quality Q17.0 (PacBio from Q25, ONT below)", log)
+        self.assertIn("aligned and profiled as such by their base quality alone", log)
+        self.assertIn("--read_type ont or pb (or a map's READ_TYPE) sets the kind of reads", log)
         self.assertIn("@CO\tprotal read type: ont\n", sam_text(self.path("out_auto", "ont_like.sam")))
         self.assertIn("Align the single-end reads of sample sa_R1", log)
         self.assertTrue(sam_records(self.path("out_auto", "sa_R1.sam")))

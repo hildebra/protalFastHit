@@ -1901,4 +1901,55 @@ TEST(SeqReader, ReadsWithoutQualitiesGetTheReadTypesQuality) {
     ASSERT_TRUE(pairs(record, record2));
     EXPECT_EQ(record.quality, "????");
     EXPECT_EQ(record2.quality, "???");
+    EXPECT_EQ(reader.PlaceholderQualities(), 0u) << "FASTA reads are not counted as Q0 reads";
+}
+
+// Q0 at every base means unknown qualities (pbsim3, some BAM-to-FASTQ exports): such a read gets the read type's quality
+// as a read without qualities does, single-end and paired-end alike, and is counted; a read with one base above Q0 keeps
+// its qualities. Without a quality to give (0, as the read-type detection reads), Q0 stays.
+TEST(SeqReader, ReadsAtQ0EverywhereGetTheReadTypesQuality) {
+    std::string const fastq = "@r1\nACGT\n+\n!!!!\n@r2\nACGT\n+\n!!#!\n@r3\nACGTA\n+\n!!!!!\n";
+    std::istringstream long_reads(fastq);
+    SeqReaderSE reader(long_reads, FastaQualityChar(ReadType::ONT));
+    FastxRecord record;
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.quality, "3333");  // Q18
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.quality, "!!#!") << "one base above Q0: qualities";
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.quality, "33333");
+    EXPECT_FALSE(reader(record));
+    EXPECT_EQ(reader.PlaceholderQualities(), 2u);
+
+    std::istringstream detection(fastq);
+    SeqReaderSE as_read(detection);
+    ASSERT_TRUE(as_read(record));
+    EXPECT_EQ(record.quality, "!!!!");
+    EXPECT_EQ(as_read.PlaceholderQualities(), 0u);
+
+    // Each thread's copy counts its own reads; UpdateSuccess adds them up.
+    std::istringstream shared(fastq);
+    SeqReaderSE global(shared, FastaQualityChar(ReadType::PacBio));
+    SeqReaderSE copy(global);
+    while (copy(record)) {}
+    EXPECT_EQ(copy.PlaceholderQualities(), 2u);
+    EXPECT_EQ(global.PlaceholderQualities(), 0u);
+    global.UpdateSuccess(copy);
+    EXPECT_EQ(global.PlaceholderQualities(), 2u);
+
+    std::istringstream mate1("@p/1\nAAAA\n+\n!!!!\n@q/1\nAAAA\n+\nIIII\n"), mate2("@p/2\nCCC\n+\n!!!\n@q/2\nCCC\n+\n!!!\n");
+    SeqReaderPE pairs(mate1, mate2, FastaQualityChar(ReadType::Paired));
+    FastxRecord record2;
+    ASSERT_TRUE(pairs(record, record2));
+    EXPECT_EQ(record.quality, "????");  // Q30
+    EXPECT_EQ(record2.quality, "???");
+    ASSERT_TRUE(pairs(record, record2));
+    EXPECT_EQ(record.quality, "IIII");
+    EXPECT_EQ(record2.quality, "???");
+    EXPECT_FALSE(pairs(record, record2));
+    EXPECT_EQ(pairs.PlaceholderQualities(), 3u) << "each mate counts";
+
+    EXPECT_TRUE(IsPlaceholderQuality("!"));
+    EXPECT_FALSE(IsPlaceholderQuality(""));
+    EXPECT_FALSE(IsPlaceholderQuality("!!!\""));
 }
