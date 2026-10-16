@@ -158,9 +158,14 @@ class BuildOptionsTest(unittest.TestCase):
         for bad in ("strided", "pb:8", "xx:hash", "pe:"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_pick_spec(bad)
-        # --model-gates: a ladder per read type, the database's gate added; none: the database's alone. A run gated at C
-        # is profiled with the model of the gate nearest it (log2 C, off below 1, the lower of two).
-        ladder = build.model_gate_ladder(build.model_gates_spec(build.DEFAULT_MODEL_GATES), gates, ["pe", "se", "pb", "ont"])
+        # --model-gates: none by default (since 2026-10-16), the database's alone; or a ladder per read type, the
+        # database's gate added. A run gated at C is profiled with the model of the gate nearest it (log2 C, off below
+        # 1, the lower of two).
+        self.assertEqual(build.model_gates_spec(build.DEFAULT_MODEL_GATES), {})
+        self.assertEqual(build.model_gate_ladder(build.model_gates_spec(build.DEFAULT_MODEL_GATES), gates,
+                                                 ["pe", "se", "pb", "ont"]),
+                         {"pe": [4], "se": [4], "pb": [16], "ont": [8]})
+        ladder = build.model_gate_ladder(build.model_gates_spec(build.MODEL_GATES_LADDER), gates, ["pe", "se", "pb", "ont"])
         self.assertEqual(ladder, {"pe": [1, 4, 8], "se": [1, 4, 8], "pb": [8, 16, 32], "ont": [1, 8, 16]})
         self.assertEqual(build.model_gate_ladder(build.model_gates_spec("pe:1/8"), {"pe": 2}, ["pe", "se"]),
                          {"pe": [1, 2, 8], "se": [0]})
@@ -476,6 +481,9 @@ class BuildOptionsTest(unittest.TestCase):
                     os.path.join(points, "p2", "sim", "run_params.tsv"): "param\tvalue\n",
                     os.path.join(points, "p3", "stream_pe.log"): "a" * (build.GATHERED_MAX + 10),
                     os.path.join(points, "p2", "sim", "reads", "x.log"): "not a point's log\n",
+                    # a sample profiled in spike mode (since 2026-10-16), at the database's gate and at C 8
+                    os.path.join(points, "p2", "protal", "profiles", "p2_s_1.profile.spike_genes.tsv"): "gene\n",
+                    os.path.join(points, "p2", "protal_c8", "profiles", "p2_s_1__c8.profile.spike_genes.tsv"): "gene\n",
                     os.path.join(out, "work", "training", "profile_all", "run1", "protal.log"): "Sample s strain alleles\n",
                     os.path.join(scratch, "insilico_strains", "insilico_strains.tsv"): "strain\tcongener\n"}
             for path, text in disk.items():
@@ -497,7 +505,11 @@ class BuildOptionsTest(unittest.TestCase):
                                                                  "work/training/training_data.tsv",
                                                                  "logs/simulations_training.log",
                                                                  "logs/protal_runs_training.log",
-                                                                 "model_logs/insilico_strains.tsv")})
+                                                                 "model_logs/insilico_strains.tsv",
+                                                                 "model_logs/spike_genes/training/"
+                                                                 "p2_s_1.profile.spike_genes.tsv",
+                                                                 "model_logs/spike_genes/training/"
+                                                                 "p2_s_1__c8.profile.spike_genes.tsv")})
             self.assertEqual(table, "truth\tp\n1\t0.123456789\n")
             headers = re.findall(r"==> (.+) <==", simulations)
             self.assertEqual(headers, ["p2/design.log", "p2/sim/run_params.tsv", "p3/stream_pe.log", "p10/simulate.log"])
@@ -1050,7 +1062,53 @@ class F1AuditTest(unittest.TestCase):
         self.assertEqual(len(warnings), 1)  # the subset without congeners is no warning of its own
         self.assertIn("beyond a refit's noise of 0.002", warnings[0])
 
-    def test_model_calls_and_the_allele_scores(self):
+    def test_the_final_check_by_genome_and_differing_rows(self):
+        # Since 2026-10-16: the present rows of the species not held out by the genome they were simulated from
+        # (representative, real strain, in-silico strain; sensitivity, FP 0), and the rows protal calls otherwise than
+        # the model file, with both scores, in final_db_check_differ.tsv beside final_db_check.tsv.
+        import numpy as np
+        import database_check
+        from sklearn.ensemble import RandomForestClassifier
+        X = np.array([[10, 0.9], [10, 0.92], [10, 0.97], [10, 0.99]])
+        forest = RandomForestClassifier(n_estimators=1, max_depth=1, bootstrap=False, random_state=0).fit(X, [0, 0, 1, 1])
+        model = os.path.join(self.tmp.name, "model_g.xml")
+        model_pmml.write_forest(forest, ["fragments", "identity"], model)
+        meta = ["meta_sample", "meta_scenario", "meta_novel_congener", "meta_marker_reads", "meta_rep_genome",
+                "meta_insilico_strain"]
+        # The trainer's calls: R (representative) and S (real strain) missed in s1, I (in-silico strain) found.
+        calls = self.write("g.calls.tsv.gz", meta + ["taxon", "taxon_name", "truth", "set", "p", "knob", "call"], [
+            ("s1", "", 0, 5, 1, 0, 0, "s__R", 1, "test", 0.4, 0.5, 0), ("s1", "", 0, 5, 0, 0, 0, "s__S", 1, "test", 0.4, 0.5, 0),
+            ("s1", "", 0, 5, 0, 1, 0, "s__I", 1, "test", 0.9, 0.5, 1)], gz=True)
+        # On the finished database protal finds R and S, and calls absent X, which the model file would not (identity
+        # 0.9): a row protal calls otherwise than its model file.
+        table = self.write("g_final.tsv", meta + ["truth", "prediction", "probability", "taxon", "taxon_name", "fragments",
+                                                  "identity"], [
+            ("s1", "", 0, 5, 1, 0, 1, 1, 0.97, 0, "s__R", 10, 0.99), ("s1", "", 0, 5, 0, 0, 1, 1, 0.97, 0, "s__S", 10, 0.98),
+            ("s1", "", 0, 5, 0, 1, 1, 1, 0.97, 0, "s__I", 10, 0.99), ("s1", "", 0, "", 0, 0, 0, 1, 0.6, 0, "s__X", 10, 0.9)])
+        out = os.path.join(self.tmp.name, "g_final_db_check.tsv")
+        rows, missing = database_check.final_check(["pe"], {"pe": table}, {}, {("pe", "gbm"): calls},
+                                                   {("pe", "gbm"): model}, "gbm", set(), out)
+        by = {r["rows_of"]: r for r in rows}
+        self.assertEqual(set(by), {label for label, _ in database_check.SUBSETS})
+        for label, before, after in (("of them present, simulated from the representative", (0, 1), (1, 0)),
+                                     ("of them present, simulated from a real strain", (0, 1), (1, 0)),
+                                     ("of them present, simulated from an in-silico strain", (1, 0), (1, 0))):
+            self.assertEqual((by[label]["training_db_TP"], by[label]["training_db_FN"]), before, label)
+            self.assertEqual((by[label]["finished_db_TP"], by[label]["finished_db_FN"], by[label]["finished_db_FP"]),
+                             (*after, 0), label)
+        self.assertEqual(by["species not held out"]["calls_unlike_the_model_file"], 1)
+        differing = database_check.read_rows(database_check.differ_path(out))
+        self.assertEqual(database_check.differ_path(out), os.path.join(self.tmp.name, "g_final_db_check_differ.tsv"))
+        self.assertEqual([(r["read_type"], r["kind"], r["taxon_name"], r["truth"], r["protal_call"], r["model_call"])
+                          for r in differing], [("pe", "gbm", "s__X", 0, 1, 0)])
+        self.assertAlmostEqual(differing[0]["protal_probability"], 0.6)
+        self.assertEqual(differing[0]["model_knob"], 0.5)
+        lines, warnings = database_check.final_check_lines(rows, missing, "gbm")
+        self.assertIn("pe gbm, of them present, simulated from a real strain: sensitivity 0.0000 -> 1.0000 (FN 1 -> 0 "
+                      "of 1 -> 1)", lines)
+        self.assertTrue(any("final_db_check_differ.tsv" in w for w in warnings), warnings)
+
+    def test_model_calls(self):
         import numpy as np
         import database_check
         from sklearn.ensemble import RandomForestClassifier
@@ -1059,33 +1117,13 @@ class F1AuditTest(unittest.TestCase):
         forest = RandomForestClassifier(n_estimators=1, max_depth=1, bootstrap=False, random_state=0).fit(X, [0, 0, 1, 1])
         model = os.path.join(self.tmp.name, "model.xml")
         model_pmml.write_forest(forest, ["fragments", "identity"], model)
-        # Normal run (the trainer's calls): A called in both samples, B called in s1 (a false positive), C missed.
-        calls = self.calls_file("model.calls.tsv.gz", [
-            ("s1", "s__A", 1, 1, 0, 5, "test"), ("s1", "s__B", 0, 1, 0, "", "test"), ("s2", "s__A", 1, 1, 0, 5, "test"),
-            ("s2", "s__C", 1, 0, 0, 5, "test")])
-        # Without the allele scores: A drops below 0.95 in s2 (missed), B too (rejected), C as before; A has alleles.
-        table = self.table_file("no_alleles.tsv", [
+        # A table's rows scored by the model file as protal calls: called at identity 0.95 or more (knob 0.5).
+        table = self.table_file("rows.tsv", [
             ("s1", "s__A", 1, 0, 0, 5, 10, 0.99, 0.6), ("s1", "s__B", 0, 0, 0, "", 10, 0.90, 0),
             ("s2", "s__A", 1, 0, 0, 5, 10, 0.93, 0.6), ("s2", "s__C", 1, 0, 0, 5, 10, 0.91, 0)],
             extra=("fragments", "identity", "allele_copy_share"))
         frame = database_check._frame(table)
         self.assertEqual(database_check.model_calls(frame, model).tolist(), [1, 0, 0, 0])
-        out = os.path.join(self.tmp.name, "no_allele_scores.tsv")
-        rows, missing = database_check.allele_check(["pe"], {"pe": table}, {"pe": None}, {("pe", "forest"): calls},
-                                                    {("pe", "forest"): model}, out)
-        self.assertEqual(missing, [])
-        every, with_alleles, without = rows
-        self.assertEqual((every["species"], with_alleles["species"], without["species"]),
-                         ("all", "with strain alleles", "without strain alleles"))
-        self.assertEqual([every[f"with_allele_scores_{c}"] for c in ("TP", "FP", "FN")], [2, 1, 1])
-        self.assertEqual([every[f"without_allele_scores_{c}"] for c in ("TP", "FP", "FN")], [1, 0, 2])
-        self.assertAlmostEqual(every["allele_scores_F1_gain"], 2 * 2 / 6 - 2 / 4)
-        self.assertEqual((with_alleles["taxa"], with_alleles["with_allele_scores_TP"], with_alleles["without_allele_scores_FN"]),
-                         (1, 2, 1))
-        self.assertEqual((without["taxa"], without["with_allele_scores_FP"], without["without_allele_scores_FP"]), (2, 1, 0))
-        lines = database_check.allele_check_lines(rows, missing)
-        self.assertTrue(lines[0].startswith("pe forest, all (3 taxa): F1 0.5000 without the allele scores -> 0.6667 with them"),
-                        lines[0])
 
 
 class CladeHoldoutTest(unittest.TestCase):

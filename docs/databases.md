@@ -403,8 +403,7 @@ estimates' `marker_truth_f1`, with its measure and notes), else the marker truth
 else the F1 over the rows, each line saying which. The
 table's F1s count only the taxa with a row, so a change that strips a present species of all its records raises them
 ([f1 audit](claude/2026-10-15-f1-audit-since-0.6.0a.md), E3). Then it names the test set's seed, and after the table
-come the [final check on the finished database](#the-final-check-on-the-finished-database) and, with `--share-logs`, the
-allele scores' effect.
+comes the [final check on the finished database](#the-final-check-on-the-finished-database).
 Each model's full report is `trained_model*.report.txt`. Start with these sections:
 
 - **Independent test set**: the score per depth, and the threshold with the highest F1. A test score
@@ -490,7 +489,7 @@ with `--scratch`, and about 1,400 with `--share-logs`, whose error-read SAMs are
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/` | the database: `database.protal` with its models of both kinds; `build_metadata.tsv`, the release, protal version and commit, command, design, held-out species and each model's scores (the versions and the scripts' commit are those the run started with, since 2026-10-06, followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of); and the converter's `gene2geneid.tsv` and `genome2tiid.tsv`, which name its genes and genomes. Since 2026-10-13 `database.protal` holds these three too ([the notes](#the-notes-a-database-carries)): it alone is the database |
-| `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; `final_db_check.tsv`, the final check on the finished database, and with `--share-logs` `no_allele_scores.tsv`, the allele scores' effect ([above](#the-final-check-on-the-finished-database)); `feature_versions.tsv`, the feature code's versions of the protal the models were trained with (`protal --feature_versions`, where protal has it; given to every trainer, `--feature-versions`, where the trainer takes it); what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
+| `model_logs/` | everything to judge the models, and what the run chose: `summary.txt`; each read type's model and trainer's outputs, `trained_model*` ([the presence model](#training)): the model (`.xml`, as in the database; `.joblib`, scikit-learn's), the report (`.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances; `parity.txt`, every read type's parity check; `composition_accuracy*.tsv` and `.txt` (the samples' composition against the truth, [above](#3-check-the-result)) and `composition_species*.tsv.gz` (every sample's species present or called: protal's depth and genome size beside the truth); `genome_table.txt`, the genomes simulated from, with the in-silico strains; `heldout_species.txt`, the species the training database leaves out, with the rank they were held out at and the clade, since 2026-10-08 also the distance to the nearest kept congener (`-`: none within 0.15) and the species complex held out with it (`c<number>`), and `holdout.txt`, their counts; `species_clouds.tsv`, every species' nearest congeners by their references' marker genes (`protal --write_species_neighbours` on the converted release, `species_neighbours.tsv`'s format), which steer the hold-out and give the training table's `meta_novel_distance`; with a gene subset `gene_subset.txt` and `gene_ranking.tsv`; `final_db_check.tsv`, the final check on the finished database, and `final_db_check_differ.tsv`, its rows protal calls otherwise than the model file ([above](#the-final-check-on-the-finished-database)); `feature_versions.tsv`, the feature code's versions of the protal the models were trained with (`protal --feature_versions`, where protal has it; given to every trainer, `--feature-versions`, where the trainer takes it); what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv` (the build's reports, moved out of `protal_db/`), `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went, a table per read type (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
 | `logs/` | one log per step (a step of several commands, such as the foreign scan and `--add_tables`, in one log, each command after a `---` line; the parity checks, run side by side, each after a `==> parity_<read type>[_c<C>][_<kind>] <==` line), and with `--scratch` every protal run's log of a collection one after the other (`protal_runs_training.log`, `protal_runs_test.log`); the run's CPU use: `cpu_jobs.tsv`, `cpu_timeline.tsv`, `protal_cpu_<collection>.tsv` ([above](#2-build-and-train)) |
 | `console.log` | the console's lines, of every run into the folder |
 | `work/` | what a rerun reuses, not needed to use the database: `stages/` (what a rerun may skip, and `test_seed.json`, the test set's seed), `genomes.tsv` (the genomes simulated from: accession, taxonomy, FASTA, length) and `genomes_simulated.tsv` (with the in-silico strains), `internal_taxonomy.dmp`, `gene2geneid.tsv`, `foreign_rates/` (the finished database's scan, stored in it), and `training/`, `test/`: one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`), to retrain a model; with `--scratch` also `final_check/` and `no_allele_scores/`, the tables of the checks' runs. Without `--scratch` also the samples, their profiles, the training database, the genome store and the in-silico strains (with `--scratch` these are on the scratch disk) |
@@ -740,7 +739,16 @@ Since 2026-10-15 the build ends with a check (a step after the models go in; `--
   and the marker truth's `marker_TP`, `marker_FN`, `marker_F1` (present species without a row, `<table>.unseen.tsv`,
   counted as missed), `F1_change` and `marker_F1_change` (finished - training), the flips
   (`flips_to_called_present`, `flips_to_called_absent`, `flips_to_not_called_present`, `flips_to_not_called_absent`: a
-  row of one database only counts as not called in the other) and `calls_unlike_the_model_file`;
+  row of one database only counts as not called in the other) and `calls_unlike_the_model_file`; since 2026-10-16 also
+  the present rows of the species not held out by the genome they were simulated from (`of them present, simulated
+  from the representative`, `... a real strain`, `... an in-silico strain`; `meta_rep_genome`, `meta_insilico_strain`):
+  their `FP` are 0, read their `FN` and the sensitivity the console gives. The finished database takes its strain
+  alleles from every genome of a species, the real strains the samples were simulated from among them, so their gain is
+  partly their own alleles; the representatives' and the in-silico strains' is the honest one
+  ([report](claude/2026-10-16-r226-v31/README.md));
+- `model_logs/final_db_check_differ.tsv` (since 2026-10-16): the rows protal calls otherwise than its model file
+  (`read_type`, `kind`, `meta_sample`, `taxon_name`, `truth`, `protal_probability`, `protal_call`, `model_score`,
+  `model_knob`, `model_call`), so a parity warning can be traced (r226 v31 had 18 such paired-end rows);
 - a section of `summary.txt` and a console line per row; a `WARNING` where the F1 over the species not held out moves by
   more than 0.002 (about one refit's noise), or where protal's calls differ from the model file's.
 
@@ -751,15 +759,10 @@ with the deepest samples streamed (at `--stream-above 2` the written test sample
 each long-read type). A rerun keeps the check (its stage) while the finished database's build key, its models and the
 samples are the same; one stopped in the middle profiles again.
 
-**The allele scores' effect** (with `--share-logs`, since 2026-10-15; the f1 audit's B1). The strain-allele scores
-only ever help a species with alleles, so they may pull an unsure read of a one-genome species to a congener with
-alleles. The short-read (`pe`, `se`) test samples written to the disk are profiled once more on the training database
-with protal's `--no_allele_scores` (`SCRATCH/no_allele_scores`) and every kind's model file calls them;
-`model_logs/no_allele_scores.tsv` gives per read type, kind and species (`all`, `with strain alleles`, `without strain
-alleles`: a species with `allele_copy_share` above 0 in any row) the `samples`, `taxa`, the `rows`, `TP`, `FP`, `FN`
-and `F1` with the allele scores (the trainer's calls) and without them, `allele_scores_F1_gain` and the flips; and a
-section of `summary.txt`. The share archive carries it with `model_logs/`. Cost: the short-read test samples'
-simulation and one protal run.
+**The allele scores' effect** (with `--share-logs`, 2026-10-15 to -16; the f1 audit's B1). The short-read test samples
+were profiled once more on the training database with protal's `--no_allele_scores` (`model_logs/no_allele_scores.tsv`).
+At r226 v31 the scores changed no F1 (paired-end -0.0008, single-end +0.0001;
+[report](claude/2026-10-16-r226-v31/README.md)), so `--build` records them off since 2026-10-16 and the check is gone.
 
 #### Choosing the sparse-first gates
 
@@ -784,8 +787,10 @@ ont C 16 ([report](claude/2026-10-15-r226-v29/README.md)); grid-picked builds tr
 grid rows instead.
 
 **Models at other gates.** A user may gate otherwise (`protal --sparse_first`): a sensitive gate,
-or a faster one. `--model-gates` (default `pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16`; `none` for the
-database's gate alone) trains a model at each other gate of a read type too: both collections
+or a faster one. `--model-gates` (default `none` since 2026-10-16, the database's gate alone; the ladder
+`pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` 2026-10-13 to -16, dropped because at r226 v29 and v31 those models
+scored within 0.001 of the database gate's for 48-70% of the collections' alignment CPU;
+[report](claude/2026-10-16-r226-v31/README.md)) trains a model at each other gate of a read type too: both collections
 profile all their samples at those gates as well (map rows `<sample>__c<C>`; a simulation streamed
 into protal is streamed again for each, by a simulator of its own into pipes of its own, the same
 reads), a trainer per gate takes the tables in `training/c_gates/c<C>/` and tests on
@@ -892,7 +897,14 @@ each sample at a depth of its own around the scenario's (below):
 All but `host` have lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn (sigma
 1.5 and 2.0 before 2026-10-07, when gut had 350-450 species, soil 9,000-11,000 and there was no
 `moderate`: no training sample lay between the design's samples, at most ~4,600 taxa with reads, and
-the soils', 9,800 and more; [report](claude/2026-10-07-r226-v15/README.md)).
+the soils', 9,800 and more; [report](claude/2026-10-07-r226-v15/README.md)). Since 2026-10-16 the last
+fifth of a scenario's samples (2 of 10 hold-in samples, 1 of 4 hold-out ones; none of fewer than 4) are
+deep, rich and uneven on purpose: the top strata of its depths and species counts (below) at its most
+uneven sigma. In r226 v31 the deep, species-rich training soils all had sigma 1.0, so the models took a
+species with one or two reads in such a sample for a congener's spill, and a test soil sample of sigma
+2.5 with 10,521 species at 1.38× its depth lost 85% of its species with 1-2 marker reads
+([report](claude/2026-10-16-r226-v31/README.md)). The collection's log gives each sample's sigma
+(`...; lognormal sigma 1.0, 1.5, ..., 2.5, 2.5 (the last 2 deep, rich and uneven on purpose)`).
 
 `--scenarios gut,host` picks some (`all`, the default: every one, `gut:5`: 5 hold-in samples of one);
 `--scenario-file` (JSON of scenarios by name) adds scenarios or changes a preset's fields, e.g.
@@ -1045,7 +1057,7 @@ unpack elsewhere (`tar xzf`; everything is under `<name>/`, where it is in `--ou
 |---|---|
 | `console.log`, `logs/` | the console's lines (every run of the build, after a line with its time and command) and each step's log |
 | `logs/simulations_<collection>.log` | from the samples' disk, which the end of a cluster job may clear: each design point's simulator logs (`simulate.log`, `design.log`, `stream*.log`) and parameters (each `run_params.tsv`), one after the other under a `==> <point>/<file> <==` line (a log over 1 MB keeps its first and last 256 kB); and `logs/protal_runs_<collection>.log` where the build did not gather the protal runs' logs there (without `--scratch`) |
-| `model_logs/` | as [above](#outputs), with the error reads' tables and SAMs; not the models (`.xml`, `.joblib`), which are in the database; and `insilico_strains.tsv` from the samples' disk (per in-silico strain: its divergence drawn and reached, its substitutions, its congener and those placed at its sites) |
+| `model_logs/` | as [above](#outputs), with the error reads' tables and SAMs; not the models (`.xml`, `.joblib`), which are in the database; and `insilico_strains.tsv` from the samples' disk (per in-silico strain: its divergence drawn and reached, its substitutions, its congener and those placed at its sites); since 2026-10-16 `spike_genes/<collection>/<sample>.profile.spike_genes.tsv`, the genes protal left out of the evidence of each sample it profiled in spike mode (`protal --spike_genes auto`; a simulation has no PCR piles, so any is a false trigger to look at) |
 | `protal_db/build_metadata.tsv`, `work/internal_taxonomy.dmp` | what the database was built from and with, and its taxonomy |
 | `work/training/`, `work/test/` | the training and test tables of each read type, their numbers to 9 significant digits instead of Python's 17, at about 72% of the gzipped size (v15's pe table). That keeps every float32 value, so a forest (float32 comparisons) trains the same; boosting compares doubles, so its thresholds can move in the tenth digit, but values closer than that are rare and share a bin |
 
@@ -1119,8 +1131,7 @@ bases, and the profiling time grows about with them (the defaults' units, `colle
 
 Weighted by the read types' shares of the collections' alignment at r226 v21 (ONT 63%, PacBio 15%, pe 13%, se 10%;
 [report](claude/2026-10-09-r226-v21-cpu.md)), that is about +11% of the collections' alignment, ~15 min on v21's 2:01
-collection on 120 cores. The final check adds at most ~8% more (less with the deepest test samples streamed), the
-allele scores' run with `--share-logs` the short-read test samples' share of that. The in-silico strains' codon indels
+collection on 120 cores. The final check adds at most ~8% more (less with the deepest test samples streamed). The in-silico strains' codon indels
 cost nothing to speak of. The new deep samples are streamed whenever the room on the samples' disk asks for it (the
 pe sample of 60M pairs is ~14 GB of reads, the Ultima one ~20 GB, the long-read ones ~22 GB). To keep a build to its
 former cost, give the earlier values (`--read-setups`, `--se-read-setups`, `--read-pairs` and `--long-read-bases` as in
@@ -1202,7 +1213,7 @@ keeps the finished database.
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
-| `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), measure the allele scores' effect (`no_allele_scores.tsv`, since 2026-10-15, [above](#the-final-check-on-the-finished-database)), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
+| `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the congener gaps and untried candidates (`gaps`, `untried`, since the congener-gaps merge; `foreign` there too until 2026-10-08), in 0.8.0 the strain alleles and polymorphic sites (`alleles`, `polymorphic`), in 0.8.1 the column weights (`weights`), and since 2026-10-13 the identities against the best strain allele (`strain_identity`), and since 2026-10-14 `length_free` and `read_length` (features that do not change with the read length or a sparse index in place of those that do, and the sample's read length), which need a protal of 2026-10-14 or later (2026-10-13 for `strain_identity`, 0.8.1 for `weights`, 0.8.0 for `alleles` and `polymorphic`, 0.7.9 for the groups up to `ancestry`): `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm,forest` | the kinds of models, comma-separated: `gbm`, gradient-boosted trees (the default from 2026-10-06 to 2026-10-14 and again since 2026-10-15; [below](#training)), `forest`, a random forest (the default before 2026-10-06 and on 2026-10-14); the first is the database's default (`model_pe.xml`, ...), the others are trained after it and stored beside it (`model_pe_forest.xml`, ...: [kinds of models](#kinds-of-models)); both since 2026-10-13 (`forest,gbm` on 2026-10-14), `gbm` alone before |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items; `--maxnodes` for `--model`'s first kind, the others their defaults) |
@@ -1218,7 +1229,7 @@ keeps the finished database.
 | `--wfa-traceback` | protal's (`singletrack`; `classic` before 0.8.2) | the WFA2 traceback of both databases (`protal --build --wfa_traceback`): recorded in their `build_settings.tsv`, and followed by the collection's protal runs, which align as the training database was built. `singletrack` gives the same scores but may choose otherwise among equally good alignments ([below](#2-build-the-index)) |
 | `--sparse-first` | `pe:4,se:4,pb:16,ont:8` | each read type's sparse-first gate (`protal --build --sparse_first`; `C` for all, `none` for no gates; since 2026-10-12, `pe:1,se:1,pb:8,ont:1` until 2026-10-13): recorded in both databases' `build_settings.tsv` and followed by every run on them, the collections' included, so that the models are trained on runs gated as the database's runs are (a read given up counts no failed candidates). At r226 v27 these gates cost no measurable F1 against C 1 (pb C 8) for 36-44% less alignment CPU (pb 11%) ([report](claude/2026-10-13-r226-v27-c-gates.md); [earlier](claude/2026-10-12-sparse-first/README.md)) |
 | `--sparse-first-pick` | `grid` (`stride` 2026-10-13 to -16) | which 1/C of a read's cores each gate looks up first (`protal --build --sparse_first_pick`, recorded with the gates): `grid`, the database's grid of each gene's cores (since 2026-10-13: runs gated at C 2 or more load a sparse index, [running.md](running.md#developer-options); the collections seed their rows as it does, so the models are trained on them), `stride`, every C-th core in read order, or `hash`, those whose hash falls in 1/C of its range (the only pick before 2026-10-13); one for all, or read types and theirs (`pb:hash`; the others `grid`) |
-| `--model-gates` | `pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` | the gates each read type also gets a model of: both collections profiled at them too (streamed simulations streamed again), a model trained at each and stored as `model_<type>_c<C>.xml`, which runs gated nearer that gate are profiled with; `none`: the database gate's alone ([above](#choosing-the-sparse-first-gates)) |
+| `--model-gates` | `none` (`pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` 2026-10-13 to -16) | the gates each read type also gets a model of: both collections profiled at them too (streamed simulations streamed again), a model trained at each and stored as `model_<type>_c<C>.xml`, which runs gated nearer that gate are profiled with; `none`: the database gate's alone ([above](#choosing-the-sparse-first-gates)) |
 | `--test-c-gates [GATES]` | off; without a value `pe:0/2/16,se:0/2/16,pb:0/4,ont:0/4/32` | the test samples written to the disk also profiled at these gates (the database's left out: its row in `c_gates.tsv` is the test set itself, profiled at it; those of `--model-gates` profiled anyway), in the same protal runs as `<sample>__c<C>`; each table scored by the model of the gate nearest it beside the test file's rows of the same samples, and `model_logs/c_gates.tsv` gives per read type and gate the F1, precision, sensitivity, FP and FN (present species without a row counted as missed) and the samples' alignment CPU and wall seconds ([above](#choosing-the-sparse-first-gates)); `c_gates.tsv` has the gates of `--model-gates` without it |
 | `--test-other-pick [GATES]` (`--test-stride`) | with `--test-c-gates`: `auto`, each read type's database gate of 2 or more | the gates at which the test samples are also profiled with another pick than the database's (`stride` rows `<sample>__c<C>s` beside a grid or hash database, `hash` rows `<sample>__c<C>h` beside a stride one); `none`: none ([above](#choosing-the-sparse-first-gates)) |
 | `--test-grid [GATES]` | with `--test-c-gates`: `auto`, each read type's gates with a model of 2 or more | the gates at which the test samples are also profiled with the grid pick (rows `<sample>__c<C>g`, on the whole index: their calls are a sparse index's, their times not), for read types whose database does not pick by grid; `none`: none ([above](#choosing-the-sparse-first-gates)) |
@@ -1479,7 +1490,7 @@ ONT's identity floor): there they take what its models were trained with.
 | Key | Values | Default | Option |
 |---|---|---|---|
 | `weighted_site_shift` | `on`, `off` | `off` | `--weighted_site_shift` |
-| `allele_scores` | `on`, `off` | `on` | `--no_allele_scores`, `--allele_scores` |
+| `allele_scores` | `on`, `off` | `off` (`on` before 2026-10-16) | `--no_allele_scores`, `--allele_scores` |
 | `align_top` | number | 3 | `-c, --align_top` |
 | `adaptive_candidates` | number | 7 | `--adaptive_candidates` |
 | `mate_guidance` | `consensus`, `guide`, `off` | `consensus` (runs on a database that records none: `guide`) | `--mate_guidance`, `--no_mate_guidance` |

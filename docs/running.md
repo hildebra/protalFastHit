@@ -382,7 +382,7 @@ at `auto` (or not given) takes the database's:
 | Setting (`build_settings.tsv`) | Option | protal's default |
 |---|---|---|
 | `weighted_site_shift` on/off | `--weighted_site_shift`, `--no_weighted_site_shift` | off |
-| `allele_scores` on/off | `--no_allele_scores`, `--allele_scores` | on |
+| `allele_scores` on/off | `--no_allele_scores`, `--allele_scores` | on; `--build` records off unless `--allele_scores` (since 2026-10-16) |
 | `align_top` N | `-c, --align_top` | 3 |
 | `adaptive_candidates` N | `--adaptive_candidates` | 7 |
 | `mate_guidance` consensus/guide/off | `--mate_guidance` (`--no_mate_guidance`: off) | consensus; guide for a database that records none |
@@ -643,8 +643,11 @@ reference (CIGAR, identity), while `AS` and MAPQ count the shifts. The log's `st
 - the candidates on copies with alleles, and those with a shift;
 - the unsure reads that took the shifts, and those whose best species they changed.
 
-A database's models are trained with these scores; `--no_allele_scores` turns them off, to measure them
-([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
+Since 2026-10-16 `--build` records them off unless `--allele_scores` is given: at GTDB r226 v31 they changed no F1
+(paired-end -0.0008, single-end +0.0001; [report](claude/2026-10-16-r226-v31/README.md)), so the databases built since
+profile without them, and their strain alleles serve the features alone. A database that records them on, or none
+(built before 0.8.5), was trained with them and its runs use them; `--no_allele_scores` turns them off there, to
+measure them ([features.md](features.md#the-strain-alleles-alleles-2026-10-08)).
 
 ### Developer options
 

@@ -1551,6 +1551,24 @@ class ScenariosTest(unittest.TestCase):
         self.assertNotEqual(order(counts), order(scenarios.depth_factors(1, "soil", 10, (0.125, 2.0))))
         self.assertIsNone(scenarios.species_counts(1, "soil", 1, "3000-11000"))
         self.assertIsNone(scenarios.species_counts(1, "soil", 5, "400"))
+        # The last fifth of the samples (2 of 10, 1 of 4, none of 3) deep, rich and uneven on purpose (since 2026-10-16):
+        # the top strata of the depths and of the species counts, in order, at the evenness list's most uneven sigma;
+        # the others' sigmas in turn, every stratum still used once.
+        self.assertEqual([scenarios.corner_samples(n) for n in (3, 4, 5, 8, 10)], [0, 1, 1, 2, 2])
+        strata = lambda values, low, high: [min(9, int(math.log(v / low) / math.log(high / low) * 10))  # noqa: E731
+                                            for v in values]
+        self.assertEqual(strata(scenarios.depth_factors(1, "soil", 10, (0.125, 2.0)), 0.125, 2.0)[-2:], [8, 9])
+        self.assertEqual(strata(counts, 3000, 11000)[-2:], [8, 9])
+        hold_out = scenarios.depth_factors(283979, "soil", 4, (0.125, 2.0))
+        self.assertGreaterEqual(hold_out[-1], 1.0)  # the top quarter of 1/8 to 2
+        self.assertEqual(scenarios.sample_abundance(scenarios.EVENNESS, 10),
+                         "lognormal:1.0,1.5,2.0,2.5,1.0,1.5,2.0,2.5,2.5,2.5")
+        self.assertEqual(scenarios.sample_abundance(scenarios.EVENNESS, 4), "lognormal:1.0,1.5,2.0,2.5")
+        self.assertEqual(scenarios.sample_abundance(scenarios.EVENNESS, 3), "lognormal:1.0,1.5,2.0")
+        for other in ("powerlaw:1.0", "lognormal:1.3"):
+            self.assertEqual(scenarios.sample_abundance(other, 10), other)
+        self.assertEqual(collect.abundance_args(scenarios.sample_abundance(scenarios.EVENNESS, 5)),
+                         ["--distribution", "lognormal", "--pln_sigma", "1.0,1.5,2.0,2.5,2.5"])
         self.assertEqual(scenarios.sample_depths(1000, [0.5, 1.999, 0.0001]), [500, 1999, 1])
         self.assertEqual(scenarios.selection("gut,soil:5", 3, defs), [("gut", 3), ("soil", 5)])
         self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)], list(defs))

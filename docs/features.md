@@ -483,7 +483,9 @@ uses them twice:
   within 3 mismatches of the best by the references alone. There every candidate within that margin takes its shift, so a
   read of a known strain scores on its species as on the strain's gene and wins against a congener that fits it better
   by the references alone. A read one species fits clearly better keeps the references' scores. The records keep their
-  alignment to the reference (CIGAR, identity); `--no_allele_scores` turns it off.
+  alignment to the reference (CIGAR, identity); `--no_allele_scores` turns it off. Since 2026-10-16 `--build` records
+  it off unless `--allele_scores` is given (no F1 at GTDB r226 v31), so the databases built since use the alleles as
+  features alone.
 - **As features:**
 
 | feature | what | against |

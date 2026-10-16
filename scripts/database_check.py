@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """database_check.py - a test set's samples profiled again, on another database or with another protal option, scored
 beside the calls the trainer made on the same samples (PREFIX.calls.tsv.gz, its test rows: the final model's calls as
-protal makes them by default, on the training database). build_gtdb_database.py runs two such checks:
-
-- the final check (model_logs/final_db_check.tsv): the test samples written to the disk profiled again on the finished
-  database, which has every species and alleles from every genome, with its default models at their gates. Only the
-  rows of species that were not held out count (neither held-out species nor those of held-out clades: the training
-  database lacked them, and so they have no row there), on both databases;
-- the allele scores' effect (model_logs/no_allele_scores.tsv, with --share-logs): the same samples on the training
-  database with protal's --no_allele_scores, beside the normal run, overall and split by species with strain alleles in
-  the database and without.
+protal makes them by default, on the training database). build_gtdb_database.py runs one such check, the final check
+(model_logs/final_db_check.tsv): the test samples written to the disk profiled again on the finished database, which has
+every species and alleles from every genome, with its default models at their gates. Only the rows of species that
+were not held out count (neither held-out species nor those of held-out clades: the training database lacked them, and
+so they have no row there), on both databases. (The allele scores' effect, --no_allele_scores beside the normal run,
+was a second one 2026-10-15 to -16, until --build recorded the allele scores off.)
 
 A row is a taxon of a sample (meta_sample, taxon_name). Each database (or run) is scored on its own rows, as the trainer
 scores a table (TP: present and called; FP: absent and called; FN: present and not called; F1 = 2TP / (2TP + FP + FN)),
@@ -69,7 +66,11 @@ def _flag(series):
     return series.astype(str).str.strip().str.lower().isin(("1", "1.0", "true")).astype(int)
 
 
-SIDE_COLUMNS = ["meta_sample", "taxon_name", "truth", "call", "meta_marker_reads", "meta_novel_congener", "meta_scenario"]
+SIDE_COLUMNS = ["meta_sample", "taxon_name", "truth", "call", "meta_marker_reads", "meta_novel_congener", "meta_scenario",
+                "source"]
+# A present species' genome in the sample (source): the database's representative, another real genome of the species
+# (a real strain), or an in-silico strain (meta_rep_genome, meta_insilico_strain); "" for an absent taxon.
+SOURCES = ("representative", "real strain", "in-silico strain")
 
 
 def _side(frame, call):
@@ -81,6 +82,15 @@ def _side(frame, call):
     out["call"] = np.asarray(call, dtype=int)
     out["taxon_name"] = out["taxon_name"].map(species_name)
     out["meta_scenario"] = out["meta_scenario"].fillna("")
+    present = out["truth"].to_numpy() == 1
+    if "meta_rep_genome" in frame.columns:  # (a table or calls file of a collector before 2026-09-29 has none)
+        rep = _flag(frame["meta_rep_genome"]).to_numpy() == 1
+        insilico = (_flag(frame["meta_insilico_strain"]).to_numpy() == 1 if "meta_insilico_strain" in frame.columns
+                    else np.zeros(len(frame), dtype=bool))
+        source = np.where(rep, SOURCES[0], np.where(insilico, SOURCES[2], SOURCES[1]))
+        out["source"] = np.where(present, source, "")
+    else:
+        out["source"] = ""
     return out[SIDE_COLUMNS]
 
 
@@ -94,10 +104,11 @@ def trainer_side(calls_path, samples=None):
     return _side(frame, frame["call"].astype(int).to_numpy())
 
 
-def model_calls(frame, model_path):
-    """The calls a model file makes on a table's rows as protal makes them by default: its probabilities
-    (model_pmml.load_model, which protal's equal: check_model_parity.py), the singleton veto (call_scores) and its knob
-    curve at each sample's depth (knob_at, sample_depths), or 0.5 (--knob's default) without one."""
+def model_scores(frame, model_path):
+    """A model file's scores on a table's rows as protal scores and calls them by default: its probabilities
+    (model_pmml.load_model, which protal's equal: check_model_parity.py) after the singleton veto (call_scores), the
+    knob of its knob curve at each sample's depth (knob_at, sample_depths), or 0.5 (--knob's default) without one, and
+    the calls. -> (scores, knobs, calls) arrays."""
     import numpy as np
     import machine_learning_cmdline as trainer
     from model_pmml import load_model, read_depth_knob_curve
@@ -105,22 +116,44 @@ def model_calls(frame, model_path):
     p = model.predict(frame)
     curve = read_depth_knob_curve(model_path)
     knobs = trainer.knob_at(curve, trainer.sample_depths(frame)) if curve else np.full(len(frame), 0.5)
-    return (trainer.call_scores(frame, p) >= knobs).astype(int)
+    scores = np.asarray(trainer.call_scores(frame, p), dtype=float)
+    return scores, np.asarray(knobs, dtype=float), (scores >= knobs).astype(int)
 
 
-def table_sides(table_path, models=None, protal_calls=True):
+def model_calls(frame, model_path):
+    """The calls a model file makes on a table's rows as protal makes them by default (model_scores)."""
+    return model_scores(frame, model_path)[2]
+
+
+# The rows whose call by protal differs from its model file's (final_check: OUT_differ.tsv beside OUT).
+DIFFER_COLUMNS = ["read_type", "kind", "meta_sample", "taxon_name", "truth", "protal_probability", "protal_call",
+                  "model_score", "model_knob", "model_call"]
+
+
+def table_sides(table_path, models=None, protal_calls=True, differing=None):
     """A collector table's rows as sides: {"protal": protal's own calls (its prediction column)} and one per model
     file of `models` ({name: PMML path}: model_calls). -> ({name: side}, the table's samples, {name: rows whose model
-    call differs from protal's} for each model, when protal_calls)."""
+    call differs from protal's} for each model, when protal_calls). differing: a dict that gets {name: those rows, as
+    dicts of DIFFER_COLUMNS (but read_type), protal's probability and the model's score and knob beside the calls}."""
     frame = _frame(table_path)
     sides, differ = {}, {}
     if protal_calls and "prediction" in frame.columns:
         sides["protal"] = _side(frame, _flag(frame["prediction"]).to_numpy())
     for name, path in (models or {}).items():
-        calls = model_calls(frame, path)
+        scores, knobs, calls = model_scores(frame, path)
         sides[name] = _side(frame, calls)
         if "protal" in sides:
-            differ[name] = int((sides["protal"]["call"].to_numpy() != calls).sum())
+            unlike = sides["protal"]["call"].to_numpy() != calls
+            differ[name] = int(unlike.sum())
+            if differing is not None:
+                probability = frame["probability"].to_numpy() if "probability" in frame.columns else [None] * len(frame)
+                own = sides["protal"]
+                differing[name] = [{"kind": name, "meta_sample": own["meta_sample"].iat[i],
+                                    "taxon_name": own["taxon_name"].iat[i], "truth": int(own["truth"].iat[i]),
+                                    "protal_probability": probability[i], "protal_call": int(own["call"].iat[i]),
+                                    "model_score": float(scores[i]), "model_knob": float(knobs[i]),
+                                    "model_call": int(calls[i])}
+                                   for i in unlike.nonzero()[0]]
     return sides, set(frame["meta_sample"].astype(str)), differ
 
 
@@ -230,8 +263,17 @@ def write_tsv(path, columns, rows):
 FINAL_COLUMNS = (["read_type", "kind", "calls", "rows_of", "samples"] +
                  [f"{side}_{c}" for side in ("training_db", "finished_db") for c in SIDE_COUNTS] +
                  ["F1_change", "marker_F1_change"] + list(FLIPS) + ["calls_unlike_the_model_file"])
+# The present rows by the genome they were simulated from (since 2026-10-16): the finished database takes its strain
+# alleles from every genome of a species, the real strains the samples were simulated from among them (the training
+# database leaves those out), so their gain there is partly their own alleles; the representatives' and the in-silico
+# strains' is not (docs/claude/2026-10-16-r226-v31). Their FP are 0 (present rows only): read their FN and sensitivity.
+SOURCE_SUBSETS = (("of them present, simulated from the representative", SOURCES[0]),
+                  ("of them present, simulated from a real strain", SOURCES[1]),
+                  ("of them present, simulated from an in-silico strain", SOURCES[2]))
 SUBSETS = (("species not held out", None),
-           ("of them without a held-out congener in the sample", "no novel congener"))
+           ("of them without a held-out congener in the sample", "no novel congener")) + SOURCE_SUBSETS
+SOURCE_RULES = {rule for _, rule in SOURCE_SUBSETS}
+SOURCE_LABELS = {label for label, _ in SOURCE_SUBSETS}
 
 
 def final_check(read_types, tables, unseen_tables, trainer_calls, models, default_kind, heldout, out_path):
@@ -242,6 +284,7 @@ def final_check(read_types, tables, unseen_tables, trainer_calls, models, defaul
     the model file's are compared with them); heldout: the held-out species (read_species). -> (the rows written, the
     read types without samples)."""
     rows, missing = [], []
+    differing_of = {}  # {read type: {kind: the rows protal calls otherwise than the model file}}
     for t in read_types:
         table = tables.get(t)
         if not has_rows(table):
@@ -249,7 +292,7 @@ def final_check(read_types, tables, unseen_tables, trainer_calls, models, defaul
             continue
         kinds = [k for (rt, k) in trainer_calls if rt == t]
         files = {k: models[(t, k)] for k in kinds if (t, k) in models and os.path.isfile(models[(t, k)])}
-        sides, samples, differ = table_sides(table, files)
+        sides, samples, differ = table_sides(table, files, differing=differing_of.setdefault(t, {}))
         if not samples:
             missing.append(t)
             continue
@@ -268,9 +311,14 @@ def final_check(read_types, tables, unseen_tables, trainer_calls, models, defaul
                     mask = ~side["taxon_name"].isin(heldout)
                     if rule == "no novel congener":
                         mask &= side["meta_novel_congener"].astype(str).isin(("0", "0.0", "False", "false"))
+                    elif rule in SOURCE_RULES:
+                        mask &= side["source"] == rule
                     return mask
+                if rule in SOURCE_RULES and not (after["source"] == rule).any():
+                    continue  # (a table without the genome columns, or no such species)
                 # the unseen species have no row: those of the subset are all the unseen (none is held out); for the
-                # samples' congener subset they are left out (whether a held-out congener was there is the rows')
+                # samples' congener and genome subsets they are left out (whether a held-out congener was there, and
+                # which genome a species was simulated from, are the rows')
                 counts = compare(before, after, unseen_before if rule is None else None,
                                  unseen_after if rule is None else None, keep)
                 rows.append({"read_type": t, "kind": k, "calls": "protal" if after is sides.get("protal") else "model file",
@@ -281,7 +329,14 @@ def final_check(read_types, tables, unseen_tables, trainer_calls, models, defaul
                              **{f: counts[f] for f in FLIPS},
                              "calls_unlike_the_model_file": differ.get(k) if k == default_kind and rule is None else None})
     write_tsv(out_path, FINAL_COLUMNS, rows)
+    write_tsv(differ_path(out_path), DIFFER_COLUMNS,
+              [{"read_type": t, **row} for t, kinds in differing_of.items() for rows_ in kinds.values() for row in rows_])
     return rows, missing
+
+
+def differ_path(out_path):
+    """The table of the rows protal calls otherwise than its model file, beside final_db_check.tsv."""
+    return out_path[:-len(".tsv")] + "_differ.tsv" if out_path.endswith(".tsv") else out_path + ".differ"
 
 
 def final_check_lines(rows, missing, default_kind):
@@ -292,6 +347,14 @@ def final_check_lines(rows, missing, default_kind):
     for row in rows:
         change = row["F1_change"]
         main = row["rows_of"] == SUBSETS[0][0]
+        if row["rows_of"] in SOURCE_LABELS:  # present rows only: their sensitivity
+            before = row["training_db_TP"] + row["training_db_FN"]
+            after = row["finished_db_TP"] + row["finished_db_FN"]
+            lines.append(f"{row['read_type']} {row['kind']}, {row['rows_of']}: sensitivity "
+                         f"{number(row['training_db_TP'] / before if before else None)} -> "
+                         f"{number(row['finished_db_TP'] / after if after else None)} (FN {row['training_db_FN']} -> "
+                         f"{row['finished_db_FN']} of {before} -> {after})")
+            continue
         text = (f"{row['read_type']} {row['kind']}{' (default)' if row['kind'] == default_kind else ''}, "
                 f"{row['rows_of']}: F1 {number(row['training_db_F1'])} -> {number(row['finished_db_F1'])}"
                 f" ({signed(change)}; FP {row['training_db_FP']} -> "
@@ -311,85 +374,9 @@ def final_check_lines(rows, missing, default_kind):
                             "rows of species not held out")
         if row.get("calls_unlike_the_model_file"):
             warnings.append(f"{row['read_type']}: protal's calls on the finished database differ from its model file's at "
-                            f"{row['calls_unlike_the_model_file']} rows (a parity problem: check_model_parity.py)")
+                            f"{row['calls_unlike_the_model_file']} rows (a parity problem: check_model_parity.py; the rows in "
+                            "final_db_check_differ.tsv)")
     if missing:
         lines.append(f"no samples written to the disk of {', '.join(missing)} (all streamed into protal, or none in the "
                      "test set): not checked")
     return lines, warnings
-
-
-# ---- the allele scores' effect (--no_allele_scores) ----------------------------------------------------------------
-
-ALLELE_COLUMNS = (["read_type", "kind", "species", "samples", "taxa"] +
-                  [f"{side}_{c}" for side in ("with_allele_scores", "without_allele_scores")
-                   for c in ("rows", "TP", "FP", "FN", "F1")] +
-                  ["allele_scores_F1_gain"] + list(FLIPS))
-
-
-def allele_species(paths):
-    """The species with strain alleles in the database: those with allele_copy_share above 0 (the share of their
-    records on gene copies with alleles, a column of the dumps) in any row of these tables."""
-    found = set()
-    for path in paths:
-        if not has_rows(path):
-            continue
-        frame = _frame(path, usecols=lambda c: c in ("taxon_name", "allele_copy_share"))
-        if "allele_copy_share" not in frame.columns:
-            continue
-        shares = frame["allele_copy_share"].astype(float)
-        found |= {species_name(t) for t in frame.loc[shares > 0, "taxon_name"].astype(str)}
-    return found
-
-
-def allele_check(read_types, tables, normal_tables, trainer_calls, models, out_path):
-    """model_logs/no_allele_scores.tsv: per read type (tables: {read type: the run's table without the allele scores};
-    normal_tables: {read type: the test collection's table}, both for allele_species) and kind (models {(read type,
-    kind): PREFIX.xml}, whose calls on the run's rows are the model file's; trainer_calls {(read type, kind):
-    PREFIX.calls.tsv.gz}: the normal run's), all species, those with strain alleles in the database and those without.
-    -> (the rows written, the read types without samples)."""
-    rows, missing = [], []
-    for t in read_types:
-        table = tables.get(t)
-        if not has_rows(table):
-            missing.append(t)
-            continue
-        kinds = [k for (rt, k) in trainer_calls if rt == t and (t, k) in models and os.path.isfile(models[(t, k)])]
-        sides, samples, _ = table_sides(table, {k: models[(t, k)] for k in kinds}, protal_calls=False)
-        if not samples:
-            missing.append(t)
-            continue
-        with_alleles = allele_species([table, normal_tables.get(t)])
-        for k in kinds:
-            if not os.path.isfile(trainer_calls[(t, k)]):
-                continue
-            before, after = trainer_side(trainer_calls[(t, k)], samples), sides[k]
-            for label, rule in (("all", None), ("with strain alleles", True), ("without strain alleles", False)):
-                def keep(side, rule=rule):
-                    have = side["taxon_name"].isin(with_alleles)
-                    return have if rule else ~have
-                counts = compare(before, after, keep=None if rule is None else keep)
-                kept_b = before if rule is None else before[keep(before)]
-                kept_a = after if rule is None else after[keep(after)]
-                gain = difference(counts["before_F1"], counts["after_F1"])
-                rows.append({"read_type": t, "kind": k, "species": label, "samples": len(samples),
-                             "taxa": len(set(kept_b["taxon_name"]) | set(kept_a["taxon_name"])),
-                             **{f"with_allele_scores_{c}": counts[f"before_{c}"] for c in ("rows", "TP", "FP", "FN", "F1")},
-                             **{f"without_allele_scores_{c}": counts[f"after_{c}"] for c in ("rows", "TP", "FP", "FN", "F1")},
-                             "allele_scores_F1_gain": gain, **{f: counts[f] for f in FLIPS}})
-    write_tsv(out_path, ALLELE_COLUMNS, rows)
-    return rows, missing
-
-
-def allele_check_lines(rows, missing):
-    """The allele scores' effect in words, per read type and kind: F1, FP and FN with and without them, by species."""
-    lines = []
-    for row in rows:
-        gain = row["allele_scores_F1_gain"]
-        lines.append(f"{row['read_type']} {row['kind']}, {row['species']} ({row['taxa']} taxa): F1 "
-                     f"{number(row['without_allele_scores_F1'])} without the allele scores -> "
-                     f"{number(row['with_allele_scores_F1'])} with them ({signed(gain)}); "
-                     f"FP {row['without_allele_scores_FP']} -> {row['with_allele_scores_FP']}, FN "
-                     f"{row['without_allele_scores_FN']} -> {row['with_allele_scores_FN']}")
-    if missing:
-        lines.append(f"no samples written to the disk of {', '.join(missing)}: not measured")
-    return lines

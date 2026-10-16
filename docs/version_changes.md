@@ -45,6 +45,29 @@ Not in a release yet.
   The pick enters both databases' build keys, so an earlier output folder rebuilds them. `protal --build` alone records
   no gates unless given and the stride where gates come without a pick, as before.
 
+- **The allele scores off for new databases (`--build` records `allele_scores off` unless `--allele_scores`)**
+  (2026-10-16). At GTDB r226 v31 profiling the short-read test samples without them changed no F1 (paired-end
+  −0.0008, single-end +0.0001; [report](claude/2026-10-16-r226-v31/README.md)). Runs follow their database: one
+  that records them on, or none (built before 0.8.5), keeps them, as its models were trained. The strain alleles stay in
+  the database for the allele features (`allele_identity` is the paired-end model's first feature). The GTDB build no
+  longer profiles its test samples a second time without them (`model_logs/no_allele_scores.tsv`, `--share-logs`).
+
+- **GTDB builds: deep, species-rich, uneven scenario samples on purpose; no models at other gates by default; the final
+  check by genome source; spike genes in the share archive** (2026-10-16, after r226 v31,
+  [report](claude/2026-10-16-r226-v31/README.md)):
+  - the last fifth of each scenario's samples (2 of 10 hold-in, 1 of 4 hold-out) take the top strata of its depths and
+    species counts and its most uneven sigma (`scenarios.py`). At v31 the deep, rich training soils all had even
+    abundances, so the models took a species with one or two reads in such a sample for a congener's spill, and a test
+    soil sample of sigma 2.5, 10,521 species at 1.38× lost 85% of its species with 1-2 marker reads;
+  - `--model-gates` defaults to `none`: at v29 and v31 those models scored within 0.001 of the database gate's and took
+    48-70% of the collections' alignment CPU (`pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16` still works);
+  - `final_db_check.tsv` adds the present species of the species not held out by the genome they were simulated from
+    (representative, real strain, in-silico strain): the finished database's alleles include the real strains' own
+    genomes, so their gain is partly that; `final_db_check_differ.tsv` lists the rows protal calls otherwise than its
+    model file, with both scores;
+  - `--share-logs` also packs the spike genes of every sample protal profiled in spike mode
+    (`model_logs/spike_genes/<collection>/`).
+
 - **ONT's identity floor 0.8 (`-a`; was 0.85)** (2026-10-15). The identity counts a one-base indel as two
   differences, so 0.85 dropped most ONT reads below ~0.88 accuracy: in simulated ONT samples 7.4% of the reads on
   marker genes seeded but aligned nowhere, and a species with one or two such reads got no row at all (r226 v29: 3.7%

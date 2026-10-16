@@ -23,7 +23,9 @@ The presets (PRESETS; --scenario_file adds or changes them):
     host          90% of the reads human, the rest 2-50 bacterial and archaeal species of power-law abundances
                   (alpha 1: a rank-abundance line of slope -1 on log-log axes), 5% of them lacking; Illumina PE 150
                   (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
-The communities' evenness varies too: lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn.
+The communities' evenness varies too: lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn; since
+2026-10-16 the last fifth of a scenario's samples (2 of 10, 1 of 4: corner_samples) are deep, rich and uneven on purpose,
+the top strata of its depths and species counts at the most uneven sigma (sample_abundance), which no draw guaranteed.
 
 These depths are each scenario's typical ones: a sample's own depth is drawn around them (depth_range, below).
 
@@ -280,12 +282,43 @@ def seed_of(seed, name):
     return seed * 1_000_003 + int(hashlib.sha1(name.encode()).hexdigest()[:7], 16)
 
 
+# Deep, species-rich and uneven samples on purpose (since 2026-10-16). With the evenness in turn and the species and
+# depths drawn apart, a scenario's 10 training samples could hold none that is deep, rich and uneven at once: at r226
+# v31 the deep, rich training soils had sigma 1.0, so a species with 1-2 reads in such a sample was always a congener's
+# spill to the models, and a test soil sample of sigma 2.5, 10,521 species at 1.38x lost 85% of its species with 1-2
+# marker reads (docs/claude/2026-10-16-r226-v31). The last CORNER_SHARE of a scenario's samples (corner_samples) take
+# the top strata of its depths and of its species counts and the most uneven sigma of its evenness list; the others
+# are drawn as before.
+CORNER_SHARE = 0.2
+
+
+def corner_samples(samples):
+    """How many of a scenario's `samples`, the last ones, are deep, rich and uneven on purpose: CORNER_SHARE of them,
+    rounded, at least 1 of 4 or more (2 of 10, 1 of 4); none of fewer than 4."""
+    return max(1, int(samples * CORNER_SHARE + 0.5)) if samples >= 4 else 0
+
+
 def stratified(rng, samples, low, high):
     """`samples` values from low to high, log-uniform and stratified: one in each of `samples` equal parts of the log
-    range, at a random place within it, the parts in random order."""
-    parts = list(range(samples))
+    range, at a random place within it, the parts in random order, but the top corner_samples parts, in order, last."""
+    corners = corner_samples(samples)
+    parts = list(range(samples - corners))
     rng.shuffle(parts)
+    parts += list(range(samples - corners, samples))
     return [low * (high / low) ** ((part + rng.random()) / samples) for part in parts]
+
+
+def sample_abundance(abundance, samples):
+    """A scenario's abundance model for its `samples` (simulate_metagenomes takes a lognormal list's sigmas in turn): a
+    lognormal list (EVENNESS) as one sigma per sample, the list's in turn for the first and its most uneven for the
+    last corner_samples, which are also the deepest and richest (stratified); any other model as it is."""
+    kind, _, values = abundance.partition(":")
+    sigmas = values.split(",")
+    if kind not in ("lognormal", "poisson_lognormal") or len(sigmas) < 2:
+        return abundance
+    corners = corner_samples(samples)
+    most = max(sigmas, key=float)
+    return f"{kind}:" + ",".join([sigmas[i % len(sigmas)] for i in range(samples - corners)] + [most] * corners)
 
 
 def depth_factors(seed, name, samples, depth_range):

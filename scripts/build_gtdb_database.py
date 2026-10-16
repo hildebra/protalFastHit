@@ -127,9 +127,7 @@ points' simulator logs and the in-silico strains' table, to copy off the cluster
 Once the finished database has its models, a final check profiles the test samples written to the disk again on it, with
 its default models at their gates, and scores the rows of the species that were not held out beside the same rows on
 the training database, on which every model was trained and tested (model_logs/final_db_check.tsv, a section of
-summary.txt, a WARNING where an F1 moves by more than 0.002; --no-final-check leaves it out). With --share-logs the same
-short-read samples are also profiled on the training database with protal's --no_allele_scores, which measures what the
-strain alleles' scores do to the calls (model_logs/no_allele_scores.tsv). summary.txt leads with each model's F1 over every
+summary.txt, a WARNING where an F1 moves by more than 0.002; --no-final-check leaves it out). summary.txt leads with each model's F1 over every
 species present whose marker genes got reads (the marker truth), and names the test set's seed, which each build draws
 for itself (--test-seed). protal's feature code versions (protal --feature_versions) go to
 model_logs/feature_versions.tsv and into every model (machine_learning_cmdline.py --feature-versions), where protal and
@@ -199,9 +197,7 @@ ERROR_READS = os.path.join(HERE, "error_reads.py")
 ANCESTRY = os.path.join(HERE, "ancestry_sites.py")
 RANKER = os.path.join(HERE, "rank_genes.py")
 INSILICO = os.path.join(HERE, "insilico_strains.py")
-DATABASE_CHECK = os.path.join(HERE, "database_check.py")  # the final check's and the allele scores' scoring
-# The read types whose alignments protal's --no_allele_scores changes (the allele scores are the short reads').
-ALLELE_SCORE_TYPES = ("pe", "se")
+DATABASE_CHECK = os.path.join(HERE, "database_check.py")  # the final check's scoring
 # --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
 INSILICO_FALLBACK_ANI = "97-99.5"
 SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
@@ -1844,9 +1840,10 @@ def share_archive(outdir, folders, threads=1, insilico_table=None):
     shortened by shorten_table). And from the samples' disk, which the end of a cluster job may clear: per collection
     (folders: [(name, its collect_training_data.py -o)]) its design points' simulator logs and parameters (simulate.log,
     design.log, stream*.log, run_params.tsv) as logs/simulations_<collection>.log, its protal runs' logs as
-    logs/protal_runs_<collection>.log where the build did not gather them there (without --scratch), and
-    insilico_strains.tsv (insilico_strains.py's per-strain table) as model_logs/insilico_strains.tsv. A failure is
-    reported, and does not stop the build."""
+    logs/protal_runs_<collection>.log where the build did not gather them there (without --scratch), the spike genes of
+    the samples protal profiled in spike mode (<sample>.profile.spike_genes.tsv, since 2026-10-16) as
+    model_logs/spike_genes/<collection>/, and insilico_strains.tsv (insilico_strains.py's per-strain table) as
+    model_logs/insilico_strains.tsv. A failure is reported, and does not stop the build."""
     name = os.path.basename(os.path.normpath(outdir))
     target = os.path.join(outdir, name + "_share.tar.gz")
     began = time.time()
@@ -1863,12 +1860,18 @@ def share_archive(outdir, folders, threads=1, insilico_table=None):
         if jobs:
             with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(jobs)))) as pool:
                 sizes = list(pool.map(shorten_table, jobs))
-        gathered, simulator_logs = [], 0
+        gathered, simulator_logs, spike_tables = [], 0, 0
         os.makedirs(shortened, exist_ok=True)
         for which, folder in folders:
             if not folder:
                 continue
             points = os.path.join(folder, "points")
+            # The spike genes of each sample protal profiled in spike mode (r226 v31 had one, a simulation, which has no
+            # PCR piles: which genes piled is in its table), at every gate it was profiled at.
+            for spikes in sorted(glob.glob(os.path.join(points, "*", "*", "profiles", "*.spike_genes.tsv")),
+                                 key=natural_key):
+                gathered.append((spikes, f"{REPORTS}/spike_genes/{which}/{os.path.basename(spikes)}"))
+                spike_tables += 1
             logs = sorted(glob.glob(os.path.join(points, "*", "*.log")) +
                           glob.glob(os.path.join(points, "*", "*", "run_params.tsv")),
                           key=lambda p: natural_key(os.path.relpath(p, points)))
@@ -1905,8 +1908,9 @@ def share_archive(outdir, folders, threads=1, insilico_table=None):
         before, after = sum(s[0] for s in sizes), sum(s[1] for s in sizes)
         say(f"Logs to share: {target}, {gigabytes(os.path.getsize(target))} in {clock(time.time() - began)} (the logs, "
             f"model_logs/ and {len(jobs)} tables, {gigabytes(before)} shortened to {gigabytes(after)}; from the samples' "
-            f"disk {simulator_logs} simulator logs" + (" and the in-silico strains' table" if insilico_table and
-                                                       os.path.isfile(insilico_table) else "") +
+            f"disk {simulator_logs} simulator logs" +
+            (f", {spike_tables} samples' spike genes" if spike_tables else "") +
+            (" and the in-silico strains' table" if insilico_table and os.path.isfile(insilico_table) else "") +
             f"); unpack with tar xzf {os.path.basename(target)}")
     except Exception as e:  # noqa: BLE001: the database is ready either way
         say(f"Packing the logs to share failed ({e}); the database is ready either way")
@@ -2596,10 +2600,13 @@ DEFAULT_SPARSE_FIRST = "pe:4,se:4,pb:16,ont:8"
 # read order (the default 2026-10-13 to -16; v27 lost 2.5-17x fewer present species than with the hash; at r226 v29 the
 # grid's rows, scored by stride-trained models, cost pe C 4 0.0004, pb C 16 0.0020, ont C 16 0.0040 of F1); or hash.
 DEFAULT_SPARSE_FIRST_PICK = "grid"
-# --model-gates: the gates each read type gets a model of, its database gate's among them (added if not): a ladder from
-# a sensitive gate to a fast one around the default. Each other gate profiles the training and test collections again
-# at it (the streamed simulations streamed again).
-DEFAULT_MODEL_GATES = "pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16"
+# --model-gates: the gates each read type gets a model of, its database gate's among them (added if not). Each other gate
+# profiles the training and test collections again at it (the streamed simulations streamed again). none by default since
+# 2026-10-16: at r226 v29 and v31 the models at other gates scored within 0.001 of the database gate's model and took 48%
+# (v29) and 70% (v31) of the collections' alignment CPU (docs/claude/2026-10-16-r226-v31). MODEL_GATES_LADDER, a ladder
+# from a sensitive gate to a fast one around the database's, was the default 2026-10-13 to -16.
+DEFAULT_MODEL_GATES = "none"
+MODEL_GATES_LADDER = "pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16"
 # --test-c-gates without a value: the gates each read type's test samples (those written to the disk) are profiled at
 # besides those of --model-gates, which the test set has whether or not: ungated, between the ladder's gates, and beyond
 # its fast end.
@@ -3221,7 +3228,9 @@ def main():
                         "database (protal --add_model --model_gate: model_pe_c1.xml, ...), so that a run gated otherwise "
                         "(protal --sparse_first) is profiled with the model of the gate nearest its own. Each gate costs "
                         "the collections' alignment once more, at that gate's speed, and a trainer. Default "
-                        f"{DEFAULT_MODEL_GATES}; none: the database's gate's model alone, as before 2026-10-13")
+                        f"{DEFAULT_MODEL_GATES} (since 2026-10-16: the database's gate's model alone; at r226 the models "
+                        "at other gates scored within 0.001 of it for 48-70%% of the collections' alignment CPU); "
+                        f"{MODEL_GATES_LADDER} was the default 2026-10-13 to -16")
     p.add_argument("--test-c-gates", nargs="?", const=DEFAULT_TEST_C_GATES, default=None, type=sparse_first_levels,
                    metavar="READ_TYPE:C/C/...,...",
                    help="profile the test samples (the independent test set and the scenarios' hold-out samples) of "
@@ -3538,12 +3547,9 @@ def main():
                         "name>_share.tar.gz: console.log, logs/, model_logs/ (without the models), the build's metadata, "
                         "the taxonomy and the training and test tables (their numbers to 9 significant digits), and from the "
                         "samples' disk the design points' simulator logs and parameters (logs/simulations_<collection>.log) "
-                        "and the in-silico strains' table, to be copied off the cluster and read elsewhere. Since "
-                        "2026-10-15 also the allele scores' effect: the test samples written to the disk (short reads) "
-                        "profiled again on the training database with protal's --no_allele_scores and scored beside the "
-                        "normal run, overall and by species with strain alleles in the database and without "
-                        "(model_logs/no_allele_scores.tsv, a section of summary.txt; the f1 audit's B1), which costs the "
-                        "short-read test samples' simulation and one protal run more")
+                        "and the in-silico strains' table, to be copied off the cluster and read elsewhere. (2026-10-15 "
+                        "to -16 it also profiled the short-read test samples without the allele scores, "
+                        "model_logs/no_allele_scores.tsv; since then --build records them off.)")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -3734,7 +3740,7 @@ def main():
     # The collections' only run option off protal's defaults, the weighted site shift (opt-in), goes to both builds too: a
     # protal that records the run options in build_settings.tsv (and whose runs follow them) then profiles the databases as
     # the models were trained; an older one takes it with --build and does nothing with it. Off (the default), the keys
-    # stay as they were. The checks' runs (--no_allele_scores with --share-logs) are diagnostics: never given to a build.
+    # stay as they were.
     if args.weighted_site_shift:
         TRACEBACK_ARGS[:] += ["--weighted_site_shift"]
     global ALLELE_SHARE
@@ -3907,15 +3913,14 @@ def main():
     separate_training_db = args.holdout > 0 or bool(clades) or bool(args.holdout_species) or \
         (args.strain_alleles > 0 and args.final_allele_genome_share != args.allele_genome_share)
     # The final check on the finished database (E1 of docs/claude/2026-10-15-f1-audit-since-0.6.0a), where it is another
-    # database than the training database; the allele scores' effect (B1) with --share-logs, of the short reads.
+    # database than the training database.
     final_check_wanted = has_test and not args.no_final_check and separate_training_db
-    allele_check_wanted = args.share_logs and has_test and any(t in ALLELE_SCORE_TYPES for t in read_types)
 
     def step_total():
         """The steps (Steps.start), the foreign-reads scans with them (one per database); corrected once the training
         database is known (scan, below) in the rare case that separate_training_db was wrong."""
         return 8 + has_test + subset + insilico_wanted + (not args.no_foreign_rates) * (1 + separate_training_db) + \
-            make_clouds + final_check_wanted + allele_check_wanted
+            make_clouds + final_check_wanted
     Steps.total = step_total()
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
@@ -5400,50 +5405,16 @@ def main():
                            "written to the disk profiled again on it with its default models at their gates (the streamed, "
                            "deepest ones left out), the rows of the species not held out (neither held-out species nor "
                            "those of held-out clades) scored on the training database -> on the finished database, as "
-                           "protal calls (its own calls for the default kind; the model file's for the others). Every "
-                           f"model is trained and tested on the training database; an F1 that moves by more than "
-                           f"{database_check.F1_NOISE} (a refit's noise) is a WARNING:"] + \
+                           "protal calls (its own calls for the default kind; the model file's for the others); and "
+                           "their present species by the genome they were simulated from (sensitivity: the finished "
+                           "database's strain alleles include the real strains' own genomes, so their gain is partly "
+                           "that). Every model is trained and tested on the training database; an F1 that moves by more "
+                           f"than {database_check.F1_NOISE} (a refit's noise) is a WARNING; the rows protal calls "
+                           "otherwise than its model file are in model_logs/final_db_check_differ.tsv:"] + \
             [f"  {line}" for line in lines] + [f"  WARNING: {w}" for w in warnings]
     elif has_test and not args.no_final_check:
         check_sections += ["", "Final check on the finished database: none, the models were trained and tested on it (no "
                            "species held out, the same alleles)"]
-    if allele_check_wanted:
-        allele_out, allele_log = os.path.join(samples_root, "no_allele_scores"), step_log("no_allele_scores.log")
-        allele_table = os.path.join(logs, "no_allele_scores.tsv")
-        short = [t for t in read_types if t in ALLELE_SCORE_TYPES]
-        Steps.start(f"the allele scores' effect (no_allele_scores.log, no_allele_scores.tsv; --share-logs): the "
-                    f"{'/'.join(short)} test samples written to the disk profiled again on "
-                    f"{os.path.basename(training_db)} with protal's --no_allele_scores, scored beside the normal run")
-        command = again_command(allele_out, training_db, short, "--no_allele_scores")
-        allele_key = {"database": training_key if training_db != db else final_key, "models": model_hashes,
-                      "command": command, "scripts": [content_hash(COLLECTOR), content_hash(DATABASE_CHECK)]}
-        began = time.time()
-        if stages.done("allele_check", allele_key) and os.path.isfile(allele_table):
-            lines = check_lines(allele_table, lambda rows, missing: (database_check.allele_check_lines(rows, missing), []),
-                                [])[0]
-            Steps.done("made by an earlier run for the same database, models and samples; kept")
-        else:
-            stages.forget("allele_check")
-            if collect_again("test samples without the allele scores", command, allele_log):
-                try:
-                    rows, missing = database_check.allele_check(
-                        short, {t: os.path.join(allele_out, TABLES[t]) for t in short},
-                        {t: os.path.join(test, TABLES[t]) for t in short}, trainer_calls, model_files, allele_table)
-                    lines = database_check.allele_check_lines(rows, missing)
-                    stages.mark("allele_check", allele_key)
-                    Steps.done(f"profiled and scored in {clock(time.time() - began)}")
-                except Exception as e:  # noqa: BLE001: the database is ready either way
-                    lines = [f"scoring failed ({type(e).__name__}: {e})"]
-            else:
-                lines = [f"failed: see {allele_log}"]
-        for line in lines:
-            Steps.done(line)
-        check_sections += ["", "The allele scores' effect (model_logs/no_allele_scores.tsv; --share-logs): the short-read "
-                           "test samples written to the disk profiled again on the training database with protal's "
-                           "--no_allele_scores (each candidate alignment scored against the reference alone), the model "
-                           "files' calls on them beside the normal run's (the trainer's), over all species and by those "
-                           "with strain alleles in the database (allele_copy_share above 0) and without:"] + \
-            [f"  {line}" for line in lines]
     summary = headline_lines(read_types, prefixes, kind_prefixes) + \
         [f"Independent test set: seed {args.test_seed} ({args.test_seed_how})" if has_test else
          "Independent test set: none", ""] + \

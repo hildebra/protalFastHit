@@ -4480,7 +4480,7 @@ class RunSettingsTest(WorkDir):
     """The run settings a database's models depend on (2026-10-15): --build records them in build_settings.tsv (the site
     shift, the allele scores, --align_top, --adaptive_candidates, mate guidance, each read type's identity floor, the
     unique k-mers' scheme, foreign genes, suspect copies, the depth margin; after 0.8.5 --gene_end_clips, credit unless
-    given); a run leaves them at auto to follow the
+    given, and the allele scores off unless given, since 2026-10-16); a run leaves them at auto to follow the
     database and is warned when told otherwise, --no_unique_cores apart; a database built before records none (a note).
     Every SAM says how it was aligned (@CO protal settings), and --profile_only takes its gate for the model and warns
     for a SAM aligned otherwise than the database's models were trained. On the operon release's inputs (OperonRelease),
@@ -4495,7 +4495,7 @@ class RunSettingsTest(WorkDir):
         shutil.copytree(release.inputs, cls.db)
         rc, cls.build_log = run(cls.work, "--build", "--no_profile", *FAST_BUILD, "--db", cls.db,
                                 "--reference", os.path.join(cls.db, "reference.fna"), "--weighted_site_shift", "-c", "4",
-                                "-a", "0.92", "--keep_suspect_copies", "--gene_end_clips", "credit")
+                                "-a", "0.92", "--keep_suspect_copies", "--gene_end_clips", "credit", "--allele_scores")
         if rc != 0:
             raise RuntimeError("protal --build with run settings failed:\n" + cls.build_log[-3000:])
 
@@ -4523,11 +4523,12 @@ class RunSettingsTest(WorkDir):
             self.assertEqual(recorded.get(key), value, key)
         self.assertIn("Run settings recorded for the database's runs: weighted_site_shift on, allele_scores on, align_top 4",
                       self.build_log)
-        # The defaults: ONT's own floor (0.8 since 2026-10-15), the site shift off, the gene end clips off.
+        # The defaults: ONT's own floor (0.8 since 2026-10-15), the site shift off, the allele scores off (since 2026-10-16).
         recorded = dict(line.split("\t") for line in self.settings(self.plain_db, "unpacked_plain").splitlines()
                         if not line.startswith("#"))
         for key, value in (("weighted_site_shift", "off"), ("align_top", "3"), ("max_score_ani_pe", "0.9"),
-                           ("max_score_ani_ont", "0.8"), ("keep_suspect_copies", "off"), ("gene_end_clips", "credit")):
+                           ("max_score_ani_ont", "0.8"), ("keep_suspect_copies", "off"), ("gene_end_clips", "credit"),
+                           ("allele_scores", "off")):
             self.assertEqual(recorded.get(key), value, key)
 
     def test_a_run_follows_the_database_and_is_warned_otherwise(self):
@@ -4586,6 +4587,8 @@ class RunSettingsTest(WorkDir):
                       "mate_guidance (built before 2026-10-15)", log)
         self.assertNotIn("is told otherwise", log)
         self.assertEqual((sam["align_top"], sam["weighted_site_shift"], sam["max_score_ani"]), ("3", "off", "0.9"))
+        # No allele_scores: on, as its models were trained (a database built since 2026-10-16 records off).
+        self.assertEqual(sam["allele_scores"], "on")
         # No identity floors: those every protal before aligned at (0.9; ONT 0.85), as its models were trained (no note).
         self.assertRegex(log, r"max_score_ani_pe\s+0\.9 \(auto\)\s+0\.9\n")
         # No gene_end_clips: off, as every database before the setting was trained (no note, the table says off).

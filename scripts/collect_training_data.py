@@ -1444,7 +1444,8 @@ def scenario_command(point, opts, threads):
                "--read_length", point["read_length"],
                *illumina_args(point["sequencer"], point.get("quality")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
-               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"]),
+               "-t", str(threads), "--protal_metafile", profiles,
+               *abundance_args(scenarios.sample_abundance(d["abundance"], point["samples"])),
                *reads_compression_args(opts)]
     if d["strains"]:
         command += ["--strains_per_species", d["strains"]]
@@ -2347,6 +2348,11 @@ def prepare_scenarios(points, units, opts, novel):
         counts = scenarios.species_counts(opts.seed, name, point["samples"], d["species"])
         if counts:
             note += "; of " + ", ".join(map(str, counts)) + " species"
+        abundance = scenarios.sample_abundance(d["abundance"], point["samples"])
+        if abundance != d["abundance"]:  # a lognormal list: each sample's sigma, the last ones deep, rich and uneven
+            corners = scenarios.corner_samples(point["samples"])
+            note += ("; lognormal sigma " + abundance.partition(":")[2].replace(",", ", ") +
+                     (f" (the last {corners} deep, rich and uneven on purpose)" if corners else ""))
         print(f"scenario {name} ({point['samples']} samples): {note}", flush=True)
     if any(p["definition"]["host_share"] > 0 for p in scenario_points):
         named = ", ".join(sorted({p["scenario"] for p in scenario_points if p["definition"]["host_share"] > 0}))
