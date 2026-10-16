@@ -15,7 +15,12 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
                           strain MSAs). Older versions, by their --version: before 0.8.3 (no --scratch_dir, one file
                           per map cell) the SAMs go to a folder of their own in --scratch, removed after the run, and
                           a sample of several files is joined first; before 0.7.0 (0.6.0a says v0.6.0: run folder
-                          0.6.0_nocommit) the samples that are not paired-end are left out, and the SAMs are plain
+                          0.6.0_nocommit) the samples that are not paired-end are left out, and the SAMs are plain.
+                          Each sample's truth goes to protal (a map column PROFILE_TRUTH: profile_truth/<sample>.truth,
+                          the present species of its truth table, none without one), so that protal writes
+                          profiles/<sample>.profile.truth_annotated, every taxon with reads with its call, probability
+                          and the model's features (not before 0.7.0, whose truth files are taxids; --no-truth-features:
+                          none). The profiles are the same
            --tool sylph   sylph profile of the set's paired samples and of its single-read samples (sylph/*.tsv,
                           sylph.log; a sample of several files is joined first, in --scratch if given), against
                           --sylph-db. Each genome is given its species by accession in the GTDB taxonomy of --gtdb
@@ -49,6 +54,22 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
          (from versions.tsv, else from the run folder's default name; "-" for neither), each set's rows of all runs
          together (printed too).
          Shares compare cells: protal's abundances are shares of genomes, the truth's genome copies (prepare_tables.py).
+         --store_results_tar [TAR] then packs what an analysis of the runs' errors needs into one file (default
+         OUT/mock_results_<date>.tar.gz), laid out as OUT, so that score runs on it unpacked:
+           scores/, inputs/ (samples.tsv, the truth tables), reads/downloaded.tsv, README.txt, manifest.tsv (each file
+           packed, its source and the rows kept of it), and of each run folder scored versions.tsv, scores/,
+           database/ (build_metadata.tsv and build_settings.tsv next to the database versions.tsv names, if there),
+           and per set (chunk) map.tsv, protal.log or sylph.log and sylph/*.tsv (a log over 16 MB: its first and last
+           4 MB), misc/ (files up to 1 MB, not the .err records) and profile_truth/, and per sample
+             .profile, .profile.composition, .profile.spike_genes.tsv   whole
+             .profile.log, .profile.truth_annotated                     the rows of the taxa called, of the truth's
+                                                                        species and their congeners, of those with a
+                                                                        probability of 0.1 or more, and of the 20 with
+                                                                        the most depth
+             .profile.genes.log, .profile.gene.log                      the rows of the errors: false positives, false
+                                                                        negatives and absent taxa of probability 0.1 or
+                                                                        more (none for a sample without a truth)
+           Left out (and counted): SAMs, strain MSAs, misc/*.err and larger misc/ files.
 
 Usage on a SLURM cluster (protal at r226 needs ~40 GB of memory):
   sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --reads /scratch/mocks \\
@@ -59,7 +80,7 @@ Usage on a SLURM cluster (protal at r226 needs ~40 GB of memory):
   sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph \\
       --reads /scratch/mocks --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb /path/GTDB/r226,/path/GTDB/r232 -t 32 \\
       --sets d6331_dna,meslier"
-  python3 scripts/mock_benchmark/score_mocks.py score --reads /scratch/mocks
+  python3 scripts/mock_benchmark/score_mocks.py score --reads /scratch/mocks --store_results_tar
 Standard library only.
 """
 import argparse
@@ -67,6 +88,7 @@ import collections
 import csv
 import glob
 import gzip
+import io
 import itertools
 import os
 import platform
@@ -76,6 +98,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -87,7 +110,7 @@ SAMPLE_COLUMNS = ["set", "sample", "read_type", "truth", "kind", "group", "reads
                   "fp_share", "l1", "bray_curtis", "absent_called", "present_missed", "false_species"]
 SUMMARY_COLUMNS = ["set", "read_type", "kind", "samples", "called", "tp", "fp", "fn", "precision", "recall", "f1",
                    "recall_1pct", "fp_share", "l1", "unknown", "dropouts_called"]
-NOT_RUNS = ("reads", "scores")  # folders of OUT that are not run folders
+NOT_RUNS = ("reads", "scores", "inputs")  # folders of OUT that are not run folders (inputs: of an unpacked results tar)
 
 
 def read_tsv(path):
@@ -240,6 +263,7 @@ def run_command(command, folder, log_name):
 # sample's lanes) and --scratch_dir.
 PAIRED_ONLY_BEFORE = (0, 7, 0)
 LANES_AND_SCRATCH_FROM = (0, 8, 3)
+TRUTH_NAMES_FROM = (0, 7, 0)  # --profile_truth files naming species (0.6.0a's take internal taxids only)
 
 
 def release_of(version):
@@ -257,9 +281,19 @@ def work_folder(args, folder, name):
     return path
 
 
-def run_protal(args, folder, todo, release):
+def write_profile_truth(path, truth):
+    """A sample's --profile_truth file: the present species of its truth table (read_truth), a line each; none for a
+    negative control or a sample without a truth (then protal's truth column is 0 throughout)."""
+    present = [k for k, v in truth[1].items() if v != v or v > 0] if truth else []
+    with open(path + ".part", "w") as fh:
+        fh.write("".join(f"{k}\n" for k in present))
+    os.replace(path + ".part", path)
+    return path
+
+
+def run_protal(args, folder, todo, release, truth_of=None):
     """One protal run of a set's map. `release` is the binary's (major, minor, patch); None (unknown: --dry-run with
-    --run-name) is taken as the current protal's."""
+    --run-name) is taken as the current protal's. `truth_of`: {sample: its truth table's name}."""
     current = release is None or release >= LANES_AND_SCRATCH_FROM
     map_path = os.path.join(folder, "map.tsv")
     # SAM and PROFILE named, so that they go to alignments/ and profiles/ (without them protal writes
@@ -269,6 +303,15 @@ def run_protal(args, folder, todo, release):
     # run, and reads a sample of several files joined into one.
     keep_sams = not (current and args.scratch and not args.strains)
     sam_ending = ".sam" if release and release < PAIRED_ONLY_BEFORE else ".sam.zst"
+    # Each sample's truth (PROFILE_TRUTH), so that protal writes <profile>.truth_annotated: every taxon's call,
+    # probability and features, what score --store_results_tar packs for the errors' analysis
+    truth_features = args.truth_features and (release is None or release >= TRUTH_NAMES_FROM)
+    truths = {}
+    if truth_features:
+        os.makedirs(os.path.join(folder, "profile_truth"), exist_ok=True)
+        # protal from 2026-10-13 (folders made when written into) to b61e16e wrote the truth annotation before making
+        # the profiles' folder, and failed the run (0.8.4: "Writing the truth annotation failed")
+        os.makedirs(os.path.join(folder, "profiles"), exist_ok=True)
     temporary = []  # folders removed after the run
     try:
         sam_folder = None
@@ -278,8 +321,9 @@ def run_protal(args, folder, todo, release):
         lanes = None
         with open(map_path, "w") as fh:
             fh.write(f"#OUTPUT_DIR\t{folder}\n" + (f"#SAM_OUTPUT_DIR\t{sam_folder}\n" if sam_folder else ""))
-            columns = ["SAMPLEID", "PREFIX", "FIRST", "SECOND", "READ_TYPE"] + (["SAM"] if keep_sams else [])
-            fh.write("#" + "\t".join(columns + ["PROFILE"]) + "\n")
+            columns = ["SAMPLEID", "PREFIX", "FIRST", "SECOND", "READ_TYPE"]
+            columns += (["SAM"] if keep_sams else []) + ["PROFILE"] + (["PROFILE_TRUTH"] if truth_features else [])
+            fh.write("#" + "\t".join(columns) + "\n")
             for s in todo:
                 first, second = s["first"], s["second"]
                 if not current and "," in first + second:
@@ -294,6 +338,12 @@ def run_protal(args, folder, todo, release):
                                                                      os.path.join(lanes, s["sample"] + "_2.fq.gz"))
                 row = [s["sample"], s["sample"], first, second, s["read_type"]]
                 row += ([s["sample"] + sam_ending] if keep_sams else []) + [s["sample"] + ".profile"]
+                if truth_features:
+                    name = (truth_of or {}).get(s["sample"], "-")
+                    if name != "-" and name not in truths:
+                        truths[name] = read_truth(os.path.join(args.truth, name + ".tsv"))
+                    row.append(write_profile_truth(os.path.join(folder, "profile_truth", s["sample"] + ".truth"),
+                                                   truths.get(name)))
                 fh.write("\t".join(row) + "\n")
         command = [args.protal, "--db", args.db, "--map", map_path, "-t", str(args.threads)]
         if args.scratch and current:
@@ -451,6 +501,7 @@ def run(args):
     samples = chosen(read_tsv(downloaded_path), [s for s in args.sets.split(",") if s])
     if args.tool == "protal" and not args.db:
         sys.exit("--tool protal needs --db")
+    truth_of = {r["sample"]: r["truth"] for r in read_tsv(args.samples)} if args.tool == "protal" else {}
     lineages = None
     if args.tool == "sylph":
         if not args.sylph_db or not args.gtdb:
@@ -507,7 +558,7 @@ def run(args):
             folder = os.path.join(folder, f"chunk_{chunk}")
         os.makedirs(folder, exist_ok=True)
         print(f"{set_name}: {len(todo)} samples", file=sys.stderr)
-        code = (run_protal(args, folder, todo, release) if args.tool == "protal"
+        code = (run_protal(args, folder, todo, release, truth_of) if args.tool == "protal"
                 else run_sylph(args, folder, todo, lineages))
         if args.dry_run:
             continue
@@ -775,6 +826,307 @@ def score(args):
     print("\t".join(["run", "tool", "version"] + SUMMARY_COLUMNS))
     for r in all_summary:
         print("\t".join(str(fmt(r[c])) for c in ["run", "tool", "version"] + SUMMARY_COLUMNS))
+    if args.store_results_tar is not None:
+        store_results(args, out, folders, samples, truths)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# score --store_results_tar
+# ---------------------------------------------------------------------------------------------------------------
+
+NEAR_PROBABILITY = 0.1  # a taxon not called with this probability or more is a near miss: its rows are packed
+TOP_TAXA = 20  # the taxa of a sample's .profile.log with the most depth (VCov) are packed, called or not
+LOG_MAX = 16 << 20  # a log longer than this keeps its first and last LOG_KEEP bytes
+LOG_KEEP = 4 << 20
+MISC_MAX = 1 << 20  # a misc/ file larger than this is left out
+WHOLE = (".profile", ".profile.composition", ".profile.spike_genes.tsv")  # a sample's files packed whole
+TAXON_TABLES = (".profile.log", ".profile.truth_annotated")  # the rows of the taxa of interest
+GENE_TABLES = (".profile.genes.log", ".profile.gene.log")  # the rows of the error taxa
+SAMPLE_SUFFIXES = sorted(WHOLE + TAXON_TABLES + GENE_TABLES, key=len, reverse=True)
+TAXID_COLUMNS = ("TaxID", "taxon")  # .profile.log, .genes.log, .gene.log; .truth_annotated
+DATABASE_FILES = ("build_metadata.tsv", "build_settings.tsv")  # next to a protal database: which build it is
+
+
+def sample_file(name):
+    """(sample, suffix) of a sample's profile file by its name, (None, None) for another file."""
+    for suffix in SAMPLE_SUFFIXES:
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[:-len(suffix)], suffix
+    return None, None
+
+
+def number(text):
+    try:
+        return float(text)
+    except ValueError:
+        return NAN
+
+
+def genus_of(species):
+    """The genus of a GTDB species name (s__Escherichia coli: Escherichia)."""
+    return species.split(";")[-1].removeprefix("s__").split(" ")[0]
+
+
+def taxa_of_interest(files, called, kind, truth):
+    """(the taxids whose rows of .profile.log and .truth_annotated are packed, those whose genes' rows are), from the
+    sample's .profile.log (else its .truth_annotated; None, None without either): the taxa called, the truth's species
+    (dropouts' absent ones too) and their congeners, those of NEAR_PROBABILITY or more, and the TOP_TAXA with the most
+    depth; of these the errors, for the genes: false positives, false negatives and absent taxa of NEAR_PROBABILITY or
+    more (none without a truth)."""
+    source = files.get(".profile.log") or files.get(".profile.truth_annotated")
+    if not source:
+        return None, None
+    present = {k for k, v in truth.items() if v != v or v > 0}
+    genera = {genus_of(k) for k in truth}
+    rows = []
+    with open(source, newline="") as fh:
+        reader = csv.reader(fh, delimiter="\t")
+        header = {c: i for i, c in enumerate(next(reader, []))}
+        tax = next((header[c] for c in TAXID_COLUMNS if c in header), None)
+        name = header.get("Lineage", header.get("taxon_name"))
+        if tax is None or name is None:
+            return None, None
+        predicted = header.get("Predicted", header.get("prediction"))
+        probability = header.get("Probability", header.get("probability"))
+        depth = header.get("VCov")
+        for f in reader:
+            if len(f) <= max(tax, name):
+                continue
+            species = f[name].split(";")[-1]
+            species = species if species.startswith("s__") else "s__" + species
+            rows.append((f[tax], species,
+                         species in called or (predicted is not None and number(f[predicted]) == 1),
+                         number(f[probability]) if probability is not None else NAN,
+                         number(f[depth]) if depth is not None else NAN))
+    deepest = {r[0] for r in sorted((r for r in rows if r[4] == r[4]), key=lambda r: -r[4])[:TOP_TAXA]}
+    keep, errors = set(), set()
+    for taxid, species, is_called, p, _ in rows:
+        near = not is_called and p == p and p >= NEAR_PROBABILITY
+        if is_called or species in truth or genus_of(species) in genera or near or taxid in deepest:
+            keep.add(taxid)
+        if kind and (is_called != (species in present) or (near and species not in present)):
+            errors.add(taxid)
+    return keep, errors
+
+
+def rows_of(path, taxa):
+    """(a table's header and the rows of `taxa` by its taxid column, its rows, the rows kept); None for a table without
+    a taxid column."""
+    wanted = {t.encode() for t in taxa}
+    out = io.BytesIO()
+    total = kept = 0
+    with open(path, "rb") as fh:
+        header = fh.readline()
+        names = header.rstrip(b"\r\n").split(b"\t")
+        index = next((names.index(c.encode()) for c in TAXID_COLUMNS if c.encode() in names), None)
+        if index is None:
+            return None
+        out.write(header)
+        for line in fh:
+            total += 1
+            f = line.split(b"\t", index + 1)
+            if len(f) > index and f[index].rstrip(b"\r\n") in wanted:
+                out.write(line)
+                kept += 1
+    return out.getvalue(), total, kept
+
+
+def capped_log(path):
+    """A log's bytes: its first and last LOG_KEEP bytes if it is longer than LOG_MAX; None for one to pack whole."""
+    size = os.path.getsize(path)
+    if size <= LOG_MAX:
+        return None
+    with open(path, "rb") as fh:
+        head = fh.read(LOG_KEEP)
+        fh.seek(size - LOG_KEEP)
+        return head + f"\n[... {size - 2 * LOG_KEEP} bytes left out ...]\n".encode() + fh.read()
+
+
+def script_commit():
+    """The commit of this script's checkout (with -modified for uncommitted changes to its folder), "-" outside one."""
+    try:
+        head = subprocess.run(["git", "-C", HERE, "rev-parse", "--short=7", "HEAD"], capture_output=True, text=True,
+                              timeout=60)
+        dirty = subprocess.run(["git", "-C", HERE, "status", "--porcelain", "--", "."], capture_output=True,
+                               text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return "-"
+    if head.returncode:
+        return "-"
+    return head.stdout.strip() + ("-modified" if dirty.returncode == 0 and dirty.stdout.strip() else "")
+
+
+def gigabytes(n):
+    return f"{n / 1e9:.2f} GB" if n >= 1e8 else f"{n / 1e6:.1f} MB"
+
+
+class ResultsTar:
+    """The tar of --store_results_tar, with a manifest line per file packed."""
+
+    def __init__(self, path, name, compressed):
+        self.tar = tarfile.open(path, "w:gz", compresslevel=6) if compressed else tarfile.open(path, "w")
+        self.name = name
+        self.manifest = []
+        self.left_out = collections.defaultdict(lambda: [0, 0])  # why: [files, bytes]
+
+    def add(self, source, path, data=None, rows="", kept=""):
+        """Packs a file whole, or `data` in its place (a cut log, a table's rows)."""
+        size = os.path.getsize(source)
+        if data is None:
+            self.tar.add(source, f"{self.name}/{path}", recursive=False)
+        else:
+            info = tarfile.TarInfo(f"{self.name}/{path}")
+            info.size, info.mtime, info.mode = len(data), int(os.path.getmtime(source)), 0o644
+            self.tar.addfile(info, io.BytesIO(data))
+        self.manifest.append({"path": path, "source": source, "source_bytes": size,
+                              "bytes": size if data is None else len(data), "rows": rows, "rows_kept": kept})
+
+    def add_text(self, path, text):
+        data = text.encode()
+        info = tarfile.TarInfo(f"{self.name}/{path}")
+        info.size, info.mtime, info.mode = len(data), int(time.time()), 0o644
+        self.tar.addfile(info, io.BytesIO(data))
+
+    def leave_out(self, why, source):
+        self.left_out[why][0] += 1
+        self.left_out[why][1] += os.path.getsize(source)
+
+
+def pack_run(tar, folder, sets, by_sample, truths, truth_folder):
+    """Packs a run folder's files (see store_results) under its name. -> the samples whose files were packed."""
+    run = os.path.basename(folder)
+    packed = set()
+    for root, dirs, files in os.walk(folder):
+        dirs.sort()
+        relative = os.path.relpath(root, folder)
+        parts = [] if relative == "." else relative.split(os.sep)
+        if parts and parts[0] != "scores" and sets and parts[0] not in sets:
+            dirs[:] = []
+            continue
+        groups = collections.defaultdict(dict)  # a sample's profile files in this folder: {suffix: path}
+        for name in sorted(files):
+            source = os.path.join(root, name)
+            path = "/".join([run] + parts + [name])
+            sample, suffix = sample_file(name)
+            if not parts:
+                if name == "versions.tsv":
+                    tar.add(source, path)
+                else:
+                    tar.leave_out("other files", source)
+            elif parts[0] == "scores":
+                tar.add(source, path)
+            elif sample:
+                if sample in by_sample:
+                    groups[sample][suffix] = source
+                else:
+                    tar.leave_out("samples not scored (not in --samples, or not of --sets)", source)
+            elif name.endswith((".sam", ".sam.zst", ".sam.gz", ".bam")) or "alignments" in parts:
+                tar.leave_out("SAMs", source)
+            elif "strains" in parts:
+                tar.leave_out("strain MSAs and tables", source)
+            elif name in ("map.tsv", "protal.log", "sylph.log") or "profile_truth" in parts or (
+                    "sylph" in parts and name.endswith(".tsv")):
+                tar.add(source, path, capped_log(source))
+            elif "misc" in parts:
+                if name.endswith(".err") or name.endswith(".statistics.tsv"):
+                    tar.leave_out("misc/*.err (reads that do not fit the database) and taxon statistics", source)
+                elif os.path.getsize(source) > MISC_MAX:
+                    tar.leave_out(f"misc/ files over {MISC_MAX >> 20} MB", source)
+                else:
+                    tar.add(source, path)
+            else:
+                tar.leave_out("other files", source)
+        for sample, found in sorted(groups.items()):
+            s = by_sample[sample]
+            kind, truth = None, {}
+            if s["truth"] != "-":
+                if s["truth"] not in truths:
+                    truths[s["truth"]] = read_truth(os.path.join(truth_folder, s["truth"] + ".tsv"))
+                kind, truth, _ = truths[s["truth"]]
+            called = set(read_profile(found[".profile"])[0]) if ".profile" in found else set()
+            keep, errors = taxa_of_interest(found, called, kind, truth)
+            for suffix, source in sorted(found.items()):
+                path = "/".join([run] + parts + [sample + suffix])
+                taxa = keep if suffix in TAXON_TABLES else errors if suffix in GENE_TABLES else None
+                cut = rows_of(source, taxa) if taxa is not None else None
+                if suffix in WHOLE or (cut is None and os.path.getsize(source) <= MISC_MAX):
+                    tar.add(source, path)  # (a table rows_of cannot cut: whole if small)
+                elif cut is None:
+                    tar.leave_out(f"{suffix} files over {MISC_MAX >> 20} MB without taxa to choose by", source)
+                else:
+                    tar.add(source, path, cut[0], cut[1], cut[2])
+            packed.add(sample)
+    return packed
+
+
+def store_results(args, out, folders, samples, truths):
+    """--store_results_tar: what an analysis of the runs' errors needs, in one file laid out as OUT (the module's
+    docstring lists it)."""
+    began = time.time()
+    path = os.path.abspath(args.store_results_tar or os.path.join(out, f"mock_results_{time.strftime('%Y-%m-%d')}"
+                                                                         ".tar.gz"))
+    name = re.sub(r"\.(tar\.gz|tgz|tar)$", "", os.path.basename(path))
+    sets = {s for s in args.sets.split(",") if s}
+    by_sample = {s["sample"]: s for s in samples}
+    tar = ResultsTar(path + ".partial", name, compressed=path.endswith((".gz", ".tgz")))
+    runs = []
+    try:
+        for table in ("summary_by_run.tsv", "samples_by_run.tsv"):
+            if os.path.isfile(os.path.join(out, "scores", table)):
+                tar.add(os.path.join(out, "scores", table), f"scores/{table}")
+        tar.add(args.samples, "inputs/samples.tsv")
+        for table in sorted(glob.glob(os.path.join(args.truth, "*.tsv"))):
+            tar.add(table, f"inputs/truth/{os.path.basename(table)}")
+        downloaded = os.path.join(args.reads, "reads", "downloaded.tsv")
+        if os.path.isfile(downloaded):
+            tar.add(downloaded, "reads/downloaded.tsv")
+        for folder in folders:
+            run = os.path.basename(folder)
+            versions = read_versions(folder)
+            databases = sorted({r["database"] for r in versions.values() if r["tool"] == "protal"})
+            for i, database in enumerate(databases):
+                where = database if os.path.isdir(database) else os.path.dirname(database)
+                for table in DATABASE_FILES:
+                    if os.path.isfile(os.path.join(where, table)):
+                        tar.add(os.path.join(where, table),
+                                f"{run}/database{'' if len(databases) == 1 else f'_{i + 1}'}/{table}")
+            packed = pack_run(tar, folder, sets, by_sample, truths, args.truth)
+            tool, version = tool_and_version(run, versions)
+            runs.append(f"  {run}: {tool} {version}, {len(packed)} samples" +
+                        (f"; databases {', '.join(f'{i + 1} {d}' for i, d in enumerate(databases))}" if len(databases) > 1
+                         else f"; database {databases[0]}" if databases else ""))
+        left_out = [f"  {why}: {n} files, {gigabytes(size)}" for why, (n, size) in sorted(tar.left_out.items())]
+        tar.add_text("README.txt", "\n".join([
+            f"Results of the mock-community benchmark (scripts/mock_benchmark/score_mocks.py, commit {script_commit()}),",
+            f"packed {time.strftime('%Y-%m-%d %H:%M:%S')} on {platform.node()} from {out}.",
+            f"Command: {' '.join(shlex.quote(a) for a in sys.argv)}",
+            "",
+            "Run folders:", *runs, "",
+            "Laid out as score_mocks.py's OUT: unpacked, score_mocks.py score --reads DIR --samples DIR/inputs/samples.tsv",
+            "--truth DIR/inputs/truth scores it again. Per sample, .profile.log and .truth_annotated keep the rows of the",
+            "taxa called, of the truth's species and their congeners, of probability >= "
+            f"{NEAR_PROBABILITY} and the {TOP_TAXA} with the most depth;",
+            ".genes.log and .gene.log those of the errors (false positives, false negatives, absent taxa of probability",
+            f">= {NEAR_PROBABILITY}). manifest.tsv lists every file, its source and the rows kept.", "",
+            "Left out:", *(left_out or ["  nothing"]), ""]))
+        manifest = io.StringIO()
+        w = csv.DictWriter(manifest, fieldnames=["path", "source", "source_bytes", "bytes", "rows", "rows_kept"],
+                           delimiter="\t", lineterminator="\n")
+        w.writeheader()
+        w.writerows(tar.manifest)
+        tar.add_text("manifest.tsv", manifest.getvalue())
+        tar.tar.close()
+        os.replace(path + ".partial", path)
+    except BaseException:
+        tar.tar.close()
+        if os.path.exists(path + ".partial"):
+            os.remove(path + ".partial")
+        raise
+    source = sum(m["source_bytes"] for m in tar.manifest)
+    print(f"results to share: {path}, {gigabytes(os.path.getsize(path))} in {time.time() - began:.0f} s "
+          f"({len(tar.manifest)} files of {len(folders)} run folders, {gigabytes(source)} on disk); left out: " +
+          ("; ".join(f"{why} ({n} files, {gigabytes(size)})" for why, (n, size) in sorted(tar.left_out.items()))
+           or "nothing"), file=sys.stderr)
 
 
 def main():
@@ -786,6 +1138,7 @@ def main():
         p.add_argument("--out", default="", help="where the run folders and scores/ go (default: --reads)")
         p.add_argument("--sets", default="", help="comma-separated sets (default: all)")
         p.add_argument("--samples", default=os.path.join(HERE, "samples.tsv"))
+        p.add_argument("--truth", default=os.path.join(HERE, "truth"), help="folder of the truth tables")
         if name == "run":
             p.add_argument("--tool", choices=("protal", "sylph"), default="protal")
             p.add_argument("--run-name", default="", help="the run folder's name (default: from the tool's "
@@ -807,6 +1160,9 @@ def main():
             g.add_argument("--protal", default="protal", help="the protal binary (default: protal on PATH)")
             g.add_argument("--strains", action="store_true", help="write strain MSAs (default --no_strains)")
             g.add_argument("--protal-args", default="", help="more protal options, quoted")
+            g.add_argument("--no-truth-features", dest="truth_features", action="store_false",
+                           help="do not give protal the samples' truth (map column PROFILE_TRUTH), so no "
+                           "<profile>.truth_annotated with every taxon's features (default: given, from protal 0.7.0)")
             g = p.add_argument_group("sylph")
             g.add_argument("--sylph-db", default="", help="sylph's database (.syldb)")
             g.add_argument("--sylph", default="sylph", help="the sylph binary (default: sylph on PATH)")
@@ -818,7 +1174,11 @@ def main():
             p.add_argument("--runs", default="", help="comma-separated run folders (default: all with profiles); "
                            "sylph's run folders are scored with them, for comparison (--no-sylph: not)")
             p.add_argument("--no-sylph", action="store_true", help="with --runs: the runs named alone")
-            p.add_argument("--truth", default=os.path.join(HERE, "truth"), help="folder of the truth tables")
+            p.add_argument("--store_results_tar", "--store-results-tar", dest="store_results_tar", nargs="?", const="",
+                           default=None, metavar="TAR",
+                           help="then pack the scored run folders' results for an analysis of their errors into TAR "
+                           "(default OUT/mock_results_<date>.tar.gz): scores, logs, profiles, the profile logs' rows "
+                           "of the taxa that matter; no SAMs (the docstring lists it all)")
     args = ap.parse_args()
     if args.command == "run":
         run(args)

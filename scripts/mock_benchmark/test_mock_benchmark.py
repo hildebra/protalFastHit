@@ -19,6 +19,7 @@ import os
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import unittest
@@ -318,6 +319,94 @@ class ScoreTest(unittest.TestCase):
         kinds = [r["kind"] for r in rows]
         self.assertEqual(kinds, sorted(kinds, key=kinds.index))  # each kind's rows next to each other
 
+    def test_store_results_tar(self):
+        """s1 (truth t: A and B) calls A and C. Its .profile.log has those, B (missed), A's congener "A sp1", N (not
+        called, probability 0.2) and 25 thin taxa Z1-Z25 of depth 1-25: kept are A, B, C, "A sp1", N and the 18 deepest
+        Z (20 with A and C); the genes' rows of the errors C, B and N. SAMs and misc/*.err are left out. Unpacked, the
+        archive scores as the run folders did."""
+        run = os.path.join(self.out, "0.8.3_1dcc325")
+        profiles = os.path.join(run, "set1", "profiles")
+        taxa = [("1", "s__A", 1, 0.9, 100), ("2", "s__B", 0, 0.3, 0.5), ("3", "s__C", 1, 0.6, 50),
+                ("4", "s__A sp1", 0, 0.0, 0.1), ("5", "s__N", 0, 0.2, 0.2)]
+        taxa += [(str(100 + i), f"s__Z{i}", 0, 0.01, i) for i in range(1, 26)]
+        lineage = "d__Bacteria;p__P;c__C;o__O;f__F;g__G;"
+        with open(os.path.join(profiles, "s1.profile.log"), "w") as fh:
+            fh.write("Predicted\tProbability\tRepGenome\tLineage\tVCov\tTaxID\tGeneCov0\n")
+            fh.writelines(f"{c}\t{p}\tGCF\t{lineage}{n}\t{d}\t{t}\t0\n" for t, n, c, p, d in taxa)
+        with open(os.path.join(profiles, "s1.profile.truth_annotated"), "w") as fh:
+            fh.write("truth\tprediction\tprobability\ttaxon\ttaxon_name\tfeature\n")
+            fh.writelines(f"0\t{c}\t{p}\t{t}\t{n}\t1\n" for t, n, c, p, _ in taxa)
+        with open(os.path.join(profiles, "s1.profile.genes.log"), "w") as fh:
+            fh.write("Predicted\tProbability\tTaxID\tLineage\tGeneID\n")
+            fh.writelines(f"{c}\t{p}\t{t}\t{lineage}{n}\t{g}\n" for t, n, c, p, _ in taxa[:5] + taxa[-1:] for g in (7, 8))
+        with open(os.path.join(profiles, "s1.profile.gene.log"), "w") as fh:
+            fh.write("Sample\tTaxID\tLineage\tGeneID\n")
+            fh.writelines(f"s1\t{t}\t{lineage}{n}\t7\n" for t, n, _, _, _ in taxa[:3])
+        with open(os.path.join(profiles, "s1.profile.composition"), "w") as fh:
+            fh.write("Sample\tUnknownShare\ns1\t0.4\n")
+        set1 = os.path.join(run, "set1")
+        for path, text in (("map.tsv", "#OUTPUT_DIR\tx\n"), ("protal.log", "Sample s1: ...\n"),
+                           ("misc/cpu.tsv", "stage\twall\n"), ("misc/s1.err", "r1\t0\n"),
+                           ("alignments/s1.sam.zst", "SAM"), ("profile_truth/s1.truth", "s__A\ns__B\n")):
+            os.makedirs(os.path.dirname(os.path.join(set1, path)), exist_ok=True)
+            with open(os.path.join(set1, path), "w") as fh:
+                fh.write(text)
+        database = os.path.join(self.tmp.name, "protal_db")
+        os.makedirs(database)
+        with open(os.path.join(database, "build_metadata.tsv"), "w") as fh:
+            fh.write("key\tvalue\nrelease\tr226\n")
+        with open(os.path.join(run, "versions.tsv"), "w") as fh:
+            fh.write("\t".join(sc.VERSION_COLUMNS) + "\n")
+            fh.write(f"s1\tset1\tprotal\t0.8.3_1dcc325\t{os.path.join(database, 'database.protal')}\tdate\tnode\n")
+        target = os.path.join(self.tmp.name, "res.tar.gz")
+        result = self.score("--store_results_tar", target)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("results to share: " + target, result.stderr)
+        with tarfile.open(target) as tar:
+            names = set(tar.getnames())
+            text = {m.name[len("res/"):]: tar.extractfile(m).read().decode() for m in tar.getmembers() if m.isfile()}
+            unpacked = os.path.join(self.tmp.name, "unpacked")
+            tar.extractall(unpacked, **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
+        self.assertTrue(all(n.startswith("res/") or n == "res" for n in names), names)
+        packed = "0.8.3_1dcc325/set1/"
+        for path in ("README.txt", "manifest.tsv", "scores/summary_by_run.tsv", "scores/samples_by_run.tsv",
+                     "inputs/samples.tsv", "inputs/truth/t.tsv", "0.8.3_1dcc325/versions.tsv",
+                     "0.8.3_1dcc325/scores/samples.tsv", "0.8.3_1dcc325/database/build_metadata.tsv",
+                     packed + "map.tsv", packed + "protal.log", packed + "misc/cpu.tsv", packed + "profile_truth/s1.truth",
+                     packed + "profiles/s1.profile", packed + "profiles/s1.profile.composition",
+                     "other_run/set1/chunk_0/profiles/s1.profile", "other_run/set1/s2.profile"):
+            self.assertIn(path, text)
+        for path in (packed + "misc/s1.err", packed + "alignments/s1.sam.zst"):
+            self.assertNotIn(path, text)
+
+        def column(path, name):
+            rows = list(csv.DictReader(io.StringIO(text[path]), delimiter="\t"))
+            return sorted(int(r[name]) for r in rows)
+        kept = [1, 2, 3, 4, 5] + list(range(108, 126))
+        self.assertEqual(column(packed + "profiles/s1.profile.log", "TaxID"), kept)
+        self.assertEqual(column(packed + "profiles/s1.profile.truth_annotated", "taxon"), kept)
+        self.assertEqual(column(packed + "profiles/s1.profile.genes.log", "TaxID"), [2, 2, 3, 3, 5, 5])
+        self.assertEqual(column(packed + "profiles/s1.profile.gene.log", "TaxID"), [2, 3])
+        manifest = {r["path"]: r for r in csv.DictReader(io.StringIO(text["manifest.tsv"]), delimiter="\t")}
+        self.assertEqual((manifest[packed + "profiles/s1.profile.log"]["rows"],
+                          manifest[packed + "profiles/s1.profile.log"]["rows_kept"]), ("30", "23"))
+        self.assertIn("SAMs: 1 files", text["README.txt"])
+        self.assertIn("misc/*.err", text["README.txt"])
+        # laid out as OUT: scored again, the same tables
+        again = subprocess.run([sys.executable, os.path.join(HERE, "score_mocks.py"), "score", "--reads",
+                                os.path.join(unpacked, "res"), "--samples", os.path.join(unpacked, "res", "inputs",
+                                                                                         "samples.tsv"),
+                                "--truth", os.path.join(unpacked, "res", "inputs", "truth")],
+                               capture_output=True, text=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        with open(os.path.join(unpacked, "res", "scores", "summary_by_run.tsv")) as fh:
+            self.assertEqual(fh.read(), text["scores/summary_by_run.tsv"])
+        # default: OUT/mock_results_<date>.tar.gz
+        result = self.score("--runs", "other_run", "--store_results_tar")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith("mock_results_")],
+                         [f"mock_results_{sc.time.strftime('%Y-%m-%d')}.tar.gz"])
+
     def test_run_with_a_stand_in_protal(self):
         reads = os.path.join(self.tmp.name, "mocks")
         write_downloaded(reads, [("a", "a_1", "pe", "/r/a_1_1.fq.gz", "/r/a_1_2.fq.gz", "10", "3000", "0"),
@@ -338,16 +427,25 @@ for line in lines[2:]:
     sample = line.split("\\t")[0]
     open(os.path.join(out, "profiles", sample + ".profile"), "w").write("?\\t?\\t1\\n")
 """)
+        with open(self.samples, "a") as fh:  # a_1's truth is t (A and B present); a_2 has none
+            fh.write("a\ta_1\tR\tpe\tt\t-\t-\na\ta_2\tR\tont\t-\t-\t-\n")
         command = [sys.executable, os.path.join(HERE, "score_mocks.py"), "run", "--reads", reads, "--db", "/db",
-                   "--protal", fake, "-t", "3", "--sets", "a"]
+                   "--protal", fake, "-t", "3", "--samples", self.samples, "--truth", self.truth, "--sets", "a"]
         result = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         run_folder = os.path.join(reads, "0.8.3_1dcc325")  # the binary's version and commit
         with open(os.path.join(run_folder, "a", "map.tsv")) as fh:
             lines = fh.read().splitlines()
-        self.assertEqual(lines[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE")
-        self.assertEqual(lines[2:], ["a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.sam.zst\ta_1.profile",
-                                     "a_2\ta_2\t/r/a_2.fq.gz\t-\tont\ta_2.sam.zst\ta_2.profile"])
+        # each sample's truth goes to protal, for its <profile>.truth_annotated
+        truth = functools.partial(os.path.join, run_folder, "a", "profile_truth")
+        self.assertEqual(lines[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE\tPROFILE_TRUTH")
+        self.assertEqual(lines[2:], ["a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.sam.zst\ta_1.profile\t" +
+                                     truth("a_1.truth"),
+                                     "a_2\ta_2\t/r/a_2.fq.gz\t-\tont\ta_2.sam.zst\ta_2.profile\t" + truth("a_2.truth")])
+        with open(truth("a_1.truth")) as fh:
+            self.assertEqual(fh.read(), "s__A\ns__B\n")
+        with open(truth("a_2.truth")) as fh:
+            self.assertEqual(fh.read(), "")
         with open(calls) as fh:
             called = fh.read().splitlines()
         self.assertEqual(len(called), 1)
@@ -375,11 +473,17 @@ for line in lines[2:]:
         named = subprocess.run(command + ["--run-name", "trial"], capture_output=True, text=True)
         self.assertEqual(named.returncode, 0, named.stderr)
         self.assertTrue(os.path.exists(os.path.join(reads, "trial", "a", "profiles", "a_1.profile")))
+        nofeatures = subprocess.run(command + ["--run-name", "nofeatures", "--no-truth-features"], capture_output=True,
+                                    text=True)
+        self.assertEqual(nofeatures.returncode, 0, nofeatures.stderr)
+        with open(os.path.join(reads, "nofeatures", "a", "map.tsv")) as fh:
+            self.assertEqual(fh.read().splitlines()[1], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE")
+        self.assertFalse(os.path.exists(os.path.join(reads, "nofeatures", "a", "profile_truth")))
         # --scratch: no SAM named, so that protal writes the SAMs into its --scratch_dir folder (removed once
         # profiled); with --strains they are named, kept in alignments/ for strain MSAs
         scratch = os.path.join(self.tmp.name, "node_disk")
-        for strains, header in (([], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tPROFILE"),
-                                (["--strains"], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE")):
+        for strains, header in (([], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tPROFILE\tPROFILE_TRUTH"),
+                                (["--strains"], "#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\tSAM\tPROFILE\tPROFILE_TRUTH")):
             name = "scratch" + "".join(strains)
             result = subprocess.run(command + ["--run-name", name, "--scratch", scratch] + strains,
                                     capture_output=True, text=True)
@@ -388,7 +492,8 @@ for line in lines[2:]:
                 lines = fh.read().splitlines()
             self.assertEqual(lines[1], header)
             if not strains:
-                self.assertEqual(lines[2], "a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.profile")
+                self.assertEqual(lines[2], "a_1\ta_1\t/r/a_1_1.fq.gz\t/r/a_1_2.fq.gz\tpe\ta_1.profile\t" +
+                                 os.path.join(reads, name, "a", "profile_truth", "a_1.truth"))
             with open(calls) as fh:
                 self.assertIn(f"--scratch_dir {scratch}", fh.read().splitlines()[-1])
             self.assertTrue(os.path.exists(os.path.join(reads, name, "a", "profiles", "a_2.profile")))
@@ -441,6 +546,8 @@ with open({seen!r}, "w") as log:
         self.assertEqual(row, "p p.sam @a|AC|+|II|@b|GT|+|II|")  # the two lanes' first mates, joined
         self.assertEqual(os.listdir(scratch), [])
         run_folder = os.path.join(reads, "0.6.0_nocommit")
+        with open(os.path.join(run_folder, "a", "map.tsv")) as fh:  # its truth files are taxids: none given
+            self.assertNotIn("PROFILE_TRUTH", fh.read())
         self.assertEqual(sorted(sc.profiles_of(run_folder)), ["p"])
         self.assertEqual([(r["sample"], r["version"]) for r in read_tsv(os.path.join(run_folder, "versions.tsv"))],
                          [("p", "0.6.0_nocommit")])

@@ -305,6 +305,13 @@ database, and when and where it ran.
     SAM, so protal writes each SAM into its folder there and removes it once the sample is profiled. Only the profiles
     and logs stay. The SAMs of a set (or chunk) are all there at once, since protal profiles after aligning every
     sample (unless `--protal-args --profile_ahead`). With `--strains` the SAMs stay in `alignments/`, for strain MSAs.
+  - **The model's features** (since 2026-10-16): the map gives protal each sample's truth (`PROFILE_TRUTH`,
+    `profile_truth/<sample>.truth`, the present species of its truth table, empty for a sample without one), so protal
+    also writes `profiles/<sample>.profile.truth_annotated`: every taxon with reads, its call, its probability and every
+    feature as the model saw it. That is what shows why a species was called or missed. The profile is the same either
+    way, and `--no-truth-features` leaves it out. 0.6.0a gets none, as its truth files take taxids. The script makes
+    `profiles/` before protal starts, because protal from 2026-10-13 to b61e16e (0.8.4 among them) wrote this file
+    before making that folder, and failed the run.
   - **Older versions** (by the binary's `--version`), so that earlier releases can be benchmarked with their own
     databases:
     - **Before 0.8.3** (no `--scratch_dir`, one file per map cell): with `--scratch` the SAMs go to a folder of their
@@ -349,6 +356,29 @@ side by side:
   `versions.tsv` existed, from the folder's default name.
 - **Order:** each set's rows of all runs come together.
 
+**Results to share.** `score --store_results_tar [TAR]` then packs, into one file, what an analysis of the runs'
+errors needs. The default is `$RESULTS/mock_results_<date>.tar.gz`. It holds the run folders scored, so `--runs` and
+`--sets` choose what goes in. Copy it to the machine where it is analysed, and unpack it there.
+- **Layout:** the archive is laid out as `--out`, with `inputs/` (the `samples.tsv` and truth tables scored against)
+  and `reads/downloaded.tsv`. So `score --reads DIR --samples DIR/inputs/samples.tsv --truth DIR/inputs/truth` scores
+  it again.
+- **Per run folder:** `versions.tsv`, `scores/`, and the database's `build_metadata.tsv` and `build_settings.tsv`
+  (`database/`) if they lie next to the database that `versions.tsv` names.
+- **Per set:** `map.tsv`, `protal.log` (or `sylph.log` and sylph's tables), `profile_truth/`, and `misc/` (timers,
+  `cpu.tsv`, `unreported_species.tsv`, up to 1 MB a file). A log over 16 MB keeps its first and last 4 MB.
+- **Per sample:**
+  - kept whole: `.profile`, `.profile.composition` and `.profile.spike_genes.tsv`;
+  - cut to the taxa that matter: `.profile.log` and `.profile.truth_annotated` keep the rows of the taxa called, the
+    truth's species and their congeners, the taxa of probability 0.1 or more, and the 20 with the most depth;
+  - cut to the errors: `.profile.genes.log` and `.profile.gene.log` keep the rows of the false positives, the false
+    negatives and the absent taxa of probability 0.1 or more.
+- **Left out, and counted in `README.txt`:** SAMs, strain MSAs, `misc/*.err`, and files of samples not scored.
+  `manifest.tsv` lists every file packed, its source, and how many of its rows were kept.
+
+On the local reduced r226 database, the 0.8.4 run's 10 samples came to 0.6 MB, from 9.2 MB of files besides the SAMs.
+At GTDB scale a sample's profile logs list thousands of taxa, so the cut keeps a smaller share of them; the size per
+sample there has not been measured yet.
+
 ```bash
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --dry-run
 python3 scripts/mock_benchmark/download_mocks.py -o $MOCKS --sets d6331_dna,meslier,d6331_hifi,d6331_ont --jobs 8
@@ -361,7 +391,7 @@ sbatch -c 32 --mem 96G --wrap "python3 scripts/mock_benchmark/score_mocks.py run
 sbatch -c 32 --mem 64G --wrap "python3 scripts/mock_benchmark/score_mocks.py run --tool sylph --reads $MOCKS \
     --out $RESULTS --sylph-db gtdb-r232-c200-dbv2.syl2db --gtdb $GTDB/r226,$GTDB/r232 -t 32 --scratch \$TMPDIR \
     --sets d6331_dna,meslier,d6331_hifi,d6331_ont"
-python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS --out $RESULTS
+python3 scripts/mock_benchmark/score_mocks.py score --reads $MOCKS --out $RESULTS --store_results_tar
 ```
 
 ## Continuous integration
