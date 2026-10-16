@@ -777,7 +777,11 @@ grid rows of `build_gtdb_database.py`, whose collections' runs load the whole in
 it cannot load a sparse index. A database without
 grid levels stops a grid-picked run (exit 2). The models must be trained on runs picked so, as for
 the other picks (`build_gtdb_database.py --test-grid` scores the test set with it beside the database's
-pick; [report](claude/2026-10-13-gene-grid-index.md)).
+pick; [report](claude/2026-10-13-gene-grid-index.md)). GTDB databases built by `build_gtdb_database.py`
+since 2026-10-16 pick by grid at their gates (pe 4, se 4, pb 16, ont 8) and were trained on rows seeded
+as the sparse index seeds them, so a run on them loads the sparse index by default; a sample gated at
+C 1 or ungated (`--sparse_first 1`, `0`, or the map's `SPARSE_FIRST`) makes its run load the whole
+index.
 
 The load builds a compact key map (since 2026-10-14; opt-in as `--compact_keys` that day before it became
 the default), which a run then makes the hashed key map (below): it holds the cores with values alone, a presence bit for each of the 2^30 cores with ranks

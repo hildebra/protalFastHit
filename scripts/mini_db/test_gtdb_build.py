@@ -143,14 +143,18 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertEqual(build.test_grid_levels("auto", None, ladder), {})
         self.assertEqual(build.test_grid_levels(build.test_stride_spec("pe:2"), default, ladder), {"pe": [2]})
         self.assertEqual(build.test_grid_levels(build.test_stride_spec("none"), default, ladder), {})
-        # --sparse-first-pick: stride (the default) or hash for all, or read types and theirs (the others stride).
+        # --sparse-first-pick: grid (the default since 2026-10-16), stride or hash for all, or read types and theirs (the
+        # others grid).
+        self.assertEqual(build.DEFAULT_SPARSE_FIRST_PICK, "grid")
         self.assertEqual(build.sparse_first_pick_spec(build.DEFAULT_SPARSE_FIRST_PICK),
-                         {"pe": "stride", "se": "stride", "pb": "stride", "ont": "stride"})
+                         {"pe": "grid", "se": "grid", "pb": "grid", "ont": "grid"})
         picks = build.sparse_first_pick_spec("pb:hash")
-        self.assertEqual(picks, {"pe": "stride", "se": "stride", "pb": "hash", "ont": "stride"})
-        self.assertEqual(build.picks_text(picks), "pe:stride,se:stride,pb:hash,ont:stride")
-        self.assertEqual(build.sparse_first_pick_spec("grid")["ont"], "grid")
-        self.assertEqual(build.sparse_first_pick_spec("pb:grid")["pb"], "grid")
+        self.assertEqual(picks, {"pe": "grid", "se": "grid", "pb": "hash", "ont": "grid"})
+        self.assertEqual(build.picks_text(picks), "pe:grid,se:grid,pb:hash,ont:grid")
+        self.assertEqual(build.sparse_first_pick_spec("stride")["ont"], "stride")
+        self.assertEqual(build.sparse_first_pick_spec("pb:stride")["pb"], "stride")
+        # The pick a database's gate is compared with (--test-other-pick): stride beside grid or hash, hash beside stride.
+        self.assertEqual([build.other_pick(p) for p in ("grid", "stride", "hash")], ["stride", "hash", "stride"])
         for bad in ("strided", "pb:8", "xx:hash", "pe:"):
             with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
                 build.sparse_first_pick_spec(bad)

@@ -32,6 +32,19 @@ for this page.
 
 Not in a release yet.
 
+- **GTDB builds pick by grid at their gates (`build_gtdb_database.py --sparse-first-pick grid`; was `stride`)**
+  (2026-10-16). The gates stay pe 4, se 4, pb 16, ont 8. With the grid pick the database records it, every run on it
+  follows it, and a run whose samples are all gated at C 2 or more loads only its gate's grid entries: a sparse index
+  of about 1/C of the values ([running.md](running.md#developer-options)). The build's collections load the whole index
+  but seed every grid-picked sample as that sparse index would (`--sparse_index emulate`), so the models, those at the
+  other gates (`--model-gates`) included, are trained and tested on the rows a sparse-index run gives.
+  `--test-other-pick` now profiles the test samples at the database's gate with the stride pick beside it, and
+  `--test-grid` has nothing to add for grid-picked read types. Before this, grid rows had only been measured at r226 as a
+  test (v29, emulated, scored by models trained on stride rows): −0.0004 of F1 at pe C 4, −0.0020 at pb C 16, −0.0040
+  at ont C 16 ([report](claude/2026-10-15-r226-v29/README.md)); a grid-picked build trains its models on grid rows.
+  The pick enters both databases' build keys, so an earlier output folder rebuilds them. `protal --build` alone records
+  no gates unless given and the stride where gates come without a pick, as before.
+
 - **ONT's identity floor 0.8 (`-a`; was 0.85)** (2026-10-15). The identity counts a one-base indel as two
   differences, so 0.85 dropped most ONT reads below ~0.88 accuracy: in simulated ONT samples 7.4% of the reads on
   marker genes seeded but aligned nowhere, and a species with one or two such reads got no row at all (r226 v29: 3.7%

@@ -60,9 +60,12 @@ holds many more absent taxa with a few reads, and needs a higher threshold.
 Both databases record each read type's sparse-first gate (--sparse-first, default
 pe:4,se:4,pb:16,ont:8: protal --sparse_first, a read looked up by 1/C of its cores
 first and given up without a near-exact hit) and its pick (--sparse-first-pick,
-default stride: every C-th core of a read in read order) in build_settings.tsv,
-and every run on them follows them, the collections' too: the models learn from
-gated runs. A model is also trained at each other gate of --model-gates (default
+default grid since 2026-10-16: the database's grid of each gene's cores, so that
+a run gated at C 2 or more loads a sparse index of 1/C of the values; stride,
+every C-th core of a read in read order, before) in build_settings.tsv, and every
+run on them follows them, the collections' too (seeded as the sparse index would
+seed them): the models learn from gated runs. A model is also trained at each
+other gate of --model-gates (default
 pe:1/4/8,se:1/4/8,pb:8/16/32,ont:1/8/16): the training and test samples, the
 streamed ones included, profiled at those gates too, and the models stored in
 the database beside its gate's (model_pe_c1.xml, ...), so that a run gated
@@ -75,8 +78,8 @@ runs), each scored by the model of the gate nearest it, in c_gates.tsv too.
 With it, the ONT test samples (every gate) and the Ultima ones are also profiled
 with protal's --flex_indels (--test-flex-indels), the test set's Ultima
 simulations then written to the disk rather than streamed; and every read
-type's test samples at its database gate (2 or more) with the other pick, the
-hash sample of the cores rather than every C-th (--test-other-pick).
+type's test samples at its database gate (2 or more) with another pick: the
+stride beside a grid database, the hash beside a stride one (--test-other-pick).
 
 Five scenarios of real studies (--scenarios, scenarios.py: gut, moderate, soil,
 shallow soil, 90% host reads) add samples of their own, each at a depth drawn around its
@@ -2211,7 +2214,8 @@ def c_gates_summary(read_types, prefixes, test_levels, database_gates, test_dir,
     those of them it has (se: the Ultima samples). The database's row is the test file's rows of those samples; every
     other row has its baseline beside it, the same samples at the database's gate without --flex_indels scored by its
     model (baseline_F1, baseline_aligning_cpu_s). A gate's row with the other pick follows its row with the database's
-    pick (picks {read type: "stride" or "hash"}), whose F1 its line gives beside its own. -> a line per read type."""
+    pick (picks {read type: "grid", "stride" or "hash"}), whose F1 its line gives beside its own. -> a line per read
+    type."""
     gate_prefixes, scored_by, picks = gate_prefixes or {}, scored_by or {}, picks or {}
     compare = {t: set(samples) for t, samples in (compare or {}).items() if samples}
     times = aligning_times(cpu_tables)
@@ -2581,14 +2585,17 @@ TRACEBACK_ARGS = []
 # given up without a near-exact hit), recorded in both databases and followed by every run on them, the collections'
 # included, so that the models are trained on gated runs (the reads given up count no failed candidates). The r226 runs
 # (docs/claude/2026-10-12-sparse-first): paired-end C = 1 loses 0.01% of the records for -35% of the alignment's time,
-# C = 2 0.37% for -52%; HiFi C = 8 0.54% for -62%; ONT C = 1 a trial. Since 2026-10-13 pe:4,se:4,pb:16,ont:8 with the
-# stride pick: at r226 v27 these cost no F1 against C 1 (pb C 8) and saved 36-44% of the alignment's CPU (pb 11%)
-# (docs/claude/2026-10-13-r226-v27-c-gates.md).
+# C = 2 0.37% for -52%; HiFi C = 8 0.54% for -62%; ONT C = 1 a trial. Since 2026-10-13 pe:4,se:4,pb:16,ont:8 (with the
+# stride pick until 2026-10-16): at r226 v27 these cost no F1 against C 1 (pb C 8) and saved 36-44% of the alignment's
+# CPU (pb 11%) (docs/claude/2026-10-13-r226-v27-c-gates.md).
 DEFAULT_SPARSE_FIRST = "pe:4,se:4,pb:16,ont:8"
 # --sparse-first-pick: which 1/C of a read's cores each gate looks up first (protal --build --sparse_first_pick, recorded
-# with the gates): stride, every C-th core in read order (protal's default since 2026-10-13; v27 lost 2.5-17x fewer
-# present species than with the hash), or hash.
-DEFAULT_SPARSE_FIRST_PICK = "stride"
+# with the gates): grid, the database's grid of each gene's cores (the default since 2026-10-16, the user's choice: a run
+# whose samples are all gated at C 2 or more loads only its gate's entries, a sparse index; the collections' runs seed
+# their rows as that index would, --sparse_index emulate, so the models are trained on them); stride, every C-th core in
+# read order (the default 2026-10-13 to -16; v27 lost 2.5-17x fewer present species than with the hash; at r226 v29 the
+# grid's rows, scored by stride-trained models, cost pe C 4 0.0004, pb C 16 0.0020, ont C 16 0.0040 of F1); or hash.
+DEFAULT_SPARSE_FIRST_PICK = "grid"
 # --model-gates: the gates each read type gets a model of, its database gate's among them (added if not): a ladder from
 # a sensitive gate to a fast one around the default. Each other gate profiles the training and test collections again
 # at it (the streamed simulations streamed again).
@@ -2614,9 +2621,9 @@ DEFAULT_LONG_READ_BASES = "300000,1500000,6000000,30000000,150000000,1500000000:
 # --indel-share).
 DEFAULT_INSILICO_INDELS = 0.02
 # --test-other-pick (--test-stride before 2026-10-13, when the other pick was stride), by default (auto) with
-# --test-c-gates: the gates at which each read type's test samples are also profiled with the pick its database's gate
-# does not use (hash for a database that picks by stride): auto, its database's own gate if 2 or more (below 2 every core
-# is looked up first, whichever way it picks).
+# --test-c-gates: the gates at which each read type's test samples are also profiled with another pick than its
+# database's gate uses (other_pick: stride beside grid or hash, hash beside stride): auto, its database's own gate if 2 or
+# more (below 2 every core is looked up first, whichever way it picks).
 
 
 def test_flex_spec(text):
@@ -2642,7 +2649,7 @@ def test_stride_levels(test_stride, test_c_gates, database_gates):
 
 
 def other_pick(pick):
-    """The pick a database's gate does not use: hash for stride, stride for hash."""
+    """The pick a database's gate is compared with: hash for stride, stride for hash or grid."""
     return "hash" if pick == "stride" else "stride"
 
 
@@ -2661,7 +2668,7 @@ SPARSE_FIRST_PICKS = ("stride", "hash", "grid")
 
 def sparse_first_pick_spec(text):
     """--sparse-first-pick: "stride", "hash" or "grid" for every read type, or read types and theirs ("pe:stride,pb:hash";
-    a read type not listed stride) -> {read type: pick} of every read type."""
+    a read type not listed DEFAULT_SPARSE_FIRST_PICK's) -> {read type: pick} of every read type."""
     text = str(text).strip()
     picks = {t: DEFAULT_SPARSE_FIRST_PICK for t in TABLES}
     if ":" not in text:
@@ -3199,12 +3206,13 @@ def main():
     p.add_argument("--sparse-first-pick", type=sparse_first_pick_spec, default=DEFAULT_SPARSE_FIRST_PICK,
                    metavar="stride|hash|grid|READ_TYPE:PICK,...",
                    help="which 1/C of a read's cores each gate looks up first (protal --build --sparse_first_pick, "
-                        "recorded with the gates and followed by every run on the databases): stride, every C-th core of "
-                        "a read in read order, hash, those whose hash falls in 1/C of its range (the only pick before "
-                        "2026-10-13), or grid, the database's grid of each gene's cores (since 2026-10-13; a run whose samples "
-                        "are all gated at C 2 or more then loads only the entries of its smallest gate, a sparse index: "
-                        "--test-grid measures it beside the database's pick first); one for all read types, or read types "
-                        f"and theirs. Default {DEFAULT_SPARSE_FIRST_PICK}")
+                        "recorded with the gates and followed by every run on the databases): grid, the database's grid of "
+                        "each gene's cores (since 2026-10-13; a run whose samples are all gated at C 2 or more then loads "
+                        "only the entries of its smallest gate, a sparse index; the collections' runs seed their rows as "
+                        "that index would, so the models are trained on them), stride, every C-th core of a read in read "
+                        "order (the default 2026-10-13 to -16), or hash, those whose hash falls in 1/C of its range (the "
+                        "only pick before 2026-10-13); one for all read types, or read types and theirs (the others "
+                        f"{DEFAULT_SPARSE_FIRST_PICK}). Default {DEFAULT_SPARSE_FIRST_PICK} (since 2026-10-16)")
     p.add_argument("--model-gates", type=model_gates_spec, default=model_gates_spec(DEFAULT_MODEL_GATES),
                    metavar="READ_TYPE:C/C/...,...|none",
                    help="the sparse-first gates each read type gets a model of besides its --sparse-first gate's: the "
@@ -3237,9 +3245,10 @@ def main():
     p.add_argument("--test-other-pick", "--test-stride", dest="test_stride", nargs="?", const="auto", default=None,
                    type=test_stride_spec, metavar="READ_TYPE:C/C/...,...|auto|none",
                    help="with --test-c-gates: the gates (2 to 32) at which each read type's test samples are also "
-                        "profiled with the pick its database's gates do not use (--sparse-first-pick; with its default "
-                        "stride: hash, the cores whose hash falls in 1/C of its range, rows <sample>__c<C>h, tables in "
-                        "c_gates/c<C>h/; with hash: stride, rows <sample>__c<C>s), scored by the model of the gate "
+                        "profiled with another pick than its database's gates use (--sparse-first-pick; with its default "
+                        "grid, and with hash: stride, every C-th core in read order, rows <sample>__c<C>s, tables in "
+                        "c_gates/c<C>s/; with stride: hash, the cores whose hash falls in 1/C of its range, rows "
+                        "<sample>__c<C>h), scored by the model of the gate "
                         "nearest it, beside the same samples at that gate with the database's pick in "
                         "model_logs/c_gates.tsv (column pick). Default with --test-c-gates: auto, each read type's "
                         "database gate if 2 or more; none: no such rows. Needs a protal whose --full_help lists "
@@ -3255,8 +3264,9 @@ def main():
                         "gate with the database's pick in model_logs/c_gates.tsv. The collections' runs load the whole "
                         "index and seed these rows as the sparse index would (protal --sparse_index emulate), so their "
                         "records and calls are a sparse index's but their CPU seconds are not. Default with --test-c-gates: auto, "
-                        "each read type's gates with a model (--model-gates) of 2 or more; none: no such rows. Needs a "
-                        f"protal whose --full_help lists {GRID_HELP[0]}")
+                        "each read type's gates with a model (--model-gates) of 2 or more; none: no such rows. A read type "
+                        "whose database picks by grid (--sparse-first-pick's default since 2026-10-16) has none: its own "
+                        f"rows are grid-picked. Needs a protal whose --full_help lists {GRID_HELP[0]}")
     p.add_argument("--foreign-rates", action="store_true",
                    help="scan each database's full reference for the gene copies other species' reads reach "
                         "(scripts/foreign_rates.py) and store foreign_rates.tsv in it, for the 'foreign' features. Off by "
@@ -4594,8 +4604,9 @@ def main():
         say("WARNING: --test-flex-indels needs --test-c-gates: no rows with --flex_indels")
         flex_wanted = {}
     test_flex = {}
-    # --test-other-pick (by default with --test-c-gates): each read type's test samples at these gates with the pick its
-    # database's gates do not use too (hash where they pick by stride), where protal runs it per sample.
+    # --test-other-pick (by default with --test-c-gates): each read type's test samples at these gates with another pick
+    # than its database's gates use too (stride where they pick by grid or hash, hash where by stride), where protal runs
+    # it per sample.
     stride_wanted = test_stride_levels("auto" if args.test_stride is None else args.test_stride, args.test_c_gates,
                                        {t: args.sparse_first.get(t, 0) for t in read_types})
     if stride_wanted and args.test_c_gates is None:
@@ -4631,8 +4642,8 @@ def main():
         if stride_wanted:
             if stride_supported(args.protal):
                 test_stride = stride_wanted
-                # Per read type the pick its database does not use: stride rows (<sample>__c<C>s) where it picks by
-                # hash, hash rows (<sample>__c<C>h) where by stride.
+                # Per read type another pick than its database's: stride rows (<sample>__c<C>s) where it picks by
+                # grid or hash, hash rows (<sample>__c<C>h) where by stride.
                 for option, pick in (("--stride_levels", "stride"), ("--hash_levels", "hash")):
                     these = {t: cs for t, cs in test_stride.items() if other_pick(args.sparse_first_pick[t]) == pick}
                     if these:
