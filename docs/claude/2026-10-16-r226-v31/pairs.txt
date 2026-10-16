@@ -1,0 +1,198 @@
+## 1. v31 gbm against v29 gbm on the training samples both builds simulated alike
+alike: a training sample name of both builds whose present taxa overlap by 95% of their union or more. Rows scored with species held out (the calls files' training rows), each model at its own knob, as protal calls; a present taxon without a row in a build is a false negative there.
+
+read type	set	samples (alike / shared names)	present (union)	rowless v29/v31	knobs v29/v31	v29 TP/FP/FN	v31 TP/FP/FN	F1 v29	F1 v31	v31 - v29	95% interval	P(v31 better)
+pe	training, design	154 / 231	7680	4/2	0.74/0.69	7388/202/292	7431/229/249	0.9676	0.9688	+0.0012	[-0.0001, +0.0028]	0.962
+pe	training, scenarios (hold-in)	50 / 50	61217	18/53	0.74/0.69	57736/2444/3481	57956/2818/3261	0.9512	0.9502	-0.0010	[-0.0017, -0.0003]	0.000
+se	training, design	76 / 154	3978	1/2	0.5/0.59	3853/137/125	3853/133/125	0.9671	0.9676	+0.0005	[-0.0023, +0.0033]	0.615
+se	training, scenarios (hold-in)	30 / 30	38272	14/11	0.5/0.59	36621/1890/1651	36508/1715/1764	0.9539	0.9545	+0.0006	[-0.0002, +0.0015]	0.941
+pb	training, design	9 / 184	611	6/1	0.5/0.5	601/9/10	606/7/5	0.9844	0.9902	+0.0058	[+0.0013, +0.0093]	0.999
+pb	training, scenarios (hold-in)	50 / 50	45335	1/2	0.5/0.5	43714/1088/1621	43723/1063/1612	0.9699	0.9703	+0.0004	[-0.0001, +0.0009]	0.926
+ont	training, design	12 / 184	735	4/5	0.5/0.5	725/18/10	725/14/10	0.9811	0.9837	+0.0027	[-0.0021, +0.0079]	0.851
+ont	training, scenarios (hold-in)	50 / 50	46887	849/40	0.5/0.5	44151/1450/2736	44829/1642/2058	0.9547	0.9604	+0.0056	[+0.0041, +0.0071]	1.000
+
+## 2. the scenario samples one by one (v31, gbm at its knob, as protal calls)
+sigma: the sample's lognormal evenness (scenarios.py EVENNESS: 1.0, 1.5, 2.0, 2.5 by sample number in turn). thin: present species with at most 2 reads on a marker gene (meta_marker_reads). p thin: the median score of the thin present rows. Rows of hold-in samples scored with species held out.
+
+read type	scenario	set	sample	sigma	sample_log_fragments	sample_log_taxa	present	FN	FN rate	thin	thin FN	thin FN rate	p thin	FP
+pe	moderate	hold-out	sc_moderate_pe_p10000000_s_1	1	5.453	3.814	1380	14	0.010	2	0	0.000	0.954	40
+pe	moderate	hold-out	sc_moderate_pe_p10000000_s_2	1.5	5.622	3.925	1753	41	0.023	36	12	0.333	0.839	37
+pe	moderate	hold-out	sc_moderate_pe_p10000000_s_3	2	5.323	3.452	709	58	0.082	59	35	0.593	0.491	6
+pe	moderate	hold-out	sc_moderate_pe_p10000000_s_4	2.5	4.962	3.537	1844	103	0.056	764	92	0.120	0.978	73
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_1	1	5.327	3.699	950	12	0.013	0	0	0.000	-	21
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_10	1.5	4.899	3.462	770	25	0.032	37	9	0.243	0.938	21
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_2	1.5	5.211	3.632	1231	29	0.024	41	8	0.195	0.900	36
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_3	2	5.134	3.756	2380	117	0.049	532	76	0.143	0.979	94
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_4	2.5	5.885	3.795	1465	69	0.047	187	37	0.198	0.934	48
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_5	1	5.594	3.851	1001	7	0.007	0	0	0.000	-	18
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_6	1.5	5.515	3.903	2121	70	0.033	90	23	0.256	0.920	66
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_7	2	5.703	3.831	1341	49	0.037	73	18	0.247	0.906	48
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_8	2.5	5.057	3.561	1440	87	0.060	450	70	0.156	0.982	49
+pe	moderate	hold-in	sc_moderate_pe_p10000000_s_9	1	4.807	3.773	2952	72	0.024	334	29	0.087	0.981	96
+pe	soil	hold-out	sc_soil_pe_p20000000_s_1	1	4.916	3.999	2552	104	0.041	220	42	0.191	0.950	148
+pe	soil	hold-out	sc_soil_pe_p20000000_s_2	1.5	5.628	4.142	1382	39	0.028	29	11	0.379	0.777	57
+pe	soil	hold-out	sc_soil_pe_p20000000_s_3	2	5.387	4.003	1615	121	0.075	281	84	0.299	0.903	66
+pe	soil	hold-out	sc_soil_pe_p20000000_s_4	2.5	5.925	4.326	3483	894	0.257	823	697	0.847	0.111	47
+pe	soil	hold-in	sc_soil_pe_p20000000_s_1	1	5.081	4.013	1861	80	0.043	61	20	0.328	0.826	87
+pe	soil	hold-in	sc_soil_pe_p20000000_s_10	1.5	5.244	4.208	3967	316	0.080	727	189	0.260	0.950	224
+pe	soil	hold-in	sc_soil_pe_p20000000_s_2	1.5	5.475	4.161	1923	104	0.054	98	39	0.398	0.824	77
+pe	soil	hold-in	sc_soil_pe_p20000000_s_3	2	5.025	3.927	2195	188	0.086	608	133	0.219	0.965	164
+pe	soil	hold-in	sc_soil_pe_p20000000_s_4	2.5	5.887	4.031	1243	95	0.076	197	65	0.330	0.875	73
+pe	soil	hold-in	sc_soil_pe_p20000000_s_5	1	5.695	4.375	3153	111	0.035	16	15	0.938	0.120	79
+pe	soil	hold-in	sc_soil_pe_p20000000_s_6	1.5	5.230	3.939	1298	58	0.045	68	20	0.294	0.838	53
+pe	soil	hold-in	sc_soil_pe_p20000000_s_7	2	5.547	4.037	1442	107	0.074	203	63	0.310	0.917	87
+pe	soil	hold-in	sc_soil_pe_p20000000_s_8	2.5	5.898	4.189	2128	222	0.104	427	159	0.372	0.893	143
+pe	soil	hold-in	sc_soil_pe_p20000000_s_9	1	5.902	4.487	3464	120	0.035	9	9	1.000	0.071	97
+pe	soil_shallow	hold-out	sc_soil_shallow_pe_p5000000_s_1	1	4.482	3.803	2140	98	0.046	510	60	0.118	0.983	167
+pe	soil_shallow	hold-out	sc_soil_shallow_pe_p5000000_s_2	1.5	5.315	4.211	3746	662	0.177	598	460	0.769	0.156	44
+pe	soil_shallow	hold-out	sc_soil_shallow_pe_p5000000_s_3	2	4.772	3.812	1606	158	0.098	473	121	0.256	0.903	77
+pe	soil_shallow	hold-out	sc_soil_shallow_pe_p5000000_s_4	2.5	5.263	3.719	1007	113	0.112	297	92	0.310	0.871	40
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_1	1	5.296	4.064	1318	51	0.039	6	4	0.667	0.491	48
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_10	1.5	4.470	3.729	1890	118	0.062	719	91	0.127	0.977	142
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_2	1.5	4.292	3.722	2238	161	0.072	1173	140	0.119	0.984	179
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_3	2	4.664	3.639	1154	80	0.069	371	66	0.178	0.974	92
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_4	2.5	4.569	3.620	1275	117	0.092	583	103	0.177	0.979	111
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_5	1	4.838	4.024	3189	168	0.053	452	85	0.188	0.959	184
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_6	1.5	5.103	4.074	2856	202	0.071	485	119	0.245	0.946	196
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_7	2	5.409	3.944	1135	64	0.056	146	34	0.233	0.901	54
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_8	2.5	5.147	3.860	1569	136	0.087	486	100	0.206	0.963	110
+pe	soil_shallow	hold-in	sc_soil_shallow_pe_p5000000_s_9	1	4.966	3.984	1927	98	0.051	103	37	0.359	0.882	85
+se	moderate	hold-out	sc_moderate_se_ultima_r10000000_s_1	1	5.411	3.634	1379	19	0.014	2	0	0.000	0.871	31
+se	moderate	hold-out	sc_moderate_se_ultima_r10000000_s_2	1.5	5.577	3.746	1752	40	0.023	29	10	0.345	0.657	46
+se	moderate	hold-out	sc_moderate_se_ultima_r10000000_s_3	2	5.285	3.273	708	45	0.064	51	26	0.510	0.578	13
+se	moderate	hold-out	sc_moderate_se_ultima_r10000000_s_4	2.5	4.933	3.435	1806	196	0.109	709	167	0.236	0.862	35
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_1	1	5.290	3.502	951	12	0.013	1	0	0.000	0.950	21
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_10	1.5	4.852	3.291	772	23	0.030	33	4	0.121	0.881	25
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_2	1.5	5.170	3.478	1229	23	0.019	48	10	0.208	0.882	30
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_3	2	5.092	3.632	2389	111	0.046	516	76	0.147	0.971	101
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_4	2.5	5.859	3.613	1469	75	0.051	187	45	0.241	0.926	57
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_5	1	5.552	3.627	1002	9	0.009	0	0	0.000	-	20
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_6	1.5	5.472	3.744	2125	69	0.032	98	25	0.255	0.868	74
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_7	2	5.668	3.624	1336	48	0.036	58	13	0.224	0.826	48
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_8	2.5	5.018	3.435	1445	69	0.048	451	48	0.106	0.972	59
+se	moderate	hold-in	sc_moderate_se_ultima_r10000000_s_9	1	4.766	3.676	2923	74	0.025	321	37	0.115	0.969	122
+se	soil	hold-out	sc_soil_se_ultima_r20000000_s_1	1	4.839	3.851	2557	133	0.052	243	58	0.239	0.854	162
+se	soil	hold-out	sc_soil_se_ultima_r20000000_s_2	1.5	5.557	3.920	1378	36	0.026	30	9	0.300	0.849	102
+se	soil	hold-out	sc_soil_se_ultima_r20000000_s_3	2	5.312	3.799	1588	112	0.071	256	73	0.285	0.842	77
+se	soil	hold-out	sc_soil_se_ultima_r20000000_s_4	2.5	5.853	4.130	3392	754	0.222	691	559	0.809	0.120	71
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_1	1	5.003	3.831	1853	70	0.038	53	18	0.340	0.858	88
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_10	1.5	5.154	4.039	3895	298	0.077	666	166	0.249	0.914	261
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_2	1.5	5.389	3.961	1917	99	0.052	106	41	0.387	0.753	90
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_3	2	4.939	3.767	2172	178	0.082	630	131	0.208	0.950	166
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_4	2.5	5.826	3.817	1216	89	0.073	181	56	0.309	0.858	80
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_5	1	5.615	4.181	3152	90	0.029	15	9	0.600	0.485	86
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_6	1.5	5.160	3.737	1291	55	0.043	66	23	0.348	0.714	60
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_7	2	5.467	3.824	1433	80	0.056	159	38	0.239	0.871	101
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_8	2.5	5.790	3.982	2082	181	0.087	372	118	0.317	0.869	129
+se	soil	hold-in	sc_soil_se_ultima_r20000000_s_9	1	5.822	4.293	3463	100	0.029	7	5	0.714	0.366	95
+pb	moderate	hold-out	sc_moderate_pb_b3000000000_s_1	1	4.873	3.341	1341	25	0.019	111	5	0.045	0.995	14
+pb	moderate	hold-out	sc_moderate_pb_b3000000000_s_2	1.5	5.047	3.428	1612	38	0.024	256	19	0.074	0.992	12
+pb	moderate	hold-out	sc_moderate_pb_b3000000000_s_3	2	4.733	2.944	579	22	0.038	143	14	0.098	0.991	7
+pb	moderate	hold-out	sc_moderate_pb_b3000000000_s_4	2.5	4.383	3.055	874	36	0.041	509	31	0.061	0.997	2
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_1	1	4.736	3.186	928	13	0.014	78	2	0.026	0.996	13
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_10	1.5	4.311	2.986	649	16	0.025	174	11	0.063	0.998	11
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_2	1.5	4.654	3.203	1066	17	0.016	287	7	0.024	0.998	16
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_3	2	4.550	3.325	1540	44	0.029	763	32	0.042	0.998	16
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_4	2.5	5.322	3.258	1141	35	0.031	314	26	0.083	0.997	20
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_5	1	5.017	3.273	992	14	0.014	29	4	0.138	0.993	18
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_6	1.5	4.904	3.443	1829	45	0.025	483	27	0.056	0.996	23
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_7	2	5.133	3.280	1153	34	0.029	248	21	0.085	0.997	16
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_8	2.5	4.452	3.080	840	32	0.038	403	28	0.069	0.998	11
+pb	moderate	hold-in	sc_moderate_pb_b3000000000_s_9	1	4.233	3.410	1996	48	0.024	1128	46	0.041	0.999	33
+pb	soil	hold-out	sc_soil_pb_b6000000000_s_1	1	4.315	3.538	1840	64	0.035	964	54	0.056	0.998	70
+pb	soil	hold-out	sc_soil_pb_b6000000000_s_2	1.5	5.017	3.542	1242	39	0.031	241	20	0.083	0.992	36
+pb	soil	hold-out	sc_soil_pb_b6000000000_s_3	2	4.772	3.432	1137	44	0.039	460	29	0.063	0.994	31
+pb	soil	hold-out	sc_soil_pb_b6000000000_s_4	2.5	5.324	3.743	2288	177	0.077	920	139	0.151	0.987	55
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_1	1	4.482	3.524	1573	46	0.029	543	30	0.055	0.997	35
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_10	1.5	4.631	3.706	2554	137	0.054	1331	112	0.084	0.996	72
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_2	1.5	4.872	3.605	1597	63	0.039	475	37	0.078	0.993	47
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_3	2	4.429	3.383	1211	73	0.060	672	66	0.098	0.997	33
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_4	2.5	5.292	3.398	899	32	0.036	287	26	0.091	0.990	34
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_5	1	5.094	3.868	2988	110	0.037	464	53	0.114	0.990	69
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_6	1.5	4.629	3.394	1078	36	0.033	349	27	0.077	0.996	31
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_7	2	4.934	3.446	1090	47	0.043	363	35	0.096	0.993	30
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_8	2.5	5.286	3.565	1486	78	0.052	521	63	0.121	0.991	47
+pb	soil	hold-in	sc_soil_pb_b6000000000_s_9	1	5.286	3.974	3368	115	0.034	339	43	0.127	0.978	84
+pb	soil_shallow	hold-out	sc_soil_shallow_pb_b1500000000_s_1	1	3.879	3.277	1098	53	0.048	794	47	0.059	0.998	60
+pb	soil_shallow	hold-out	sc_soil_shallow_pb_b1500000000_s_2	1.5	4.719	3.711	2540	181	0.071	1263	152	0.120	0.990	49
+pb	soil_shallow	hold-out	sc_soil_shallow_pb_b1500000000_s_3	2	4.148	3.243	839	43	0.051	507	38	0.075	0.997	18
+pb	soil_shallow	hold-out	sc_soil_shallow_pb_b1500000000_s_4	2.5	4.666	3.120	587	28	0.048	283	23	0.081	0.995	15
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_1	1	4.686	3.528	1233	40	0.032	205	20	0.098	0.992	43
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_10	1.5	3.890	3.199	897	45	0.050	648	39	0.060	0.998	34
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_2	1.5	3.683	3.149	816	39	0.048	676	38	0.056	0.997	43
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_3	2	4.071	3.083	590	28	0.047	330	25	0.076	0.996	23
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_4	2.5	3.975	3.043	560	30	0.054	340	29	0.085	0.998	20
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_5	1	4.220	3.546	2014	107	0.053	1252	96	0.077	0.998	59
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_6	1.5	4.489	3.568	1879	108	0.057	966	87	0.090	0.996	60
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_7	2	4.790	3.351	864	29	0.034	289	22	0.076	0.995	34
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_8	2.5	4.555	3.284	911	42	0.046	465	36	0.077	0.997	18
+pb	soil_shallow	hold-in	sc_soil_shallow_pb_b1500000000_s_9	1	4.366	3.489	1505	56	0.037	674	44	0.065	0.997	29
+ont	moderate	hold-out	sc_moderate_ont_b3000000000_s_1	1	4.887	3.458	1355	29	0.021	88	12	0.136	0.989	23
+ont	moderate	hold-out	sc_moderate_ont_b3000000000_s_2	1.5	5.058	3.562	1629	43	0.026	227	26	0.115	0.985	37
+ont	moderate	hold-out	sc_moderate_ont_b3000000000_s_3	2	4.738	3.082	606	23	0.038	133	14	0.105	0.987	12
+ont	moderate	hold-out	sc_moderate_ont_b3000000000_s_4	2.5	4.386	3.143	935	38	0.041	537	35	0.065	0.996	7
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_1	1	4.750	3.329	936	18	0.019	61	7	0.115	0.991	24
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_10	1.5	4.318	3.099	670	16	0.024	182	8	0.044	0.997	8
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_2	1.5	4.688	3.303	1090	29	0.027	244	23	0.094	0.995	32
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_3	2	4.567	3.406	1591	53	0.033	725	44	0.061	0.997	26
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_4	2.5	5.330	3.399	1149	41	0.036	298	32	0.107	0.993	35
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_5	1	5.031	3.433	996	14	0.014	19	1	0.053	0.986	23
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_6	1.5	4.928	3.557	1877	51	0.027	453	29	0.064	0.995	32
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_7	2	5.140	3.430	1186	33	0.028	249	24	0.096	0.992	24
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_8	2.5	4.465	3.177	869	31	0.036	397	24	0.060	0.997	20
+ont	moderate	hold-in	sc_moderate_ont_b3000000000_s_9	1	4.247	3.476	2071	43	0.021	1053	36	0.034	0.997	43
+ont	soil	hold-out	sc_soil_ont_b6000000000_s_1	1	4.365	3.648	1925	89	0.046	922	71	0.077	0.996	85
+ont	soil	hold-out	sc_soil_ont_b6000000000_s_2	1.5	5.067	3.729	1260	40	0.032	177	22	0.124	0.985	56
+ont	soil	hold-out	sc_soil_ont_b6000000000_s_3	2	4.824	3.601	1184	72	0.061	454	59	0.130	0.990	50
+ont	soil	hold-out	sc_soil_ont_b6000000000_s_4	2.5	5.367	3.934	2463	272	0.110	1029	229	0.223	0.962	60
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_1	1	4.525	3.658	1606	55	0.034	481	36	0.075	0.994	70
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_10	1.5	4.685	3.838	2741	189	0.069	1318	169	0.128	0.990	128
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_2	1.5	4.914	3.770	1624	82	0.050	428	58	0.136	0.987	62
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_3	2	4.469	3.529	1324	93	0.070	720	90	0.125	0.994	68
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_4	2.5	5.329	3.612	956	60	0.063	304	47	0.155	0.983	49
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_5	1	5.140	4.032	3009	130	0.043	374	60	0.160	0.973	116
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_6	1.5	4.678	3.550	1091	45	0.041	284	29	0.102	0.993	35
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_7	2	4.988	3.630	1118	65	0.058	327	47	0.144	0.982	44
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_8	2.5	5.340	3.769	1553	115	0.074	533	92	0.173	0.985	63
+ont	soil	hold-in	sc_soil_ont_b6000000000_s_9	1	5.339	4.146	3397	127	0.037	280	48	0.171	0.971	124
+ont	soil_shallow	hold-out	sc_soil_shallow_ont_b1500000000_s_1	1	3.931	3.413	1192	60	0.050	832	52	0.062	0.996	69
+ont	soil_shallow	hold-out	sc_soil_shallow_ont_b1500000000_s_2	1.5	4.755	3.837	2699	214	0.079	1265	177	0.140	0.989	101
+ont	soil_shallow	hold-out	sc_soil_shallow_ont_b1500000000_s_3	2	4.210	3.393	919	52	0.057	528	49	0.093	0.996	44
+ont	soil_shallow	hold-out	sc_soil_shallow_ont_b1500000000_s_4	2.5	4.697	3.280	612	36	0.059	271	31	0.114	0.992	38
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_1	1	4.741	3.681	1254	47	0.037	172	23	0.134	0.988	61
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_10	1.5	3.903	3.300	942	57	0.061	665	51	0.077	0.996	57
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_2	1.5	3.731	3.237	864	58	0.067	677	54	0.080	0.996	54
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_3	2	4.104	3.213	655	44	0.067	369	36	0.098	0.996	30
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_4	2.5	4.031	3.177	607	50	0.082	376	47	0.125	0.995	25
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_5	1	4.274	3.660	2138	113	0.053	1248	95	0.076	0.996	105
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_6	1.5	4.542	3.707	1997	128	0.064	934	111	0.119	0.993	93
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_7	2	4.861	3.543	895	39	0.044	261	30	0.115	0.987	37
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_8	2.5	4.598	3.455	956	69	0.072	462	64	0.139	0.992	46
+ont	soil_shallow	hold-in	sc_soil_shallow_ont_b1500000000_s_9	1	4.418	3.628	1566	66	0.042	610	45	0.074	0.994	64
+
+## 3. what the training rows teach about a thin row
+rows with at most 2 fragments (the feature), present or absent, of the training samples (design and scenarios; pe, se, pb and ont pooled), by the sample's sample_log_fragments and sample_log_taxa; share present, and the thin present rows of the hold-out samples in the same cells (as protal calls).
+
+sample_log_fragments	sample_log_taxa	training thin rows	of them present	share present	hold-out thin present rows	of them called
+(-inf, 4.0]	(-inf, 3.0]	48596	11867	0.244	4281	3920
+(-inf, 4.0]	(3.0, 3.6]	4807	2107	0.438	1079	1005
+(4.0, 5.0]	(-inf, 3.0]	30651	710	0.023	470	342
+(4.0, 5.0]	(3.0, 3.6]	43260	9877	0.228	4396	3928
+(4.0, 5.0]	(3.6, 4.0]	50995	9442	0.185	4195	3579
+(4.0, 5.0]	(4.0, 4.2]	5995	521	0.087	0	-
+(5.0, 5.5]	(-inf, 3.0]	1832	161	0.088	45	21
+(5.0, 5.5]	(3.0, 3.6]	18811	2277	0.121	673	514
+(5.0, 5.5]	(3.6, 4.0]	58326	4106	0.070	1896	1527
+(5.0, 5.5]	(4.0, 4.2]	45160	1874	0.041	275	208
+(5.0, 5.5]	(4.2, inf]	9359	750	0.080	584	146
+(5.5, 5.8]	(-inf, 3.0]	1372	37	0.027	4	2
+(5.5, 5.8]	(3.0, 3.6]	10296	0	0.000	1	0
+(5.5, 5.8]	(3.6, 4.0]	29160	639	0.022	123	81
+(5.5, 5.8]	(4.0, 4.2]	14184	231	0.016	41	25
+(5.5, 5.8]	(4.2, inf]	13064	25	0.002	0	-
+(5.8, inf]	(-inf, 3.0]	211	0	0.000	0	-
+(5.8, inf]	(3.0, 3.6]	12063	27	0.002	1	0
+(5.8, inf]	(3.6, 4.0]	21319	565	0.027	0	-
+(5.8, inf]	(4.0, 4.2]	15118	578	0.038	665	158
+(5.8, inf]	(4.2, inf]	25676	34	0.001	705	132
+
