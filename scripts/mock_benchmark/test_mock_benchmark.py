@@ -401,6 +401,17 @@ class ScoreTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         with open(os.path.join(unpacked, "res", "scores", "summary_by_run.tsv")) as fh:
             self.assertEqual(fh.read(), text["scores/summary_by_run.tsv"])
+        # a run folder whose set folder is a link (scored, as profiles_of follows links): packed too, a loop once
+        target = os.path.join(self.tmp.name, "elsewhere")
+        write_profile(os.path.join(target, "profiles", "s1.profile"), [("A", 0.6), ("B", 0.3)], 0.1)
+        os.makedirs(os.path.join(self.out, "linked_run"))
+        os.symlink(target, os.path.join(self.out, "linked_run", "set1"))
+        os.symlink(os.path.join(self.out, "linked_run"), os.path.join(target, "loop"))
+        linked = os.path.join(self.tmp.name, "linked.tar.gz")
+        result = self.score("--runs", "linked_run", "--no-sylph", "--store_results_tar", linked)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(linked) as tar:
+            self.assertIn("linked/linked_run/set1/profiles/s1.profile", tar.getnames())
         # default: OUT/mock_results_<date>.tar.gz
         result = self.score("--runs", "other_run", "--store_results_tar")
         self.assertEqual(result.returncode, 0, result.stderr)

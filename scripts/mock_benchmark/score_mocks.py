@@ -996,7 +996,14 @@ def pack_run(tar, folder, sets, by_sample, truths, truth_folder):
     """Packs a run folder's files (see store_results) under its name. -> the samples whose files were packed."""
     run = os.path.basename(folder)
     packed = set()
-    for root, dirs, files in os.walk(folder):
+    seen = set()  # folders walked, by their real path: a link to a folder above is walked once
+    # into linked folders too, as profiles_of (and so score) finds their profiles (2026-10-16: a run folder of linked set
+    # folders was scored, and packed without a file)
+    for root, dirs, files in os.walk(folder, followlinks=True):
+        if os.path.realpath(root) in seen:
+            dirs[:] = []
+            continue
+        seen.add(os.path.realpath(root))
         dirs.sort()
         relative = os.path.relpath(root, folder)
         parts = [] if relative == "." else relative.split(os.sep)
