@@ -43,23 +43,27 @@
 # probe.tsv (times and memory, the probe's reads and reads with records, and whether its profile is byte-identical to the
 # last timed run's, as the option promises; a run whose profile differs is kept for a look). Printed last: each sample's
 # probe line and the probe run's wall time against the timed runs' median.
-# --test_sparse: after a sample's timed runs, one run at each of four levels of protal's --sparse_first C (a read looked
-# up by 1/C of its k-mer cores first and given up without a near-exact hit; ChainAnchorFinder::SetSparseFirst): C = 1, 2,
-# 4, 8 for short reads (SPARSE_SHORT), 4, 8, 16, 32 for long reads (SPARSE_LONG); not counted in runs.tsv. On a database that
-# records gates (build_settings.tsv, since 2026-10-12) the timed runs follow them: add 0 to the levels for an ungated run. A line each in
+# --test_sparse: after a sample's timed runs, one run at each of four gates of protal's --sparse_first C (a read looked
+# up by 1/C of its k-mer cores first and given up without a near-exact hit; ChainAnchorFinder::SetSparseFirst), by
+# default with the grid pick on the gate's sparse index (since 2026-10-17; before, the database's pick on the whole
+# index): levels 2g, 4g, 8g, 16g for short reads (SPARSE_SHORT), 4g, 8g, 16g, 32g for long reads (SPARSE_LONG); not
+# counted in runs.tsv. A level C with a g gates with the grid pick (--sparse_first_pick grid: the cores of grid level
+# log2 C or more, which the database chose per gene) and loads only those entries (--sparse_index auto), so its
+# memory, load and lookup times are such an index's (docs/claude/2026-10-13-gene-grid-index). It needs an index with
+# grid levels (built since 2026-10-13): where the first run's log says the index has none, the g levels are left out,
+# with a warning (also in environment.txt and at the end). Other levels: one without a letter (1 to 32) gates with the
+# database's pick on the whole index (stride where build_settings.tsv records none, as at r226 v24; SPARSE_SHORT="1 2 4
+# 8" SPARSE_LONG="4 8 16 32" are the levels of before 2026-10-17); one with an s (e.g. 8s, since 2026-10-13) gives
+# protal's --sparse_seeding with the hash pick: the reads kept are seeded from the gate's cores alone, as an index of
+# only those would seed them, and the log tells what such an index would hold (docs/claude/2026-10-13-sparse-seeding);
+# 0 is an ungated run. On a database that records gates (build_settings.tsv, since 2026-10-12) the timed runs follow
+# them: add 0 to the levels for an ungated run. A line each in
 # sparse.tsv: times, memory, perf counters, the reads given up and the sampled lookups, the records written against the
 # last timed run's, its profile against that run's (species called by both, lost, gained, Bray-Curtis of the
 # abundances as written and over the species alone, the two unknown shares), the alignment's CPU, cores and reader time as in runs.tsv, and the gate's own seconds a thread (protal's
 # "Sparse first" timer, from 2026-10-12; NA before); each level's stage timers in sparse_stages.tsv (as stages.tsv, with
 # the level for the rep); the profiles in sparse/<sample>.c<C>.profile beside sparse/<sample>.plain.profile, the logs in
 # logs/<sample>.sparse<C>.log. Printed last: each level's wall, aligning and CPU time against the timed runs' medians.
-# A level with an s (e.g. 8s, since 2026-10-13) also gives protal's --sparse_seeding: the reads kept are seeded from the
-# gate's cores alone, as an index of only those would seed them, and the log tells what such an index would hold
-# (docs/claude/2026-10-13-sparse-seeding); with --sparse_first_pick hash, as such an index holds the hash pick's cores.
-# A level with a g (e.g. 8g, since 2026-10-13; a database built with grid levels) gates with the grid pick
-# (--sparse_first_pick grid) and loads the sparse index of that gate (--sparse_index auto: only the entries of grid level
-# log2 C), so its memory and load time are such an index's (docs/claude/2026-10-13-gene-grid-index).
-# The other levels gate with the database's pick (stride for a database built since 2026-10-13).
 #
 # Environment: THREADS (without --threads; default: SLURM_CPUS_PER_TASK, else nproc), REPEATS (default 3),
 #              PROTAL (default: build/protal), PROTAL_ARGS (more options, e.g. "--no_strains"),
@@ -68,7 +72,7 @@
 #              PROTAL_QCMSA_SCRIPT, see protal --help),
 #              SYLPH (default: sylph on $PATH, e.g. from its activated conda environment),
 #              SYLPH_ARGS (more sylph profile options, e.g. "-u"),
-#              SPARSE_SHORT, SPARSE_LONG (--test_sparse's levels C, default "1 2 4 8" and "4 8 16 32"),
+#              SPARSE_SHORT, SPARSE_LONG (--test_sparse's levels, default "2g 4g 8g 16g" and "4g 8g 16g 32g"),
 #              SPARSE_ARGS (more options of the --test_sparse runs, e.g. "--sparse_first_score 15").
 # On a cluster, ask for a whole node so other jobs do not share its memory bandwidth, e.g.
 #   sbatch --exclusive -c 32 --mem 100G --wrap "bash scripts/measure_performance.sh perf_r226 \
@@ -112,7 +116,7 @@ if [ $stage1_probe = 1 ]; then
         *) echo "$protal has no --stage1_probe (a protal from before 2026-10-12)" >&2; exit 1 ;;
     esac
 fi
-sparse_short=${SPARSE_SHORT:-1 2 4 8}; sparse_long=${SPARSE_LONG:-4 8 16 32}
+sparse_short=${SPARSE_SHORT:-2g 4g 8g 16g}; sparse_long=${SPARSE_LONG:-4g 8g 16g 32g}
 if [ $test_sparse = 1 ]; then
     case $("$protal" --full_help 2>&1) in
         *--sparse_first*) ;;
@@ -123,7 +127,7 @@ if [ $test_sparse = 1 ]; then
         if [ "${c%g}" != "$c" ]; then
             case $("$protal" --full_help 2>&1) in
                 *--sparse_index*) ;;
-                *) echo "$protal has no --sparse_index (level $c; a protal from before 2026-10-13)" >&2; exit 1 ;;
+                *) echo "$protal has no --sparse_index (level $c; a protal from before 2026-10-13): give SPARSE_SHORT and SPARSE_LONG levels without a g, e.g. \"1 2 4 8\" and \"4 8 16 32\"" >&2; exit 1 ;;
             esac
         fi
         if [ "${c%s}" != "$c" ]; then
@@ -235,7 +239,7 @@ qcmsa=${QCMSA:-1}
         echo "sylph: none"
     fi
     echo "stage-1 probe: $([ $stage1_probe = 1 ] && echo "one more run per sample with --stage1_probe" || echo none)"
-    echo "sparse first: $([ $test_sparse = 1 ] && echo "one run per level, --sparse_first $sparse_short (short reads), $sparse_long (long reads)${SPARSE_ARGS:+ with $SPARSE_ARGS}" || echo none)"
+    echo "sparse first: $([ $test_sparse = 1 ] && echo "one run per level, --sparse_first $sparse_short (short reads), $sparse_long (long reads)${SPARSE_ARGS:+ with $SPARSE_ARGS} (g: the grid pick on its sparse index; s: --sparse_seeding, hash pick; no letter: the database's pick, whole index)" || echo none)"
     echo; lscpu 2> /dev/null | grep -E '^(Model name|Socket|Core|Thread|NUMA node\(s\)|L3|CPU max MHz)'
     echo; free -g 2> /dev/null
 } > "$out/environment.txt"
@@ -335,6 +339,25 @@ compare_profiles() {
               u1 = (1 in u) ? sprintf("%.4f", u[1]) : "NA"; u2 = (2 in u) ? sprintf("%.4f", u[2]) : "NA"
               printf "%d\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n", n[1], n[2], both, lost, gained, bc, bcs, u1, u2 }' "$1" "$2"
 }
+# --test_sparse's g levels need an index with grid levels, which protal's log tells as it loads it ("Index features: ...,
+# no grid levels (built before 2026-10-13)"); protal only reads them after its gene tables, so the script cannot ask
+# before its first run. On the log of the first run that loaded the index: without grid levels, the g levels are left
+# out (each run would stop, exit 2), with a warning here, in environment.txt and at the end (grid_dropped).
+grid_checked=0; grid_dropped=
+check_grid_levels() {
+    { [ $test_sparse = 1 ] && [ $grid_checked = 0 ] && grep -q '^Index features: ' "$1"; } || return 0
+    grid_checked=1
+    grep -q '^Index features: .*no grid levels' "$1" || return 0
+    local c short= long= dropped=0
+    for c in $sparse_short; do if [ "${c%g}" != "$c" ]; then dropped=1; else short+=" $c"; fi; done
+    for c in $sparse_long; do if [ "${c%g}" != "$c" ]; then dropped=1; else long+=" $c"; fi; done
+    [ $dropped = 1 ] || return 0
+    short=${short# }; long=${long# }
+    grid_dropped="--test_sparse's levels with a g are left out: the index of $db has no grid levels (built before 2026-10-13). Levels without a letter gate with the database's pick on the whole index (SPARSE_SHORT=\"1 2 4 8\" SPARSE_LONG=\"4 8 16 32\"). Kept: short reads '${short:-none}', long reads '${long:-none}'."
+    sparse_short=$short; sparse_long=$long
+    echo "Warning: $grid_dropped" >&2
+    echo "sparse first: $grid_dropped" >> "$out/environment.txt"
+}
 sams=$runs/protal/sams; mkdir -p "$sams"
 cohort_map_rows=()
 n=0
@@ -349,6 +372,7 @@ for spec in "$@"; do
         drop_reads "$r1" ${r2:+"$r2"}
         timed "$log" $use_perf "${cmd[@]}" || { echo "protal failed on $name (run $rep), see $log" >&2; tail -5 "$log" >&2; continue; }
         perf_counters
+        check_grid_levels "$log"
         # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused by the k-mer
         # screen, I by the indel bound, F aligned from the anchor's exact matches and W as whole windows; M alignments made,
         # O records written" (a protal from before 2026-10-09 has no "I by the indel bound": its indel_refused is NA).
@@ -653,4 +677,5 @@ if [ $test_sparse = 1 ] && [ "$(wc -l < "$out/sparse.tsv")" -gt 1 ]; then
               k, $4, $5, peak, dw, $9, da, share, records, $21, $23, $24, $25, $26, $27, $28, $29, dc, $30, $31, timed_reader, $32 }' \
         "$out/runs.tsv" "$out/sparse.tsv"
 fi
+[ -n "$grid_dropped" ] && { echo; echo "Note: $grid_dropped"; }
 echo; echo "Results in $out (runs.tsv, cohort.tsv, stages.tsv,$([ -n "$sylph" ] && echo " sylph.tsv, sylph/,")$([ $stage1_probe = 1 ] && echo " probe.tsv, stage1_probe/,")$([ $test_sparse = 1 ] && echo " sparse.tsv, sparse_stages.tsv, sparse/,") environment.txt, logs/)."

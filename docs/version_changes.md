@@ -32,6 +32,13 @@ for this page.
 
 Not in a release yet.
 
+- **`measure_performance.sh --test_sparse` times the grid pick on its sparse index by default** (2026-10-17): levels
+  `2g 4g 8g 16g` (short reads) and `4g 8g 16g 32g` (long reads), as GTDB builds gate since 2026-10-16; they were
+  `1 2 4 8` and `4 8 16 32`, the database's pick on the whole index (stride on a database that records none). On a
+  database without grid levels (built before 2026-10-13) the `g` levels are left out after the first run, with a
+  warning; `SPARSE_SHORT="1 2 4 8" SPARSE_LONG="4 8 16 32"` measure as before
+  ([report](claude/2026-10-17-perf-0.8.5.md)).
+
 - **GTDB builds pick by grid at their gates (`build_gtdb_database.py --sparse-first-pick grid`; was `stride`)**
   (2026-10-16). The gates stay pe 4, se 4, pb 16, ont 8. With the grid pick the database records it, every run on it
   follows it, and a run whose samples are all gated at C 2 or more loads only its gate's grid entries: a sparse index
