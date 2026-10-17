@@ -39,6 +39,13 @@ Not in a release yet.
   warning; `SPARSE_SHORT="1 2 4 8" SPARSE_LONG="4 8 16 32"` measure as before
   ([report](claude/2026-10-17-perf-0.8.5.md)).
 
+- **The spike check without a second read of the SAM** (2026-10-17): protal counts each gene's records as its alignment
+  writes them and checks the sample (`--spike_genes auto` or `on`) once its SAM is complete, so the sample's profiling
+  no longer decompresses and scans the whole SAM first; at GTDB r226 that pass took 0.72 s of a paired-end sample's
+  5.1 s of profiling. A SAM the run did not write (`--profile_only`, or one already there) is counted from the file as
+  before. The check, the spike genes and the profiles are the same either way
+  ([report](claude/2026-10-17-spike-count-in-alignment/README.md)).
+
 - **GTDB builds pick by grid at their gates (`build_gtdb_database.py --sparse-first-pick grid`; was `stride`)**
   (2026-10-16). The gates stay pe 4, se 4, pb 16, ont 8. With the grid pick the database records it, every run on it
   follows it, and a run whose samples are all gated at C 2 or more loads only its gate's grid entries: a sparse index

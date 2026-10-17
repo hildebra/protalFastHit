@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <set>
@@ -18,6 +19,7 @@
 #include <vector>
 #include <unistd.h>
 #include "IO/SamFile.h"
+#include "Profiling/SpikeGenes.h"
 #include "TestUtil.h"
 
 using namespace protal;
@@ -523,4 +525,62 @@ TEST(SamFile, AZstdSamOfAnotherWriterIsRead) {
     EXPECT_FALSE(sam_zstd::StartsWithMarker(path));
     EXPECT_EQ(SamInput(path).Problem(), "");
     EXPECT_EQ(ReadBothWays(path), text);
+}
+
+// An observer (SetObserver; the alignment's spike_genes::Tally, since 2026-10-17) sees every block of records written,
+// from any thread, so that the records per gene it counts are those of the finished file, in every format and with
+// the header first, after the records or in its room; an empty Write (genes alone) shows it nothing.
+TEST(SamFile, AnObserverSeesTheRecordsTheFileHolds) {
+    struct Case { char const* name; bool header_first; size_t room; };
+    for (auto const& c : { Case{ "out.sam", false, 0 }, Case{ "out.sam.gz", false, 0 }, Case{ "out.sam.zst", false, 0 },
+                           Case{ "out.sam.zst", false, sam_zstd::HeaderRoom(50) }, Case{ "out.sam.gz", true, 0 } }) {
+        SCOPED_TRACE(std::string(c.name) + (c.header_first ? " header first" : "") + (c.room > 0 ? " with room" : ""));
+        ScratchDir dir;
+        auto const path = (dir / c.name);
+        spike_genes::Tally tally;
+        size_t observed = 0;
+        std::mutex observed_mutex;
+        {
+            std::optional<std::string> header;
+            if (c.header_first) header = kHeader;
+            SamOutput out(path, SamCompressionOf(path), header, c.room);
+            out.SetObserver([&](std::string_view records) {
+                tally.Add(records);
+                std::lock_guard<std::mutex> lock(observed_mutex);
+                observed += records.size();
+            });
+            ASSERT_TRUE(out.Ok()) << out.Error();
+            // Records of every kind: primary, unmapped (4), secondary (256) and supplementary (2048).
+            std::vector<std::thread> threads;
+            for (int t = 0; t < kThreads; t++) {
+                threads.emplace_back([&, t] {
+                    std::vector<uint64_t> genes;
+                    for (int b = 0; b < kBlocks; b++) {
+                        std::string block;
+                        for (int flag : { 0, 4, 256, 2048, 99 }) {
+                            block += "t" + std::to_string(t) + "b" + std::to_string(b) + "\t" + std::to_string(flag) + "\t" +
+                                     (flag == 4 ? std::string("*") : std::to_string(10 + t) + "_" + std::to_string(b % 11)) +
+                                     "\t1\t60\t4M\t*\t0\t0\tACGT\tIIII\n";
+                        }
+                        genes.push_back(SamGeneKey(10 + t, b % 11));
+                        out.Write(block.data(), block.size(), genes);
+                        out.Write(nullptr, 0, genes);
+                    }
+                });
+            }
+            for (auto& th : threads) th.join();
+            ASSERT_TRUE(out.Finish(c.header_first ? std::string() : kHeader)) << out.Error();
+        }
+        auto const text = ReadBack(path);
+        EXPECT_EQ(observed, text.size() - kHeader.size());
+        spike_genes::Counts from_file;
+        spike_genes::CountRecords(text, from_file);
+        auto const counted = tally.Take();
+        EXPECT_EQ(counted, from_file);
+        EXPECT_EQ(counted.size(), static_cast<size_t>(kThreads * 11));
+        uint64_t records = 0;
+        for (auto const& [_, n] : counted) records += n;
+        EXPECT_EQ(records, static_cast<uint64_t>(3 * kThreads * kBlocks));  // flags 0, 2048 and 99 of each block
+        EXPECT_TRUE(tally.Take().empty());
+    }
 }

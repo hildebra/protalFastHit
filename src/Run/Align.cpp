@@ -23,6 +23,7 @@
 #include "RunStatus.h"
 #include "SamFile.h"
 #include "SeedExpectation.h"
+#include "SpikeCheck.h"
 #include "Stage1Probe.h"
 #include "ThreadedGzStream.h"
 
@@ -443,6 +444,12 @@ namespace protal {
                     RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
                     continue;
                 }
+                // The records per gene as the threads write them (spike_genes::Tally), for the sample's spike check once
+                // its SAM is complete (SpikeCheck.h): its profiling then need not read the SAM once more to count them.
+                // Only in a run that profiles with the check on (--spike_genes auto or on).
+                bool const spike_tally = !options.NoProfile() && options.SpikeMode() != spike_genes::Mode::kOff;
+                spike_genes::Tally gene_records;
+                if (spike_tally) sam_output.SetObserver([&gene_records](std::string_view records) { gene_records.Add(records); });
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
@@ -744,6 +751,8 @@ namespace protal {
                     continue;
                 }
                 FinishSamFile(options, index, sam_partial);
+                // Before the sample can be profiled (sample_done: --profile_ahead): its spike check, from the records written.
+                if (spike_tally) spike_genes::AlignedChecks::Get().Put(sam, spike_genes::Check(genomes, gene_records.Take()));
                 if (sample_done) sample_done(index);
             }
             bm_classify.Stop();

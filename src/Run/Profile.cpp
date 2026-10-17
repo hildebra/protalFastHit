@@ -188,6 +188,9 @@ namespace protal {
             profile.SetSpikeMode(options.SpikeMode());
             // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
             profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));
+            // The spike check the alignment made as it wrote this SAM, if this run wrote it (SpikeCheck.h): no second read
+            // of the SAM to count its records per gene.
+            if (auto found = spike_genes::AlignedChecks::Get().Take(sam)) profiler.UseSpikeCheck(std::move(*found));
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{rejected_records},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),

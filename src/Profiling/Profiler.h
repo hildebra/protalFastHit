@@ -28,6 +28,7 @@
 #include "RunStatus.h"
 #include "ReadType.h"
 #include "SamChunks.h"
+#include "SpikeCheck.h"
 #include "SpikeGenes.h"
 #include "SampleContext.h"
 #include "Composition.h"
@@ -4472,43 +4473,6 @@ namespace protal {
                 return m_evidence.SpikeRecords();
             }
 
-            // The records of `counts` (Profiler::CountGeneRecords) that the profile can count (CheckSam): those on a gene of
-            // the database with unique k-mers. Records on a gene without them are skipped as no evidence of the taxon (in
-            // a real D6331 sample 12,683 of an absent congener's, on one gene), and on a gene the database lacks rejected,
-            // so neither the spike rule nor the sample check sees them.
-            spike_genes::Counts CountedRecords(spike_genes::Counts counts) const {
-                std::erase_if(counts, [&](auto const& entry) {
-                    auto const taxid = static_cast<int>(entry.first >> 32);
-                    auto const geneid = static_cast<int>(static_cast<uint32_t>(entry.first));
-                    return !m_genome_loader.HasGene(taxid, geneid) || !m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid);
-                });
-                return counts;
-            }
-
-            // The spike genes of a sample whose records per gene are `counts` (Profiler::CountGeneRecords): each taxon's
-            // (spike_genes::SpikesOf) by the lengths of its hittable genes in the database; taxa and genes the database
-            // lacks are left alone (their records are rejected). By taxid, then gene.
-            std::vector<spike_genes::Spike> FindSpikeGenes(spike_genes::Counts const& counts) const {
-                std::map<uint32_t, std::vector<std::pair<uint32_t, uint64_t>>> by_taxon;
-                for (auto const& [key, n] : counts) by_taxon[static_cast<uint32_t>(key >> 32)].emplace_back(static_cast<uint32_t>(key), n);
-                std::vector<spike_genes::Spike> spikes;
-                auto const& genomes = m_genome_loader.GetGenomeMap();
-                for (auto& [taxid, records] : by_taxon) {
-                    if (records.size() <= spike_genes::kMinRestGenes + 1) continue;
-                    auto const it = genomes.find(taxid);
-                    if (it == genomes.end()) continue;
-                    auto& genome = m_genome_loader.GetGenome(taxid);
-                    std::vector<std::pair<uint32_t, uint64_t>> lengths;
-                    for (auto const gene : genome.GetHittableGenes()) {
-                        if (!genome.HasGene(gene)) continue;
-                        lengths.emplace_back(gene, genome.GetGene(gene).GetLength());
-                    }
-                    auto found = spike_genes::SpikesOf(taxid, std::move(records), lengths);
-                    spikes.insert(spikes.end(), found.begin(), found.end());
-                }
-                return spikes;
-            }
-
             // The length of gene geneid of taxon taxid in the database, 0 if it has none (CheckSam rejects such records).
             size_t GeneLengthOf(int taxid, int geneid) const {
                 return m_genome_loader.HasGene(taxid, geneid) ? m_genome_loader.GeneLength(taxid, geneid) : 0;
@@ -5055,8 +5019,16 @@ namespace protal {
             Profiler(GenomeLoader& genome_loader) :
                     m_genome_loader(genome_loader) {}
 
+            // The spike check that the alignment made from the next SAM's records as it wrote them
+            // (spike_genes::AlignedChecks): the next ProfileSam takes it instead of reading the SAM once more to count
+            // them (CountGeneRecords). The same records give the same check.
+            void UseSpikeCheck(spike_genes::Found found) {
+                m_aligned_check = std::move(found);
+            }
+
         private:
             GenomeLoader& m_genome_loader;
+            std::optional<spike_genes::Found> m_aligned_check;  // see UseSpikeCheck
 
 
             SamPairs_ptr m_pairs_unique_ptr;
@@ -5092,7 +5064,7 @@ namespace protal {
             Benchmark m_bm_read{"Profiling: reading the SAM"};
             Benchmark m_bm_evidence{"Profiling: record evidence and sample context"};
             Benchmark m_post_process_bm{"Profiling: SNP post-processing"};
-            Benchmark m_bm_spikes{"Profiling: spike genes"};  // counting the records per gene (CountGeneRecords)
+            Benchmark m_bm_spikes{"Profiling: spike genes"};  // the spike check (counting the records per gene: CountGeneRecords)
             Benchmark const& ReadTimer() const { return m_bm_read; }
             Benchmark const& SpikeTimer() const { return m_bm_spikes; }
             Benchmark const& EvidenceTimer() const { return m_bm_evidence; }
@@ -6222,15 +6194,17 @@ namespace protal {
                 m_scanned.reset();
                 m_seed_expectation.reset();
                 m_read_detail.clear();
-                // The sample's spike genes, and whether it is in spike mode (SpikeGenes.h): before any record counts.
+                // The sample's spike genes, and whether it is in spike mode (SpikeGenes.h): before any record counts. From
+                // the check the alignment made as it wrote the SAM (UseSpikeCheck), else from the SAM read once for it.
                 profile.ClearSpikes();
+                std::optional<spike_genes::Found> aligned_check = std::move(m_aligned_check);
+                m_aligned_check.reset();
                 if (profile.SpikeMode() != spike_genes::Mode::kOff) {
                     m_bm_spikes.Start();
-                    auto const counts = profile.CountedRecords(CountGeneRecords(file_path, threads));
-                    auto spikes = profile.FindSpikeGenes(counts);
-                    auto const check = spike_genes::Judge(counts, spikes);
-                    profile.SetSpikeCheck(check);
-                    if (profile.SpikeMode() == spike_genes::Mode::kOn || check.spiky) profile.SetSpikeGenes(std::move(spikes));
+                    auto found = aligned_check ? std::move(*aligned_check)
+                                               : spike_genes::Check(m_genome_loader, CountGeneRecords(file_path, threads));
+                    profile.SetSpikeCheck(found.check);
+                    if (profile.SpikeMode() == spike_genes::Mode::kOn || found.check.spiky) profile.SetSpikeGenes(std::move(found.spikes));
                     m_bm_spikes.Stop();
                 }
                 if (threads > 1) {

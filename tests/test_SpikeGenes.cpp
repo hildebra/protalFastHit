@@ -1,8 +1,10 @@
 // A sample's spike genes (SpikeGenes.h, since 2026-10-15): genes whose reads pile far beyond what the rest of their
-// taxon's genes explain, found per taxon by SpikesOf, and the records per gene a SAM's text gives (CountRecords).
+// taxon's genes explain, found per taxon by SpikesOf, the records per gene a SAM's text gives (CountRecords), and the
+// alignment's tally of them as the records are written, handed to the profiling (Tally, AlignedChecks; 2026-10-17).
 #include <gtest/gtest.h>
 #include <map>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include "Profiling/SpikeGenes.h"
@@ -208,4 +210,58 @@ TEST(SpikeGenes, CountsRecordsPerGeneFromSamText) {
     sg::Add(more, counts);
     sg::Add(more, counts);
     EXPECT_EQ(more[sg::Key(758, 71)], 6u);
+}
+
+// The alignment's tally (since 2026-10-17): blocks of whole records from several threads give what CountRecords gives
+// on all of their text, and Take hands the counts over once.
+TEST(SpikeGenes, TallyOfBlocksFromThreadsCountsAsTheWholeText) {
+    constexpr int kThreads = 4, kBlocks = 300;
+    std::vector<std::vector<std::string>> blocks(kThreads);
+    std::string all;
+    for (int t = 0; t < kThreads; t++) {
+        for (int b = 0; b < kBlocks; b++) {
+            std::string block;
+            for (int r = 0; r < 4; r++) {
+                int const flag = r == 0 ? 99 : r == 1 ? 147 : r == 2 ? 256 : 4;
+                block += "r" + std::to_string(t) + "_" + std::to_string(b) + "\t" + std::to_string(flag) + "\t" +
+                         (flag == 4 ? std::string("*") : std::to_string(100 + b % 5) + "_" + std::to_string(t * 10 + b % 9)) +
+                         "\t1\t60\t4M\t=\t1\t4\tACGT\tIIII\n";
+            }
+            blocks[t].push_back(block);
+            all += block;
+        }
+    }
+    sg::Tally tally;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; t++) {
+        threads.emplace_back([&, t] {
+            for (auto const& block : blocks[t]) tally.Add(block);
+            tally.Add("");
+        });
+    }
+    for (auto& th : threads) th.join();
+    sg::Counts whole;
+    sg::CountRecords(all, whole);
+    auto const counted = tally.Take();
+    EXPECT_EQ(counted, whole);
+    uint64_t records = 0;
+    for (auto const& [_, n] : counted) records += n;
+    EXPECT_EQ(records, static_cast<uint64_t>(2 * kThreads * kBlocks));  // flags 99 and 147; 256 and 4 left out
+    EXPECT_TRUE(tally.Take().empty());
+}
+
+// The checks the alignment hands to the profiling, by SAM path: each taken once.
+TEST(SpikeGenes, AlignedChecksAreTakenOnce) {
+    auto& checks = sg::AlignedChecks::Get();
+    sg::Found found;
+    found.check.records = 7;
+    found.spikes.push_back({ 758, 71, 60, 1.0 });
+    checks.Put("/tmp/a.sam.zst", found);
+    EXPECT_FALSE(checks.Take("/tmp/b.sam.zst").has_value());
+    auto const taken = checks.Take("/tmp/a.sam.zst");
+    ASSERT_TRUE(taken.has_value());
+    EXPECT_EQ(taken->check.records, 7u);
+    ASSERT_EQ(taken->spikes.size(), 1u);
+    EXPECT_EQ(taken->spikes[0].geneid, 71u);
+    EXPECT_FALSE(checks.Take("/tmp/a.sam.zst").has_value());
 }

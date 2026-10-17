@@ -5,7 +5,8 @@
 // Writing (SamOutput): the output handlers of all alignment threads hand over blocks of whole
 // reads' records together with the genes those records name. The thread that hands a block over
 // compresses it, and only appending it to the file is serialised, so compression runs alongside
-// alignment instead of in a pass of its own afterwards. The records collect in a temporary file;
+// alignment instead of in a pass of its own afterwards. An observer (SetObserver) can see each block
+// as it is handed over. The records collect in a temporary file;
 // once they are complete, Finish writes the SAM: its header, which lists only the genes that the
 // records name (SAM needs an @SQ line only for the references that records use, and a database has
 // millions of genes), then the records. A header given up front (every gene, --full_sam_header) is
@@ -32,6 +33,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <istream>
 #include <memory>
 #include <mutex>
@@ -256,7 +258,15 @@ namespace protal {
 
         std::string const& Path() const { return m_path; }
 
+        // A function that sees every block of records Write takes, on the thread writing it, outside the lock (the
+        // alignment's spike_genes::Tally: the records per gene for the spike check, without reading the SAM again). Set
+        // before the first Write.
+        void SetObserver(std::function<void(std::string_view)> observer) {
+            m_observer = std::move(observer);
+        }
+
         void Write(char const* data, size_t size, std::vector<uint64_t>& genes) override {
+            if (m_observer && size > 0) m_observer(std::string_view(data, size));
             // Compressed by the calling thread, outside the lock.
             thread_local std::string packed;
             thread_local sam_zstd::Frames frames;
@@ -353,6 +363,7 @@ namespace protal {
         sam_zstd::Frames m_head_frames;    // zstd: the marker and the header's frames
         sam_zstd::Frames m_record_frames;  // zstd: the records' frames, in file order
         HeadPlacement m_placement;
+        std::function<void(std::string_view)> m_observer;  // see SetObserver
 
         void Fail(std::string const& what) {
             if (m_error.empty()) m_error = what;

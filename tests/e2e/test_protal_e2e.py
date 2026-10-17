@@ -5060,5 +5060,95 @@ class SparseFirstGatesTest(WorkDir):
         self.assertIn("SPARSE_FIRST is '5'; expected 0 (off), 1, 2, 4, 8, 16, 32 or -", log)
 
 
+class SpikeCheckTest(DbTest):
+    """The spike check (SpikeGenes.h) of a sample whose SAM the run writes is made from the records as the alignment
+    writes them (SpikeCheck.h, spike_genes::Tally; since 2026-10-17), not from the SAM read once more: it must be the
+    check that --profile_only makes from the finished SAM. The sample: a pile of pairs on one gene of each of two species
+    (a PCR product carried over, so the sample is in spike mode), one pair on each of 12 other genes of theirs, and a
+    third species evenly covered."""
+
+    SPIKE_LINE = re.compile(r"^Sample spiky: (?:no )?spike mode .*$", re.M)
+
+    @classmethod
+    def spike_line(cls, log):
+        """The sample's spike line in a log, without the spike genes' file at its end (in the run's folder)."""
+        line = cls.SPIKE_LINE.search(log)
+        return re.sub(r"; in \S+$", "", line.group(0)) if line else None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        rng = random.Random(11)
+        by_taxon = {}
+        for name, seq in reference_genes():
+            if len(seq) >= 600:
+                by_taxon.setdefault(name.split("_")[0], []).append(seq)
+        taxa = sorted(by_taxon, key=lambda t: (-len(by_taxon[t]), t))
+        if len(taxa) < 3 or len(by_taxon[taxa[1]]) < 13:
+            raise unavailable("the test database needs three species with 13 genes of 600 bp or more")
+
+        def pair(gene, start, flen):
+            frag = gene[start:start + flen]
+            return frag[:100], revcomp(frag[-100:])
+
+        pairs = []
+        for taxid in taxa[:2]:
+            genes = by_taxon[taxid]
+            for gene in genes[1:13]:
+                flen = rng.randint(220, 320)
+                pairs.append(pair(gene, rng.randint(0, len(gene) - flen), flen))
+            for _ in range(150):  # the pile: fragments of one stretch of the first gene
+                flen = rng.randint(220, 300)
+                pairs.append(pair(genes[0], rng.randint(0, 200), flen))
+        for gene in by_taxon[taxa[2]]:
+            for _ in range(6):
+                flen = rng.randint(220, 320)
+                pairs.append(pair(gene, rng.randint(0, len(gene) - flen), flen))
+        rng.shuffle(pairs)
+        cls.r1, cls.r2 = os.path.join(cls.work, "spiky_R1.fq"), os.path.join(cls.work, "spiky_R2.fq")
+        with open(cls.r1, "w") as f1, open(cls.r2, "w") as f2:
+            for n, (s1, s2) in enumerate(pairs, 1):
+                f1.write(f"@spiky.{n}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+                f2.write(f"@spiky.{n}/2\n{s2}\n+\n{'I' * len(s2)}\n")
+        # Aligned and profiled in one run: the check from the records as they were written.
+        cls.rc, cls.log = run(cls.work, "--db", DB, "-1", cls.r1, "-2", cls.r2, "--prefix", "spiky", "-o", "aligned",
+                              "-t", "4", "--no_qcmsa", "--no_strains")
+        # The same SAM profiled alone: the check from the SAM, read once more.
+        cls.sam = sam_path(os.path.join(cls.work, "aligned", "spiky.sam"))
+        cls.rc_only, cls.log_only = profile_only(cls.work, "only", [cls.sam], prefixes=["spiky"], threads=4)
+
+    def outputs(self, folder):
+        """The spike line of the log's sample, and its profile and spike genes."""
+        files = {}
+        for name in ("spiky.profile", "spiky.profile.spike_genes.tsv"):
+            path = os.path.join(self.work, folder, name)
+            files[name] = read_text(path) if os.path.exists(path) else None
+        return files
+
+    def test_the_sample_is_in_spike_mode(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        line = self.SPIKE_LINE.search(self.log)
+        self.assertIsNotNone(line, self.log[-3000:])
+        self.assertTrue(line.group(0).startswith("Sample spiky: spike mode (2 of its"), line.group(0))
+        spikes = self.outputs("aligned")["spiky.profile.spike_genes.tsv"]
+        self.assertIsNotNone(spikes)
+        self.assertEqual(len(spikes.splitlines()), 3, spikes)  # the header and one gene of each of the two species
+
+    def test_profile_only_makes_the_same_check(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertEqual(self.rc_only, 0, self.log_only[-3000:])
+        self.assertEqual(self.spike_line(self.log_only), self.spike_line(self.log))
+        self.assertEqual(self.outputs("only"), self.outputs("aligned"))
+
+    def test_profiled_ahead_makes_the_same_check(self):
+        # --profile_ahead profiles the first sample while the second is aligned: its check must be ready by then.
+        rc, log = run(self.work, "--db", DB, "-1", f"{self.r1},{os.path.join(READS, 'sa_R1.fq')}",
+                      "-2", f"{self.r2},{os.path.join(READS, 'sa_R2.fq')}", "--prefix", "spiky,sa", "-o", "ahead",
+                      "-t", "4", "--no_qcmsa", "--no_strains", "--profile_ahead")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(self.spike_line(log), self.spike_line(self.log))
+        self.assertEqual(self.outputs("ahead"), self.outputs("aligned"))
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())

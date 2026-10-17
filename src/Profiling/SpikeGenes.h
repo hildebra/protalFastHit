@@ -4,7 +4,8 @@
 // 48-97% of its records; Akkermansia muciniphila had 2,108 of its 2,177 records on one stretch of secA and 1-8 on each of
 // 37 other genes. The coverage features then read every species as a relative whose reads gather on a few genes: the
 // model's probabilities fell to 0.38-0.80 and two species of the standard were missed
-// (docs/claude/2026-10-15-mock-near-misses). A run counts each gene's records before it profiles a sample
+// (docs/claude/2026-10-15-mock-near-misses). A run counts each gene's records as its alignment writes them (Tally,
+// AlignedChecks; since 2026-10-17), or for a SAM it did not write before it profiles the sample
 // (Profiler::CountGeneRecords), finds every taxon's spike genes (SpikesOf) and judges whether the sample shows the
 // pattern of carried-over products (Judge: spikes on several of its most abundant taxa, a share of its records). Only
 // then is the sample in spike mode, and its spike genes' records are left out of the evidence, as a suspect gene copy's
@@ -28,7 +29,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -144,6 +147,32 @@ namespace protal::spike_genes {
         for (auto const& [key, n] : from) into[key] += n;
     }
 
+    // The records per gene of a SAM as its records are written (SamOutput::SetObserver), from any thread: each block of
+    // whole reads' records counted by the thread writing it (CountRecords, the same as on the finished SAM), then added
+    // under a lock. Take hands over the counts so far.
+    class Tally {
+    public:
+        void Add(std::string_view text) {
+            thread_local Counts part;
+            part.clear();
+            CountRecords(text, part);
+            if (part.empty()) return;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            spike_genes::Add(m_counts, part);
+        }
+
+        Counts Take() {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            Counts counts = std::move(m_counts);
+            m_counts.clear();
+            return counts;
+        }
+
+    private:
+        std::mutex m_mutex;
+        Counts m_counts;
+    };
+
     // Whether a sample is profiled in spike mode (--spike_genes): its spike genes left out of the evidence. Auto: if the
     // sample's own coverage shows the pattern (Judge); on: every sample; off: none.
     enum class Mode { kAuto, kOn, kOff };
@@ -206,4 +235,41 @@ namespace protal::spike_genes {
         check.spiky = check.top_spiked >= kSampleMinTopSpiked && check.Share() >= kSampleMinShare;
         return check;
     }
+
+    // A sample's spike check (SpikeCheck.h Check): what Judge said, and every taxon's spike genes, by taxid, then gene.
+    struct Found {
+        SampleCheck check;
+        std::vector<Spike> spikes;
+    };
+
+    // The spike checks of the samples whose SAM this run's alignment wrote, by the SAM's path: made from the records as
+    // the alignment threads wrote them (Tally) once the SAM is complete, and taken by the sample's profiling
+    // (Profiler::ProfileSam), which otherwise reads the SAM once more to count them (Profiler::CountGeneRecords). The
+    // finished SAM's records are the ones written, so the check is the same either way.
+    class AlignedChecks {
+    public:
+        static AlignedChecks& Get() {
+            static AlignedChecks checks;
+            return checks;
+        }
+
+        void Put(std::string const& sam, Found found) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_found[sam] = std::move(found);
+        }
+
+        // The check of the SAM at `sam`, once: nothing if the alignment did not write it in this run.
+        std::optional<Found> Take(std::string const& sam) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            auto const it = m_found.find(sam);
+            if (it == m_found.end()) return std::nullopt;
+            Found found = std::move(it->second);
+            m_found.erase(it);
+            return found;
+        }
+
+    private:
+        std::mutex m_mutex;
+        std::unordered_map<std::string, Found> m_found;
+    };
 }
