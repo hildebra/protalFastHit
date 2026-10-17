@@ -351,6 +351,21 @@ folders (the comparison; `--no-sylph`: the runs given alone), into `$MOCKS/<run>
   one ONT flow cell basecalled several ways, or one library sequenced on several platforms.
 - `summary.tsv`: medians per set, read type and truth kind.
 
+**Contaminants** (since 2026-10-17). Real libraries carry other organisms' DNA at low levels, and those species are real
+species of the sample, so true positives, though the truth tables list only the designed members.
+- **What counts as one:** a species the truth does not list, called below `--contaminant-share` (0.001) of the placed
+  profile, of a genus with no member in the truth. One of a member's genus is likelier the member's reads misplaced
+  (or a species the release splits otherwise), so it stays a false positive unless `--contaminant-congeners` is given.
+  `--contaminant-share 0` counts none.
+- **The columns:** the strict ones (`fp`, `precision`, `f1`, `false_species`) count contaminants as false, as before.
+  Beside them, `samples.tsv` gains `contaminants`, `contaminant_share`, `contaminant_species` and
+  `precision_with_contaminants` and `f1_with_contaminants`, which count them as true (recall stays over the members).
+  `summary.tsv` and the by-run tables have the medians of the count and of the last two, and `species.tsv` a column
+  `contaminant`.
+- **On the 2026-10-16 runs:** 0.8.5's unlisted calls on the Meslier paired-end samples are mostly below 1e-5 of the
+  profile and of genera the mocks lack, while real members also lie below 0.001 (the share alone does not separate
+  them; [report](claude/2026-10-16-mock-regression/README.md)).
+
 All runs' rows also go into `$MOCKS/scores/summary_by_run.tsv` and `samples_by_run.tsv`, so the runs can be compared
 side by side:
 - **Columns:** `run`, `tool` and `version`. The version comes from `versions.tsv`; for a run folder made before

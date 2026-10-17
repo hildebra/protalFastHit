@@ -291,6 +291,41 @@ class ScoreTest(unittest.TestCase):
         tools = {(r["run"], r["tool"], r["version"]) for r in by_run}
         self.assertEqual(tools, {("0.8.3_1dcc325", "protal", "0.8.3_1dcc325"), ("other_run", "-", "-")})
 
+    def test_contaminants(self):
+        """Truth t2: Bac one 0.7, Bac two 0.3. Sample c1 calls both, Foreign x at 0.0005 (a contaminant: below 0.001 of
+        the placed profile, a genus the truth lacks), Bac three at 0.0004 (a member's genus: false) and Other big at 0.01
+        (above the share: false). Strict: precision 2/5, recall 1, F1 4/7; with the contaminant 3/5 and F1 0.75.
+        --contaminant-congeners counts Bac three too, --contaminant-share 0 none."""
+        write_truth(self.truth, "t2", "abundance", [("s__Bac one", 0.7), ("s__Bac two", 0.3)])
+        with open(self.samples, "a") as fh:
+            fh.write("set2\tc1\tR\tpe\tt2\t-\t-\n")
+        write_profile(os.path.join(self.out, "c_run", "set2", "profiles", "c1.profile"),
+                      [("Bac one", 0.69), ("Bac two", 0.3), ("Foreign x", 0.0005), ("Bac three", 0.0004),
+                       ("Other big", 0.01)], 0.0)
+
+        def scored(*more):
+            result = self.score("--runs", "c_run", "--no-sylph", *more)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            scores = os.path.join(self.out, "c_run", "scores")
+            row = read_tsv(os.path.join(scores, "samples.tsv"))[0]
+            return row, read_tsv(os.path.join(scores, "species.tsv")), read_tsv(os.path.join(scores, "summary.tsv"))[0]
+        row, species, summary = scored()
+        self.assertEqual((row["tp"], row["fp"], row["contaminants"], row["contaminant_species"]),
+                         ("2", "3", "1", "s__Foreign x"))
+        for column, expected in (("precision", 0.4), ("f1", 4 / 7), ("precision_with_contaminants", 0.6),
+                                 ("f1_with_contaminants", 0.75), ("contaminant_share", 0.0005 / 1.0009)):
+            self.assertAlmostEqual(float(row[column]), expected, places=5, msg=column)
+        self.assertEqual({r["species"]: (r["status"], r["contaminant"]) for r in species},
+                         {"s__Bac one": ("TP", "0"), "s__Bac two": ("TP", "0"), "s__Foreign x": ("FP", "1"),
+                          "s__Bac three": ("FP", "0"), "s__Other big": ("FP", "0")})
+        self.assertEqual((summary["contaminants"], summary["f1_with_contaminants"]), ("1", "0.75"))
+        row, _, _ = scored("--contaminant-congeners")
+        self.assertEqual((row["contaminants"], row["contaminant_species"]), ("2", "s__Foreign x,s__Bac three"))
+        self.assertAlmostEqual(float(row["f1_with_contaminants"]), 2 * 0.8 / 1.8, places=5)
+        row, _, _ = scored("--contaminant-share", "0")
+        self.assertEqual((row["contaminants"], row["contaminant_species"]), ("0", "-"))
+        self.assertAlmostEqual(float(row["f1_with_contaminants"]), float(row["f1"]), places=5)
+
     def test_sylph_runs_are_the_comparison(self):
         """A sylph run folder (made once by run --tool sylph) is scored with the runs --runs names, its version from
         versions.tsv; --no-sylph leaves it out. Each set's rows of all runs come together."""

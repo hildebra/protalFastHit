@@ -54,6 +54,13 @@ the truth tables (truth/, prepare_tables.py) and against each other (samples.tsv
          (from versions.tsv, else from the run folder's default name; "-" for neither), each set's rows of all runs
          together (printed too).
          Shares compare cells: protal's abundances are shares of genomes, the truth's genome copies (prepare_tables.py).
+         Contaminants (since 2026-10-17): real libraries carry other organisms' DNA at low levels, and those species are
+         real species of the sample, true positives. A species the truth does not list, called below --contaminant-share
+         (0.001) of the placed profile, of a genus with no member in the truth (--contaminant-congeners: any genus), is
+         a contaminant. The strict columns (fp, precision, f1, false_species) count it as false all the same. Beside
+         them, samples.tsv has contaminants, contaminant_share, contaminant_species and precision_with_contaminants and
+         f1_with_contaminants (counting them as true, recall over the members); summary.tsv the medians of the count and
+         of the last two; species.tsv a column contaminant (1 for one).
          --store_results_tar [TAR] then packs what an analysis of the runs' errors needs into one file (default
          OUT/mock_results_<date>.tar.gz), laid out as OUT, so that score runs on it unpacked:
            scores/, inputs/ (samples.tsv, the truth tables), reads/downloaded.tsv, README.txt, manifest.tsv (each file
@@ -107,9 +114,18 @@ NAN = float("nan")
 THRESHOLDS = (1e-3, 1e-2)
 SAMPLE_COLUMNS = ["set", "sample", "read_type", "truth", "kind", "group", "reads", "bases", "cut", "called", "unknown",
                   "unknown_expected", "tp", "fp", "fn", "precision", "recall", "f1", "recall_0.1pct", "recall_1pct",
-                  "fp_share", "l1", "bray_curtis", "absent_called", "present_missed", "false_species"]
+                  "fp_share", "l1", "bray_curtis", "absent_called", "present_missed", "false_species",
+                  "contaminants", "contaminant_share", "precision_with_contaminants", "f1_with_contaminants",
+                  "contaminant_species"]
 SUMMARY_COLUMNS = ["set", "read_type", "kind", "samples", "called", "tp", "fp", "fn", "precision", "recall", "f1",
-                   "recall_1pct", "fp_share", "l1", "unknown", "dropouts_called"]
+                   "recall_1pct", "fp_share", "l1", "unknown", "dropouts_called", "contaminants",
+                   "precision_with_contaminants", "f1_with_contaminants"]
+# Contaminants (since 2026-10-17): a species the truth does not list, called below this share of the placed profile, of
+# a genus with no member in the truth (with --contaminant-congeners of any genus). Real libraries carry other organisms'
+# DNA at such levels, and the user's rule is that these are real species of the sample, true positives; a species of a
+# member's genus is likelier the member's reads misplaced, or a species the release splits otherwise. The strict columns
+# (fp, precision, f1, false_species) count them as false all the same; *_with_contaminants count them as true.
+CONTAMINANT_SHARE = 1e-3
 NOT_RUNS = ("reads", "scores", "inputs")  # folders of OUT that are not run folders (inputs: of an unpacked results tar)
 
 
@@ -639,8 +655,16 @@ def ratio(n, d):
     return n / d if d else NAN
 
 
-def score_sample(profile, unknown, kind, truth, truth_unknown):
-    """The scores of one profile against its truth (columns of SAMPLE_COLUMNS), and its species rows."""
+def contaminants_of(unlisted, members, p, share=CONTAMINANT_SHARE, congeners=False):
+    """The contaminants among a profile's species the truth does not list: those below `share` of the placed profile
+    (p), of a genus with no member in the truth unless `congeners` (CONTAMINANT_SHARE)."""
+    genera = set() if congeners else {genus_of(k) for k in members}
+    return {k for k in unlisted if p.get(k, 0.0) < share and genus_of(k) not in genera}
+
+
+def score_sample(profile, unknown, kind, truth, truth_unknown, share=CONTAMINANT_SHARE, congeners=False):
+    """The scores of one profile against its truth (columns of SAMPLE_COLUMNS), and its species rows; `share` and
+    `congeners` say which unlisted species are contaminants (contaminants_of)."""
     called = set(profile)
     p = normalised(profile)
     s = {"called": len(called), "unknown": unknown, "unknown_expected": truth_unknown if kind else NAN}
@@ -652,6 +676,13 @@ def score_sample(profile, unknown, kind, truth, truth_unknown):
                  recall=ratio(len(tp), len(members)), fp_share=sum(p.get(k, 0.0) for k in fp),
                  false_species=",".join(sorted(fp, key=lambda k: -p.get(k, 0.0))[:10]))
         s["f1"] = ratio(2 * s["tp"], 2 * s["tp"] + s["fp"] + s["fn"])
+        contaminants = contaminants_of(fp, members, p, share, congeners)
+        s.update(contaminants=len(contaminants), contaminant_share=sum(p.get(k, 0.0) for k in contaminants),
+                 precision_with_contaminants=ratio(len(tp) + len(contaminants), len(called)),
+                 contaminant_species=",".join(sorted(contaminants, key=lambda k: -p.get(k, 0.0))[:10]) or "-")
+        precision, recall = s["precision_with_contaminants"], s["recall"]
+        s["f1_with_contaminants"] = NAN if precision != precision or recall != recall else \
+            2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
         if kind == "abundance":
             t = normalised(truth)
             for threshold, column in zip(THRESHOLDS, ("recall_0.1pct", "recall_1pct")):
@@ -663,7 +694,7 @@ def score_sample(profile, unknown, kind, truth, truth_unknown):
             status = "TP" if k in tp else ("FP" if k in fp else "FN")
             species_rows.append({"species": k, "truth_share": truth.get(k, 0.0) if kind == "abundance"
                                  else ("member" if k in members else "-"), "profile_share": p.get(k, 0.0),
-                                 "status": status})
+                                 "status": status, "contaminant": int(k in contaminants)})
     elif kind == "dropout":
         absent = {k for k, v in truth.items() if v == 0}
         present = {k for k, v in truth.items() if v != v or v > 0}
@@ -699,8 +730,9 @@ def run_folders(out, names):
             if n not in NOT_RUNS and os.path.isdir(os.path.join(out, n)) and profiles_of(os.path.join(out, n))]
 
 
-def score_run(folder, samples, downloaded, truth_folder, truths):
-    """Score one run folder's profiles; writes its scores/ and returns (sample rows, summary rows)."""
+def score_run(folder, samples, downloaded, truth_folder, truths, share=CONTAMINANT_SHARE, congeners=False):
+    """Score one run folder's profiles; writes its scores/ and returns (sample rows, summary rows). `share` and
+    `congeners`: which unlisted species are contaminants (contaminants_of)."""
     profiles = profiles_of(folder)
     sample_rows, species_rows, compositions = [], [], {}
     for s in samples:
@@ -712,13 +744,13 @@ def score_run(folder, samples, downloaded, truth_folder, truths):
             if s["truth"] not in truths:
                 truths[s["truth"]] = read_truth(os.path.join(truth_folder, s["truth"] + ".tsv"))
             kind, truth, truth_unknown = truths[s["truth"]]
-        scores, rows = score_sample(profile, unknown, kind, truth, truth_unknown)
+        scores, rows = score_sample(profile, unknown, kind, truth, truth_unknown, share, congeners)
         d = downloaded.get(s["sample"], {})
         row = {k: NAN for k in SAMPLE_COLUMNS}
         row.update({"set": s["set"], "sample": s["sample"], "read_type": s["read_type"], "truth": s["truth"],
                     "kind": kind or "-", "group": s["group"], "reads": d.get("reads", "NA"),
                     "bases": d.get("bases", "NA"), "cut": d.get("cut", "NA"), "absent_called": "-",
-                    "present_missed": "-", "false_species": "-"})
+                    "present_missed": "-", "false_species": "-", "contaminant_species": "-"})
         row.update(scores)
         sample_rows.append(row)
         for r in rows:
@@ -764,13 +796,16 @@ def score_run(folder, samples, downloaded, truth_folder, truths):
                         "recall_1pct": median([r["recall_1pct"] for r in rows]),
                         "fp_share": median([r["fp_share"] for r in rows]), "l1": median([r["l1"] for r in rows]),
                         "unknown": median([r["unknown"] for r in rows]),
-                        "dropouts_called": sum(r["absent_called"] not in ("-", "NA") for r in rows)})
+                        "dropouts_called": sum(r["absent_called"] not in ("-", "NA") for r in rows),
+                        "contaminants": median([r["contaminants"] for r in rows]),
+                        "precision_with_contaminants": median([r["precision_with_contaminants"] for r in rows]),
+                        "f1_with_contaminants": median([r["f1_with_contaminants"] for r in rows])})
 
     scores = os.path.join(folder, "scores")
     os.makedirs(scores, exist_ok=True)
     write_tsv(os.path.join(scores, "samples.tsv"), SAMPLE_COLUMNS, sample_rows)
     write_tsv(os.path.join(scores, "species.tsv"), ["set", "sample", "species", "truth_share", "profile_share",
-                                                    "status"], species_rows)
+                                                    "status", "contaminant"], species_rows)
     write_tsv(os.path.join(scores, "replicates.tsv"), ["set", "group", "sample_a", "sample_b", "read_type_a",
                                                        "read_type_b", "bray_curtis", "jaccard"], pairs)
     write_tsv(os.path.join(scores, "groups.tsv"), ["set", "group", "samples", "pairs", "mean_bray_curtis",
@@ -801,7 +836,8 @@ def score(args):
         name = os.path.basename(folder)
         versions = read_versions(folder)
         tool, version = tool_and_version(name, versions)
-        sample_rows, summary = score_run(folder, samples, downloaded, args.truth, truths)
+        sample_rows, summary = score_run(folder, samples, downloaded, args.truth, truths, args.contaminant_share,
+                                         args.contaminant_congeners)
         for r in sample_rows:
             own = versions.get(r["sample"])
             all_samples.append({"run": name, "tool": own["tool"] if own else tool,
@@ -1181,6 +1217,14 @@ def main():
             p.add_argument("--runs", default="", help="comma-separated run folders (default: all with profiles); "
                            "sylph's run folders are scored with them, for comparison (--no-sylph: not)")
             p.add_argument("--no-sylph", action="store_true", help="with --runs: the runs named alone")
+            p.add_argument("--contaminant-share", type=float, default=CONTAMINANT_SHARE, metavar="SHARE",
+                           help="an unlisted species called below this share of the placed profile, of a genus with no "
+                           f"member in the truth, is a contaminant (default {CONTAMINANT_SHARE:g}; 0: none): a real "
+                           "species of the sample, which the columns *_with_contaminants count as true and the strict "
+                           "ones (fp, precision, f1) as false")
+            p.add_argument("--contaminant-congeners", action="store_true",
+                           help="contaminants of a genus with a member in the truth too (default: those are false "
+                           "positives, likelier a member's reads misplaced)")
             p.add_argument("--store_results_tar", "--store-results-tar", dest="store_results_tar", nargs="?", const="",
                            default=None, metavar="TAR",
                            help="then pack the scored run folders' results for an analysis of their errors into TAR "
