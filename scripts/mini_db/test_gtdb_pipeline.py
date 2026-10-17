@@ -116,7 +116,8 @@ class GtdbBuildTest(unittest.TestCase):
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
                    "--test-read-pairs", "2000", "--model", "gbm", "--ntree", "16", "--rounds", "40", "--evaluation", "basic",
                    "--progress-every", "5", "--training-db-level", "1", "--final-db-level", "1",
-                   "--error-reads", error_reads, "--model-gates", "none", *([] if scenarios else ["--scenarios", "none"]),
+                   "--error-reads", error_reads, "--model-gates", "none",
+                   *([] if scenarios else ["--scenarios", "none", "--ood-scenarios", "none"]),
                    *(["--foreign-rates"] if foreign else []), *extra]
         if not wait:
             return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -741,7 +742,12 @@ class GtdbBuildTest(unittest.TestCase):
                        # host at one depth, so that its host reads can be counted; the others drawn around theirs
                        "host": {**small, "species": "2-3", "novel_share": 0.3, "abundance": "powerlaw:1.0", "strains": "",
                                 "host_share": 0.9, "depth_spread": 1,
-                                "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]}}, fh)
+                                "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]},
+                       # the out-of-distribution scenarios (--ood-scenarios, the test set alone), small
+                       "congeners_dense": {**small, "species": "6-8", "novel_share": 0.3, "congeners": "0.9:2-3",
+                                           "reads": [{**illumina, "depth": 1500}]},
+                       "uneven_extreme": {**small, "species": "10-15", "novel_share": 0.3, "abundance": "lognormal:3.0",
+                                          "reads": [{**illumina, "depth": 2000}]}}, fh)
         return definitions, host
 
     def test_f_scenarios(self):
@@ -803,18 +809,32 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertAlmostEqual(sum(head) / len(head), 25, delta=1.5)
         self.assertAlmostEqual(sum(tail) / len(tail), 25 - 15 * 0.505, delta=2)
         # Its tables: the scenarios' rows beside the design's, in the training data (which the models are fitted on)
-        # and in the test set; the training data's design samples as without scenarios (4 pe, 4 se).
+        # and in the test set; the training data's design samples as without scenarios (4 pe, 4 se). The
+        # out-of-distribution scenarios (--ood-scenarios: congeners_dense, uneven_extreme, paired-end here) in the test
+        # set alone.
+        ood = ("congeners_dense", "uneven_extreme")
         for collection, n in (("training", 2), ("test", 1)):
             for table, names in (("training_data.tsv", ("gut", "moderate", "soil", "soil_shallow", "host")),
                                  ("training_data_se.tsv", ("gut", "host"))):
+                if collection == "test" and table == "training_data.tsv":
+                    names += ood
                 samples, _ = self.samples("scenarios", collection, table)
                 self.assertEqual({k: len(v) for k, v in samples.items() if k}, {name: n for name in names})
                 self.assertEqual(len(samples[""]), 4 if collection == "training" else 1)
+        metadata = self.metadata("scenarios")
+        self.assertEqual(metadata["classifier_ood_scenarios"], "congeners_dense, uneven_extreme")
+        self.assertEqual(metadata["classifier_scenario_transfer"], "on")
+        self.assertIn("congeners_dense (never trained on) final model F1", metadata["model_pe_scenario_transfer"])
         # Each model's report scores the scenarios, hold-in and hold-out, and every candidate feature set on every test
         # set; and so does the summary.
-        for t, names in (("", ("gut", "moderate", "soil", "soil_shallow", "host")), ("_se", ("gut", "host"))):
+        for t, names, tested in (("", ("gut", "moderate", "soil", "soil_shallow", "host"), ood),
+                                 ("_se", ("gut", "host"), ())):
             report = self.text("scenarios", "model_logs", f"trained_model{t}.report.txt")
             self.assertIn("## Scenarios: hold-in and hold-out samples", report)
+            # leave one scenario out, and the scenarios never trained on (pe), with the final model and the design's
+            self.assertIn("## Scenarios: carried over to communities not trained on", report)
+            for name in tested:
+                self.assertRegex(report, rf"scenario {name} \(never trained on\): hold-out F1 [0-9.-]+; design alone")
             self.assertIn("## Feature set chosen (--features auto, samples and species held out)", report)
             self.assertTrue(report.startswith("# protal presence model"))
             self.assertIn("\n## Headline: F1 over every species the marker genes can see", report)
@@ -827,10 +847,15 @@ class GtdbBuildTest(unittest.TestCase):
             for name in names:
                 self.assertTrue({(name, "hold-out"), (name, "hold-in, in sample"),
                                  (name, "hold-in, species held out")} <= sets, sets)
+            transfer = {(r["scenario"], r["model"]): r["trained on"] for r in metrics["scenario_transfer"]}
+            for name in names:
+                self.assertEqual(transfer[(name, "without its hold-in samples")], "yes", name)
+            for name in tested:
+                self.assertEqual(transfer[(name, "final model")], "no", name)
             auto = metrics["features_auto"]
             self.assertIn(auto["chosen"], [r["features"] for r in auto["candidates"]])
             self.assertTrue(any("foreign" in r["features"].split("+") for r in auto["candidates"]))
-            self.assertEqual(set(auto["held_out"]), {"test set"} | {f"{name} hold-out" for name in names})
+            self.assertEqual(set(auto["held_out"]), {"test set"} | {f"{name} hold-out" for name in names + tested})
             self.assertTrue(all(f"F1 {name} hold-out" in r for r in auto["candidates"] for name in names))
         summary = self.text("scenarios", "model_logs", "summary.txt")
         for label, count in (("gut: hold-out", 2), ("gut: hold-in, species held out", 2), ("host: hold-in, in sample", 2),
@@ -892,8 +917,9 @@ class GtdbBuildTest(unittest.TestCase):
             with open(os.path.join(errors, "summary.tsv")) as fh:
                 samples = list(csv.DictReader(fh, delimiter="\t"))
             self.assertEqual({(r["set"], r["sample"]) for r in samples}, samples_of_calls, t)
-            self.assertEqual({r["scenario"] for r in samples},
-                             {"design", "gut", "host"} | ({"moderate", "soil", "soil_shallow"} if t == "pe" else set()), t)
+            self.assertEqual({r["scenario"] for r in samples},  # the out-of-distribution ones' test samples too (pe)
+                             {"design", "gut", "host"} | ({"moderate", "soil", "soil_shallow", *ood} if t == "pe" else set()),
+                             t)
             # Every sample's error taxa in one table (no file per sample), with its design point and scenario.
             with gzip.open(os.path.join(errors, "taxa.tsv.gz"), "rt") as fh:
                 taxa = list(csv.DictReader(fh, delimiter="\t"))

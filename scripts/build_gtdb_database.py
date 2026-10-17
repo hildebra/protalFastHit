@@ -2058,7 +2058,9 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
                                        + (f"; host genome {args.host_genome}" if args.host_genome else "")
                                        + "".join(f"; {note}" for note in getattr(args, "scenario_notes", [])))
               if getattr(args, "scenario_samples_of", None) else
-              "none" + "".join(f"; {note}" for note in getattr(args, "scenario_notes", [])))]
+              "none" + "".join(f"; {note}" for note in getattr(args, "scenario_notes", []))),
+             ("classifier_ood_scenarios", ", ".join(getattr(args, "ood_selected", [])) or "none"),
+             ("classifier_scenario_transfer", "on" if getattr(args, "scenario_transfer", False) else "off")]
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
@@ -2075,6 +2077,12 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             rows.append((f"model_{t}_scenarios", "; ".join(
                 f"{m['scenario']} {m['set']} F1 {num(m['F1'])}, FP rate {num(m['FP rate %'], '%')}, FN rate "
                 f"{num(m['FN rate %'], '%')}" for m in scenario_rows)))
+        transfer = metrics.get("scenario_transfer", [])
+        if transfer:  # leave one scenario out, and the scenarios never trained on (--ood-scenarios)
+            num = lambda v: "-" if v is None else f"{v:.4g}"
+            rows.append((f"model_{t}_scenario_transfer", "; ".join(
+                f"{m['scenario']}{'' if m['trained on'] == 'yes' else ' (never trained on)'} {m['model']} F1 "
+                f"{num(m['F1'])}" for m in transfer)))
         species_cv = metrics.get("evaluation", {}).get("species", {})
         test = metrics.get("test", {}).get("this one", {})
         rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
@@ -2630,6 +2638,8 @@ DEFAULT_LONG_READ_BASES = "300000,1500000,6000000,30000000,150000000,1500000000:
 DEFAULT_INSILICO_INDELS = 0.02
 # --insilico-omega-scale (since 2026-10-17): the calibrated omega (0.074 at r226) times 1.3, a slight rise.
 DEFAULT_INSILICO_OMEGA_SCALE = 1.3
+# --ood-scenarios (since 2026-10-17): community kinds unlike the training's, in the test set alone (scenarios.OOD_PRESETS).
+DEFAULT_OOD_SCENARIOS = "congeners_dense,uneven_extreme"
 # --contaminants (since 2026-10-17): 0 to 30 genomes per sample, 1e-6 to 2e-5 of its read pairs each, present species of
 # the sample: the range of the unlisted species 0.8.5 found in real mock communities (profile shares 1e-6 to 1.6e-5, 2 to
 # 25 marker-gene fragments at 20M pairs; 9-12 per Illumina HiSeq library, 52-73 per DNBSEQ one:
@@ -3536,6 +3546,20 @@ def main():
     p.add_argument("--scenario-test-samples", type=int, default=4,
                    help="hold-out samples per scenario, in the test set (default 4; 3 before 2026-10-07, 2 before "
                         "2026-10-06)")
+    p.add_argument("--ood-scenarios", default=DEFAULT_OOD_SCENARIOS,
+                   help="out-of-distribution scenarios: community kinds unlike the training's, in the test set alone "
+                        "(--scenario-test-samples hold-out samples each, none in the training), so that every model's "
+                        "report says how it does on a kind of community it never saw (section \"Scenarios: carried over "
+                        "to communities not trained on\"). Comma-separated names of scenarios.py's OOD_PRESETS or of "
+                        f"--scenario-file; none for none. Default {DEFAULT_OOD_SCENARIOS} (since 2026-10-17): "
+                        "congeners_dense, 100-400 species, nine in ten in groups of 4-12 congeners, many strains; "
+                        "uneven_extreme, 500-3,000 species at lognormal sigma 3.0-3.5, beyond the training's 2.5")
+    p.add_argument("--scenario-transfer", action=argparse.BooleanOptionalAction, default=True,
+                   help="leave one scenario out (machine_learning_cmdline.py --scenario-transfer): each read type's model "
+                        "(of the database's gate and --model's kind) also fits one model without each scenario's hold-in "
+                        "rows and one on the design alone, and scores the scenarios' hold-out samples with them beside "
+                        "the final model (default on, since 2026-10-17; a fit each, minutes at r226). "
+                        "--no-scenario-transfer: none")
     p.add_argument("--scenario-weight", type=float, default=0.25,
                    help="the sample weight of the scenarios' hold-in rows in the models, the design's 1 "
                         "(machine_learning_cmdline.py --scenario-weight; default 0.25: at r226 v12 their rows were 52-80%% "
@@ -3834,6 +3858,20 @@ def main():
         p.error(str(e))
     hold_in = {name: n for name, n in chosen_scenarios if n > 0}
     hold_out = {name: args.scenario_test_samples for name, _ in chosen_scenarios} if args.scenario_test_samples else {}
+    # The out-of-distribution scenarios (--ood-scenarios): hold-out samples alone, never in the training.
+    try:
+        ood = [name for name, _ in scenarios.selection(args.ood_scenarios, 0, scenario_defs, keep_zero=True)]
+    except scenarios.ScenarioError as e:
+        p.error(str(e).replace("--scenarios", "--ood-scenarios"))
+    trained_too = [name for name in ood if name in hold_in]
+    if trained_too:
+        p.error(f"--ood-scenarios {', '.join(trained_too)}: also trained on (--scenarios); a scenario out of distribution "
+                "is one the models never see")
+    if args.scenario_test_samples:
+        hold_out.update({name: args.scenario_test_samples for name in ood})
+    args.ood_selected = [name for name in ood if name in hold_out]
+    chosen_scenarios = list(chosen_scenarios) + [(name, 0) for name in args.ood_selected
+                                                 if name not in {n for n, _ in chosen_scenarios}]
     selected = [name for name, _ in chosen_scenarios if name in hold_in or name in hold_out]
     args.scenario_samples_of = {name: (hold_in.get(name, 0), hold_out.get(name, 0)) for name in selected}  # provenance
     if selected and not any(r["type"] in read_types for name in selected for r in scenario_defs[name]["reads"]):
@@ -5161,6 +5199,8 @@ def main():
                        "--scenario-weight", str(args.scenario_weight), "--taxonomy", taxonomy, "--evaluation", args.evaluation]
             if args.rounds:
                 command += ["--rounds", str(args.rounds)]
+            if not args.scenario_transfer or g is not None or kind != args.model:
+                command += ["--no-scenario-transfer"]  # leave one scenario out: the database's gate and kind alone
             command += versions_args
             if args.previous_procedure:
                 command += ["--previous-procedure"]

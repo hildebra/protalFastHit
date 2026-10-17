@@ -23,6 +23,14 @@ The presets (PRESETS; --scenario_file adds or changes them):
     host          90% of the reads human, the rest 2-50 bacterial and archaeal species of power-law abundances
                   (alpha 1: a rank-abundance line of slope -1 on log-log axes), 5% of them lacking; Illumina PE 150
                   (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
+Two more presets are out of distribution (OOD_PRESETS, since 2026-10-17): community kinds unlike the training's, which
+build_gtdb_database.py --ood-scenarios puts into the test set alone (no hold-in samples), and "all" leaves out:
+
+    congeners_dense  100-400 species, nine in ten in groups of 4-12 of one genus, many strains (enrichment cultures,
+                     synthetic communities of relatives); Illumina at 10M pairs, Ultima at 10M reads, long reads at 3 Gb
+    uneven_extreme   500-3,000 species at lognormal sigma 3.0 and 3.5, beyond the training's 2.5; Illumina at 20M
+                     pairs, Ultima at 20M reads, long reads at 6 Gb
+
 The communities' evenness varies too: lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn; since
 2026-10-16 the last fifth of a scenario's samples (2 of 10, 1 of 4: corner_samples) are deep, rich and uneven on purpose,
 the top strata of its depths and species counts at the most uneven sigma (sample_abundance), which no draw guaranteed.
@@ -127,6 +135,30 @@ PRESETS = {
         "congeners": "0.25:2-5", "host_share": 0.9,
         "reads": [{**ILLUMINA, "depth": 10_000_000}, {**ULTIMA, "depth": 10_000_000},
                   {"type": "pb", "depth": 3_000_000_000}, {"type": "ont", "depth": 3_000_000_000}]},
+}
+# Out-of-distribution scenarios (since 2026-10-17): community kinds unlike the training's, for the test set alone
+# (build_gtdb_database.py --ood-scenarios, hold-out samples only), so that a build reports how its models do on a kind
+# of community they never saw (machine_learning_cmdline.py, "Scenarios: carried over to communities not trained on").
+# Never in the training by default, nor in "all" (selection).
+OOD_PRESETS = {
+    "congeners_dense": {
+        "description": "dense congeners (enrichment cultures, synthetic communities of relatives): 100-400 species, nine "
+                       "in ten of them in groups of 4-12 of one genus, 10% lacking from the database, second and third "
+                       "strains in half and a quarter; Illumina PE 150 bp Q35 at 10M read pairs, Ultima at 10M reads, "
+                       "PacBio HiFi and Nanopore at the same bases (3 Gb)",
+        "species": "100-400", "novel_share": 0.1, "abundance": EVENNESS, "strains": "0.5,0.25",
+        "congeners": "0.9:4-12", "host_share": 0.0,
+        "reads": [{**ILLUMINA, "depth": 10_000_000}, {**ULTIMA, "depth": 10_000_000},
+                  {"type": "pb", "depth": 3_000_000_000}, {"type": "ont", "depth": 3_000_000_000}]},
+    "uneven_extreme": {
+        "description": "extremely uneven communities: 500-3,000 species at lognormal sigma 3.0 and 3.5 (beyond the "
+                       "scenarios' 1.0-2.5), most species at a handful of reads, 30% lacking from the database; "
+                       "Illumina PE 150 bp Q35 at 20M read pairs, Ultima at 20M reads, PacBio HiFi and Nanopore at the "
+                       "same bases (6 Gb)",
+        "species": "500-3000", "novel_share": 0.3, "abundance": "lognormal:3.0,3.5", "strains": "0.3,0.1",
+        "congeners": "0.25:2-5", "host_share": 0.0,
+        "reads": [{**ILLUMINA, "depth": 20_000_000}, {**ULTIMA, "depth": 20_000_000},
+                  {"type": "pb", "depth": 6_000_000_000}, {"type": "ont", "depth": 6_000_000_000}]},
 }
 FIELDS = ("description", "species", "novel_share", "abundance", "strains", "congeners", "host_share", "reads",
           "depth_range", "depth_spread")
@@ -234,9 +266,9 @@ def check_definition(name, d):
 
 
 def definitions(path=None):
-    """The scenarios by name: the presets, and those of a JSON file ({name: definition}; a definition of a preset's
-    name changes only the fields it gives, e.g. {"soil": {"species": "4000-5000"}})."""
-    found = {name: dict(d) for name, d in PRESETS.items()}
+    """The scenarios by name: the presets (PRESETS and OOD_PRESETS), and those of a JSON file ({name: definition}; a
+    definition of a preset's name changes only the fields it gives, e.g. {"soil": {"species": "4000-5000"}})."""
+    found = {name: dict(d) for name, d in {**PRESETS, **OOD_PRESETS}.items()}
     if path:
         try:
             with open(path) as fh:
@@ -253,15 +285,16 @@ def definitions(path=None):
 
 
 def selection(text, samples, defs, keep_zero=False):
-    """[(name, samples)] of --scenarios NAME[:SAMPLES],... ("all": every scenario defined), each with `samples`
-    unless it gives its own, those of 0 samples left out (unless keep_zero); [] for "" or "none"."""
+    """[(name, samples)] of --scenarios NAME[:SAMPLES],... ("all": every scenario defined but the out-of-distribution
+    presets, OOD_PRESETS, which a name gives), each with `samples` unless it gives its own, those of 0 samples left out
+    (unless keep_zero); [] for "" or "none"."""
     text = (text or "").strip()
     if text.lower() in ("", "none"):
         return []
     out = []
     for item in text.split(","):
         name, _, n = item.strip().partition(":")
-        names = list(defs) if name == "all" else [name]
+        names = [d for d in defs if d not in OOD_PRESETS] if name == "all" else [name]
         for one in names:
             if one not in defs:
                 raise ScenarioError(f"--scenarios: unknown scenario {one!r} (defined: {', '.join(defs)})")

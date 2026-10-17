@@ -99,7 +99,11 @@ Scenarios (collect_training_data.py --scenarios, meta_scenario): the section "Sc
 false negative rates per scenario as protal calls, on its training samples (hold-in: in sample, and with their samples
 or species held out) and on its samples in --test-file (hold-out), which are kept out of the independent test set's
 section. Their rows weigh --scenario-weight (0.25) in every forest: at full weight, most of a GTDB build's rows, they
-shifted the design's calls (docs/claude/2026-10-05-r226-v12-scenarios). --features auto chooses the feature set held
+shifted the design's calls (docs/claude/2026-10-05-r226-v12-scenarios). Whether the models fit the kinds of communities
+they saw (since 2026-10-17; --no-scenario-transfer: not): the section "Scenarios: carried over to communities not
+trained on" scores each scenario's hold-out samples by the final model, by one fitted without that scenario's hold-in
+rows (leave one scenario out) and by one fitted on the design alone; a scenario of the test table alone
+(build_gtdb_database.py --ood-scenarios) was never trained on. --features auto chooses the feature set held
 out (--cv-scheme; choose_feature_set), by the F1 with the rows weighted as in the fits (since 2026-10-15; unweighted
 before, so that the scenarios' rows counted four times what they weigh in the fits): the forests of each candidate set's
 folds, which the evaluation then reuses.
@@ -306,6 +310,12 @@ def parse_args(argv=None):
     p.add_argument("--scenario-weight", type=float, default=SCENARIO_WEIGHT,
                    help=f"the sample weight of the scenarios' rows (meta_scenario) in every model fitted, the design's 1 "
                         f"(default {SCENARIO_WEIGHT}; 1: as the design's)")
+    p.add_argument("--scenario-transfer", action=argparse.BooleanOptionalAction, default=True,
+                   help="with scenarios' hold-out samples in --test-file (and --evaluation basic or full): the section "
+                        "\"Scenarios: carried over to communities not trained on\": for each scenario trained on, a model "
+                        "fitted without its hold-in rows, and one on the design's rows alone, score the hold-out samples "
+                        "beside the final model (one fit per scenario, and one more); a scenario of the test table alone "
+                        "was never trained on. --no-scenario-transfer: none (default: on, since 2026-10-17)")
     p.add_argument("--twin-weight", type=float, default=1.0,
                    help="the sample weight of the absent rows beside a held-out twin, a congener within --twin-distance "
                         "of the taxon's reference (meta_novel_distance, collect_training_data.py --species_clouds), times "
@@ -2224,6 +2234,75 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
     return rows
 
 
+TRANSFER_COLUMNS = ["scenario", "trained on", "model", "samples", "F1", "precision", "sensitivity", "FP/sample",
+                    "FN rate %", "best F1"]
+
+
+def study_scenario_transfer(report, df, X, y, cols, opts, test_scenarios, held_p, depth_knobs=None):
+    """Whether the models carry over to kinds of communities they were not trained on (since 2026-10-17), or fit the
+    scenarios they saw. For each scenario with hold-in rows, a model of the final one's settings fitted without them
+    (leave one scenario out: the design's rows and the other scenarios', weighted as in every fit), and one fitted on the
+    design's rows alone; each scores the scenarios' hold-out samples of the test table beside the final model. A
+    scenario with hold-out samples but no hold-in rows was never trained on (build_gtdb_database.py --ood-scenarios: a
+    community kind unlike the training's); the final model's and the design's scores of it say how the models do on
+    something new. The calls are at the final model's knob (or knob curve), as protal would call with it. -> the rows
+    (metrics.json "scenario_transfer")."""
+    names = scenario_of(df)
+    trained = sorted(set(names[names != ""]))
+    held_names = scenario_of(test_scenarios)
+    targets = sorted(set(held_names[held_names != ""]))
+    if not targets:
+        return []
+    Xt = test_scenarios[cols].to_numpy(dtype=np.float64)
+    params = model_params(opts)
+    scored = {}  # the scenario left out (None: all of them, the design alone) -> its model's scores of the hold-out rows
+    for left_out in trained + ([None] if trained and (names == "").any() else []):
+        rows = np.flatnonzero(names == "") if left_out is None else np.flatnonzero(names != left_out)
+        if not 0 < int(y[rows].sum()) < len(rows):
+            continue
+        model = fit_model(params, X, y, rows)
+        with sequential(model):
+            scored[left_out] = model.predict_proba(Xt)[:, 1]
+    rows_out, lines = [], []
+    for name in targets:
+        held = held_names == name
+        frame = test_scenarios[held]
+        truth = frame["truth"].to_numpy()
+        seen = name in trained
+        entries = [("final model", held_p[held])]
+        if seen and name in scored:
+            entries.append(("without its hold-in samples", scored[name][held]))
+        if None in scored:
+            entries.append(("design alone", scored[None][held]))
+        f1 = {}
+        for label, scores in entries:
+            row = scenario_row({"scenario": name, "trained on": "yes" if seen else "no", "model": label}, frame, truth,
+                               scores, opts, depth_knobs)
+            rows_out.append(row)
+            f1[label] = row["F1"]
+        if f1.get("final model") is None:
+            continue
+        line = f"scenario {name}{'' if seen else ' (never trained on)'}: hold-out F1 {f1['final model']:.4f}"
+        for label in ("without its hold-in samples", "design alone"):
+            if f1.get(label) is not None:
+                line += f"; {label} {f1[label]:.4f} ({f1[label] - f1['final model']:+.4f})"
+        lines.append(line)
+    report.section("Scenarios: carried over to communities not trained on")
+    report.add(f"At the final model's {knob_label(depth_knobs, opts.knob)}. Each scenario's hold-out samples (the test "
+               "table's), scored by the final model; by a model of its settings fitted without the scenario's hold-in "
+               "samples (leave one scenario out); and by one fitted on the design's samples alone. A scenario never "
+               "trained on (no hold-in rows; build_gtdb_database.py --ood-scenarios) is a community kind unlike the "
+               "training's. A large loss without a scenario's own samples, or on a scenario never trained on, means the "
+               "models fit the kinds of communities they saw rather than what they share.")
+    if rows_out:
+        frame = pd.DataFrame(rows_out)
+        report.table(frame[[c for c in TRANSFER_COLUMNS if c in frame.columns]])
+    for line in lines:
+        report.add(line)
+    report.data["scenario_transfer"] = rows_out
+    return rows_out
+
+
 def write_calls(path, df, p_species, test, test_p, opts, depth_knobs=None):
     """PREFIX.calls.tsv.gz: every row with the score and the call protal makes by default (default_calls; a knob curve's
     sample depth over the sample's rows of its table): set "training", the training table's rows (the design's and the
@@ -2637,6 +2716,10 @@ def train(opts):
             out.to_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
         study_scenarios(report, df, y, p, fitted, opts, test_scenarios, held_p, depth_knobs)
         timing["scenarios"] = time.time() - t0
+        if test_scenarios is not None and opts.scenario_transfer and opts.evaluation != "none":
+            t0 = time.time()
+            study_scenario_transfer(report, df, X, y, cols, opts, test_scenarios, held_p, depth_knobs)
+            timing["scenario_transfer"] = time.time() - t0
     # Every row's call, for error_reads.py: the training rows' with species held out, the test table's by the final model.
     t0 = time.time()
     test_p = None

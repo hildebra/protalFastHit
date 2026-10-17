@@ -926,6 +926,40 @@ species with one or two reads in such a sample for a congener's spill, and a tes
 ([report](claude/2026-10-16-r226-v31/README.md)). The collection's log gives each sample's sigma
 (`...; lognormal sigma 1.0, 1.5, ..., 2.5, 2.5 (the last 2 deep, rich and uneven on purpose)`).
 
+**Communities not trained on** (since 2026-10-17). Every check above scores kinds of communities the models also
+trained on: the hold-out samples are of the same scenarios, another seed. Two checks say whether the models fit those
+kinds rather than what they share:
+
+- **Out-of-distribution scenarios** (`--ood-scenarios`, default `congeners_dense,uneven_extreme`; `none` for none):
+  community kinds unlike the training's. They get `--scenario-test-samples` hold-out samples each in the test set and
+  no hold-in samples, so no model sees them.
+
+  | Scenario | Community | Reads |
+  |---|---|---|
+  | `congeners_dense` | 100-400 species, nine in ten in groups of 4-12 of one genus, second and third strains in half and a quarter, 10% lacking (enrichment cultures, synthetic communities of relatives) | Illumina PE 150 Q35 at 10M pairs; Ultima at 10M reads; PacBio and Nanopore at 3 Gb |
+  | `uneven_extreme` | 500-3,000 species at lognormal sigma 3.0 and 3.5 (beyond the training's 2.5), 30% lacking | Illumina PE 150 Q35 at 20M pairs; Ultima at 20M reads; PacBio and Nanopore at 6 Gb |
+
+  `--scenarios all` does not include them. A `--scenario-file` can define them smaller, or add others for
+  `--ood-scenarios` to name.
+- **Leave one scenario out** (`--scenario-transfer`, on; `--no-scenario-transfer` for none): each read type's model
+  (of the database's gate and `--model`'s kind) also fits, with the same settings and row weights, one model without
+  each scenario's hold-in rows and one on the design's rows alone. That is a fit per scenario and one more: minutes at
+  r226.
+
+Each report's section "Scenarios: carried over to communities not trained on" scores every scenario's hold-out samples
+by the final model, by the model without that scenario, and by the design's model, at the final model's knob. Lines
+sum it up:
+`scenario <name>: hold-out F1 <final>; without its hold-in samples <F1> (<difference>); design alone <F1> (<difference>)`,
+and `scenario <name> (never trained on): hold-out F1 <final>; design alone ...`. `metrics.json` has the rows
+(`scenario_transfer`), and `build_metadata.tsv` has a `model_<type>_scenario_transfer` row per read type.
+
+How to read it:
+- **A large loss without a scenario's own samples**, or on a scenario never trained on, means the models fit the kinds
+  of communities they saw.
+- **A small loss** means they carry over.
+
+The out-of-distribution rows choose nothing: the feature set, the knob and the model are chosen without them.
+
 `--scenarios gut,host` picks some (`all`, the default: every one, `gut:5`: 5 hold-in samples of one);
 `--scenario-file` (JSON of scenarios by name) adds scenarios or changes a preset's fields, e.g.
 `{"soil": {"species": "4000-5000"}}`. A scenario's fields: `species` (N or MIN-MAX), `novel_share`,
@@ -1233,6 +1267,8 @@ keeps the finished database.
 | `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `moderate`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
 | `--scenario-samples`, `--scenario-test-samples` | 10, 4 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 6 and 3 before 2026-10-07, 3 and 2 before 2026-10-06 |
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
+| `--ood-scenarios` | `congeners_dense,uneven_extreme` | community kinds for the test set alone, never trained on ([above](#scenarios-kinds-of-studies)); `none` for none (since 2026-10-17) |
+| `--scenario-transfer` | on | leave one scenario out in each read type's model; `--no-scenario-transfer` for none (since 2026-10-17) |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
@@ -1809,6 +1845,7 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 | `--scenario-weight` | 0.25 | the sample weight of the scenarios' rows (`meta_scenario`) in every model fitted, the design's 1 ([above](#scenarios-kinds-of-studies)) |
 | `--taxonomy` | | the database's taxonomy: domains, and whole clades held out |
 | `--test-file` | | an independent test table, scored by the final model; its scenarios' rows (`meta_scenario`) are their hold-out samples, scored apart |
+| `--scenario-transfer` | on | with scenarios' hold-out samples in `--test-file`: a model without each scenario's hold-in rows and one on the design alone score them beside the final model; a scenario of the test table alone was never trained on ([above](#scenarios-kinds-of-studies)) |
 | `--evaluation`, `--folds`, `--previous-procedure` | `full`, 5, off | `basic`: held-out scores only; `none`: fit and export only |
 | `--seed`, `--threads` | 1, 4 | |
 

@@ -1300,6 +1300,28 @@ class TrainerScenariosTest(unittest.TestCase):
                 self.trained[name] = (prefix, json.load(fh), result.stdout)
         return self.trained[name]
 
+    def test_scenario_transfer(self):
+        # Carried over to communities not trained on: gut's hold-out samples scored by the final model, by one fitted
+        # without gut's hold-in rows and by one on the design alone; host, of the test table alone, never trained on (the
+        # final model and the design's). --no-scenario-transfer: no such section.
+        prefix, metrics, stdout = self.train("normalized", "normalized")
+        rows = {(r["scenario"], r["model"]): r for r in metrics["scenario_transfer"]}
+        self.assertEqual(set(rows), {("gut", "final model"), ("gut", "without its hold-in samples"),
+                                     ("gut", "design alone"), ("host", "final model"), ("host", "design alone")})
+        self.assertEqual({r["scenario"]: r["trained on"] for r in metrics["scenario_transfer"]}, {"gut": "yes", "host": "no"})
+        held = {r["scenario"]: r for r in metrics["scenarios"] if r["set"] == "hold-out"}
+        for name in ("gut", "host"):  # the final model's row is the scenario table's hold-out row
+            self.assertEqual((rows[(name, "final model")]["TP"], rows[(name, "final model")]["FP"]),
+                             (held[name]["TP"], held[name]["FP"]))
+            self.assertEqual(rows[(name, "design alone")]["samples"], held[name]["samples"])
+        self.assertIn("## Scenarios: carried over to communities not trained on", stdout)
+        self.assertRegex(stdout, r"scenario gut: hold-out F1 [0-9.]+; without its hold-in samples [0-9.]+ \([-+][0-9.]+\); "
+                                 r"design alone [0-9.]+ \([-+][0-9.]+\)")
+        self.assertRegex(stdout, r"scenario host \(never trained on\): hold-out F1 [0-9.]+; design alone [0-9.]+")
+        _, plain, stdout = self.train("no_transfer", "normalized", None, "--no-scenario-transfer")
+        self.assertNotIn("scenario_transfer", plain)
+        self.assertNotIn("carried over", stdout)
+
     def test_scenarios_hold_in_and_hold_out(self):
         prefix, metrics, stdout = self.train("normalized", "normalized")
         rows = {(r["scenario"], r["set"]): r for r in metrics["scenarios"]}

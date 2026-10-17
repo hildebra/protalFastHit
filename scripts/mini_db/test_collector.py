@@ -1580,6 +1580,12 @@ class ScenariosTest(unittest.TestCase):
         # each reads its communities with paired-end reads, and every other technology at the paired-end reads' bases
         # (sample s of every technology at the same bases); one has host reads.
         self.assertTrue({"gut", "moderate", "soil", "soil_shallow", "host"} <= set(defs), list(defs))
+        # The out-of-distribution presets (build_gtdb_database.py --ood-scenarios: the test set alone) are defined and
+        # chosen by name, never by "all".
+        self.assertEqual(set(scenarios.OOD_PRESETS), {"congeners_dense", "uneven_extreme"})
+        self.assertTrue(set(scenarios.OOD_PRESETS) <= set(defs))
+        self.assertFalse(set(scenarios.OOD_PRESETS) & {n for n, _ in scenarios.selection("all", 3, defs)})
+        self.assertEqual(scenarios.selection("congeners_dense", 0, defs, keep_zero=True), [("congeners_dense", 0)])
         for name, d in defs.items():
             scenarios.check_definition(name, d)
             reads = {r["type"]: r for r in d["reads"]}
@@ -1638,7 +1644,8 @@ class ScenariosTest(unittest.TestCase):
                          ["--distribution", "lognormal", "--pln_sigma", "1.0,1.5,2.0,2.5,2.5"])
         self.assertEqual(scenarios.sample_depths(1000, [0.5, 1.999, 0.0001]), [500, 1999, 1])
         self.assertEqual(scenarios.selection("gut,soil:5", 3, defs), [("gut", 3), ("soil", 5)])
-        self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)], list(defs))
+        self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)],
+                         [n for n in defs if n not in scenarios.OOD_PRESETS])  # the out-of-distribution ones by name only
         self.assertEqual(scenarios.selection("gut:0,host", 2, defs), [("host", 2)])
         self.assertEqual(scenarios.selection("gut:0,host", 2, defs, keep_zero=True), [("gut", 0), ("host", 2)])
         self.assertEqual(scenarios.selection("none", 2, defs), [])
