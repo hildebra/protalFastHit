@@ -219,7 +219,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | Output | |
 |---|---|
 | `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as they are made, the genomes' in order; with `--reads_compression zstd` `.fq.zst`, zstd frames at level 3, as the database build writes them; with `--first_reads_only` no `_R2`, named nowhere: `-` in the protal map); files that are named pipes are written in place, a sample at a time, and a failed run ends them with a cut frame or record so that the reader fails too |
-| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage (read bases over the genome's length; contigs shorter than a read get no reads, and the run notes a genome with 1% or more of its bases in them), the FASTA, the seed of its reads (`art_seed`) and its sample's seeds of the quality offset and the host reads (`run_seed`, `host_seed`) |
+| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage (read bases over the genome's length; contigs shorter than a read get no reads, and the run notes a genome with 1% or more of its bases in them), the FASTA, the seed of its reads (`art_seed`) and its sample's seeds of the quality offset and the host reads (`run_seed`, `host_seed`), and since 2026-10-17 `contaminant` (1 for a `--contaminants` genome; a manifest without the column has none, and a replay keeps them) |
 | `abundance_matrix.tsv` | relative abundance of each species in each sample |
 | `run_params.tsv` | the command line, the seed (also when not given) and the read settings |
 | `protal.meta`, `protal_goldstd/<sample>.profile_truth` | with `--protal_metafile DIR`: a protal map with a `PROFILE_TRUTH` column; protal then writes `<profile>.truth_annotated` |
@@ -234,6 +234,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `--strains_per_species` | none | probabilities of a 2nd, 3rd, ... strain of a species, e.g. `0.4,0.2,0.1` |
 | `--include_species`, `--genus`, `--taxon` | | species in every sample; `g__A:10,g__B:2` species from those genera, `d__Archaea:10` from any taxon (`--pick_random_demand_if_fail` caps instead of failing) |
 | `--congener_groups` | none | `SHARE:MIN-MAX`, e.g. `0.25:2-5`: about SHARE of each sample's species in groups of MIN to MAX congeners |
+| `--contaminants` | none | `MIN-MAX:LOW:HIGH` (or `N:LOW:HIGH`), e.g. `0-30:1e-6:2e-5`: each sample also gets MIN to MAX genomes of species its community does not hold, each with a share of its read pairs drawn log-uniformly from LOW to HIGH, on top of the community's. Real species of the sample: in its reads (after the community's), its truth and its abundances, flagged in its manifests (`contaminant` 1). Drawn from a random stream of their own, so the communities' genomes, read pairs and reads are those of a run without them (since 2026-10-17) |
 | `--strain_sharing_file` | | strains shared across samples (below) |
 | `--seed` | random | |
 | `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` | 150, 350, 50, `HS25` | the reads, fragments and instrument (`HS20`, `HS25`, `HSXt`, `NovaSeq`, `MSv3`; `--illumina_report PAIRS` prints its qualities and errors) |

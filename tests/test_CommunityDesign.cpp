@@ -164,6 +164,66 @@ TEST(CommunityDesign, CongenerGroupsParse) {
     }
 }
 
+TEST(CommunityDesign, ContaminantsParse) {
+    ProfileDesignOptions options;
+    parse_contaminants("", options);
+    EXPECT_EQ(options.contaminants_max, 0u);
+    parse_contaminants("0-30:1e-6:2e-5", options);
+    EXPECT_EQ(options.contaminants_min, 0u);
+    EXPECT_EQ(options.contaminants_max, 30u);
+    EXPECT_EQ(options.contaminant_share_low, 1e-6);
+    EXPECT_EQ(options.contaminant_share_high, 2e-5);
+    parse_contaminants("5:0.001:0.001", options);
+    EXPECT_EQ(options.contaminants_min, 5u);
+    EXPECT_EQ(options.contaminants_max, 5u);
+    for (std::string bad : { "5", "5:1e-6", "30-0:1e-6:2e-5", "0-30:2e-5:1e-6", "0-30:0:1e-5", "0-30:1e-6:1",
+                             "x:1e-6:2e-5", "0-30:1e-6:2e-5:3", "0-30:1e-6x:2e-5", "-1:1e-6:2e-5" }) {
+        EXPECT_THROW(parse_contaminants(bad, options), std::runtime_error) << bad;
+    }
+}
+
+// A sample's contaminants are genomes of species its community does not hold (nor unclassified genomes), as many as
+// asked for, flagged, each with its share of the sample's read pairs; a table whose species are all in the sample has
+// none to give.
+TEST(CommunityDesign, ContaminantsAreOtherSpecies) {
+    auto genomes = Genomes(40, 2);
+    genomes.push_back({ "U1", "d__Bacteria;p__P;c__C;o__O;f__F;g__Unclassified;s__Unclassified",
+                        "/nonexistent.fna" });  // an unclassified genome: species unknown_species_U1
+    CommunityProfileDesigner designer(genomes);
+    ProfileDesignOptions options;
+    options.total_read_pairs = 10'000'000;
+    options.species_per_sample = 10;
+    parse_contaminants("3-6:1e-6:2e-5", options);
+    for (std::uint64_t seed = 1; seed <= 20; seed++) {
+        std::mt19937_64 rng(seed);
+        auto const members = designer.design_profile(options, rng);
+        std::set<std::string> member_species;
+        for (auto const& a : members) member_species.insert(a.species);
+        std::mt19937_64 other(seed + 100);
+        auto const contaminants = designer.draw_contaminants(options, members, other);
+        EXPECT_GE(contaminants.size(), 3u);  // 10 to 200 pairs each: never rounded away
+        EXPECT_LE(contaminants.size(), 6u);
+        std::set<std::string> species;
+        for (auto const& c : contaminants) {
+            EXPECT_TRUE(c.contaminant);
+            EXPECT_EQ(member_species.count(c.species), 0u) << c.species;
+            EXPECT_TRUE(species.insert(c.species).second) << c.species;
+            EXPECT_NE(c.genome.name, "U1");
+            EXPECT_GE(c.read_pairs, 10u) << c.species;
+            EXPECT_LE(c.read_pairs, 201u) << c.species;
+        }
+    }
+    // none drawn without the option; none left to draw where the sample holds every species
+    ProfileDesignOptions none;
+    none.total_read_pairs = 10'000'000;
+    std::mt19937_64 rng(3);
+    EXPECT_TRUE(designer.draw_contaminants(none, designer.design_profile(none, rng), rng).empty());
+    CommunityProfileDesigner small(Genomes(4, 1));
+    options.species_per_sample = 4;
+    std::mt19937_64 rng2(5);
+    EXPECT_TRUE(small.draw_contaminants(options, small.design_profile(options, rng2), rng2).empty());
+}
+
 namespace {
     // The read pairs of each species of a sample.
     std::vector<std::uint64_t> PairsBySpecies(std::vector<GenomeAssignment> const& assignments) {

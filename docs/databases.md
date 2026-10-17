@@ -573,6 +573,10 @@ sample or missed a fifth of the strains.
     `--omega` in the script). The r226 v15 in-silico strains, made with 0.15, had 0.06-0.10 less of
     their differences on third positions than real strains at the same identity, a spectrum the
     presence models could learn ([report](claude/2026-10-07-error-read-signatures/README.md)).
+    Since 2026-10-17 the calibrated omega is raised by `--insilico-omega-scale` (1.3; `--omega-scale` in the script;
+    0.074 to about 0.096 at r226). More of a strain's substitutions then change an amino acid at the same divergence.
+    Real isolates further from their references than the in-silico strains were rejected on real mock communities
+    ([report](claude/2026-10-16-mock-regression/README.md)). `--insilico-omega-scale 1` keeps the calibrated value.
   - congener sites (since 2026-10-09): as many of its marker substitutions at the sites where its species' nearest
     congener differs (`species_clouds.tsv`), with the congener's base, as the table's real strains have there, each
     in place of another of the gene's substitutions (`--congener-share` in the script). Drawn by gene and codon alone,
@@ -623,7 +627,23 @@ The samples are as complex as real ones:
 - depths from 1,000 to 30M read pairs (`--read-pairs`), and since 2026-10-15 one sample of 60M pairs of the 150 bp
   HiSeq X setup (`60000000:1:150:HSXt`: `DEPTH:SAMPLES:LENGTH[:INSTRUMENT]` makes a depth of those setups only). A
   model with the sample's depth as a feature cannot extrapolate beyond its deepest training sample, and real samples
-  are 5-50M pairs and more; the scenarios reach ~40M.
+  are 5-50M pairs and more; the scenarios reach ~40M;
+- since 2026-10-17, contaminants (`--contaminants`, default `0-30:1e-6:2e-5`). Each sample of the design and of the
+  scenarios also gets reads of 0-30 genomes of species its community does not hold, each 1e-6 to 2e-5 of its read
+  pairs (log-uniform): the low-level DNA of other organisms that real libraries carry (other samples on the flow cell,
+  reagents, the lab), often of genera the community lacks. They are real species of the sample, so present in its
+  truth. Real mock communities carry them at these levels: 0.8.5 found 9-12 species the mock does not list per HiSeq
+  library and 52-73 per DNBSEQ one ([report](claude/2026-10-16-mock-regression/README.md)). The simulated samples
+  had none: every species of a sample came from its community's draw.
+  - **The draw:** `simulate_metagenomes --contaminants MIN-MAX:LOW:HIGH` draws each sample's contaminants from a
+    random stream of their own, after its community. The communities' genomes, read pairs and reads are therefore
+    those of a build without them, and the contaminants' reads come on top, after the community's.
+  - **Where they go:** they are in the truth, the manifests (flagged by the column `contaminant` 1) and the long
+    reads of the same communities. In the training table their rows are present, marked `meta_contaminant` 1, so the
+    reports can tell how the models find them.
+  - **At which depths they matter:** at 2M pairs and less a contaminant has a marker read now and then; at 10M and
+    more, a few to a few dozen.
+  - **Leaving them out:** `--contaminants none` builds as before.
 
 #### One model per read type
 
@@ -1191,6 +1211,7 @@ keeps the finished database.
 | `--novel-clades-per-sample` | 1 | species of held-out clades per sample and rank |
 | `--insilico-strains`, `--min-real-strains`, `--insilico-multi`, `--insilico-ani` | `auto`, 0.5, 0.25, | share of one-genome species given an in-silico strain (`auto`: as many as keep the real strains at `--min-real-strains` of the simulated strains or more); share of the species with real strains given one too; or their ANI drawn from `MIN-MAX` |
 | `--insilico-indels` | 0.02 | codon indels in the in-silico strains' marker genes per substitution, in pairs that keep a gene's length (since 2026-10-15; 0: substitutions only, [above](#training-data-like-real-samples)) |
+| `--insilico-omega-scale` | 1.3 | the in-silico strains' calibrated omega (dN/dS) times this (since 2026-10-17, [above](#training-data-like-real-samples)); 1 keeps the calibrated value |
 | `--weighted-site-shift` | off | the collections' protal runs with the weighted site shift (`protal --weighted_site_shift`), and the database's users should profile with it too (`build_metadata.tsv` says so; since 2026-10-15 both `protal --build`s get it as well, for a protal that records the run options in `build_settings.tsv` and follows them; the build's other runs use protal's defaults, and the checks' diagnostic runs, `--no_allele_scores`, are never given to a build); the default from 2026-10-11 to 2026-10-12, off again since it lowered r226 v24b's short-read depths by 1-2% without a measurable F1 gain |
 | `--samples` | 9 | samples per design point (12 before 2026-10-14, with three paired-end setups) |
 | `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:3,10000000:1,30000000:1,60000000:1:150:HSXt` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples (`2000000:4,10000000:2` before 2026-10-14); `DEPTH:SAMPLES:LENGTH[:INSTRUMENT]` for a depth of those setups only (the 60M sample since 2026-10-15, [time](#time-and-memory)) |
@@ -1200,6 +1221,7 @@ keeps the finished database.
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
 | `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
+| `--contaminants` | `0-30:1e-6:2e-5` | each sample also gets reads of 0-30 genomes of species its community does not hold, 1e-6 to 2e-5 of its read pairs each, present in its truth (since 2026-10-17, [above](#training-data-like-real-samples)); `none` for none |
 | `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn; a continuous long tail, no species below 1/1000 of the median, every species a read pair or more), `poisson_lognormal:SIGMA` (Poisson counts + 1, the lognormal before 2026-10-07: ~40-45% of the species at the lowest weight), `powerlaw:ALPHA` or `negbin:R:P` |
 | `--read-types` | `pe,se,pb,ont` | the read types to train, each once; a design point that no pe or se unit reads, but whose communities the long-read or Ultima samples replay, is simulated without reads (since 2026-10-15) |
 | `--long-read-bases`, `--long-read-samples` | 300 kb to 6 Gb and one sample of 20 Gb (since 2026-10-15), 36 | long-read depths and samples per point |

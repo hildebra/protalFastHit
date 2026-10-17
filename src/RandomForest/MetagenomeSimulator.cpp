@@ -377,6 +377,45 @@ void parse_congener_groups(const std::string& text, ProfileDesignOptions& option
     options.congener_max = hi;
 }
 
+void parse_contaminants(const std::string& text, ProfileDesignOptions& options) {
+    if (text.empty()) return;
+    auto const fail = [&text]() {
+        throw std::runtime_error("Invalid --contaminants (expected N:LOW:HIGH or MIN-MAX:LOW:HIGH, genomes per sample "
+                                 "and the share of the sample's read pairs each gets, 0 < LOW <= HIGH < 1, e.g. "
+                                 "0-30:1e-6:2e-5): " + text);
+    };
+    auto const first = text.find(':');
+    auto const second = first == std::string::npos ? std::string::npos : text.find(':', first + 1);
+    if (second == std::string::npos || text.find(':', second + 1) != std::string::npos) fail();
+    std::string const counts = text.substr(0, first);
+    auto const dash = counts.find('-');
+    std::string const lo_text = counts.substr(0, dash);
+    std::string const hi_text = dash == std::string::npos ? lo_text : counts.substr(dash + 1);
+    if (lo_text.empty() || hi_text.empty() || lo_text.find_first_not_of("0123456789") != std::string::npos ||
+        hi_text.find_first_not_of("0123456789") != std::string::npos) fail();
+    std::size_t lo = 0, hi = 0;
+    double low = -1, high = -1;
+    try {
+        lo = static_cast<std::size_t>(std::stoull(lo_text));
+        hi = static_cast<std::size_t>(std::stoull(hi_text));
+        std::size_t used = 0;
+        std::string const low_text = text.substr(first + 1, second - first - 1), high_text = text.substr(second + 1);
+        low = std::stod(low_text, &used);
+        if (used != low_text.size()) fail();
+        high = std::stod(high_text, &used);
+        if (used != high_text.size()) fail();
+    } catch (const std::invalid_argument&) {
+        fail();
+    } catch (const std::out_of_range&) {
+        fail();
+    }
+    if (hi < lo || !(low > 0 && low <= high && high < 1)) fail();
+    options.contaminants_min = lo;
+    options.contaminants_max = hi;
+    options.contaminant_share_low = low;
+    options.contaminant_share_high = high;
+}
+
 // fasta_path, art_seed, run_seed and host_seed are appended after the historical columns, never
 // inserted between them: downstream consumers read manifests by column name, so growing the
 // header on the right keeps every existing reader working. art_seed: a genome's reads (fragments,
@@ -384,9 +423,12 @@ void parse_congener_groups(const std::string& text, ProfileDesignOptions& option
 // every row of a sample). With all three a replay (--from_manifest) makes the same reads. marker_read_pairs and
 // marker_first_reads (--gene_positions): the genome's pairs that overlap a marker gene by either read, and by the first
 // (empty when not counted: without the option, the genome's positions, its reads, or, for pairs, a second read).
+// contaminant (--contaminants, since 2026-10-17): 1 for a contaminant's genome, a species of the sample (in its truth)
+// drawn apart from its community, at a low share.
 static constexpr const char* kManifestHeader =
     "sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance"
-    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\trun_seed\thost_seed\tmarker_read_pairs\tmarker_first_reads\n";
+    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\trun_seed\thost_seed\tmarker_read_pairs\tmarker_first_reads"
+    "\tcontaminant\n";
 
 static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, const GenomeAssignment& assignment) {
     out << sample.sample_name << '\t' << assignment.genome.name << '\t' << assignment.species << '\t'
@@ -403,7 +445,7 @@ static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, c
     if (assignment.marker_read_pairs) out << *assignment.marker_read_pairs;
     out << '\t';
     if (assignment.marker_first_reads) out << *assignment.marker_first_reads;
-    out << '\n';
+    out << '\t' << (assignment.contaminant ? 1 : 0) << '\n';
 }
 
 void write_sample_manifest(const SampleOutput& sample, const fs::path& manifest_path) {
@@ -515,25 +557,56 @@ SampleOutput MetagenomeSimulator::simulate_single(
     return sample;
 }
 
+// An assignment's depth: its read bases over its genome's length, and its relative abundance before normalizing.
+static void set_coverage(GenomeAssignment& assignment, std::uint64_t paired_read_length) {
+    if (assignment.genome_length == 0) {
+        throw std::runtime_error("Missing genome length for " + assignment.genome.name);
+    }
+    const double bases = static_cast<double>(assignment.read_pairs * paired_read_length);
+    const double coverage = bases / static_cast<double>(assignment.genome_length);
+    assignment.vertical_coverage = coverage;
+    assignment.relative_abundance = coverage;  // normalized later (normalize_relative_abundance)
+}
+
 // Prepares assignments whose genome, read_pairs and genome_length are already fixed — by the profile
 // designer on a fresh run, or by a manifest on a replay.
 void MetagenomeSimulator::prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length)
 {
     for (auto& assignment : sample.assignments) {
-            const auto genome_len = assignment.genome_length;
-            if (genome_len == 0) {
-                throw std::runtime_error("Missing genome length for " + assignment.genome.name);
-            }
             // Drawn even when reads are skipped, so that a --test design and the corresponding real run consume the
-            // RNG identically (31 bits, as when ART read it as a signed 32-bit number); a replayed seed is kept.
-            const auto drawn_seed = static_cast<unsigned int>(rng_() & 0x7fffffffu);
-            if (!assignment.art_seed) {
-                assignment.art_seed = drawn_seed;
+            // RNG identically (31 bits, as when ART read it as a signed 32-bit number); a replayed seed is kept. A
+            // contaminant's seed comes from its own stream (add_contaminants), so a replay draws none for it.
+            if (!(assignment.contaminant && assignment.art_seed)) {
+                const auto drawn_seed = static_cast<unsigned int>(rng_() & 0x7fffffffu);
+                if (!assignment.art_seed) {
+                    assignment.art_seed = drawn_seed;
+                }
             }
-            const double bases = static_cast<double>(assignment.read_pairs * paired_read_length);
-            const double coverage = bases / static_cast<double>(genome_len);
-            assignment.vertical_coverage = coverage;
-            assignment.relative_abundance = coverage;  // normalized later in simulate_samples
+            set_coverage(assignment, paired_read_length);
+    }
+}
+
+// Contaminants (ProfileDesignOptions::contaminants_max > 0), after the sample's community is prepared: drawn from a
+// random stream of their own (the run's seed and the sample's place), the seeds of their reads too, so that the
+// communities' genomes, read pairs and reads and the other samples are those of a run without them (the relative
+// abundances, over all of a sample's genomes, shift by the contaminants' small share). Their reads come after the
+// community's (and before the host's).
+void MetagenomeSimulator::add_contaminants(SampleOutput& sample, const ProfileDesignOptions& options, std::size_t index,
+                                           const std::unordered_map<std::string, std::uint64_t>& genome_lengths,
+                                           std::uint64_t paired_read_length) const
+{
+    if (options.contaminants_max == 0) return;
+    std::mt19937_64 rng(MixSeed(seed_, 0x636f6e74ULL + index));  // "cont"
+    auto contaminants = designer_.draw_contaminants(options, sample.assignments, rng);
+    for (auto& assignment : contaminants) {
+        auto it_len = genome_lengths.find(assignment.genome.name);
+        if (it_len == genome_lengths.end()) {
+            throw std::runtime_error("Missing genome length for " + assignment.genome.name);
+        }
+        assignment.genome_length = it_len->second;
+        assignment.art_seed = static_cast<unsigned int>(rng() & 0x7fffffffu);
+        set_coverage(assignment, paired_read_length);
+        sample.assignments.push_back(std::move(assignment));
     }
 }
 
@@ -662,6 +735,7 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
         per_sample_opts.species_min_abundance = strain_assignments[i].species_min_abundance;
 
         auto sample = simulate_single(per_sample_opts, name.str(), genome_lengths, paired_read_length);
+        add_contaminants(sample, per_sample_opts, i, genome_lengths, paired_read_length);
         normalize_relative_abundance(sample);
         // the sample's quality offset and host reads (IlluminaModel::RunOffset, Host), recorded in the manifests so that
         // a replay (--from_manifest) makes the same reads
@@ -765,6 +839,7 @@ std::vector<SampleOutput> read_manifest(const fs::path& manifest_path) {
         if (!seed_field.empty()) {
             assignment.art_seed = std::stoull(seed_field);
         }
+        assignment.contaminant = column(fields, "contaminant", false) == "1";  // none before 2026-10-17
         // the sample's run and host seeds, the same on each of its rows
         SampleOutput& sample = samples[it->second];
         for (auto [name, seed] : {std::pair<const char*, std::optional<std::uint64_t>*>{"run_seed", &sample.run_seed},

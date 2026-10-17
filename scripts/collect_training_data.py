@@ -48,7 +48,13 @@ drawn from a genome table of its own that gives the share of species the databas
 its read types (Illumina at a mean base quality, Ultima single-end reads, PacBio, Nanopore; a host
 genome's share of the reads, --host_genome) sequences the same communities, sample s of each at the same
 bases: a sample's depth is its scenario's times a factor drawn for it (scenarios.depth_factors). --samples 0
-collects the scenarios alone. --unmapped_reads (all, or read types, of the design's samples or of scenarios) has protal
+collects the scenarios alone.
+
+Contaminants (--contaminants, since 2026-10-17): every paired-end simulation, the design's and the scenarios', also
+puts into each sample the reads of a few genomes of species its community does not hold, each a small share of its
+read pairs (simulate_metagenomes --contaminants): the low-level DNA of other organisms that real libraries carry
+(docs/claude/2026-10-16-mock-regression). They are real species of the sample, so present in its truth; their rows are
+meta_contaminant 1, and the long reads of the same communities carry them too. --unmapped_reads (all, or read types, of the design's samples or of scenarios) has protal
 write an unmapped record for each read of those samples that seeded on taxa but aligned nowhere (the map's
 UNMAPPED_READS), so that their SAMs hold every read with a seed: error_reads.py takes the records of the reads behind a
 model's errors from them.
@@ -137,6 +143,13 @@ def parse_args(argv=None):
                         "design point, the genus drawn per point among those with that many species; 0 (default): "
                         "none. Species are otherwise drawn uniformly, so among many genera relatives hardly ever "
                         "share a sample, while in real samples they often do, at very different abundances")
+    p.add_argument("--contaminants", default="", type=contaminant_spec,
+                   help="MIN-MAX:LOW:HIGH (or N:LOW:HIGH), e.g. 0-30:1e-6:2e-5: each sample of the design's and the "
+                        "scenarios' points also gets reads of MIN to MAX genomes of species its community does not hold, "
+                        "each a share of its read pairs drawn log-uniformly from LOW to HIGH (simulate_metagenomes "
+                        "--contaminants): the low-level DNA of other organisms that real libraries carry. They are real "
+                        "species of the sample, present in its truth; their rows are meta_contaminant 1, and the long "
+                        "reads of a community carry them too. Default: none")
     p.add_argument("--read_types", default="pe",
                    help="comma-separated read types to collect: pe, se, pb, ont (default pe)")
     p.add_argument("--long_read_bases", default="300000,1500000,6000000,30000000,150000000",
@@ -368,7 +381,7 @@ def writes_unmapped(unit, opts):
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
                 "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain",
-                "meta_scenario", "meta_novel_distance", "meta_marker_reads"]
+                "meta_scenario", "meta_novel_distance", "meta_marker_reads", "meta_contaminant"]
 # meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont); for a scenario its
 # preset's, around which each sample's own depth is drawn (scenarios.depth_factors).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
@@ -388,6 +401,8 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 # meta_marker_reads (--gene_positions): for a present taxon, its genomes' reads in the sample that overlap a marker
 # gene (pe: pairs by either read; se: first reads; long reads: reads), the simulator's count; empty where not counted. A
 # species whose marker genes got no read is present in the sample but cannot be seen by them.
+# meta_contaminant (--contaminants): 1 for a taxon that is one of the sample's contaminants (present: a real species of
+# the sample at a low share, drawn apart from its community), else 0.
 INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
@@ -489,6 +504,26 @@ def congener_spec(text):
     if not text.isdigit():
         raise argparse.ArgumentTypeError(f"{text!r}: expected SHARE:MIN-MAX (e.g. 0.25:2-5) or a number of species")
     return ("genus", int(text))
+
+
+def contaminant_spec(text):
+    """--contaminants: MIN-MAX:LOW:HIGH or N:LOW:HIGH as simulate_metagenomes takes it (genomes per sample, the share of
+    its read pairs each gets, 0 < LOW <= HIGH < 1), checked here so that a build fails at its start; "" or none: ""."""
+    text = str(text).strip()
+    if text.lower() in ("", "none", "0"):
+        return ""
+    parts = text.split(":")
+    try:
+        lo, _, hi = parts[0].partition("-")
+        hi = hi or lo
+        ok = len(parts) == 3 and lo.isdigit() and hi.isdigit() and int(lo) <= int(hi) and \
+            0 < float(parts[1]) <= float(parts[2]) < 1
+    except ValueError:
+        ok = False
+    if not ok:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected MIN-MAX:LOW:HIGH or N:LOW:HIGH (genomes per sample, "
+                                         "0 < LOW <= HIGH < 1 of its read pairs each, e.g. 0-30:1e-6:2e-5), or none")
+    return text
 
 
 def large_genera(genome_table, size):
@@ -655,13 +690,29 @@ def manifest_rows(folder):
         return [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh if line.strip()]
 
 
+def is_contaminant(row):
+    """Whether a manifest row is a contaminant's (simulate_metagenomes --contaminants): a species of the sample drawn
+    apart from its community (no column before 2026-10-17: none)."""
+    return row.get("contaminant") == "1"
+
+
 def simulated_genomes(point_dir):
-    """sample -> {species name: [genome, ...]} from the simulator's manifest."""
+    """sample -> {species name: [genome, ...]} from the simulator's manifest (contaminants included: real species of the
+    sample)."""
     genomes = {}
     for row in manifest_rows(os.path.join(point_dir, "sim")):
         species = row["taxonomy"].split(";")[-1]
         genomes.setdefault(row["sample"], {}).setdefault(species, []).append(row["genome"])
     return genomes
+
+
+def contaminant_species(point_dir):
+    """sample -> {species name} of its contaminants, from the simulator's manifest."""
+    found = collections.defaultdict(set)
+    for row in manifest_rows(os.path.join(point_dir, "sim")):
+        if is_contaminant(row):
+            found[row["sample"]].add(row["taxonomy"].split(";")[-1])
+    return found
 
 
 def marker_counts(point_dir):
@@ -1449,6 +1500,8 @@ def scenario_command(point, opts, threads):
                *reads_compression_args(opts)]
     if d["strains"]:
         command += ["--strains_per_species", d["strains"]]
+    if getattr(opts, "contaminants", ""):
+        command += ["--contaminants", opts.contaminants]
     if point.get("host_pairs") and getattr(opts, "host_folder", None):
         command += ["--host_folder", opts.host_folder, "--host_pairs", ",".join(map(str, host_pairs_of(point)))]
     kind, congeners = congener_spec(d["congeners"])
@@ -1479,6 +1532,8 @@ def simulation_command(point, index, opts, threads, clades):
                *reads_compression_args(opts)]
     if opts.strains_per_species:
         command += ["--strains_per_species", opts.strains_per_species]
+    if getattr(opts, "contaminants", ""):
+        command += ["--contaminants", opts.contaminants]
     # One --taxon for all demands: the simulator reads only the last.
     taxa = [f"d__Archaea:{opts.archaea}"] if opts.archaea > 0 else []
     if opts.novel_clades > 0:
@@ -2125,7 +2180,7 @@ def write_table(read_type, units, opts, context, gate=None):
     # beside its table (since 2026-10-13): the species a gate leaves without a row are its misses too.
     unseen_path = os.path.join(os.path.dirname(table), unseen_table(read_type)) \
         if getattr(opts, "gene_positions", None) else os.devnull
-    genomes_of, markers_of = {}, {}
+    genomes_of, markers_of, contaminants_of = {}, {}, {}
     distance_to = {s: dict(pairs) for s, pairs in clouds.items()}  # meta_novel_distance: species -> {congener: distance}
     unseen_partial = unseen_path + ".partial" if unseen_path != os.devnull else os.devnull
     with open(table + ".partial", "w", newline="") as out, open(unseen_partial, "w", newline="") as unseen_out:
@@ -2144,7 +2199,9 @@ def write_table(read_type, units, opts, context, gate=None):
                 if community_point["name"] not in genomes_of:
                     genomes_of[community_point["name"]] = simulated_genomes(point_dirs(community_point, opts)[0])
                     markers_of[community_point["name"]] = marker_counts(point_dirs(community_point, opts)[0])
+                    contaminants_of[community_point["name"]] = contaminant_species(point_dirs(community_point, opts)[0])
                 in_sample = genomes_of[community_point["name"]].get(community, {})
+                contaminated = contaminants_of[community_point["name"]].get(community, set())
                 # Each genome's reads on a marker gene in this sample: long reads their own; se the community's first
                 # reads; pe its pairs.
                 if long_counts is not None:
@@ -2197,7 +2254,8 @@ def write_table(read_type, units, opts, context, gate=None):
                         writer.writerow([unit["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
                                          novel_levels, level, relative, neighbour, read_type, insilico,
-                                         unit.get("scenario", ""), novel_distance, markers] + row)
+                                         unit.get("scenario", ""), novel_distance, markers,
+                                         int(taxon in contaminated)] + row)
                         seen.add(taxon)
                         rows += 1
                         present += is_present

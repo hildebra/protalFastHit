@@ -155,6 +155,7 @@ struct CliOptions {
     std::string genus_counts;
     std::string taxon_counts;
     std::string congener_groups;
+    std::string contaminants;  // --contaminants MIN-MAX:LOW:HIGH
     IlluminaOptions illumina;
     std::uint64_t illumina_report{0};  // --illumina_report PAIRS: a profile's statistics instead of samples
     std::optional<std::uint64_t> seed;
@@ -284,6 +285,14 @@ static cxxopts::Options build_cxxopts() {
                                 "to MAX species of one genus, genera drawn per sample among those with MIN species or "
                                 "more (after --genus and --taxon). Default: none, every species drawn from all species, "
                                 "so that congeners hardly ever share a sample", cxxopts::value<std::string>()->default_value(""))
+        ("contaminants",        "MIN-MAX:LOW:HIGH (or N:LOW:HIGH), e.g. 0-30:1e-6:2e-5: each sample also gets MIN to MAX "
+                                "contaminants, genomes of species its community does not hold, each with a share of its "
+                                "read pairs drawn log-uniformly from LOW to HIGH (on top of the community's), as real "
+                                "libraries carry other organisms' DNA at low levels. Real species of the sample: in its "
+                                "reads, its truth (protal_goldstd) and its abundances, flagged in the manifests (column "
+                                "contaminant 1). Drawn from a random stream of their own: the communities' genomes, read "
+                                "pairs and reads are those of a run without them. Default: none",
+                                cxxopts::value<std::string>()->default_value(""))
         ("strain_sharing_file", "TSV file for cross-sample strain sharing. Columns (tab-separated): "
                                 "SPECIES  SAMPLE_FRACTION  N_STRAINS  MIN_OCCURRENCE  MIN_VCOV  CONSPECIFIC_STRAINS. "
                                 "Lines starting with # are ignored. MIN_VCOV and CONSPECIFIC_STRAINS are optional. "
@@ -559,9 +568,11 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.genus_counts      = result["genus"].as<std::string>();
     opts.taxon_counts      = result["taxon"].as<std::string>();
     opts.congener_groups   = result["congener_groups"].as<std::string>();
+    opts.contaminants      = result["contaminants"].as<std::string>();
     {
         ProfileDesignOptions check;  // fails before any genome is read
         protal::sim::parse_congener_groups(opts.congener_groups, check);
+        protal::sim::parse_contaminants(opts.contaminants, check);
     }
     opts.threads          = result["threads"].as<int>();
     opts.test_mode         = result.count("test") > 0;
@@ -674,6 +685,7 @@ static void write_run_params(
     out << "calibration\t" << (cli.illumina.calibration ? std::to_string(*cli.illumina.calibration) : "") << '\n';
     out << "host_folder\t" << cli.illumina.host_folder.string() << '\n';
     out << "host_pairs\t" << HostPairsText(cli.illumina.host_pairs) << '\n';
+    out << "contaminants\t" << cli.contaminants << '\n';  // a design's (a replay's are its manifest's rows)
     out << "reads\t" << "simulate_metagenomes IlluminaSimulator (no ART)" << '\n';
 }
 
@@ -696,6 +708,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     profile.genus_species_counts = protal::sim::parse_genus_selection(cli.genus_counts);
     profile.taxon_species_counts = protal::sim::parse_taxon_selection(cli.taxon_counts);
     protal::sim::parse_congener_groups(cli.congener_groups, profile);
+    protal::sim::parse_contaminants(cli.contaminants, profile);
     profile.total_read_pairs = cli.total_read_pairs;
     profile.total_read_pairs_per_sample = cli.total_read_pairs_per_sample;
     profile.pick_random_demand_if_fail = cli.pick_random_demand_if_fail;
@@ -1267,6 +1280,24 @@ int main(int argc, char** argv) {
         protal::sim::write_abundance_matrix(samples, cli.output_dir / "abundance_matrix.tsv");
 
         std::cout << "Wrote " << samples.size() << " samples to " << cli.output_dir << '\n';
+        {
+            std::size_t contaminants = 0;
+            std::uint64_t contaminant_pairs = 0, pairs = 0;
+            for (const auto& sample : samples) {
+                for (const auto& assignment : sample.assignments) {
+                    pairs += assignment.read_pairs;
+                    if (!assignment.contaminant) continue;
+                    ++contaminants;
+                    contaminant_pairs += assignment.read_pairs;
+                }
+            }
+            if (contaminants > 0) {
+                std::cout << "Contaminants: " << contaminants << " genomes in " << samples.size() << " samples, "
+                          << contaminant_pairs << " read pairs ("
+                          << 100.0 * static_cast<double>(contaminant_pairs) / static_cast<double>(std::max<std::uint64_t>(pairs, 1))
+                          << "% of the samples' pairs but the host's), present in the truth\n";
+            }
+        }
 
         if (cli.plot_png) {
             fs::path plots_dir = cli.output_dir / "plots";
@@ -1311,7 +1342,7 @@ int main(int argc, char** argv) {
                 if (!truth_out) {
                     throw std::runtime_error("Unable to write profile truth: " + truth_path.string());
                 }
-                for (const auto& assignment : sample.assignments) {
+                for (const auto& assignment : sample.assignments) {  // contaminants too: real species of the sample
                     if (seen.insert(assignment.genome.taxonomy).second) {
                         truth_out << assignment.genome.taxonomy << '\n';
                     }

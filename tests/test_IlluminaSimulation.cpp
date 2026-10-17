@@ -369,6 +369,85 @@ TEST(IlluminaSimulation, ReplayFromManifestsMakesTheSameReads) {
     }
 }
 
+// Contaminants (--contaminants) add reads of genomes of species the sample's community does not hold, after the
+// community's: the communities' genomes, read pairs and seeds are those of a run without them (their own random
+// stream), the abundances of all add up to 1 (the community's in the same proportions), and the manifest flags them, so
+// that a replay makes the same reads.
+TEST(IlluminaSimulation, ContaminantsAddReadsBesideTheSameCommunity) {
+    ScratchDir dir("contaminants");
+    std::mt19937 gen(37);
+    std::vector<GenomeRecord> genomes;
+    for (int g = 0; g < 8; ++g) {
+        std::string const fasta = dir.Write("G" + std::to_string(g) + ".fna",
+                                            ">c" + std::to_string(g) + "\n" + protal::test::RandomSequence(8000, gen) + "\n");
+        genomes.push_back({"G" + std::to_string(g), "d__B;p__P;c__C;o__O;f__F;g__G" + std::to_string(g) + ";s__G" +
+                           std::to_string(g) + " sp", fasta, 8000});
+    }
+    IlluminaOptions illumina;
+    illumina.sequencer = "HSXt";
+    ProfileDesignOptions profile;
+    profile.total_read_pairs = 2000;
+    profile.species_per_sample = 3;
+    MetagenomeSimulator plain(genomes, illumina, 11);
+    auto const clean = plain.simulate_samples(profile, 3, "s", dir.path / "clean");
+    parse_contaminants("2:0.01:0.02", profile);  // 20 to 40 pairs each
+    MetagenomeSimulator dirty(genomes, illumina, 11);
+    auto const samples = dirty.simulate_samples(profile, 3, "s", dir.path / "dirty");
+    ASSERT_EQ(samples.size(), 3u);
+    for (std::size_t s = 0; s < 3; ++s) {
+        auto const& members = clean[s].assignments;
+        auto const& all = samples[s].assignments;
+        ASSERT_EQ(all.size(), members.size() + 2) << s;
+        std::set<std::string> member_species;
+        double abundance = 0;
+        std::uint64_t contaminant_pairs = 0;
+        for (std::size_t a = 0; a < all.size(); ++a) {
+            abundance += all[a].relative_abundance;
+            if (a < members.size()) {
+                EXPECT_FALSE(all[a].contaminant);
+                EXPECT_EQ(all[a].genome.name, members[a].genome.name);
+                EXPECT_EQ(all[a].read_pairs, members[a].read_pairs);
+                EXPECT_EQ(all[a].art_seed, members[a].art_seed);
+                EXPECT_NEAR(all[a].relative_abundance / all[0].relative_abundance,
+                            members[a].relative_abundance / members[0].relative_abundance, 1e-9);
+                member_species.insert(all[a].species);
+            } else {
+                EXPECT_TRUE(all[a].contaminant);
+                EXPECT_EQ(member_species.count(all[a].species), 0u);
+                EXPECT_GE(all[a].read_pairs, 20u);
+                EXPECT_LE(all[a].read_pairs, 41u);
+                EXPECT_GT(all[a].relative_abundance, 0.0);
+                contaminant_pairs += all[a].read_pairs;
+            }
+        }
+        EXPECT_NEAR(abundance, 1.0, 1e-9) << s;
+        // the community's reads, then the contaminants' (named after their contigs)
+        auto const clean_reads = ReadFastq(clean[s].read1_path.string());
+        auto const reads = ReadFastq(samples[s].read1_path.string());
+        ASSERT_EQ(reads.size(), clean_reads.size() + contaminant_pairs) << s;
+        std::set<std::string> contigs;
+        for (std::size_t r = clean_reads.size(); r < reads.size(); ++r) contigs.insert(reads[r].name.substr(1, 2));
+        std::set<std::string> expected;
+        for (std::size_t a = members.size(); a < all.size(); ++a) expected.insert("c" + all[a].genome.name.substr(1));
+        EXPECT_EQ(contigs, expected) << s;
+    }
+    // the manifest flags them, and a replay makes the same reads
+    write_combined_manifest(samples, dir.path / "manifest.tsv");
+    auto design = read_manifest(dir.path / "manifest.tsv");
+    ASSERT_EQ(design.size(), 3u);
+    for (std::size_t s = 0; s < 3; ++s) {
+        for (std::size_t a = 0; a < design[s].assignments.size(); ++a) {
+            EXPECT_EQ(design[s].assignments[a].contaminant, samples[s].assignments[a].contaminant) << s << " " << a;
+        }
+    }
+    MetagenomeSimulator replay(genomes, illumina, 999);
+    auto const again = replay.replay_samples(design, dir.path / "replay");
+    for (std::size_t s = 0; s < 3; ++s) {
+        EXPECT_EQ(protal::test::Slurp(again[s].read1_path), protal::test::Slurp(samples[s].read1_path)) << s;
+        EXPECT_EQ(protal::test::Slurp(again[s].read2_path), protal::test::Slurp(samples[s].read2_path)) << s;
+    }
+}
+
 // A run that fails while it streams into named pipes ends them, after all it wrote, with what no reader takes for the
 // end of a sample: a cut zstd frame (or gzip member), or a FASTQ record without its sequence (plain pipes). Here with
 // the pipes full and their readers held when the run fails: the failing genome is a named pipe too, which the run opens

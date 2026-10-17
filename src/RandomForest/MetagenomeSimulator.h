@@ -23,6 +23,10 @@ std::unordered_map<std::string, std::size_t> parse_taxon_selection(const std::st
 // --congener_groups SHARE:MIN-MAX (e.g. "0.25:2-5") into options' congener_share, congener_min and congener_max; ""
 // leaves them (no groups). Throws on a share outside 0-1, a MIN below 2 or above MAX, or another form.
 void parse_congener_groups(const std::string& text, ProfileDesignOptions& options);
+// --contaminants N:LOW:HIGH or MIN-MAX:LOW:HIGH (e.g. "0-30:1e-6:2e-5") into options' contaminants_min,
+// contaminants_max, contaminant_share_low and contaminant_share_high; "" leaves them (none). Throws on MIN above MAX,
+// a share outside 0 < LOW <= HIGH < 1, or another form.
+void parse_contaminants(const std::string& text, ProfileDesignOptions& options);
 void write_combined_manifest(const std::vector<SampleOutput>& samples, const std::filesystem::path& manifest_path);
 void write_sample_manifest(const SampleOutput& sample, const std::filesystem::path& manifest_path);
 void write_abundance_matrix(const std::vector<SampleOutput>& samples, const std::filesystem::path& matrix_path);
@@ -82,6 +86,12 @@ private:
     // as a run draws in the same order whether or not it writes reads, and its coverage: everything of a sample that
     // depends on rng_, so that the reads can be made on threads.
     void prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length);
+
+    // A prepared sample's contaminants (--contaminants), drawn from a random stream of its own (the run's seed and the
+    // sample's `index`), so that rng_ and with it every community and its reads are those of a run without them.
+    void add_contaminants(SampleOutput& sample, const ProfileDesignOptions& options, std::size_t index,
+                          const std::unordered_map<std::string, std::uint64_t>& genome_lengths,
+                          std::uint64_t paired_read_length) const;
 
     // The samples' _R1 and _R2 files (only _R1 with first_reads_only): each assignment's pairs from its seed, then the
     // sample's host pairs (IlluminaSimulator: SimulatePairs), compressed as they are made (BGZF, .fq.gz, or zstd,

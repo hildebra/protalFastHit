@@ -12,6 +12,7 @@ those tests are skipped without it, or fail under PROTAL_TESTS_REQUIRED=1). Need
 import argparse
 import collections
 import contextlib
+import csv
 import glob
 import gzip
 import io
@@ -1101,6 +1102,72 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(gate1)), ["samples_pe.txt", "training_data.tsv"])
         self.assertNotIn("training_data.unseen.tsv", os.listdir(root))
         self.assertIn("training_data.tsv", os.listdir(root))
+
+    def test_contaminants(self):
+        # simulate_metagenomes --contaminants: a sample's contaminants are real species of it, flagged in its manifest
+        # (contaminant 1). Their rows are meta_contaminant 1 (present); one with reads on a marker gene and no row is an
+        # unseen species as any (s__E e); the long reads of the community draw them too, each by its relative abundance
+        # times its length, as the community's genomes; the option is checked first and goes to every simulation.
+        root = os.path.join(self.tmp.name, "contaminants")
+        opts = argparse.Namespace(out=root, gene_positions="given")
+        point = {"name": "P", "read_length": "150", "read_pairs": "1000", "samples": 1}
+        unit = {"type": "pe", "point": point, "name": "P", "samples": 1}
+        base = os.path.join(root, "points", "P")
+        sim = os.path.join(base, "sim")
+        os.makedirs(sim)
+        with open(os.path.join(sim, "manifest.tsv"), "w") as fh:
+            fh.write("sample\tgenome\ttaxonomy\tgenome_length\trelative_abundance\tfasta_path\tmarker_read_pairs\t"
+                     "marker_first_reads\tcontaminant\n"
+                     "P_s_1\tG1\td__B;s__A a\t1000\t0.75\t/g1.fna\t10\t10\t0\n"
+                     "P_s_1\tG2\td__B;s__B b\t3000\t0.25\t/g2.fna\t7\t7\t0\n"
+                     "P_s_1\tG3\td__B;s__C c\t2000\t0.001\t/g3.fna\t2\t2\t1\n"
+                     "P_s_1\tG4\td__B;s__E e\t2000\t0.0005\t/g4.fna\t3\t3\t1\n")
+        with open(os.path.join(sim, "protal.meta"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{sim}\n#INPUT_DIR\t{sim}\n#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\t"
+                     f"PROFILE_TRUTH\nP_s_1\ta\tb\tc\td\te\t{sim}/truth\n")
+        os.makedirs(os.path.join(base, "protal", "profiles"))
+        with open(os.path.join(base, "protal", "profiles", "P_s_1.profile.truth_annotated"), "w") as fh:
+            fh.write("taxon_name\ttruth\tfeat\ns__A a\t1\t0.5\ns__C c\t1\t0.1\ns__D d\t0\t0.2\n")
+        self.assertEqual(collect.simulated_genomes(base),
+                         {"P_s_1": {"s__A a": ["G1"], "s__B b": ["G2"], "s__C c": ["G3"], "s__E e": ["G4"]}})
+        self.assertEqual(dict(collect.contaminant_species(base)), {"P_s_1": {"s__C c", "s__E e"}})
+        lineage = {s: {"species": s} for s in ("s__A a", "s__B b", "s__C c", "s__D d", "s__E e")}
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.write_tables(["pe"], [unit], opts, ({}, {}, {}, lineage, {}, {}), 1)
+        with open(os.path.join(root, "training_data.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual({r["taxon_name"]: r["meta_contaminant"] for r in rows}, {"s__A a": "0", "s__C c": "1", "s__D d": "0"})
+        with open(os.path.join(root, "training_data.unseen.tsv")) as fh:
+            self.assertEqual([line.split("\t")[3] for line in fh.read().splitlines()[1:]], ["s__B b", "s__E e"])
+        long_unit = {"type": "pb", "name": "L", "bases": 10000, "samples": 1,
+                     "setup": collect.parse_long_setup("hifi:1000:0:3"), "communities": [point],
+                     "point": {"name": "L", "read_length": "1000", "read_pairs": "10000"}}
+        plan = collect.long_unit_plan(0, long_unit, argparse.Namespace(out=root, seed=1, simulator="sim",
+                                                                       read_compression="gzip"))
+        with open(os.path.join(plan["tmp"], "genomes.tsv")) as fh:
+            weights = {r["genome"]: float(r["weight"]) for r in csv.DictReader(fh, delimiter="\t")}
+        self.assertEqual(weights, {"G1": 750.0, "G2": 750.0, "G3": 2.0, "G4": 1.0})
+        # the option: checked, and given to the design's and the scenarios' simulations
+        self.assertEqual(collect.contaminant_spec("0-30:1e-6:2e-5"), "0-30:1e-6:2e-5")
+        self.assertEqual(collect.contaminant_spec("none"), "")
+        for bad in ("30-0:1e-6:2e-5", "0-30:2e-5:1e-6", "0-30:0:1e-5", "0-30:1e-6", "x:1e-6:2e-5", "0-30:1e-6:1"):
+            with self.assertRaises(argparse.ArgumentTypeError, msg=bad):
+                collect.contaminant_spec(bad)
+        design = argparse.Namespace(read_setups="150:HSXt:350:50", se_read_setups="", read_pairs="1000",
+                                    read_types=["pe"], samples=2, long_read_samples=2, pb_setup="hifi:15000:3000:3",
+                                    ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6",
+                                    se_ultima_setup="", scenarios="gut", scenario_samples=2, scenario_file=None,
+                                    out="/o", simulator="sim", genome_table="g",
+                                    species_per_sample="5-30", seed=1, abundance="", strains_per_species="", archaea=0,
+                                    novel_clades=0, congeners=collect.congener_spec("0"), contaminants="0-30:1e-6:2e-5")
+        points, _ = collect.units_of(design)
+        self.assertEqual({bool(p.get("scenario")) for p in points}, {False, True})
+        for p in points:
+            command, error = collect.simulation_command(p, 0, design, 1, {})
+            self.assertIsNone(error)
+            self.assertEqual(command[command.index("--contaminants") + 1], "0-30:1e-6:2e-5", p["name"])
+        design.contaminants = ""
+        self.assertNotIn("--contaminants", collect.simulation_command(points[0], 0, design, 1, {})[0])
 
     def test_long_read_templates(self):
         # simulate_metagenomes draws a long-read sample's templates from the contigs of 100 bases or more (plain or

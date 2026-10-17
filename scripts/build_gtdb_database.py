@@ -220,7 +220,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, MODEL_KINDS, gate_model_file, kind_model_file, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, unseen_table, parse_args as collector_args  # noqa: E402
+from collect_training_data import FLEX_SUFFIX, GRID_SUFFIX, HASH_SUFFIX, INSILICO_PREFIX, LEVELS_DIR, STRIDE_COLUMN, STRIDE_SUFFIX, TABLES, clock, congener_spec, contaminant_spec, flex_indels_levels, is_ultima, last_line, level_parts, levels_text, manifest_rows, read_clouds, simulation_bytes, simulation_of, simulation_state, sparse_first_levels, stride_levels, unit_level_ids, unit_streamed_level_ids, units_of, unseen_table, parse_args as collector_args  # noqa: E402
 import database_check  # noqa: E402
 
 
@@ -2046,7 +2046,8 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
                                             f"single-end setups {args.se_read_setups}, Ultima {args.se_ultima_setup or 'none'}; "
                                             f"species per sample {args.species_per_sample}; strains "
                                             f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}; "
-                                            f"congeners {congener_text(args.congeners)}"),
+                                            f"congeners {congener_text(args.congeners)}; contaminants "
+                                            f"{getattr(args, 'contaminants', '') or 'none'}"),
              ("classifier_read_types", ",".join(read_types)),
              ("classifier_depth_knobs", ",".join(t for t in read_types if t in depth_knob_types(args)) or "none"),
              ("classifier_call_mode", args.call_mode),
@@ -2627,6 +2628,14 @@ DEFAULT_LONG_READ_BASES = "300000,1500000,6000000,30000000,150000000,1500000000:
 # --insilico-indels: codon indels per substitution of an in-silico strain's marker gene (insilico_strains.py
 # --indel-share).
 DEFAULT_INSILICO_INDELS = 0.02
+# --insilico-omega-scale (since 2026-10-17): the calibrated omega (0.074 at r226) times 1.3, a slight rise.
+DEFAULT_INSILICO_OMEGA_SCALE = 1.3
+# --contaminants (since 2026-10-17): 0 to 30 genomes per sample, 1e-6 to 2e-5 of its read pairs each, present species of
+# the sample: the range of the unlisted species 0.8.5 found in real mock communities (profile shares 1e-6 to 1.6e-5, 2 to
+# 25 marker-gene fragments at 20M pairs; 9-12 per Illumina HiSeq library, 52-73 per DNBSEQ one:
+# docs/claude/2026-10-16-mock-regression). At 2M pairs and less a contaminant has a marker read now and then; at 10M and
+# more, a few to a few dozen.
+DEFAULT_CONTAMINANTS = "0-30:1e-6:2e-5"
 # --test-other-pick (--test-stride before 2026-10-13, when the other pick was stride), by default (auto) with
 # --test-c-gates: the gates at which each read type's test samples are also profiled with another pick than its
 # database's gate uses (other_pick: stride beside grid or hash, hash beside stride): auto, its database's own gate if 2 or
@@ -3459,6 +3468,13 @@ def main():
                         "magnitude, and docs/claude has no measurement of real strains'): with substitutions alone every "
                         "in-silico strain's read aligned without a gap, as no real strain's does (the f1 audit, C4). 0: "
                         "none, as before; the strains' substitutions are the same either way. No cost to speak of")
+    p.add_argument("--insilico-omega-scale", type=float, default=DEFAULT_INSILICO_OMEGA_SCALE, metavar="FACTOR",
+                   help="the in-silico strains' omega (dN/dS) that insilico_strains.py --omega auto calibrates on the real "
+                        "strains' third-codon-position share, times this (its --omega-scale). Default "
+                        f"{DEFAULT_INSILICO_OMEGA_SCALE:g} since 2026-10-17 (r226: about 0.074 to 0.096): more of a "
+                        "strain's substitutions change an amino acid at the same divergence; real isolates further from "
+                        "their references than the in-silico strains were rejected on real mocks "
+                        "(docs/claude/2026-10-16-mock-regression). 1: the calibrated omega, as before")
     p.add_argument("--test-samples", type=int, default=4,
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "
                         "has another design than the training data (--test-*), so that the report shows what "
@@ -3560,6 +3576,15 @@ def main():
                         "r226 tables such a model missed 69-73%% of the present species beside a congener 10 times as "
                         "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
                         "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
+    p.add_argument("--contaminants", default=DEFAULT_CONTAMINANTS, type=contaminant_spec,
+                   help="contaminants in the training data's and the test set's samples (collect_training_data.py "
+                        "--contaminants): MIN-MAX:LOW:HIGH, each sample also gets reads of MIN to MAX genomes of species "
+                        "its community does not hold, each a share of its read pairs drawn log-uniformly from LOW to "
+                        "HIGH, present in its truth (real species of the sample); none to leave them out (as builds did "
+                        f"before 2026-10-17). Default {DEFAULT_CONTAMINANTS}: real libraries carry other organisms' DNA at "
+                        "such levels, species of genera the community often lacks (0.8.5 on real mock communities: 9-12 "
+                        "such species per HiSeq library, 52-73 per DNBSEQ one, docs/claude/2026-10-16-mock-regression), "
+                        "which the simulated samples lacked")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--model", type=model_kinds_spec, default=model_kinds_spec("gbm,forest"),
                    help="the kinds of presence models to train (machine_learning_cmdline.py --model), comma-separated: "
@@ -4285,7 +4310,8 @@ def main():
             positions = positions_file()
             command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
                        strains, "--share", str(args.insilico_strains), "--multi-share", str(args.insilico_multi),
-                       "--indel-share", f"{args.insilico_indels:g}", "--seed", str(args.seed), "-t", str(args.threads)]
+                       "--indel-share", f"{args.insilico_indels:g}", "--omega-scale", f"{args.insilico_omega_scale:g}",
+                       "--seed", str(args.seed), "-t", str(args.threads)]
             if positions:
                 command += ["--positions", positions, "--taxonomy", taxonomy]
                 if make_clouds and os.path.isfile(clouds_file):
@@ -4552,6 +4578,7 @@ def main():
                    "--pbsim", args.pbsim, "--read_compression", args.read_compression]
         command += ["--abundance", abundance] if abundance else []
         command += ["--strains_per_species", strains] if strains else []
+        command += ["--contaminants", args.contaminants] if args.contaminants else []
         command += ["--pbsim_models", args.pbsim_models] if args.pbsim_models else []
         if n_heldout:
             command += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]

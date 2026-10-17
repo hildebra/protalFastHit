@@ -30,6 +30,9 @@ struct GenomeAssignment {
     // With --gene_positions, of its read pairs those that overlap a marker gene (by either read; none with first reads
     // only), and those whose first read does; unknown without the genome's positions or its reads.
     std::optional<std::uint64_t> marker_read_pairs, marker_first_reads;
+    // A contaminant (--contaminants): a species of the sample drawn apart from its community, at a low share (manifest
+    // column contaminant). It is in the sample's reads, truth and abundances as any species.
+    bool contaminant{false};
 };
 
 enum class AbundanceDistribution {
@@ -83,6 +86,15 @@ struct ProfileDesignOptions {
     double congener_share{0.0};
     std::size_t congener_min{2};
     std::size_t congener_max{5};
+    // Contaminants (--contaminants MIN-MAX:LOW:HIGH): each sample gets contaminants_min to contaminants_max genomes of
+    // species its community does not hold, each with a share of its read pairs drawn log-uniformly from
+    // contaminant_share_low to contaminant_share_high, on top of the community's: the low-level DNA of other organisms
+    // that real libraries carry (other samples on the flow cell, reagents, the lab). They are real species of the
+    // sample, so its truth lists them. Without them (contaminants_max 0) every species of a sample is of its community.
+    std::size_t contaminants_min{0};
+    std::size_t contaminants_max{0};
+    double contaminant_share_low{1e-6};
+    double contaminant_share_high{2e-5};
 
     // Cross-sample strain sharing: consumed by MetagenomeSimulator before the per-sample loop.
     std::vector<StrainSharingSpec> strain_sharing;

@@ -29,7 +29,9 @@ The mutations:
   strains against their representatives, the copies compared along their shared 12-mers) and takes the omega that
   gives the same share when the representatives' genes are mutated here: at r226 v15 the in-silico strains made
   with 0.15 had 0.06-0.10 less of their differences on third positions than the real strains, a spectrum the
-  presence models could learn (docs/claude/2026-10-07-error-read-signatures).
+  presence models could learn (docs/claude/2026-10-07-error-read-signatures). --omega-scale multiplies the omega auto
+  finds (build_gtdb_database.py gives 1.3 since 2026-10-17, about 0.074 to 0.096 at r226): real isolates further from
+  their references than the in-silico strains were missed (docs/claude/2026-10-16-mock-regression).
 - Congener sites. A real strain shares its species' nearest congener's base at some of the sites where the congener
   differs (ancestral polymorphism, recombination, sites that change fast); mutations drawn by gene and codon seldom
   land there. At r226 v19 the missed real strains lacked their species' base at 10% of those sites, the in-silico
@@ -458,6 +460,20 @@ def calibrate_omega(target, copies, kappa, rng, grid=OMEGA_GRID):
     return OMEGA_DEFAULT
 
 
+def auto_omega(share, copies, kappa, rng, scale=1.0, subs=0, used=0):
+    """--omega auto: the omega at which the strains' share of substitutions on third codon positions is the real
+    strains' `share` (calibrate_omega; OMEGA_DEFAULT without real strains), times `scale` (--omega-scale). -> (omega,
+    the note the run prints)."""
+    times = "" if scale == 1 else f" x {scale:g}"
+    if share is None:
+        return OMEGA_DEFAULT * scale, (f"omega {OMEGA_DEFAULT * scale:.3f} ({OMEGA_DEFAULT}{times}; no real strains to "
+                                       f"calibrate on: {subs} substitutions of {used} strains)")
+    found = calibrate_omega(share, copies, kappa, rng)
+    return found * scale, (f"omega {found * scale:.3f} ({found:.3f}{times}): {share:.3f} of the real strains' "
+                           f"substitutions on third codon positions ({subs} substitutions in the marker genes of {used} "
+                           "strains)")
+
+
 def read_fasta(path):
     """[(header line without '>', sequence bytes)]."""
     opener = gzip.open if path.endswith(".gz") else open
@@ -827,6 +843,12 @@ def main(argv=None):
                     help="share of amino-acid changes kept (dN/dS): a number, or auto (the default), the omega at which "
                          f"the strains' third-codon-position share of substitutions equals the real strains' ({OMEGA_DEFAULT} "
                          "without real strains)")
+    ap.add_argument("--omega-scale", type=float, default=1.0, metavar="FACTOR",
+                    help="with --omega auto: the omega found (or the default) times this (default 1). Above 1 more of a "
+                         "strain's substitutions change an amino acid than the real strains' third-codon-position share "
+                         "says, at the same divergence (build_gtdb_database.py --insilico-omega-scale, 1.3 since "
+                         "2026-10-17: real isolates further from their references than the in-silico strains were missed, "
+                         "docs/claude/2026-10-16-mock-regression)")
     ap.add_argument("--kappa", type=float, default=3.0, help="transition / transversion rate ratio (default 3)")
     ap.add_argument("--clouds", help="species_clouds.tsv (protal --write_species_neighbours; with --taxonomy): each species' "
                                      "nearest congeners, for --congener-share")
@@ -844,6 +866,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if not 0 <= args.indel_share <= 1:
         ap.error("--indel-share is a share from 0 to 1")
+    if not args.omega_scale > 0:
+        ap.error("--omega-scale is a factor above 0")
 
     rows = read_table(args.genome_table)
     rows = [r for r in rows if not is_insilico(r[0])]
@@ -877,13 +901,7 @@ def main(argv=None):
         real_spectrum(rows, strains, args.positions, reps or set(), rng, args.threads, congeners, rep_of_species) \
         if measured else (None, 0, 0, [], None, 0)
     if args.omega == "auto":
-        if share is None:
-            omega = OMEGA_DEFAULT
-            omega_note = (f"omega {omega} (no real strains to calibrate on: {subs} substitutions of {used} strains)")
-        else:
-            omega = calibrate_omega(share, copies, args.kappa, rng)
-            omega_note = (f"omega {omega:.3f}: {share:.3f} of the real strains' substitutions on third codon positions "
-                          f"({subs} substitutions in the marker genes of {used} strains)")
+        omega, omega_note = auto_omega(share, copies, args.kappa, rng, args.omega_scale, subs, used)
     else:
         omega = float(args.omega)
         omega_note = f"omega {omega} (given)"

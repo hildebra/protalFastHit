@@ -29,6 +29,16 @@ public:
         const ProfileDesignOptions& options,
         std::mt19937_64& rng) const;
 
+    // A sample's contaminants (options.contaminants_max > 0): contaminants_min to contaminants_max genomes, each of a
+    // species none of `members` is of (nor an unclassified genome's), one genome of the species, with a share of
+    // options.total_read_pairs drawn log-uniformly from contaminant_share_low to contaminant_share_high, rounded at
+    // random (a share below one pair gives one now and then); one that comes to no pair is left out. Flagged
+    // contaminant, without genome length or seed.
+    std::vector<GenomeAssignment> draw_contaminants(
+        const ProfileDesignOptions& options,
+        const std::vector<GenomeAssignment>& members,
+        std::mt19937_64& rng) const;
+
     // Pre-assign strains across all samples according to strain_sharing specs.
     // Returns one SampleStrainAssignment per sample (indexed 0..sample_count-1).
     std::vector<SampleStrainAssignment> assign_strains_across_samples(

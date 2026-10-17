@@ -672,6 +672,40 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     return assignments;
 }
 
+std::vector<GenomeAssignment> CommunityProfileDesigner::draw_contaminants(
+    const ProfileDesignOptions& options, const std::vector<GenomeAssignment>& members, std::mt19937_64& rng) const {
+    std::vector<GenomeAssignment> drawn;
+    if (options.contaminants_max == 0) return drawn;
+    Groups const& groups_of = groups();
+    std::unordered_set<std::string> in_sample;
+    for (const auto& member : members) in_sample.insert(member.species);
+    std::vector<std::string const*> candidates;  // by name (groups' order): the draw depends on the seed only
+    for (std::string const* species : groups_of.species) {
+        if (in_sample.count(*species) == 0 && species->rfind("unknown_species_", 0) != 0 &&
+            !groups_of.grouped.at(*species).empty()) {
+            candidates.push_back(species);
+        }
+    }
+    std::size_t const want = std::min<std::size_t>(
+        portable::Between(rng, options.contaminants_min, options.contaminants_max), candidates.size());
+    double const low = std::log(options.contaminant_share_low);
+    double const high = std::log(options.contaminant_share_high);
+    for (std::size_t i = 0; i < want; ++i) {  // the first `want` of a Fisher-Yates shuffle
+        std::swap(candidates[i], candidates[i + portable::Below(rng, candidates.size() - i)]);
+        const auto& genomes = groups_of.grouped.at(*candidates[i]);
+        const GenomeRecord& genome = genomes[portable::Below(rng, genomes.size())];
+        double const expected = std::exp(low + (high - low) * portable::Uniform(rng)) *
+                                static_cast<double>(options.total_read_pairs);
+        auto pairs = static_cast<std::uint64_t>(expected);
+        if (portable::Uniform(rng) < expected - static_cast<double>(pairs)) ++pairs;
+        if (pairs == 0) continue;
+        GenomeAssignment assignment{genome, *candidates[i], pairs, 0.0, 0};
+        assignment.contaminant = true;
+        drawn.push_back(std::move(assignment));
+    }
+    return drawn;
+}
+
 std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_across_samples(
     const std::vector<StrainSharingSpec>& specs,
     std::size_t sample_count,

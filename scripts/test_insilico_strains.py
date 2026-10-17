@@ -221,6 +221,13 @@ class InsilicoStrains(unittest.TestCase):
         lower = ins.calibrate_omega(min(0.95, share + 0.1), copies, 3.0, rng)
         self.assertLess(lower, omega)
         self.assertEqual(ins.calibrate_omega(None, copies, 3.0, rng), ins.OMEGA_DEFAULT)
+        # --omega-scale: the omega auto finds (or the default), times the factor, which the note says
+        scaled, note = ins.auto_omega(share, copies, 3.0, np.random.default_rng(5), 1.3)
+        found = ins.calibrate_omega(share, copies, 3.0, np.random.default_rng(5))
+        self.assertAlmostEqual(scaled, found * 1.3)
+        self.assertIn(f"({found:.3f} x 1.3)", note)
+        self.assertEqual(ins.auto_omega(None, copies, 3.0, rng, 1.3)[0], ins.OMEGA_DEFAULT * 1.3)
+        self.assertEqual(ins.auto_omega(None, copies, 3.0, rng)[0], ins.OMEGA_DEFAULT)
 
     def test_orfs_both_strands(self):
         codes = ins.CODE[np.frombuffer(self.genome.encode(), np.uint8)]
