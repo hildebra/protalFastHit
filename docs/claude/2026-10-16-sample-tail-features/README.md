@@ -42,7 +42,8 @@ report's other option.
 - **Recommendation:** train the next r226 build with `--features <default>+tail` and compare it with v31 on the
   scenario samples and with the default set on the real mocks, then decide on the default set. The new deep, rich,
   uneven training samples (`234675b`) give the models what these features describe from another side, and that build
-  has both. Real samples carry foreign DNA that looks like a tail to these features (caveats): the mocks are the check.
+  has both. Real samples carry contaminant DNA that looks like a tail to these features and is present too (caveats):
+  check `tail` on the real mocks with the contaminants counted as present.
 
 ## 1. Where the tail shows: v27's training scenarios
 
@@ -162,13 +163,15 @@ the higher knob the trainer chose with `tail`. pe's gut hold-out is -0.0021 at 0
 - The models were trained on v31's training samples, which lack deep, rich, uneven samples. The next build trains on
   such samples (`234675b`), which may teach the models the same from the other features; whether `tail` still adds
   something then is what that build should say.
-- **Foreign DNA reads like a tail.** Another session's report written meanwhile
-  ([mock regression](../2026-10-16-mock-regression/README.md)) finds 0.8.5's false calls on real mocks to be mostly thin,
-  high-identity rows of DNA the libraries carry from species the mock lacks; the simulations had none. Such a row is a
-  close thin taxon here, just as a rare member of the community is, so a contaminated real sample has a higher
-  `sample_thin_close_share` and a model trained with `tail` may call more of its contaminants. The simulations gain
-  contaminants on 2026-10-17 ([contaminants](../2026-10-17-contaminants/README.md)); a build with both is where `tail`
-  must show it does not raise those false calls (the real mocks' false positives with and without it).
+- **Contaminant DNA reads like a tail, and is present.** Another session's report written meanwhile
+  ([mock regression](../2026-10-16-mock-regression/README.md)) finds most of 0.8.5's extra calls on real mocks to be thin,
+  high-identity rows of DNA the libraries carry from species the mock's list lacks; the simulations had none. Such a row
+  is a close thin taxon here, as a rare member of the community is, so a model trained with `tail` may call more of
+  them. That is not wrong: their DNA is in the sample, so they are present species, true positives (the user,
+  2026-10-17). Only a mock's list counts them as false positives, so the mocks must be scored with them counted as
+  present before `tail` is judged there. The simulations gain contaminants on 2026-10-17
+  ([contaminants](../2026-10-17-contaminants/README.md)); for the models to learn that a thin contaminant is present,
+  they belong in the truth (as written there they are left out of it).
 
 ## Next
 
