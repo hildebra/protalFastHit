@@ -130,6 +130,8 @@ namespace protal::feature_versions {
         { "sample_log_taxa", 1, "2026-10-07", "log10 of the sample's taxa with fragments" },
         { "sample_low_identity", 1, "2026-10-07", "the sample's fragments' share on low-identity bases" },
         { "sample_identity", 1, "2026-10-07", "the sample's taxa's fragment-weighted median identity" },
+        { "sample_thin_share", 1, "2026-10-16", "the sample's taxa of 1-2 fragments over its taxa with fragments" },
+        { "sample_thin_close_share", 1, "2026-10-16", "of those, the share within 0.01 of the sample's identity" },
         { "fragments_all", 1, "2026-10-03", "fragments before the filters" },
         { "em_fragments", 2, "2026-10-05", "em_own_share times fragments_all; EM 100 sweeps f2bafd9" },
         { "failed_candidate_rate", 2, "2026-10-14", "reads seeded on it that did not align, over those tried; single-seed anchors out (ce2940e, 3ef6ad6)" },

@@ -229,6 +229,18 @@ namespace protal::profiler::context {
     // samples scored 0.935 against 0.908 (docs/claude/2026-10-06-r226-v14).
     inline constexpr size_t kSampleIdentityMinFragments = 10;  // the taxa sample_identity is the median of, if any
 
+    // The sample's tail (since 2026-10-16; SampleEvidence::sample_thin_share, sample_thin_close_share): its thin taxa, of
+    // 1 to kThinFragments fragments, as a share of its taxa with fragments, and the share of those whose identity is
+    // within kThinIdentityMargin of the sample's (SampleComplexity::identity). A species of a long tail reads as the
+    // sample's own species read; a congener's spill onto a taxon the sample lacks reads some percent lower. At GTDB r226
+    // v31 a deep, species-rich, uneven test soil sample lost 85% of its species with 1-2 marker reads: the models had
+    // seen thin taxa in deep, rich samples only as spill, the deep, rich training samples all being even
+    // (docs/claude/2026-10-16-r226-v31, docs/claude/2026-10-16-sample-tail-features).
+    // The margin: in r226 v27's training tables the close share of the deep, even soils was 0.05-0.06 at 0.01, against
+    // 0.12 in those with hundreds of thin species (2.2 times); at 0.03 1.6 times, a congener within 3% passing for own.
+    inline constexpr size_t kThinFragments = 2;
+    inline constexpr double kThinIdentityMargin = 0.01;
+
     // A taxon as SampleComplexityOf sees it: its fragments, identity (BaseIdentity) and share of low-identity bases
     // (LowIdentityShare).
     struct TaxonSummary {
@@ -244,6 +256,9 @@ namespace protal::profiler::context {
         double identity = 0;      // the fragment-weighted median identity of the taxa with at least
                                   // kSampleIdentityMinFragments fragments (of every taxon with fragments if none has
                                   // that many); 0 without fragments
+        double thin_share = 0;        // the taxa of 1 to kThinFragments fragments over the taxa with fragments; 0 without
+        double thin_close_share = 0;  // of those thin taxa, the share whose identity is at least identity minus
+                                      // kThinIdentityMargin; 0 without thin taxa
     };
 
     // The sample's complexity from its taxa, given in a fixed order (taxids ascending): taxa of equal identity are
@@ -281,6 +296,14 @@ namespace protal::profiler::context {
                 break;
             }
         }
+        size_t thin = 0, close = 0;
+        for (auto const& t : taxa) {
+            if (t.fragments == 0 || t.fragments > kThinFragments) continue;
+            thin++;
+            close += t.identity >= c.identity - kThinIdentityMargin;
+        }
+        c.thin_share = static_cast<double>(thin) / static_cast<double>(with_fragments);
+        c.thin_close_share = thin > 0 ? static_cast<double>(close) / static_cast<double>(thin) : 0;
         return c;
     }
 

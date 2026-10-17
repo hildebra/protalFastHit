@@ -111,6 +111,16 @@ set since 2026-10-06. A dump of a protal before them lacks the three columns. In
 with samples held out 0.908 -> 0.936, gut +0.004 to +0.006 with species held out, no cost on the design's test set at
 a fixed knob (docs/claude/2026-10-07-r226-v15).
 
+TAIL_FEATURES ("tail", 2026-10-16): the sample's tail, the same for each of its taxa (protal's
+context::SampleComplexityOf): sample_thin_share, its taxa of 1-2 fragments over its taxa with fragments, and
+sample_thin_close_share, the share of those thin taxa whose identity is within 0.01 of sample_identity. A long tail of
+the sample's own species reads as its abundant species do; a congener's spill onto a taxon the sample lacks reads some
+percent lower. At r226 v31 a deep, species-rich, uneven test soil sample lost 85% of its species with 1-2 marker reads:
+a thin row in a deep, rich training sample was nearly always spill, those samples' communities being even, and the
+models read the tail from the depth and the taxa (docs/claude/2026-10-16-r226-v31). Not in the default set: a set naming
+"tail" says what they are worth (docs/claude/2026-10-16-sample-tail-features). A dump of a protal before them lacks the
+two columns.
+
 Three groups against the false positives of complex communities (soil: 59-76% beside a novel species near-identical
 to the taxon on the marker genes; docs/claude/2026-10-06-false-positive-features), added 2026-10-06 and not yet
 measured at r226 (the next build's tables decide; train without them with --features
@@ -289,6 +299,8 @@ REF_FEATURES = ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"]
 
 # The sample's complexity: its taxa, its share of low-identity bases and its median identity (see above).
 COMPLEXITY_FEATURES = ["sample_log_taxa", "sample_low_identity", "sample_identity"]
+# The sample's tail: its thin taxa's share and how many of them read as its own species (see above; since 2026-10-16).
+TAIL_FEATURES = ["sample_thin_share", "sample_thin_close_share"]
 
 # What GTDB knows of the species before any read (see above).
 PRIORS_FEATURES = ["rep_duplicate_share", "rep_completeness", "rep_contamination", "cluster_ani_radius", "cluster_mean_ani",
@@ -354,7 +366,7 @@ FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEAT
                   "ancestry": ANCESTRY_FEATURES, "gaps": GAP_FEATURES, "foreign": FOREIGN_FEATURES, "untried": UNTRIED_FEATURES,
                   "alleles": ALLELE_FEATURES, "polymorphic": POLYMORPHIC_FEATURES, "weights": WEIGHT_FEATURES,
                   "strain_identity": STRAIN_IDENTITY_FEATURES, "length_free": LENGTH_FREE_FEATURES,
-                  "read_length": READ_LENGTH_FEATURES, "priors": PRIORS_FEATURES}
+                  "read_length": READ_LENGTH_FEATURES, "tail": TAIL_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
@@ -382,6 +394,8 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
                 "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length+foreign",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+"
+                "gaps+untried+alleles+polymorphic+weights+strain_identity+length_free+read_length+tail",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")

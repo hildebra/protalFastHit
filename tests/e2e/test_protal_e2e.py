@@ -1439,6 +1439,19 @@ class ModelContractTest(DbTest):
         self.assertAlmostEqual(float(rows[0]["sample_log_taxa"]), math.log10(len(rows)), places=12)
         self.assertTrue(0 <= float(rows[0]["sample_low_identity"]) <= 1, rows[0])
         self.assertTrue(0.98 < float(rows[0]["sample_identity"]) <= 1, rows[0])
+        # Its tail (since 2026-10-16): the rows of 1-2 fragments over all, and the share of them within 0.01 of the
+        # sample's identity; the same in every row.
+        from model_features import TAIL_FEATURES
+        for name in TAIL_FEATURES:
+            self.assertEqual(len({row[name] for row in rows}), 1, name)
+        thin = [row for row in rows if float(row["fragments"]) <= 2]
+        self.assertAlmostEqual(float(rows[0]["sample_thin_share"]), len(thin) / len(rows), places=12)
+        close = float(rows[0]["sample_thin_close_share"])
+        self.assertTrue(0 <= close <= 1, rows[0])
+        if thin:  # a share of the thin rows
+            self.assertAlmostEqual(close * len(thin), round(close * len(thin)), places=9)
+        else:
+            self.assertEqual(close, 0.0)
 
     def test_no_strains_changes_no_profile(self):
         # The baseline built strain MSAs over its samples; the same SAMs profiled with --no_strains.

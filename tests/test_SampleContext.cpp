@@ -3,6 +3,7 @@
 // ambiguous reads, the prior adjusted to a sample and the calls at a target share of false calls, the model header that
 // holds them, and the relatives features and the singleton rule on a profile.
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -150,6 +151,32 @@ TEST(SampleContext, TheSamplesComplexityIsItsTaxaTheirLowIdentityShareAndTheirMe
     EXPECT_EQ(empty.log_taxa, 0.0);
     EXPECT_EQ(empty.low_identity, 0.0);
     EXPECT_EQ(empty.identity, 0.0);
+    EXPECT_EQ(empty.thin_share, 0.0);
+    EXPECT_EQ(empty.thin_close_share, 0.0);
+}
+
+TEST(SampleContext, TheSamplesTailIsItsThinTaxaAndHowManyOfThemReadAsItsOwnSpecies) {
+    // The first example's taxa: one thin taxon (2 fragments, 0.80) of the 4 with fragments, far below the sample's
+    // identity 0.97: a congener's spill by the look of it.
+    std::vector<ctx::TaxonSummary> taxa = { { 30, 0.99, 0.0 }, { 0, 0.5, 1.0 }, { 10, 0.95, 0.5 }, { 60, 0.97, 0.1 },
+                                            { 2, 0.80, 1.0 } };
+    auto const c = ctx::SampleComplexityOf(taxa);
+    EXPECT_EQ(ctx::kThinFragments, 2u);
+    EXPECT_EQ(ctx::kThinIdentityMargin, 0.01);
+    EXPECT_EQ(c.thin_share, 0.25);
+    EXPECT_EQ(c.thin_close_share, 0.0);
+    // A long tail of the sample's own species: three thin taxa (1, 2 and 1 fragments) at 0.99, 0.965 (within the margin
+    // below 0.97: close) and 0.955 (beyond it), and one of 3 fragments (not thin) beside the deep ones.
+    taxa.insert(taxa.end(), { { 1, 0.99, 0.0 }, { 2, 0.965, 0.0 }, { 1, 0.955, 0.0 }, { 3, 0.99, 0.0 } });
+    auto const tail = ctx::SampleComplexityOf(taxa);
+    EXPECT_EQ(tail.identity, 0.97);
+    EXPECT_EQ(tail.thin_share, 4.0 / 8.0);
+    EXPECT_EQ(tail.thin_close_share, 2.0 / 4.0);
+    // Order-free: the same in any order of the taxa.
+    std::reverse(taxa.begin(), taxa.end());
+    auto const reversed = ctx::SampleComplexityOf(taxa);
+    EXPECT_EQ(reversed.thin_share, tail.thin_share);
+    EXPECT_EQ(reversed.thin_close_share, tail.thin_close_share);
 }
 
 // θ / (1 - θ) of the taxon's differences per aligned base θ, within 0.002..0.2; 0.05 without aligned bases.

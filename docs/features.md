@@ -40,6 +40,7 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `strain_identity` | 2026-10-13 | `identity` and `top_identity` with each read against its species' best strain allele | yes, untested at r226 |
 | `length_free` | 2026-10-14 | features that do not change with the read length or the share of a read's cores looked up: the reads' unique seeds over those their genes lead one to expect, beside the unique k-mer rates (in their place until the counts came from the alignment, later on 2026-10-14); in place of the best reads' identities and the ancestry sites per record, the best reads' identity bounds and the ancestry sites per kb | yes, untested at r226 |
 | `read_length` | 2026-10-14 | the sample's read length (mean and SD of its records' aligned bases) and the taxon's against it | yes, untested at r226 |
+| `tail` | 2026-10-16 | the sample's tail: its taxa of 1-2 fragments, and how many of them read as its own species do | opt-in (`+tail`), untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
 The default set is
@@ -320,6 +321,26 @@ Nanopore +0.001 to +0.005; on the design's test set -0.0006 (se, at 0.5) to +0.0
 -0.0017. A real soil sample at a depth the simulations did not draw is the case they are for. In the
 default set since 2026-10-06; the next GTDB build is the first to train with them. A training table
 of a protal before them lacks the three columns.
+
+## The sample's tail (`tail`, 2026-10-16, opt-in)
+
+Two more numbers of the whole sample (`context::SampleComplexityOf`), the same for every taxon:
+
+| feature | what it measures | matters for |
+|---|---|---|
+| `sample_thin_share` | the sample's taxa with 1 or 2 fragments over its taxa with fragments | how much of the profile is thin |
+| `sample_thin_close_share` | of those thin taxa, the share whose identity is within 0.01 of `sample_identity` | **a long tail of the sample's own species against a congener's spill**: a rare species reads as the sample's abundant ones do, a congener's reads on a species the sample lacks some percent lower |
+
+At r226 v31 a deep (1.38×), species-rich (10,521 species), uneven (lognormal sigma 2.5) test soil
+sample lost 85% of its species with 1-2 marker reads. Their own evidence looked like that of the thin
+species the training samples call; the models had learnt from the sample's depth and taxa that a
+thin row in a deep, rich sample is spill, because every deep, rich training soil had even abundances
+([report](claude/2026-10-16-r226-v31/README.md)). The thin share hardly tells such samples apart (0.47-0.71
+in v27's training scenarios, spill being thin too); the close share does: 0.05-0.06 in the deep, even
+soils against 0.12 in soils with hundreds of thin species, at a margin of 0.01 (0.03 lets the reads
+of congeners within 3% pass for the sample's own). Not in the default set: `--features` with `+tail`
+(a named set of the default and `tail`) trains with them ([report](claude/2026-10-16-sample-tail-features/README.md)).
+A training table of a protal before them lacks the two columns.
 
 ## Against false positives in complex communities (`consistency`, `shape`, `neighbourhood`, 2026-10-06)
 
@@ -781,6 +802,7 @@ The training dump also holds columns that no 0.7 set uses:
 | **Thin strains** (1-10 fragments, 2-4% from the reference: the false negatives) | `identity`, `excess_scaled_median`, `em_own_share`/`em_fragments`, `cluster_genomes_log10` (opt-in), `fragments` | v10: strains miss at 4.6% against 0.9% for representatives, 9.3% at 1-10 fragments; missed strains' identity median 0.967. Half the misses had most records below MAPQ 10. Since 0.7.6 one-genome species are trained with in-silico strains too. The remaining lever is strain alleles in the index, not a feature |
 | **Shallow samples** (a few thousand reads) | `sample_log_fragments`, `fragments`, `hit_gene_fraction` | at 500-1,000 pairs the depth feature lets a single read count; the knob curve did the same more coarsely |
 | **A complex community at a depth the training lacked** (soil at 2M pairs) | `sample_log_taxa`, `sample_low_identity`, `sample_identity` | r226 v14: with the depth alone, a shallow-soil sample below the simulated soil depths was scored like a design sample (F1 0.758); with the sample's complexity 0.935 over the six held out |
+| **A long tail in a deep, species-rich sample** (hundreds of species at 1-2 reads) | `sample_thin_close_share`, `sample_thin_share` (opt-in, `tail`); the training's deep, rich, uneven scenario samples (since 2026-10-16) | r226 v31: one such test soil sample lost 85% of its 1-2-read species, which the models took for spill |
 | **Abundance estimates** | `depth`, `top_identity`, `identity` (the margin rule), `conserved_*`, and the foreign-gene exclusion behind `depth` | not a forest decision: abundance is the depth from the reads within `--depth_identity_margin` (0.08) of `top_identity`, foreign genes left out, fragment bases once ([version_changes.md](version_changes.md)) |
 | **Long reads** (errors differ read by read) | `excess_scaled_median`, `excess_median`, `excess_high_share`, `top_identity` (PacBio), `third_position_share` (Nanopore), `low_mapq_share` | PacBio HiFi models were trained on reads with real qualities since 0.7.3; the excess features need base qualities and are 0 without them |
 | **Contamination and transferred gene copies** | the suspect-copy scan at build (`suspect_copies.tsv`, not a feature), then `gene_presence_ratio`, `depth_cv`, `other_genus_fit_share`, `adjacent_*`, `rep_contamination` | 47% of r226's cross-genus false positives were reads on copies near-identical to another genus's; the scan removes them from the evidence before the features see them (v10: 5,589 of 14.5M copies) |

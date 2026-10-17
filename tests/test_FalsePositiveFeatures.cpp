@@ -172,6 +172,10 @@ TEST(FalsePositiveFeatures, AProfilesTaxaCarryTheSamplesDepthAndTheirReadsDiverg
         EXPECT_NEAR(f->at("sample_log_taxa"), std::log10(2.0), 1e-12);
         EXPECT_NEAR(f->at("sample_low_identity"), (9 * t1.LowIdentityShare() + t2.LowIdentityShare()) / 10, 1e-12);
         EXPECT_EQ(f->at("sample_identity"), t1.BaseIdentity());
+        // Its tail (since 2026-10-16): taxon 2's one fragment makes half the taxa thin; close if its identity is within
+        // 0.01 of the sample's.
+        EXPECT_EQ(f->at("sample_thin_share"), 0.5);
+        EXPECT_EQ(f->at("sample_thin_close_share"), t2.BaseIdentity() >= t1.BaseIdentity() - 0.01 ? 1.0 : 0.0);
     }
     // Taxon 1's excess: medians over 9 reads (5 conserved at 0.02, 4 fast at 0.06) -> 0.02 - 1e-4; scaled all 0.04 - e.
     EXPECT_NEAR(f1.at("excess_median"), 0.02 - 1e-4, 1e-6);

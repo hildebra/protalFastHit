@@ -45,6 +45,13 @@ Not in a release yet.
   The pick enters both databases' build keys, so an earlier output folder rebuilds them. `protal --build` alone records
   no gates unless given and the stride where gates come without a pick, as before.
 
+- **The sample's tail as features (`sample_thin_share`, `sample_thin_close_share`; group `tail`, opt-in)**
+  (2026-10-16). The sample's taxa with 1-2 fragments over its taxa with fragments, and the share of those within 0.01 of
+  the sample's identity (`context::SampleComplexityOf`), in every dump and table; `--features` with `+tail` trains with
+  them, the default set is unchanged ([features.md](features.md#the-samples-tail-tail-2026-10-16-opt-in),
+  [report](claude/2026-10-16-sample-tail-features/README.md)). For a deep, species-rich sample with a long tail of rare
+  species, which the models took for congener spill at r226 v31.
+
 - **The allele scores off for new databases (`--build` records `allele_scores off` unless `--allele_scores`)**
   (2026-10-16). At GTDB r226 v31 profiling the short-read test samples without them changed no F1 (paired-end
   −0.0008, single-end +0.0001; [report](claude/2026-10-16-r226-v31/README.md)). Runs follow their database: one

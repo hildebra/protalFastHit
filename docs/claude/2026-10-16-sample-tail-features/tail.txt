@@ -1,0 +1,64 @@
+## pe
+knobs: as built 0.69, with the tail features 0.71
+sample_thin_share: importance 0.0012, rank 40 of 100
+sample_thin_close_share: importance 0.0201, rank 5 of 100
+
+set	samples	present	as built TP/FP/FN	with tail TP/FP/FN	F1 as built	F1 with tail	with tail - as built	95% interval
+held out, design	386	19518	18943/572/575	18919/534/599	0.9706	0.9709	+0.0003	[-0.0005, +0.0011]
+held out, scenarios (hold-in)	50	61164	57977/2838/3187	57863/2698/3301	0.9506	0.9507	+0.0001	[-0.0005, +0.0008]
+test, design	130	8538	8169/181/369	8186/188/352	0.9674	0.9681	+0.0006	[-0.0009, +0.0021]
+test, scenarios (hold-out)	20	24955	22559/806/2396	23361/1077/1594	0.9337	0.9459	+0.0122	[-0.0002, +0.0254]
+test, gut hold-out	4	1668	1655/10/13	1656/13/12	0.9931	0.9925	-0.0006	[-0.0029, +0.0007]
+held out, gut hold-in	10	4142	4069/30/73	4069/35/73	0.9875	0.9869	-0.0006	[-0.0012, +0.0003]
+test, moderate hold-out	4	5686	5474/146/212	5471/123/215	0.9683	0.9700	+0.0017	[-0.0019, +0.0085]
+held out, moderate hold-in	10	15651	15122/516/529	15100/476/551	0.9666	0.9671	+0.0005	[-0.0006, +0.0019]
+test, soil hold-out	4	9032	7891/304/1141	8308/439/724	0.9161	0.9346	+0.0185	[-0.0033, +0.0478]
+held out, soil hold-in	10	22674	21270/1083/1404	21218/1011/1456	0.9448	0.9451	+0.0003	[-0.0005, +0.0012]
+test, soil_shallow hold-out	4	8499	7470/346/1029	7857/502/642	0.9157	0.9321	+0.0164	[+0.0007, +0.0322]
+held out, soil_shallow hold-in	10	18551	17370/1208/1181	17331/1175/1220	0.9357	0.9354	-0.0003	[-0.0016, +0.0010]
+test, host hold-out	4	70	69/0/1	69/0/1	0.9928	0.9928	+0.0000	[+0.0000, +0.0000]
+held out, host hold-in	10	146	146/1/0	145/1/1	0.9966	0.9932	-0.0034	[-0.0100, +0.0000]
+
+hold-out samples of moderate, soil and soil_shallow: misses (FN), and among the present species with at most 2 marker reads (thin), as built -> with the tail features; FP likewise
+sample	present	FN	thin	thin FN	p thin (median)	FP
+sc_moderate_pe_p10000000_s_1	1380	14 -> 16	2	0 -> 0	0.976 -> 0.905	39 -> 27
+sc_moderate_pe_p10000000_s_2	1753	43 -> 66	36	12 -> 24	0.831 -> 0.288	34 -> 19
+sc_moderate_pe_p10000000_s_3	709	59 -> 29	59	35 -> 19	0.566 -> 0.823	5 -> 13
+sc_moderate_pe_p10000000_s_4	1844	96 -> 104	764	86 -> 87	0.980 -> 0.981	68 -> 64
+sc_soil_pe_p20000000_s_1	2552	109 -> 98	220	43 -> 35	0.954 -> 0.968	142 -> 179
+sc_soil_pe_p20000000_s_2	1382	41 -> 58	29	11 -> 20	0.845 -> 0.275	48 -> 25
+sc_soil_pe_p20000000_s_3	1615	118 -> 114	281	83 -> 80	0.897 -> 0.890	67 -> 62
+sc_soil_pe_p20000000_s_4	3483	873 -> 454	823	675 -> 342	0.146 -> 0.858	47 -> 173
+sc_soil_shallow_pe_p5000000_s_1	2140	101 -> 116	510	61 -> 72	0.979 -> 0.978	176 -> 149
+sc_soil_shallow_pe_p5000000_s_2	3746	670 -> 307	598	454 -> 178	0.176 -> 0.924	48 -> 193
+sc_soil_shallow_pe_p5000000_s_3	1606	148 -> 131	473	113 -> 96	0.919 -> 0.961	85 -> 97
+sc_soil_shallow_pe_p5000000_s_4	1007	110 -> 88	297	90 -> 68	0.873 -> 0.968	37 -> 63
+
+## se
+knobs: as built 0.5, with the tail features 0.64
+sample_thin_share: importance 0.0012, rank 43 of 100
+sample_thin_close_share: importance 0.0297, rank 4 of 100
+
+set	samples	present	as built TP/FP/FN	with tail TP/FP/FN	F1 as built	F1 with tail	with tail - as built	95% interval
+held out, design	387	19174	18635/816/539	18513/605/661	0.9649	0.9669	+0.0020	[+0.0010, +0.0030]
+held out, scenarios (hold-in)	30	38261	36700/2147/1561	36343/1512/1918	0.9519	0.9549	+0.0030	[+0.0018, +0.0043]
+test, design	130	7696	7374/265/322	7322/224/374	0.9617	0.9608	-0.0010	[-0.0030, +0.0013]
+test, scenarios (hold-out)	12	14630	13416/650/1214	13796/711/834	0.9350	0.9470	+0.0119	[+0.0025, +0.0258]
+test, moderate hold-out	4	5645	5413/149/232	5451/147/194	0.9660	0.9697	+0.0037	[+0.0013, +0.0064]
+held out, moderate hold-in	10	15641	15202/666/439	15084/507/557	0.9649	0.9659	+0.0010	[-0.0001, +0.0019]
+test, soil hold-out	4	8915	7934/497/981	8276/563/639	0.9148	0.9323	+0.0175	[+0.0018, +0.0359]
+held out, soil hold-in	10	22474	21352/1479/1122	21113/1004/1361	0.9426	0.9470	+0.0044	[+0.0029, +0.0060]
+test, host hold-out	4	70	69/4/1	69/1/1	0.9650	0.9857	+0.0207	[+0.0105, +0.0588]
+held out, host hold-in	10	146	146/2/0	146/1/0	0.9932	0.9966	+0.0034	[+0.0000, +0.0132]
+
+hold-out samples of moderate, soil and soil_shallow: misses (FN), and among the present species with at most 2 marker reads (thin), as built -> with the tail features; FP likewise
+sample	present	FN	thin	thin FN	p thin (median)	FP
+sc_moderate_se_ultima_r10000000_s_1	1379	13 -> 22	2	0 -> 1	0.809 -> 0.743	34 -> 23
+sc_moderate_se_ultima_r10000000_s_2	1752	37 -> 43	29	11 -> 11	0.689 -> 0.731	56 -> 40
+sc_moderate_se_ultima_r10000000_s_3	708	39 -> 34	51	22 -> 17	0.593 -> 0.864	18 -> 15
+sc_moderate_se_ultima_r10000000_s_4	1806	143 -> 95	709	122 -> 78	0.865 -> 0.973	41 -> 69
+sc_soil_se_ultima_r20000000_s_1	2557	120 -> 134	243	52 -> 61	0.859 -> 0.889	191 -> 163
+sc_soil_se_ultima_r20000000_s_2	1378	34 -> 41	30	7 -> 10	0.848 -> 0.827	124 -> 73
+sc_soil_se_ultima_r20000000_s_3	1588	104 -> 90	256	69 -> 59	0.826 -> 0.925	101 -> 113
+sc_soil_se_ultima_r20000000_s_4	3392	723 -> 374	691	546 -> 247	0.096 -> 0.858	81 -> 214
+

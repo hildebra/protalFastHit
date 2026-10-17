@@ -1182,6 +1182,11 @@ namespace protal {
                                              // fragments): how much of the sample is relatives the database lacks
             double sample_identity = 0;      // its taxa's fragment-weighted median identity (of those with at least
                                              // context::kSampleIdentityMinFragments fragments, if any)
+            // The sample's tail (context::SampleComplexityOf, since 2026-10-16): its taxa of 1-2 fragments over its taxa
+            // with fragments, and the share of those within context::kThinIdentityMargin of sample_identity: a long tail
+            // of the sample's own species against a congener's spill.
+            double sample_thin_share = 0;
+            double sample_thin_close_share = 0;
             double congener_gene_overlap = 1;  // the genes it and the congener its reads fit most often (ZA) both have reads
                                                // on, over those their numbers of hit genes predict ((both + 0.5) / (expected
                                                // + 0.5)): below 1 where one novel species' genes are split between the two
@@ -2826,6 +2831,9 @@ namespace protal {
             f.emplace_back("sample_log_taxa", s.sample_log_taxa);
             f.emplace_back("sample_low_identity", s.sample_low_identity);
             f.emplace_back("sample_identity", s.sample_identity);
+            // Its tail: its thin taxa's share and the share of them that read as the sample's own species do.
+            f.emplace_back("sample_thin_share", s.sample_thin_share);
+            f.emplace_back("sample_thin_close_share", s.sample_thin_close_share);
             // The taxon's reads before the filters, and of them what the abundance-weighted assignment leaves to the
             // taxon: the fragments a divergent strain would have had, had its reads not tied with a congener's reference.
             f.emplace_back("fragments_all", static_cast<double>(taxon.FragmentsAll()));
@@ -4202,6 +4210,8 @@ namespace protal {
                     s.sample_log_taxa = complexity.log_taxa;
                     s.sample_low_identity = complexity.low_identity;
                     s.sample_identity = complexity.identity;
+                    s.sample_thin_share = complexity.thin_share;
+                    s.sample_thin_close_share = complexity.thin_close_share;
                     if (auto const found = partners.find(e.id); found != partners.end() && m_taxa.contains(found->second.first)) {
                         auto& taxon = m_taxa.at(e.id);
                         auto& congener = m_taxa.at(found->second.first);

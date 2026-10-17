@@ -456,6 +456,11 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertEqual(len(set(copies)), 18)
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
+        # The sample's tail (since 2026-10-16): a group of its own, not in the default set; a named set adds it to it.
+        self.assertEqual(mf.TAIL_FEATURES, ["sample_thin_share", "sample_thin_close_share"])
+        self.assertNotIn("tail", mf.DEFAULT_FEATURE_SET.split("+"))
+        self.assertIn(mf.DEFAULT_FEATURE_SET + "+tail", mf.FEATURE_SETS)
+        self.assertEqual(mf.feature_set_columns(mf.DEFAULT_FEATURE_SET + "+tail")[-2:], mf.TAIL_FEATURES)
         self.assertEqual(mf.ANCESTRY_FEATURES, ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share",
                                                 "ancestry_indel_sites_per_record", "ancestry_indel_congener_share"])
         new = mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES + mf.NEIGHBOURHOOD_FEATURES + mf.ANCESTRY_FEATURES
